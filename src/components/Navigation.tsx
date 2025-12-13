@@ -98,13 +98,15 @@ export default function Navigation() {
 
             {/* CTA Button - Desktop */}
             <div className="hidden md:block">
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="btn-primary text-sm px-6 py-2.5"
-              >
-                시작하기
-              </motion.button>
+              <Link href="/gameplay">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="btn-primary text-sm px-6 py-2.5"
+                >
+                  시작하기
+                </motion.button>
+              </Link>
             </div>
 
             {/* Mobile Menu Button */}
@@ -192,9 +194,11 @@ export default function Navigation() {
                 transition={{ delay: 0.5 }}
                 className="mt-8"
               >
-                <button className="btn-primary w-full text-lg py-4">
-                  게임 시작하기
-                </button>
+                <Link href="/gameplay" onClick={() => setIsMobileMenuOpen(false)}>
+                  <button className="btn-primary w-full text-lg py-4">
+                    게임 시작하기
+                  </button>
+                </Link>
               </motion.div>
             </motion.div>
           </motion.div>

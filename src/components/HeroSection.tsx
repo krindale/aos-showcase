@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef } from 'react';
+import Link from 'next/link';
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { ChevronDown, Train, Zap, Globe, TrendingUp } from 'lucide-react';
 
@@ -100,20 +101,24 @@ export default function HeroSection() {
           transition={{ duration: 0.8, delay: 0.6 }}
           className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16"
         >
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            className="btn-primary text-lg px-8 py-4"
-          >
-            게임 탐험하기
-          </motion.button>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            className="btn-secondary text-lg px-8 py-4"
-          >
-            룰 알아보기
-          </motion.button>
+          <Link href="/gameplay">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className="btn-primary text-lg px-8 py-4"
+            >
+              게임 탐험하기
+            </motion.button>
+          </Link>
+          <Link href="/actions">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className="btn-secondary text-lg px-8 py-4"
+            >
+              룰 알아보기
+            </motion.button>
+          </Link>
         </motion.div>
 
         {/* Quick Stats */}

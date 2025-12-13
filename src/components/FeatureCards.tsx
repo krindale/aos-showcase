@@ -10,8 +10,10 @@ import {
   Clock,
   Map,
   TrendingUp,
-  Award
+  Award,
+  X
 } from 'lucide-react';
+import { AnimatePresence } from 'framer-motion';
 
 const features = [
   {
@@ -20,6 +22,14 @@ const features = [
     description: '다양한 지형에 철도 트랙을 건설하고 도시를 연결하세요. 전략적인 노선 계획이 승리의 핵심입니다.',
     color: 'steam-blue',
     gradient: 'from-steam-blue/20 to-transparent',
+    details: {
+      rules: [
+        '트랙 타일을 육각형 칸에 배치합니다',
+        '도시와 도시를 연결해야 운송이 가능합니다',
+        '산악 지형은 추가 비용이 듭니다',
+      ],
+      tips: '초반에는 짧은 경로 위주로 건설하고, 후반에 네트워크를 확장하세요.',
+    },
   },
   {
     icon: Truck,
@@ -27,6 +37,14 @@ const features = [
     description: '도시에서 생산된 물품을 목적지까지 운송하여 수입을 얻으세요. 효율적인 경로가 더 많은 이익을 가져옵니다.',
     color: 'steam-green',
     gradient: 'from-steam-green/20 to-transparent',
+    details: {
+      rules: [
+        '물품 큐브를 해당 색상의 도시로 운송합니다',
+        '운송 거리에 따라 수입이 달라집니다',
+        '엔진 레벨만큼의 링크를 사용할 수 있습니다',
+      ],
+      tips: '가능하면 긴 경로를 통해 운송하여 수입을 극대화하세요.',
+    },
   },
   {
     icon: Coins,
@@ -34,6 +52,14 @@ const features = [
     description: '주식을 발행하고 부채를 관리하세요. 현명한 재정 운용이 장기적인 성공을 보장합니다.',
     color: 'steam-yellow',
     gradient: 'from-steam-yellow/20 to-transparent',
+    details: {
+      rules: [
+        '주식 발행으로 $5를 얻지만 매 턴 $1 배당금을 지불합니다',
+        '수입 트랙에서 현재 위치만큼 돈을 받습니다',
+        '파산하면 게임에서 탈락합니다',
+      ],
+      tips: '초반 주식은 필수지만, 중반 이후에는 발행을 자제하세요.',
+    },
   },
   {
     icon: TrendingUp,
@@ -41,6 +67,14 @@ const features = [
     description: '턴 순서와 특수 행동을 두고 경쟁하세요. 적절한 투자와 타이밍이 게임의 흐름을 바꿉니다.',
     color: 'steam-purple',
     gradient: 'from-steam-purple/20 to-transparent',
+    details: {
+      rules: [
+        '가장 높은 금액을 제시한 플레이어가 첫 번째 턴을 가집니다',
+        '특수 행동 타일을 경매로 획득합니다',
+        '턴 순서가 빠를수록 좋은 기회를 잡을 수 있습니다',
+      ],
+      tips: '핵심 특수 행동이 필요할 때만 공격적으로 입찰하세요.',
+    },
   },
 ];
 
@@ -83,6 +117,7 @@ function AnimatedCounter({ value, suffix }: { value: number; suffix: string }) {
 export default function FeatureCards() {
   const ref = useRef<HTMLDivElement>(null);
   const isInView = useInView(ref, { once: true, margin: '-100px' });
+  const [selectedFeature, setSelectedFeature] = useState<typeof features[0] | null>(null);
 
   return (
     <section ref={ref} className="py-32 relative overflow-hidden">
@@ -118,7 +153,8 @@ export default function FeatureCards() {
               initial={{ opacity: 0, y: 30 }}
               animate={isInView ? { opacity: 1, y: 0 } : {}}
               transition={{ duration: 0.6, delay: 0.1 * index }}
-              className="group"
+              className="group cursor-pointer"
+              onClick={() => setSelectedFeature(feature)}
             >
               <div className="glass-card p-8 h-full card-hover relative overflow-hidden">
                 {/* Gradient Background */}
@@ -193,6 +229,86 @@ export default function FeatureCards() {
           </div>
         </motion.div>
       </div>
+
+      {/* Feature Detail Modal */}
+      <AnimatePresence>
+        {selectedFeature && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            onClick={() => setSelectedFeature(null)}
+          >
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+            />
+
+            {/* Modal Content */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative glass-card p-8 max-w-lg w-full max-h-[80vh] overflow-y-auto"
+            >
+              {/* Close Button */}
+              <button
+                onClick={() => setSelectedFeature(null)}
+                className="absolute top-4 right-4 p-2 rounded-lg hover:bg-glass-hover transition-colors"
+              >
+                <X className="w-5 h-5 text-foreground-secondary hover:text-foreground" />
+              </button>
+
+              {/* Icon */}
+              <div
+                className={`w-16 h-16 rounded-2xl bg-${selectedFeature.color}/10
+                  flex items-center justify-center mb-6`}
+              >
+                <selectedFeature.icon className={`w-8 h-8 text-${selectedFeature.color}`} />
+              </div>
+
+              {/* Title */}
+              <h3 className="font-display text-2xl font-bold text-foreground mb-4">
+                {selectedFeature.title}
+              </h3>
+
+              {/* Description */}
+              <p className="text-foreground-secondary leading-relaxed mb-6">
+                {selectedFeature.description}
+              </p>
+
+              {/* Rules */}
+              <div className="mb-6">
+                <h4 className="text-accent text-sm font-semibold tracking-wider uppercase mb-3">
+                  규칙
+                </h4>
+                <ul className="space-y-2">
+                  {selectedFeature.details.rules.map((rule, i) => (
+                    <li key={i} className="flex items-start gap-3 text-foreground-secondary text-sm">
+                      <span className="text-accent mt-0.5">•</span>
+                      {rule}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Tips */}
+              <div className="p-4 rounded-xl bg-accent/10 border border-accent/20">
+                <h4 className="text-accent text-sm font-semibold mb-2">전략 팁</h4>
+                <p className="text-foreground-secondary text-sm leading-relaxed">
+                  {selectedFeature.details.tips}
+                </p>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </section>
   );
 }

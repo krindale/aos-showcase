@@ -20,7 +20,7 @@ const footerLinks = [
     links: [
       { label: '트랙 건설', href: '/gameplay#track' },
       { label: '물품 운송', href: '/gameplay#goods' },
-      { label: '경제 시스템', href: '/gameplay#economy' },
+      { label: '턴 시퀀스', href: '/gameplay#turn' },
     ],
   },
 ];
@@ -62,7 +62,7 @@ export default function Footer() {
                 <ExternalLink className="w-5 h-5 text-foreground-secondary hover:text-accent transition-colors" />
               </motion.a>
               <motion.a
-                href="https://github.com"
+                href="https://github.com/krindale/aos-showcase"
                 target="_blank"
                 rel="noopener noreferrer"
                 whileHover={{ scale: 1.1 }}

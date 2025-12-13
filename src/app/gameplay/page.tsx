@@ -14,7 +14,11 @@ import {
   Mountain,
   TreePine,
   Waves,
-  Home
+  Home,
+  X,
+  Users,
+  ArrowRight,
+  TrendingUp
 } from 'lucide-react';
 
 const turnPhases = [
@@ -80,6 +84,7 @@ const terrainTypes = [
 export default function GameplayPage() {
   const [activePhase, setActivePhase] = useState(0);
   const [selectedTerrain, setSelectedTerrain] = useState<number[]>([]);
+  const [animationPhase, setAnimationPhase] = useState<number | null>(null);
   const heroRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -223,7 +228,10 @@ export default function GameplayPage() {
                     {turnPhases[activePhase].description}
                   </p>
 
-                  <button className="flex items-center gap-2 text-accent hover:gap-3 transition-all">
+                  <button
+                    onClick={() => setAnimationPhase(activePhase)}
+                    className="flex items-center gap-2 text-accent hover:gap-3 transition-all"
+                  >
                     <Play className="w-4 h-4" />
                     <span className="text-sm font-medium">애니메이션 보기</span>
                   </button>
@@ -505,6 +513,256 @@ export default function GameplayPage() {
           </motion.div>
         </div>
       </section>
+
+      {/* Animation Modal */}
+      <AnimatePresence>
+        {animationPhase !== null && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            onClick={() => setAnimationPhase(null)}
+          >
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-background/90 backdrop-blur-sm"
+            />
+
+            {/* Modal Content */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative glass-card p-8 max-w-2xl w-full max-h-[80vh] overflow-y-auto"
+            >
+              {/* Close Button */}
+              <button
+                onClick={() => setAnimationPhase(null)}
+                className="absolute top-4 right-4 p-2 rounded-lg hover:bg-glass-hover transition-colors"
+              >
+                <X className="w-5 h-5 text-foreground-secondary hover:text-foreground" />
+              </button>
+
+              {/* Header */}
+              <div className="flex items-center gap-4 mb-6">
+                <div className={`w-12 h-12 rounded-xl bg-${turnPhases[animationPhase].color}/20 flex items-center justify-center`}>
+                  {(() => {
+                    const Icon = turnPhases[animationPhase].icon;
+                    return <Icon className={`w-6 h-6 text-${turnPhases[animationPhase].color}`} />;
+                  })()}
+                </div>
+                <div>
+                  <div className="text-accent text-sm">Step {turnPhases[animationPhase].step}</div>
+                  <h3 className="font-display text-xl font-bold text-foreground">
+                    {turnPhases[animationPhase].title}
+                  </h3>
+                </div>
+              </div>
+
+              {/* Animation Area */}
+              <div className="bg-background-secondary rounded-xl p-8 mb-6 min-h-[200px] flex items-center justify-center">
+                {/* Phase 1: Goods Production */}
+                {animationPhase === 0 && (
+                  <div className="flex items-center gap-8">
+                    <div className="text-center">
+                      <div className="w-16 h-16 rounded-xl bg-steam-blue/20 flex items-center justify-center mx-auto mb-2">
+                        <Building2 className="w-8 h-8 text-steam-blue" />
+                      </div>
+                      <span className="text-foreground-secondary text-sm">도시</span>
+                    </div>
+                    <ArrowRight className="w-6 h-6 text-accent" />
+                    <div className="flex gap-2">
+                      {['steam-red', 'steam-blue', 'steam-yellow'].map((color, i) => (
+                        <motion.div
+                          key={color}
+                          initial={{ scale: 0, opacity: 0 }}
+                          animate={{ scale: 1, opacity: 1 }}
+                          transition={{ delay: i * 0.3, duration: 0.5, type: 'spring' }}
+                          className={`w-8 h-8 rounded-lg bg-${color} shadow-lg`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Phase 2: Turn Order Auction */}
+                {animationPhase === 1 && (
+                  <div className="w-full">
+                    <div className="flex justify-center gap-4 mb-6">
+                      {[
+                        { player: 'P1', bid: '$3', delay: 0 },
+                        { player: 'P2', bid: '$5', delay: 0.3 },
+                        { player: 'P3', bid: '$4', delay: 0.6 },
+                      ].map((p) => (
+                        <motion.div
+                          key={p.player}
+                          initial={{ y: -20, opacity: 0 }}
+                          animate={{ y: 0, opacity: 1 }}
+                          transition={{ delay: p.delay }}
+                          className="text-center"
+                        >
+                          <div className="w-12 h-12 rounded-full bg-accent/20 flex items-center justify-center mx-auto mb-2">
+                            <Users className="w-6 h-6 text-accent" />
+                          </div>
+                          <div className="text-foreground text-sm">{p.player}</div>
+                          <motion.div
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            transition={{ delay: p.delay + 0.2 }}
+                            className="text-accent font-bold"
+                          >
+                            {p.bid}
+                          </motion.div>
+                        </motion.div>
+                      ))}
+                    </div>
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: 1.2 }}
+                      className="text-center text-foreground-secondary"
+                    >
+                      <span className="text-accent font-bold">P2</span>가 선턴을 획득!
+                    </motion.div>
+                  </div>
+                )}
+
+                {/* Phase 3: Action Selection */}
+                {animationPhase === 2 && (
+                  <div className="flex flex-wrap justify-center gap-3">
+                    {['건설', '기관차', '도시화', '생산', '엔지니어', '턴 순서', '이동'].map((action, i) => (
+                      <motion.div
+                        key={action}
+                        initial={{ rotateY: 180, opacity: 0 }}
+                        animate={{ rotateY: 0, opacity: 1 }}
+                        transition={{ delay: i * 0.1, duration: 0.5 }}
+                        className={`w-16 h-20 rounded-lg flex items-center justify-center text-xs font-medium ${
+                          i === 2
+                            ? 'bg-accent text-background ring-2 ring-accent ring-offset-2 ring-offset-background-secondary'
+                            : 'bg-glass text-foreground-secondary'
+                        }`}
+                      >
+                        {action}
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Phase 4: Track Building */}
+                {animationPhase === 3 && (
+                  <div className="flex items-center gap-4">
+                    {[0, 1, 2].map((i) => (
+                      <motion.div
+                        key={i}
+                        initial={{ scale: 0, rotate: -180 }}
+                        animate={{ scale: 1, rotate: 0 }}
+                        transition={{ delay: i * 0.4, type: 'spring' }}
+                        className="w-16 h-16 rounded-xl bg-accent/20 border-2 border-accent flex items-center justify-center"
+                      >
+                        <Train className="w-8 h-8 text-accent" />
+                      </motion.div>
+                    ))}
+                    <motion.div
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 1.5 }}
+                      className="text-2xl font-bold text-accent"
+                    >
+                      -$9
+                    </motion.div>
+                  </div>
+                )}
+
+                {/* Phase 5: Goods Movement */}
+                {animationPhase === 4 && (
+                  <div className="flex items-center w-full max-w-md">
+                    <div className="w-12 h-12 rounded-lg bg-steam-blue/20 flex items-center justify-center">
+                      <Building2 className="w-6 h-6 text-steam-blue" />
+                    </div>
+                    <div className="flex-1 h-2 bg-accent/20 rounded-full mx-4 relative overflow-hidden">
+                      <motion.div
+                        initial={{ x: '-100%' }}
+                        animate={{ x: '400%' }}
+                        transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+                        className="absolute w-8 h-8 -top-3 rounded-lg bg-steam-yellow flex items-center justify-center shadow-lg"
+                      >
+                        <Package className="w-4 h-4 text-background" />
+                      </motion.div>
+                    </div>
+                    <div className="w-12 h-12 rounded-lg bg-steam-yellow/20 flex items-center justify-center">
+                      <Building2 className="w-6 h-6 text-steam-yellow" />
+                    </div>
+                  </div>
+                )}
+
+                {/* Phase 6: Income & Expenses */}
+                {animationPhase === 5 && (
+                  <div className="flex items-center gap-8">
+                    <div className="text-center">
+                      <motion.div
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ type: 'spring' }}
+                        className="w-16 h-16 rounded-xl bg-steam-green/20 flex items-center justify-center mx-auto mb-2"
+                      >
+                        <TrendingUp className="w-8 h-8 text-steam-green" />
+                      </motion.div>
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 0.3 }}
+                        className="text-steam-green font-bold"
+                      >
+                        +$8
+                      </motion.div>
+                      <span className="text-foreground-secondary text-xs">수입</span>
+                    </div>
+                    <div className="text-center">
+                      <motion.div
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ delay: 0.5, type: 'spring' }}
+                        className="w-16 h-16 rounded-xl bg-steam-red/20 flex items-center justify-center mx-auto mb-2"
+                      >
+                        <Coins className="w-8 h-8 text-steam-red" />
+                      </motion.div>
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 0.8 }}
+                        className="text-steam-red font-bold"
+                      >
+                        -$3
+                      </motion.div>
+                      <span className="text-foreground-secondary text-xs">비용</span>
+                    </div>
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.5 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: 1.2, type: 'spring' }}
+                      className="text-center"
+                    >
+                      <div className="text-3xl font-bold text-accent">+$5</div>
+                      <span className="text-foreground-secondary text-xs">순이익</span>
+                    </motion.div>
+                  </div>
+                )}
+              </div>
+
+              {/* Description */}
+              <p className="text-foreground-secondary text-sm leading-relaxed">
+                {turnPhases[animationPhase].description}
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

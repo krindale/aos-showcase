@@ -1,12 +1,22 @@
 'use client';
 
-import { useRef } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { ChevronDown, Train, Zap, Globe, TrendingUp } from 'lucide-react';
 
+// 고정된 파티클 위치 (hydration mismatch 방지)
+const PARTICLES = Array.from({ length: 20 }, (_, i) => ({
+  id: i,
+  x: (i * 17 + 23) % 100, // 의사 랜덤 분포
+  duration: 10 + (i % 5) * 2,
+  delay: (i * 0.7) % 10,
+}));
+
 export default function HeroSection() {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [isMounted, setIsMounted] = useState(false);
+
   const { scrollYProgress } = useScroll({
     target: containerRef,
     offset: ['start start', 'end start'],
@@ -15,6 +25,10 @@ export default function HeroSection() {
   const y = useTransform(scrollYProgress, [0, 1], ['0%', '50%']);
   const opacity = useTransform(scrollYProgress, [0, 0.5], [1, 0]);
   const scale = useTransform(scrollYProgress, [0, 0.5], [1, 0.9]);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   return (
     <section
@@ -26,12 +40,12 @@ export default function HeroSection() {
 
       {/* Animated background particles */}
       <div className="absolute inset-0 overflow-hidden">
-        {[...Array(20)].map((_, i) => (
+        {isMounted && PARTICLES.map((particle) => (
           <motion.div
-            key={i}
+            key={particle.id}
             className="absolute w-1 h-1 bg-accent/30 rounded-full"
             initial={{
-              x: Math.random() * 100 + '%',
+              x: particle.x + '%',
               y: '100%',
               opacity: 0,
             }}
@@ -40,9 +54,9 @@ export default function HeroSection() {
               opacity: [0, 1, 0],
             }}
             transition={{
-              duration: Math.random() * 10 + 10,
+              duration: particle.duration,
               repeat: Infinity,
-              delay: Math.random() * 10,
+              delay: particle.delay,
             }}
           />
         ))}

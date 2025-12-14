@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run dev:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(cat:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)",
+      "Bash(cmd //c:*)",
+      "Bash(curl:*)",
+      "WebFetch(domain:cdn.1j1ju.com)",
+      "WebFetch(domain:localhost)",
+      "Bash(npx playwright:*)",
+      "Bash(node take-screenshot.js:*)",
+      "Bash(npm install:*)",
+      "WebFetch(domain:www.flaticon.com)",
+      "Bash(git checkout:*)",
+      "Bash(node:*)",
+      "Bash(timeout:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nfeat: 1링크 화물 배달 애니메이션 구현 및 게임보드 UI 개선\n\n- 3개의 1링크 배달 애니메이션 순환 구현\n  - Cleveland → Pittsburgh (빨간 큐브, Yellow 루트)\n  - Columbus → Cleveland (파란 큐브, White 루트)\n  - Cincinnati → Columbus (노란 큐브, Green 루트)\n- 기차 아이콘을 새로운 스타일로 변경 (노란 원 + 회색 선)\n- 화물 운반 시 출발 도시의 큐브 숨김 처리\n- 기차 도착 시 즉시 사라지도록 구현\n- 도시/트랙 색상을 더 선명하게 변경\n- 평지/호수 색상을 흐린 톤으로 조정\n- 각 도시에 화물 2개씩 배치, 간격 확대\n- 헤더 영역 고정 높이로 레이아웃 안정화\n- CLAUDE.md에 Age of Steam 룰북 및 헥스 엣지 문서 추가\n- playwright 패키지 추가 (스크린샷 테스트용)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n)\")"
+    ]
+  }
+}

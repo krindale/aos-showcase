@@ -17,6 +17,8 @@ import {
   Play,
 } from 'lucide-react';
 
+const basePath = process.env.NODE_ENV === 'production' ? '/aos-showcase' : '';
+
 const maps = [
   {
     id: 1,
@@ -211,7 +213,7 @@ export default function MapsPage() {
                       <div className="aspect-[4/3] rounded-2xl bg-background-tertiary border border-glass-border overflow-hidden">
                         {/* Map Image */}
                         <img
-                          src={currentMap.image}
+                          src={`${basePath}${currentMap.image}`}
                           alt={currentMap.name}
                           className="w-full h-full object-contain bg-background-secondary"
                         />

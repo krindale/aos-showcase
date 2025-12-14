@@ -166,6 +166,42 @@ function getTrackPath(cx: number, cy: number, edge1: number, edge2: number, size
   }
 }
 
+// 침목(Railroad ties) 생성 - 트랙을 따라 수직으로 배치
+function getRailroadTies(cx: number, cy: number, edge1: number, edge2: number, size: number): { x: number; y: number; angle: number }[] {
+  const p1 = getEdgeMidpoint(cx, cy, edge1, size);
+  const p2 = getEdgeMidpoint(cx, cy, edge2, size);
+  const ties: { x: number; y: number; angle: number }[] = [];
+
+  const diff = Math.abs(edge1 - edge2);
+  const edgeDist = Math.min(diff, 6 - diff);
+  const numTies = 6; // 침목 개수 증가
+
+  for (let i = 0; i <= numTies; i++) {
+    const t = i / numTies;
+    let x: number, y: number, angle: number;
+
+    if (edgeDist === 3) {
+      // 직선 트랙
+      x = p1.x + (p2.x - p1.x) * t;
+      y = p1.y + (p2.y - p1.y) * t;
+      angle = Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180 / Math.PI;
+    } else {
+      // 베지어 곡선 트랙
+      const oneMinusT = 1 - t;
+      x = oneMinusT * oneMinusT * p1.x + 2 * oneMinusT * t * cx + t * t * p2.x;
+      y = oneMinusT * oneMinusT * p1.y + 2 * oneMinusT * t * cy + t * t * p2.y;
+      // 접선 방향 계산
+      const dx = 2 * (1 - t) * (cx - p1.x) + 2 * t * (p2.x - cx);
+      const dy = 2 * (1 - t) * (cy - p1.y) + 2 * t * (p2.y - cy);
+      angle = Math.atan2(dy, dx) * 180 / Math.PI;
+    }
+
+    ties.push({ x, y, angle });
+  }
+
+  return ties;
+}
+
 // 1링크 이동 애니메이션 데이터
 const DELIVERY_ANIMATIONS = [
   {
@@ -428,49 +464,52 @@ export default function GameBoardPreview() {
                 })
               )}
 
-              {/* 철도 타일 (헥스 내 엣지 연결) */}
+              {/* 철도 타일 (헥스 내 엣지 연결) - 침목 스타일 */}
               {TRACK_TILES.map((tile, index) => {
                 const { x, y } = hexToPixel(tile.col, tile.row);
                 const pathData = getTrackPath(x, y, tile.edges[0], tile.edges[1], HEX_SIZE - 2);
+                const ties = getRailroadTies(x, y, tile.edges[0], tile.edges[1], HEX_SIZE - 2);
 
                 return (
                   <g key={`track-tile-${index}`}>
-                    {/* 트랙 배경 (침목) */}
+                    {/* 레일 (두 줄 평행선, 가운데 투명) - 먼저 그려서 침목 아래에 */}
                     <path
                       d={pathData}
                       fill="none"
-                      stroke="#2A2A2A"
-                      strokeWidth="14"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                    {/* 레일 */}
-                    <path
-                      d={pathData}
-                      fill="none"
-                      stroke="#4A4A3A"
-                      strokeWidth="8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                    {/* 침목 패턴 (점선) */}
-                    <path
-                      d={pathData}
-                      fill="none"
-                      stroke="#2A2A2A"
+                      stroke="#3A3A32"
                       strokeWidth="12"
-                      strokeLinecap="butt"
+                      strokeLinecap="round"
                       strokeLinejoin="round"
-                      strokeDasharray="4 8"
                     />
-                    {/* 소유자 마커 (헥스 중앙) */}
+                    <path
+                      d={pathData}
+                      fill="none"
+                      stroke="#3D5A3D"
+                      strokeWidth="6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    {/* 침목 (Railroad ties) - 레일 위에 그려서 z-index 높게, 길이 2/3 */}
+                    {ties.map((tie, i) => (
+                      <line
+                        key={`tie-${index}-${i}`}
+                        x1={tie.x - 8 * Math.cos((tie.angle + 90) * Math.PI / 180)}
+                        y1={tie.y - 8 * Math.sin((tie.angle + 90) * Math.PI / 180)}
+                        x2={tie.x + 8 * Math.cos((tie.angle + 90) * Math.PI / 180)}
+                        y2={tie.y + 8 * Math.sin((tie.angle + 90) * Math.PI / 180)}
+                        stroke="#4A4A42"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                      />
+                    ))}
+                    {/* 소유자 마커 (헥스 중앙에 배치) */}
                     <circle
                       cx={x}
                       cy={y}
-                      r="8"
+                      r="7"
                       fill={tile.ownerColor}
                       stroke="#1a1a1a"
-                      strokeWidth="2"
+                      strokeWidth="1.5"
                     />
                   </g>
                 );
@@ -603,11 +642,18 @@ export default function GameBoardPreview() {
                 <span className="text-[#a0a0a0] text-sm">호수 (Lake)</span>
               </div>
               <div className="flex items-center gap-3">
-                <div className="flex gap-1">
-                  <div className="w-2 h-5 bg-[#4A4A3A] rounded-sm" />
-                  <div className="w-2 h-5 bg-[#4A4A3A] rounded-sm" />
-                  <div className="w-2 h-5 bg-[#4A4A3A] rounded-sm" />
-                </div>
+                <svg width="40" height="20" viewBox="0 0 40 20">
+                  {/* 레일 (두 줄, 가운데 비움) */}
+                  <line x1="2" y1="10" x2="38" y2="10" stroke="#3A3A32" strokeWidth="8" strokeLinecap="round" />
+                  <line x1="2" y1="10" x2="38" y2="10" stroke="#252D25" strokeWidth="4" strokeLinecap="round" />
+                  {/* 침목 - 레일 위에 */}
+                  <line x1="6" y1="2" x2="6" y2="18" stroke="#4A4A42" strokeWidth="2" strokeLinecap="round" />
+                  <line x1="14" y1="2" x2="14" y2="18" stroke="#4A4A42" strokeWidth="2" strokeLinecap="round" />
+                  <line x1="22" y1="2" x2="22" y2="18" stroke="#4A4A42" strokeWidth="2" strokeLinecap="round" />
+                  <line x1="30" y1="2" x2="30" y2="18" stroke="#4A4A42" strokeWidth="2" strokeLinecap="round" />
+                  {/* 소유자 마커 (중앙) */}
+                  <circle cx="20" cy="10" r="5" fill="#FFD600" stroke="#1a1a1a" strokeWidth="1" />
+                </svg>
                 <span className="text-[#a0a0a0] text-sm">철도 트랙</span>
               </div>
               <div className="flex items-center gap-3">

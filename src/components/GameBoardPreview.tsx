@@ -8,6 +8,8 @@ const BGG_RATING = {
   score: 7.9,
   votes: "12K+",
   rank: "#95 전략 게임",
+  weight: 3.89,
+  weightLabel: "Heavy",
 };
 
 // 수상 내역
@@ -654,6 +656,28 @@ export default function GameBoardPreview() {
               </div>
               <div className="text-sm text-[#a0a0a0] mt-2">{BGG_RATING.votes} votes</div>
               <div className="text-xs text-[#6b6b6b] mt-1">{BGG_RATING.rank}</div>
+
+              {/* 복잡도 (Weight) */}
+              <div className="mt-4 pt-4 border-t border-[#2a2a3a]">
+                <div className="text-xs text-[#a0a0a0] uppercase tracking-wider mb-2">
+                  Complexity
+                </div>
+                <div className="flex items-center justify-center gap-2">
+                  <span className="text-2xl font-bold text-[#f5f5f5]">{BGG_RATING.weight}</span>
+                  <span className="text-sm text-[#6b6b6b]">/ 5</span>
+                </div>
+                <div className="flex justify-center gap-0.5 mt-2">
+                  {[1, 2, 3, 4, 5].map((level) => (
+                    <div
+                      key={level}
+                      className={`w-8 h-1.5 rounded-full ${
+                        level <= Math.round(BGG_RATING.weight) ? "bg-[#e63946]" : "bg-[#2a2a3a]"
+                      }`}
+                    />
+                  ))}
+                </div>
+                <div className="text-xs text-[#e63946] mt-1 font-medium">{BGG_RATING.weightLabel}</div>
+              </div>
             </motion.div>
 
             {/* 수상 내역 */}

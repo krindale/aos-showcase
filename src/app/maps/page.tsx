@@ -13,7 +13,6 @@ import {
   Factory,
   Mountain,
   Palmtree,
-  Building2
 } from 'lucide-react';
 
 const maps = [
@@ -29,6 +28,7 @@ const maps = [
     icon: Factory,
     color: 'steam-red',
     bgColor: 'from-steam-red/30 via-background-secondary to-background',
+    image: '/maps/rust-belt.png',
     description: '미국 북동부 산업 지대를 배경으로 한 기본 맵입니다. Age of Steam을 처음 시작하기에 적합합니다.',
     features: [
       '균형 잡힌 도시 분포',
@@ -49,6 +49,7 @@ const maps = [
     icon: Mountain,
     color: 'steam-yellow',
     bgColor: 'from-steam-yellow/30 via-background-secondary to-background',
+    image: '/maps/western-us.png',
     description: '광활한 미국 서부를 횡단하는 철도 건설의 도전. 긴 거리와 험준한 산맥이 특징입니다.',
     features: [
       '긴 거리 운송 필요',
@@ -59,26 +60,6 @@ const maps = [
   },
   {
     id: 3,
-    name: 'Southern U.S.',
-    nameKo: '남부 미국',
-    region: '미국 남부',
-    players: '3-5',
-    time: '90-150',
-    difficulty: 3,
-    theme: '남북전쟁 시대',
-    icon: Building2,
-    color: 'steam-blue',
-    bgColor: 'from-steam-blue/30 via-background-secondary to-background',
-    description: '남북전쟁 시대의 미국 남부. 강과 습지가 많아 트랙 건설에 전략이 필요합니다.',
-    features: [
-      '강을 건너는 비용 증가',
-      '습지 지형',
-      '농산물 운송 중심',
-    ],
-    specialRules: '강 건설 비용 +2',
-  },
-  {
-    id: 4,
     name: 'Germany',
     nameKo: '독일',
     region: '중부 유럽',
@@ -89,6 +70,7 @@ const maps = [
     icon: Factory,
     color: 'steam-green',
     bgColor: 'from-steam-green/30 via-background-secondary to-background',
+    image: '/maps/germany.png',
     description: '산업 혁명기의 독일. 조밀한 도시 네트워크와 치열한 경쟁이 특징입니다.',
     features: [
       '도시가 조밀하게 분포',
@@ -98,7 +80,7 @@ const maps = [
     specialRules: '도시 연결 보너스',
   },
   {
-    id: 5,
+    id: 4,
     name: 'Barbados',
     nameKo: '바베이도스',
     region: '카리브해',
@@ -109,6 +91,7 @@ const maps = [
     icon: Palmtree,
     color: 'steam-purple',
     bgColor: 'from-steam-purple/30 via-background-secondary to-background',
+    image: '/maps/barbados.png',
     description: '1인 전용 솔로 맵. 작은 섬에서 최적의 철도 네트워크를 구축하는 퍼즐입니다.',
     features: [
       '솔로 플레이 전용',
@@ -118,7 +101,7 @@ const maps = [
     specialRules: '솔로 모드 규칙 적용',
   },
   {
-    id: 6,
+    id: 5,
     name: 'St. Lucia',
     nameKo: '세인트루시아',
     region: '카리브해',
@@ -129,6 +112,7 @@ const maps = [
     icon: Palmtree,
     color: 'accent',
     bgColor: 'from-accent/30 via-background-secondary to-background',
+    image: '/maps/st-lucia.png',
     description: '2인 전용 대결 맵. 작은 공간에서 벌어지는 치열한 1:1 경쟁입니다.',
     features: [
       '2인 플레이 전용',
@@ -186,48 +170,48 @@ export default function MapsPage() {
       {/* Map Slider */}
       <section className="py-8 relative">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={currentMap.id}
-              initial={{ opacity: 0, x: 100 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -100 }}
-              transition={{ duration: 0.5 }}
-              className="relative"
-            >
-              {/* Main Card */}
-              <div className={`glass-card rounded-3xl overflow-hidden`}>
+          {/* Fixed height container to prevent layout shifts */}
+          <div className="h-[750px] relative">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={currentMap.id}
+                initial={{ opacity: 0, x: 100 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -100 }}
+                transition={{ duration: 0.5 }}
+                className="absolute inset-0"
+              >
+                {/* Main Card */}
+                <div className={`glass-card rounded-3xl overflow-hidden h-full`}>
                 <div className={`absolute inset-0 bg-gradient-to-br ${currentMap.bgColor} opacity-50`} />
 
-                <div className="relative p-8 md:p-12">
-                  <div className="grid lg:grid-cols-2 gap-12 items-center">
+                <div className="relative p-8 md:p-12 h-full">
+                  <div className="grid lg:grid-cols-2 gap-12 items-start h-full">
                     {/* Map Visual */}
                     <div className="relative">
-                      <div className="aspect-square rounded-2xl bg-background-tertiary border border-glass-border overflow-hidden">
-                        {/* Hex Grid Pattern */}
-                        <div className="absolute inset-0 hex-pattern opacity-50" />
+                      <div className="aspect-[4/3] rounded-2xl bg-background-tertiary border border-glass-border overflow-hidden">
+                        {/* Map Image */}
+                        <img
+                          src={currentMap.image}
+                          alt={currentMap.name}
+                          className="w-full h-full object-contain bg-background-secondary"
+                        />
 
-                        {/* Map Placeholder */}
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <div className="text-center">
-                            <currentMap.icon className={`w-24 h-24 text-${currentMap.color} mx-auto mb-4`} />
-                            <div className={`text-${currentMap.color} text-xl font-display font-bold`}>
-                              {currentMap.name}
-                            </div>
-                            <div className="text-foreground-muted text-sm">
-                              {currentMap.region}
-                            </div>
+                        {/* Overlay gradient for better text contrast */}
+                        <div className={`absolute inset-0 bg-gradient-to-t from-background/60 via-transparent to-transparent pointer-events-none`} />
+
+                        {/* Map name badge */}
+                        <div className="absolute bottom-4 left-4 right-4">
+                          <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-background/80 backdrop-blur-sm border border-${currentMap.color}/30`}>
+                            <currentMap.icon className={`w-4 h-4 text-${currentMap.color}`} />
+                            <span className="text-foreground text-sm font-medium">{currentMap.region}</span>
                           </div>
                         </div>
-
-                        {/* Decorative elements */}
-                        <div className={`absolute top-4 left-4 w-16 h-16 bg-${currentMap.color}/20 rounded-full blur-2xl`} />
-                        <div className={`absolute bottom-4 right-4 w-24 h-24 bg-${currentMap.color}/10 rounded-full blur-3xl`} />
                       </div>
                     </div>
 
                     {/* Map Info */}
-                    <div>
+                    <div className="flex flex-col">
                       <div className="flex items-center gap-3 mb-4">
                         <div className={`px-3 py-1 rounded-full bg-${currentMap.color}/20 text-${currentMap.color} text-sm font-medium`}>
                           {currentMap.theme}
@@ -251,7 +235,7 @@ export default function MapsPage() {
                       </h2>
                       <p className="text-accent text-lg mb-6">{currentMap.nameKo}</p>
 
-                      <p className="text-foreground-secondary leading-relaxed mb-8">
+                      <p className="text-foreground-secondary leading-relaxed mb-8 min-h-[72px]">
                         {currentMap.description}
                       </p>
 
@@ -278,7 +262,7 @@ export default function MapsPage() {
                       </div>
 
                       {/* Features */}
-                      <div className="mb-6">
+                      <div className="mb-6 flex-grow">
                         <h3 className="text-foreground font-semibold mb-3 flex items-center gap-2">
                           <Zap className="w-4 h-4 text-accent" />
                           맵 특징
@@ -293,26 +277,31 @@ export default function MapsPage() {
                         </ul>
                       </div>
 
-                      {/* Special Rules */}
-                      {currentMap.specialRules && (
-                        <div className={`p-4 rounded-xl bg-${currentMap.color}/10 border border-${currentMap.color}/20`}>
-                          <div className="flex items-center gap-2 mb-1">
-                            <Info className={`w-4 h-4 text-${currentMap.color}`} />
-                            <span className={`text-${currentMap.color} text-sm font-medium`}>
-                              특수 규칙
-                            </span>
-                          </div>
-                          <p className="text-foreground-secondary text-sm">
-                            {currentMap.specialRules}
-                          </p>
-                        </div>
-                      )}
+                      {/* Special Rules - Always show container for consistent height */}
+                      <div className={`p-4 rounded-xl ${currentMap.specialRules ? `bg-${currentMap.color}/10 border border-${currentMap.color}/20` : 'bg-transparent border border-transparent'}`}>
+                        {currentMap.specialRules ? (
+                          <>
+                            <div className="flex items-center gap-2 mb-1">
+                              <Info className={`w-4 h-4 text-${currentMap.color}`} />
+                              <span className={`text-${currentMap.color} text-sm font-medium`}>
+                                특수 규칙
+                              </span>
+                            </div>
+                            <p className="text-foreground-secondary text-sm">
+                              {currentMap.specialRules}
+                            </p>
+                          </>
+                        ) : (
+                          <div className="h-[52px]" />
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </motion.div>
-          </AnimatePresence>
+              </motion.div>
+            </AnimatePresence>
+          </div>
 
           {/* Navigation */}
           <div className="flex items-center justify-between mt-8">

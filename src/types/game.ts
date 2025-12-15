@@ -1,13 +1,33 @@
 // Age of Steam 게임 타입 정의
 
 // === 기본 타입 ===
-export type PlayerId = 'player1' | 'player2';
+// 최대 6인 플레이어 지원
+export type PlayerId = 'player1' | 'player2' | 'player3' | 'player4' | 'player5' | 'player6';
 
 export type CityColor = 'red' | 'blue' | 'yellow' | 'purple' | 'black';
 export type CubeColor = CityColor;
 
-// 2인용 플레이어 색상
-export type PlayerColor = 'orange' | 'blue';
+// 6인용 플레이어 색상 (룰북 기준)
+export type PlayerColor = 'orange' | 'blue' | 'green' | 'pink' | 'gray' | 'yellow';
+
+// 플레이어 ID 순서 배열
+export const PLAYER_ID_ORDER: PlayerId[] = [
+  'player1', 'player2', 'player3', 'player4', 'player5', 'player6'
+];
+
+// 플레이어 색상 순서 배열
+export const PLAYER_COLOR_ORDER: PlayerColor[] = [
+  'orange', 'blue', 'green', 'pink', 'gray', 'yellow'
+];
+
+// 플레이어 수에 따른 턴 수 (룰북 기준)
+export const TURNS_BY_PLAYER_COUNT: Record<number, number> = {
+  2: 8,
+  3: 7,
+  4: 6,
+  5: 7,
+  6: 6,
+};
 
 // 7가지 특수 행동
 export type SpecialAction =
@@ -39,12 +59,18 @@ export interface HexCoord {
   row: number;
 }
 
+// 트랙 타일 유형
+export type TrackType = 'simple' | 'crossing' | 'coexist';
+
 // 트랙 타일 (엣지 연결)
 export interface TrackTile {
   id: string;
   coord: HexCoord;
   edges: [number, number];  // 연결된 두 엣지 (0-5)
   owner: PlayerId | null;
+  trackType: TrackType;           // 트랙 유형 (기본: simple)
+  secondaryEdges?: [number, number];  // 복합 트랙의 두 번째 경로 (crossing, coexist)
+  secondaryOwner?: PlayerId | null;   // 두 번째 경로 소유자
 }
 
 // 도시
@@ -84,6 +110,7 @@ export interface PlayerState {
   issuedShares: number;        // 발행한 주식 수 (2 시작)
   selectedAction: SpecialAction | null;
   turnOrderPassUsed: boolean;  // Turn Order 패스 사용 여부
+  eliminated: boolean;         // 파산으로 탈락 여부
 }
 
 // === 게임 보드 상태 ===
@@ -99,6 +126,24 @@ export interface GoodsDisplay {
   slots: (CubeColor | null)[];  // 52칸 물품 디스플레이
   bag: CubeColor[];             // 주머니 속 물품
 }
+
+// 물품 디스플레이 열 정보 (1-6: 주사위, A-D: 신규 도시)
+export type GoodsColumnId = '1' | '2' | '3' | '4' | '5' | '6' | 'A' | 'B' | 'C' | 'D';
+
+// 열-도시 매핑 (맵별로 다름)
+export interface GoodsColumnMapping {
+  columnId: GoodsColumnId;
+  cityId: string;           // 해당 열이 가리키는 도시 ID
+  isNewCity: boolean;       // 신규 도시 열인지
+  rowCount: number;         // 해당 열의 칸 수 (보통 6개, 마지막 열은 4개)
+}
+
+// 물품 디스플레이 설정
+export const GOODS_DISPLAY_CONFIG = {
+  TOTAL_SLOTS: 52,
+  COLUMNS: ['1', '2', '3', '4', '5', '6', 'A', 'B', 'C', 'D'] as GoodsColumnId[],
+  ROWS_PER_COLUMN: [6, 6, 6, 6, 6, 6, 4, 4, 4, 4],  // 총 52칸
+};
 
 // === 턴 순서 경매 ===
 export interface AuctionState {
@@ -125,7 +170,7 @@ export interface PhaseState {
 }
 
 // === UI 상태 ===
-export type BuildMode = 'idle' | 'source_selected' | 'target_selected';
+export type BuildMode = 'idle' | 'source_selected' | 'target_selected' | 'redirect_selected';
 
 export interface BuildableNeighbor {
   coord: HexCoord;
@@ -153,6 +198,37 @@ export interface UIState {
   targetHex: HexCoord | null;                    // 선택된 대상 헥스
   entryEdge: number | null;                      // 대상 헥스로 들어오는 엣지
   exitDirections: ExitDirection[];               // 나갈 수 있는 방향들
+
+  // 복합 트랙 선택 UI 상태
+  complexTrackSelection: {
+    coord: HexCoord;
+    newEdges: [number, number];
+  } | null;
+
+  // 방향 전환 UI 상태
+  redirectTrackSelection: {
+    coord: HexCoord;
+    connectedEdge: number;     // 연결된 엣지 (유지됨)
+    currentOpenEdge: number;   // 현재 열린 엣지
+    availableEdges: number[];  // 변경 가능한 엣지들
+  } | null;
+
+  // 도시화 UI 상태
+  urbanizationMode: boolean;          // 도시화 모드 활성화 여부
+  selectedNewCityTile: NewCityTileId | null;  // 선택된 신규 도시 타일
+
+  // Production UI 상태
+  productionMode: boolean;            // 생산 모드 활성화 여부
+  productionCubes: CubeColor[];       // 주머니에서 뽑은 큐브들
+  selectedProductionSlots: number[];  // 선택된 빈 칸 인덱스
+
+  // 물품 이동 애니메이션 상태
+  movingCube: {
+    color: CubeColor;
+    path: HexCoord[];
+    currentIndex: number;
+  } | null;
+  reachableDestinations: HexCoord[];             // 이동 가능한 목적지 도시들
 }
 
 // === 게임 로그 ===
@@ -169,7 +245,9 @@ export interface GameState {
   // 메타 정보
   gameId: string;
   mapId: string;
-  maxTurns: number;           // 2인: 8턴
+  playerCount: number;        // 현재 게임의 플레이어 수 (2-6)
+  activePlayers: PlayerId[];  // 활성 플레이어 목록
+  maxTurns: number;           // 플레이어 수에 따라 결정
 
   // 턴 진행
   currentTurn: number;
@@ -183,6 +261,7 @@ export interface GameState {
   // 보드
   board: BoardState;
   goodsDisplay: GoodsDisplay;
+  newCityTiles: NewCityTile[];  // 신규 도시 타일 사용 상태
 
   // 경매 (플레이어 순서 결정 단계)
   auction: AuctionState | null;
@@ -227,8 +306,12 @@ export const CITY_COLORS: Record<CityColor, string> = {
 };
 
 export const PLAYER_COLORS: Record<PlayerColor, string> = {
-  orange: '#FF6D00',
-  blue: '#2979FF',
+  orange: '#FF6D00',  // 주황
+  blue: '#2979FF',    // 파랑
+  green: '#40a060',   // 초록
+  pink: '#e080a0',    // 분홍
+  gray: '#808080',    // 회색
+  yellow: '#f0c040',  // 노랑
 };
 
 export const CUBE_COLORS: Record<CubeColor, string> = {
@@ -239,8 +322,41 @@ export const CUBE_COLORS: Record<CubeColor, string> = {
   black: '#455A64',
 };
 
+// === 맵 설정 ===
+export interface MapConfig {
+  id: string;
+  name: string;
+  supportedPlayers: number[];  // 지원하는 플레이어 수 목록 (예: [2, 3, 4, 5, 6])
+  description?: string;
+}
+
+// === 신규 도시 타일 ===
+export type NewCityTileId = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H';
+
+export interface NewCityTile {
+  id: NewCityTileId;
+  color: CityColor;
+  used: boolean;  // 사용 여부
+}
+
+// 신규 도시 타일 초기 데이터
+export const NEW_CITY_TILES: NewCityTile[] = [
+  { id: 'A', color: 'red', used: false },
+  { id: 'B', color: 'blue', used: false },
+  { id: 'C', color: 'purple', used: false },
+  { id: 'D', color: 'yellow', used: false },
+  { id: 'E', color: 'black', used: false },
+  { id: 'F', color: 'black', used: false },
+  { id: 'G', color: 'black', used: false },
+  { id: 'H', color: 'black', used: false },
+];
+
 // === 게임 상수 ===
 export const GAME_CONSTANTS = {
+  // 플레이어 수 제한
+  MAX_PLAYERS: 6,
+  MIN_PLAYERS: 2,
+
   // 시작 값
   STARTING_SHARES: 2,
   STARTING_CASH: 10,
@@ -263,9 +379,6 @@ export const GAME_CONSTANTS = {
   NORMAL_TRACK_LIMIT: 3,
   ENGINEER_TRACK_LIMIT: 4,
 
-  // 2인 게임 턴 수
-  TWO_PLAYER_TURNS: 8,
-
   // 수입 감소 테이블
   INCOME_REDUCTION: [
     { min: 50, max: 999, reduction: 10 },
@@ -275,6 +388,25 @@ export const GAME_CONSTANTS = {
     { min: 11, max: 20, reduction: 2 },
     { min: -999, max: 10, reduction: 0 },
   ],
+};
+
+// 트랙 타입별 비용 테이블
+export const TRACK_COSTS: Record<TrackType, { plain: number; river: number; mountain: number }> = {
+  simple: { plain: 2, river: 3, mountain: 4 },
+  coexist: { plain: 3, river: 4, mountain: 5 },
+  crossing: { plain: 4, river: 5, mountain: 6 },
+};
+
+// 트랙 교체 비용
+export const TRACK_REPLACE_COSTS = {
+  // 단순 → 복합 교차: $3
+  simpleToCrossing: 3,
+  // 마을 내 교체: $3
+  townReplace: 3,
+  // 기타 모든 교체: $2
+  default: 2,
+  // 방향 전환: $2
+  redirect: 2,
 };
 
 // === 게임 단계 정보 ===

@@ -8,7 +8,10 @@ import {
   CubeColor,
   BoardState,
   GoodsDisplay,
+  GoodsColumnMapping,
+  GoodsColumnId,
   CITY_COLORS,
+  MapConfig,
 } from '@/types/game';
 
 // === 맵 메타 정보 ===
@@ -17,12 +20,20 @@ export const RUST_BELT_MAP = {
   name: 'Rust Belt',
   nameKo: '러스트 벨트',
   description: '미국 중서부와 동부를 연결하는 철도 네트워크',
-  players: { min: 3, max: 6 },
-  twoPlayerTurns: 8,
+  players: { min: 2, max: 6 },
+  supportedPlayers: [2, 3, 4, 5, 6],  // 지원하는 플레이어 수 목록
   difficulty: 2,
   cols: 7,
   rows: 5,
   startCol: 1,
+};
+
+// MapConfig 형식의 맵 설정 (게임 초기화용)
+export const RUST_BELT_MAP_CONFIG: MapConfig = {
+  id: RUST_BELT_MAP.id,
+  name: RUST_BELT_MAP.name,
+  supportedPlayers: RUST_BELT_MAP.supportedPlayers,
+  description: RUST_BELT_MAP.description,
 };
 
 // === 도시 데이터 ===
@@ -66,6 +77,35 @@ export const RUST_BELT_CITIES: City[] = [
 
 // === 마을 위치 (Rust Belt에서는 마을 없음, 확장용) ===
 export const RUST_BELT_TOWNS: Town[] = [];
+
+// === 물품 디스플레이 열-도시 매핑 ===
+// Rust Belt 맵에서 주사위 결과(1-6)가 어느 도시에 물품을 배치하는지 정의
+// A-D는 신규 도시(Urbanization)용 열
+export const RUST_BELT_COLUMN_MAPPING: GoodsColumnMapping[] = [
+  { columnId: '1' as GoodsColumnId, cityId: 'P', isNewCity: false, rowCount: 6 }, // Pittsburgh
+  { columnId: '2' as GoodsColumnId, cityId: 'C', isNewCity: false, rowCount: 6 }, // Cleveland
+  { columnId: '3' as GoodsColumnId, cityId: 'O', isNewCity: false, rowCount: 6 }, // Columbus
+  { columnId: '4' as GoodsColumnId, cityId: 'W', isNewCity: false, rowCount: 6 }, // Wheeling
+  { columnId: '5' as GoodsColumnId, cityId: 'I', isNewCity: false, rowCount: 6 }, // Cincinnati
+  { columnId: '6' as GoodsColumnId, cityId: 'P', isNewCity: false, rowCount: 6 }, // Pittsburgh (다시)
+  { columnId: 'A' as GoodsColumnId, cityId: 'A', isNewCity: true, rowCount: 4 },  // New City A
+  { columnId: 'B' as GoodsColumnId, cityId: 'B', isNewCity: true, rowCount: 4 },  // New City B
+  { columnId: 'C' as GoodsColumnId, cityId: 'C', isNewCity: true, rowCount: 4 },  // New City C (중복 주의)
+  { columnId: 'D' as GoodsColumnId, cityId: 'D', isNewCity: true, rowCount: 4 },  // New City D
+];
+
+// 주사위 결과에서 도시 ID 가져오기
+export function getCityIdByDiceResult(diceResult: number): string | null {
+  const mapping = RUST_BELT_COLUMN_MAPPING.find(
+    m => m.columnId === String(diceResult) && !m.isNewCity
+  );
+  return mapping?.cityId || null;
+}
+
+// 열 ID에서 도시 정보 가져오기
+export function getColumnCityInfo(columnId: GoodsColumnId): GoodsColumnMapping | undefined {
+  return RUST_BELT_COLUMN_MAPPING.find(m => m.columnId === columnId);
+}
 
 // === 호수 타일 ===
 export const RUST_BELT_LAKE_TILES: { col: number; row: number }[] = [

@@ -1,7 +1,7 @@
 // 헥스 그리드 유틸리티 함수
 // GameBoardPreview.tsx에서 추출
 
-import { HexCoord, BoardState, PlayerId } from '@/types/game';
+import { HexCoord, BoardState, PlayerId, CityColor, City } from '@/types/game';
 
 // === 헥스 그리드 상수 ===
 export const HEX_SIZE = 55;
@@ -316,15 +316,20 @@ export function calculateBoardDimensions(
 // === 트랙 건설 관련 함수 ===
 
 /**
- * 헥스가 건설 대상으로 유효한지 확인 (호수/도시 제외)
+ * 헥스가 건설 대상으로 유효한지 확인 (호수/도시/맵 밖 제외)
  */
 export function isValidBuildTarget(coord: HexCoord, board: BoardState): boolean {
-  // 도시인 경우 건설 불가
+  // 맵 경계 내에 있는지 확인
+  const hexTile = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
   const isCity = board.cities.some(c => hexCoordsEqual(c.coord, coord));
+
+  // 맵 경계 밖인 경우 (hexTile도 없고 도시도 아님)
+  if (!hexTile && !isCity) return false;
+
+  // 도시인 경우 건설 불가
   if (isCity) return false;
 
   // 호수인 경우 건설 불가
-  const hexTile = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
   if (hexTile && hexTile.terrain === 'lake') return false;
 
   // 이미 트랙이 있는 경우 건설 불가 (복합 트랙은 추후 지원)
@@ -454,4 +459,253 @@ export function getExitDirections(
   }
 
   return exitDirections;
+}
+
+// === 물품 이동 경로 찾기 ===
+
+/**
+ * 트랙을 통해 연결된 이웃 헥스/도시 찾기
+ * 현재 헥스(도시 또는 트랙)에서 트랙을 통해 이동 가능한 다음 위치들 반환
+ *
+ * 주의: 물품 이동 시 모든 플레이어의 완성된 철도 링크를 사용할 수 있음
+ * (해당 링크 소유자가 수입을 받음)
+ */
+function getConnectedNeighbors(
+  currentCoord: HexCoord,
+  board: BoardState,
+  _playerId: PlayerId, // 현재 미사용 - 모든 플레이어의 트랙 사용 가능
+  visitedKey: Set<string>
+): HexCoord[] {
+  const neighbors: HexCoord[] = [];
+
+  // 현재 위치가 도시인지 확인
+  const isCurrentCity = board.cities.some(c => hexCoordsEqual(c.coord, currentCoord));
+
+  // 현재 위치가 트랙인지 확인 (소유자 무관)
+  const currentTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, currentCoord));
+
+  console.log(`[getConnectedNeighbors] 현재 좌표: (${currentCoord.col}, ${currentCoord.row}), 도시: ${isCurrentCity}, 트랙: ${currentTrack ? 'O' : 'X'}`);
+
+  if (isCurrentCity) {
+    // 도시에서: 6방향 모두에서 완성된 트랙이 연결되어 있는지 확인
+    console.log(`[도시에서 탐색] 6방향 확인 중...`);
+    for (let edge = 0; edge < 6; edge++) {
+      const neighbor = getNeighborHex(currentCoord, edge);
+      const neighborKey = hexToKey(neighbor);
+      if (visitedKey.has(neighborKey)) {
+        console.log(`  edge ${edge}: 이미 방문함`);
+        continue;
+      }
+
+      // 이웃에 트랙이 있고, 해당 트랙이 현재 도시 방향으로 연결되어 있는지 확인 (소유자 무관)
+      const neighborTrack = board.trackTiles.find(
+        t => hexCoordsEqual(t.coord, neighbor) && t.owner !== null // 완성된 트랙만 (소유자 있음)
+      );
+      if (neighborTrack) {
+        const entryEdge = getOppositeEdge(edge);
+        console.log(`  edge ${edge}: 이웃 (${neighbor.col}, ${neighbor.row})에 트랙 발견, 트랙 edges: [${neighborTrack.edges}], 필요한 entryEdge: ${entryEdge}`);
+        // 트랙이 도시 방향 엣지를 가지고 있는지 확인
+        if (neighborTrack.edges.includes(entryEdge)) {
+          console.log(`    → 연결됨! 이웃 추가`);
+          neighbors.push(neighbor);
+        } else {
+          console.log(`    → 트랙이 도시 방향을 향하지 않음`);
+        }
+      } else {
+        console.log(`  edge ${edge}: 이웃 (${neighbor.col}, ${neighbor.row})에 완성된 트랙 없음`);
+      }
+    }
+  } else if (currentTrack && currentTrack.owner !== null) {
+    // 완성된 트랙에서: 트랙의 양 끝 방향으로 이동 가능 (소유자 무관)
+    console.log(`[트랙에서 탐색] 트랙 edges: [${currentTrack.edges}]`);
+    for (const edge of currentTrack.edges) {
+      const neighbor = getNeighborHex(currentCoord, edge);
+      const neighborKey = hexToKey(neighbor);
+      if (visitedKey.has(neighborKey)) {
+        console.log(`  edge ${edge}: 이미 방문함`);
+        continue;
+      }
+
+      // 이웃이 도시인지 확인
+      const isNeighborCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
+      if (isNeighborCity) {
+        console.log(`  edge ${edge}: 이웃 (${neighbor.col}, ${neighbor.row})은 도시 → 추가`);
+        neighbors.push(neighbor);
+        continue;
+      }
+
+      // 이웃에 완성된 트랙이 있고, 연결되어 있는지 확인 (소유자 무관)
+      const neighborTrack = board.trackTiles.find(
+        t => hexCoordsEqual(t.coord, neighbor) && t.owner !== null // 완성된 트랙만
+      );
+      if (neighborTrack) {
+        const entryEdge = getOppositeEdge(edge);
+        console.log(`  edge ${edge}: 이웃 (${neighbor.col}, ${neighbor.row})에 트랙, edges: [${neighborTrack.edges}], 필요한 entryEdge: ${entryEdge}`);
+        if (neighborTrack.edges.includes(entryEdge)) {
+          console.log(`    → 연결됨! 이웃 추가`);
+          neighbors.push(neighbor);
+        }
+      }
+    }
+  } else {
+    console.log(`[탐색 불가] 도시도 아니고 완성된 트랙도 아님`);
+  }
+
+  console.log(`[getConnectedNeighbors] 결과: ${neighbors.length}개 이웃 발견`);
+  return neighbors;
+}
+
+/**
+ * 출발 도시에서 목적지 도시까지의 모든 경로 찾기 (DFS)
+ * 반환: 모든 유효한 경로 배열 (각 경로는 HexCoord 배열)
+ */
+function findAllPaths(
+  start: HexCoord,
+  end: HexCoord,
+  board: BoardState,
+  playerId: PlayerId,
+  maxLength: number
+): HexCoord[][] {
+  const allPaths: HexCoord[][] = [];
+
+  function dfs(
+    current: HexCoord,
+    path: HexCoord[],
+    visited: Set<string>,
+    linkCount: number
+  ) {
+    // 목적지 도착
+    if (hexCoordsEqual(current, end) && linkCount > 0) {
+      allPaths.push([...path]);
+      return;
+    }
+
+    // 최대 링크 수 초과
+    if (linkCount >= maxLength) {
+      return;
+    }
+
+    const neighbors = getConnectedNeighbors(current, board, playerId, visited);
+
+    for (const neighbor of neighbors) {
+      const neighborKey = hexToKey(neighbor);
+      visited.add(neighborKey);
+      path.push(neighbor);
+
+      // 링크 카운트: 도시/마을 사이의 트랙이 1링크
+      // 트랙을 지날 때마다 링크 카운트 증가
+      const isNeighborCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
+      const newLinkCount = isNeighborCity ? linkCount : linkCount + 1;
+
+      dfs(neighbor, path, visited, newLinkCount);
+
+      path.pop();
+      visited.delete(neighborKey);
+    }
+  }
+
+  const startKey = hexToKey(start);
+  const visited = new Set<string>([startKey]);
+  dfs(start, [start], visited, 0);
+
+  return allPaths;
+}
+
+/**
+ * 경로의 링크 수 계산 (도시 사이의 트랙 타일 수)
+ */
+function countPathLinks(path: HexCoord[], board: BoardState): number {
+  let linkCount = 0;
+  for (const coord of path) {
+    // 도시가 아닌 헥스(트랙)만 카운트
+    const isCity = board.cities.some(c => hexCoordsEqual(c.coord, coord));
+    if (!isCity) {
+      linkCount++;
+    }
+  }
+  return linkCount;
+}
+
+/**
+ * 출발 도시에서 목적지 도시까지 가장 긴 경로 찾기
+ * cubeColor: 이동할 물품의 색상 (목적지 도시 색상과 일치해야 함)
+ * engineLevel: 플레이어의 엔진 레벨 (최대 이동 링크 수)
+ * 반환: 가장 긴 유효한 경로 또는 null
+ */
+export function findLongestPath(
+  startCityCoord: HexCoord,
+  targetCityCoord: HexCoord,
+  board: BoardState,
+  playerId: PlayerId,
+  engineLevel: number,
+  cubeColor: CityColor
+): HexCoord[] | null {
+  // 목적지 도시 확인
+  const targetCity = board.cities.find(c => hexCoordsEqual(c.coord, targetCityCoord));
+  if (!targetCity) return null;
+
+  // 물품 색상과 도시 색상 일치 확인
+  if (targetCity.color !== cubeColor) return null;
+
+  // 출발지와 목적지가 같으면 안됨
+  if (hexCoordsEqual(startCityCoord, targetCityCoord)) return null;
+
+  // 모든 경로 찾기
+  const allPaths = findAllPaths(
+    startCityCoord,
+    targetCityCoord,
+    board,
+    playerId,
+    engineLevel
+  );
+
+  if (allPaths.length === 0) return null;
+
+  // 가장 긴 경로 선택 (링크 수 기준)
+  let longestPath = allPaths[0];
+  let maxLinks = countPathLinks(longestPath, board);
+
+  for (const path of allPaths) {
+    const links = countPathLinks(path, board);
+    if (links > maxLinks) {
+      maxLinks = links;
+      longestPath = path;
+    }
+  }
+
+  return longestPath;
+}
+
+/**
+ * 물품이 이동 가능한 모든 목적지 도시 찾기
+ */
+export function findReachableDestinations(
+  startCityCoord: HexCoord,
+  board: BoardState,
+  playerId: PlayerId,
+  engineLevel: number,
+  cubeColor: CityColor
+): City[] {
+  const reachable: City[] = [];
+
+  // 같은 색상의 도시들 찾기
+  const sameColorCities = board.cities.filter(
+    c => c.color === cubeColor && !hexCoordsEqual(c.coord, startCityCoord)
+  );
+
+  for (const city of sameColorCities) {
+    const path = findLongestPath(
+      startCityCoord,
+      city.coord,
+      board,
+      playerId,
+      engineLevel,
+      cubeColor
+    );
+    if (path) {
+      reachable.push(city);
+    }
+  }
+
+  return reachable;
 }

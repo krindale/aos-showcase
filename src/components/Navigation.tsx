@@ -98,7 +98,7 @@ export default function Navigation() {
 
             {/* CTA Button - Desktop */}
             <div className="hidden md:block">
-              <Link href="/gameplay">
+              <Link href="/game/tutorial">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
@@ -194,7 +194,7 @@ export default function Navigation() {
                 transition={{ delay: 0.5 }}
                 className="mt-8"
               >
-                <Link href="/gameplay" onClick={() => setIsMobileMenuOpen(false)}>
+                <Link href="/game/tutorial" onClick={() => setIsMobileMenuOpen(false)}>
                   <button className="btn-primary w-full text-lg py-4">
                     게임 시작하기
                   </button>

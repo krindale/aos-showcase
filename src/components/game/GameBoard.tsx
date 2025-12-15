@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { useMemo, useCallback, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 import {
   hexToPixel,
@@ -10,6 +10,9 @@ import {
   getRailroadTies,
   calculateBoardDimensions,
   hexCoordsEqual,
+  getNeighborHex,
+  getOppositeEdge,
+  getEdgeMidpoint,
   HEX_SIZE,
 } from '@/utils/hexGrid';
 import { RUST_BELT_MAP, RUST_BELT_COLORS, RUST_BELT_LAKE_TILES } from '@/utils/rustBeltMap';
@@ -28,12 +31,76 @@ export default function GameBoard() {
     selectExitDirection,
     updateTrackPreview,
     resetBuildMode,
+    selectDestinationCity,
+    advanceCubeAnimation,
+    completeCubeMove,
+    canRedirect,
+    selectTrackToRedirect,
+    canPlaceNewCity,
+    placeNewCity,
   } = useGameStore();
 
   const { width: boardWidth, height: boardHeight } = useMemo(
     () => calculateBoardDimensions(RUST_BELT_MAP.cols, RUST_BELT_MAP.rows),
     []
   );
+
+  // 큐브 이동 애니메이션 처리
+  useEffect(() => {
+    if (!ui.movingCube) return;
+
+    const { currentIndex, path } = ui.movingCube;
+
+    if (currentIndex >= path.length - 1) {
+      // 목적지 도착 - 이동 완료 처리
+      const timeout = setTimeout(() => {
+        completeCubeMove();
+      }, 300);
+      return () => clearTimeout(timeout);
+    }
+
+    // 다음 위치로 이동
+    const timeout = setTimeout(() => {
+      advanceCubeAnimation();
+    }, 400); // 400ms마다 다음 위치로
+
+    return () => clearTimeout(timeout);
+  }, [ui.movingCube, advanceCubeAnimation, completeCubeMove]);
+
+  // 끊어진 트랙 연결 감지
+  const disconnectedConnections = useMemo(() => {
+    const disconnected: { from: HexCoord; to: HexCoord; fromEdge: number; toEdge: number }[] = [];
+
+    for (const track of board.trackTiles) {
+      for (const edge of track.edges) {
+        const neighbor = getNeighborHex(track.coord, edge);
+        const neighborTrack = board.trackTiles.find(t =>
+          hexCoordsEqual(t.coord, neighbor)
+        );
+
+        if (neighborTrack) {
+          const expectedEdge = getOppositeEdge(edge);
+          const isConnected = neighborTrack.edges.includes(expectedEdge);
+
+          if (!isConnected) {
+            // 중복 방지: 한 방향만 추가
+            const key1 = `${track.coord.col},${track.coord.row}`;
+            const key2 = `${neighbor.col},${neighbor.row}`;
+            if (key1 < key2) {
+              disconnected.push({
+                from: track.coord,
+                to: neighbor,
+                fromEdge: edge,
+                toEdge: expectedEdge,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return disconnected;
+  }, [board.trackTiles]);
 
   // 헥스가 유효한 연결점인지 확인 (도시 또는 현재 플레이어의 트랙)
   const isValidConnectionPoint = useCallback(
@@ -147,7 +214,11 @@ export default function GameBoard() {
     const isCity = board.cities.some(
       (c) => c.coord.col === col && c.coord.row === row
     );
-    return !isCity;
+    // 마을 헥스도 별도 렌더링
+    const isTown = board.towns.some(
+      (t) => t.coord.col === col && t.coord.row === row
+    );
+    return !isCity && !isTown;
   };
 
   return (
@@ -161,10 +232,14 @@ export default function GameBoard() {
       <div className="px-4 py-3 bg-background-secondary/50 border-b border-foreground/10">
         <div className="flex items-center justify-between">
           <span className="text-sm text-foreground-secondary">
-            {currentPhase === 'buildTrack' && ui.buildMode === 'idle' && '도시를 클릭하여 트랙 건설을 시작하세요'}
-            {currentPhase === 'buildTrack' && ui.buildMode === 'source_selected' && '노란색 헥스를 클릭하여 트랙을 건설하세요'}
-            {currentPhase === 'buildTrack' && ui.buildMode === 'target_selected' && '트랙이 나갈 방향을 클릭하세요 (곡선/직선 선택)'}
-            {currentPhase === 'moveGoods' && '물품 큐브를 클릭하여 이동하세요'}
+            {currentPhase === 'buildTrack' && ui.urbanizationMode && '파란색 테두리의 마을을 클릭하여 신규 도시를 배치하세요'}
+            {currentPhase === 'buildTrack' && !ui.urbanizationMode && ui.buildMode === 'idle' && '도시/기존 트랙 클릭 → 이어 짓기, Shift+클릭 → 방향 전환'}
+            {currentPhase === 'buildTrack' && !ui.urbanizationMode && ui.buildMode === 'source_selected' && '노란색 헥스를 클릭하여 트랙을 건설하세요'}
+            {currentPhase === 'buildTrack' && !ui.urbanizationMode && ui.buildMode === 'target_selected' && '트랙이 나갈 방향을 클릭하세요 (곡선/직선 선택)'}
+            {currentPhase === 'buildTrack' && !ui.urbanizationMode && ui.buildMode === 'redirect_selected' && '방향 전환 패널에서 새 방향을 선택하세요'}
+            {currentPhase === 'moveGoods' && !ui.selectedCube && !ui.movingCube && '물품 큐브를 클릭하세요'}
+            {currentPhase === 'moveGoods' && ui.selectedCube && '초록색 테두리의 목적지 도시를 클릭하세요'}
+            {currentPhase === 'moveGoods' && ui.movingCube && '물품 이동 중...'}
             {currentPhase !== 'buildTrack' && currentPhase !== 'moveGoods' && 'Rust Belt'}
           </span>
           <span className="text-xs text-accent">
@@ -243,15 +318,73 @@ export default function GameBoard() {
           const ties = getRailroadTies(x, y, tile.edges[0], tile.edges[1], HEX_SIZE - 2);
           const ownerColor = tile.owner ? PLAYER_COLORS[players[tile.owner].color] : '#888';
 
+          // 복합 트랙인 경우 두 번째 경로도 렌더링
+          const hasSecondary = tile.trackType !== 'simple' && tile.secondaryEdges;
+          const secondaryPathData = hasSecondary
+            ? getTrackPath(x, y, tile.secondaryEdges![0], tile.secondaryEdges![1], HEX_SIZE - 2)
+            : null;
+          const secondaryTies = hasSecondary
+            ? getRailroadTies(x, y, tile.secondaryEdges![0], tile.secondaryEdges![1], HEX_SIZE - 2)
+            : [];
+          const secondaryOwnerColor = hasSecondary && tile.secondaryOwner
+            ? PLAYER_COLORS[players[tile.secondaryOwner].color]
+            : '#888';
+
+          // 방향 전환 가능 여부 확인
+          const isRedirectable = currentPhase === 'buildTrack' && canRedirect(tile.coord);
+          const isTrackClickable = currentPhase === 'buildTrack' && (
+            tile.owner === currentPlayer || isRedirectable
+          );
+
+          // 트랙 클릭 핸들러 (연결점 선택 우선, 방향 전환은 Shift+클릭)
+          const handleTrackClick = (e: React.MouseEvent) => {
+            if (!isTrackClickable) return;
+
+            // 플레이어의 자신의 트랙은 먼저 연결점으로 선택 (이어 짓기용)
+            // Shift+클릭일 때만 방향 전환
+            if (tile.owner === currentPlayer) {
+              if (e.shiftKey && isRedirectable && ui.buildMode === 'idle') {
+                // Shift+클릭: 방향 전환 모드
+                selectTrackToRedirect(tile.coord);
+              } else {
+                // 일반 클릭: 연결점으로 선택 (이어 짓기)
+                handleHexClick(tile.coord);
+              }
+              return;
+            }
+
+            // 소유자가 없는 방향 전환 가능 트랙
+            if (isRedirectable && ui.buildMode === 'idle') {
+              selectTrackToRedirect(tile.coord);
+            }
+          };
+
           return (
             <g key={tile.id}>
-              {/* 레일 */}
+              {/* 방향 전환 가능한 트랙 배경 하이라이트 */}
+              {isRedirectable && ui.buildMode === 'idle' && (
+                <circle
+                  cx={x}
+                  cy={y}
+                  r={HEX_SIZE - 8}
+                  fill="rgba(255, 165, 0, 0.15)"
+                  stroke="#ffa500"
+                  strokeWidth="2"
+                  strokeDasharray="4 2"
+                  className="cursor-pointer"
+                  onClick={(e) => handleTrackClick(e)}
+                />
+              )}
+
+              {/* 첫 번째 레일 (기본) */}
               <path
                 d={pathData}
                 fill="none"
                 stroke="#3A3A32"
                 strokeWidth="12"
                 strokeLinecap="round"
+                className={isTrackClickable ? 'cursor-pointer' : ''}
+                onClick={(e) => handleTrackClick(e)}
               />
               <path
                 d={pathData}
@@ -259,8 +392,10 @@ export default function GameBoard() {
                 stroke={RUST_BELT_COLORS.terrain.plain}
                 strokeWidth="6"
                 strokeLinecap="round"
+                className={isTrackClickable ? 'cursor-pointer' : ''}
+                onClick={(e) => handleTrackClick(e)}
               />
-              {/* 침목 */}
+              {/* 첫 번째 침목 */}
               {ties.map((tie, i) => (
                 <line
                   key={`tie-${tile.id}-${i}`}
@@ -273,15 +408,242 @@ export default function GameBoard() {
                   strokeLinecap="round"
                 />
               ))}
+
+              {/* 복합 트랙: 두 번째 레일 */}
+              {hasSecondary && secondaryPathData && (
+                <>
+                  {/* 교차(crossing)인 경우 다리 효과 표시 */}
+                  {tile.trackType === 'crossing' && (
+                    <path
+                      d={secondaryPathData}
+                      fill="none"
+                      stroke="#2A2A22"
+                      strokeWidth="16"
+                      strokeLinecap="round"
+                    />
+                  )}
+                  <path
+                    d={secondaryPathData}
+                    fill="none"
+                    stroke="#3A3A32"
+                    strokeWidth="12"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d={secondaryPathData}
+                    fill="none"
+                    stroke={RUST_BELT_COLORS.terrain.plain}
+                    strokeWidth="6"
+                    strokeLinecap="round"
+                  />
+                  {/* 두 번째 침목 */}
+                  {secondaryTies.map((tie, i) => (
+                    <line
+                      key={`tie2-${tile.id}-${i}`}
+                      x1={tie.x - 8 * Math.cos((tie.angle + 90) * Math.PI / 180)}
+                      y1={tie.y - 8 * Math.sin((tie.angle + 90) * Math.PI / 180)}
+                      x2={tie.x + 8 * Math.cos((tie.angle + 90) * Math.PI / 180)}
+                      y2={tie.y + 8 * Math.sin((tie.angle + 90) * Math.PI / 180)}
+                      stroke="#4A4A42"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                    />
+                  ))}
+                </>
+              )}
+
               {/* 소유자 마커 */}
               <circle
                 cx={x}
                 cy={y}
                 r="7"
                 fill={ownerColor}
-                stroke="#1a1a1a"
-                strokeWidth="1.5"
+                stroke={isRedirectable && ui.buildMode === 'idle' ? '#ffa500' : '#1a1a1a'}
+                strokeWidth={isRedirectable && ui.buildMode === 'idle' ? 2 : 1.5}
+                className={isTrackClickable ? 'cursor-pointer' : ''}
+                onClick={(e) => handleTrackClick(e)}
               />
+              {/* 복합 트랙: 두 번째 소유자 마커 */}
+              {hasSecondary && tile.secondaryOwner && (
+                <circle
+                  cx={x + 10}
+                  cy={y - 10}
+                  r="5"
+                  fill={secondaryOwnerColor}
+                  stroke="#1a1a1a"
+                  strokeWidth="1"
+                />
+              )}
+            </g>
+          );
+        })}
+
+        {/* 끊어진 트랙 연결 경고 표시 */}
+        {disconnectedConnections.map((conn, index) => {
+          const { x: x1, y: y1 } = hexToPixel(conn.from.col, conn.from.row);
+          const { x: x2, y: y2 } = hexToPixel(conn.to.col, conn.to.row);
+
+          // 두 트랙 중간 지점
+          const midX = (x1 + x2) / 2;
+          const midY = (y1 + y2) / 2;
+
+          return (
+            <g key={`disconn-${index}`}>
+              {/* 끊어진 연결 표시 - 빨간색 X */}
+              <circle
+                cx={midX}
+                cy={midY}
+                r="12"
+                fill="rgba(220, 38, 38, 0.8)"
+                stroke="#fff"
+                strokeWidth="2"
+              />
+              <text
+                x={midX}
+                y={midY + 4}
+                textAnchor="middle"
+                fontSize="14"
+                fontWeight="bold"
+                fill="#fff"
+              >
+                ✗
+              </text>
+              {/* 호버 시 정보 표시 */}
+              <title>
+                트랙 연결 끊김: ({conn.from.col},{conn.from.row}) edge{conn.fromEdge} ↔ ({conn.to.col},{conn.to.row}) edge{conn.toEdge}
+              </title>
+            </g>
+          );
+        })}
+
+        {/* 마을 (Town) - 흰색 디스크 */}
+        {board.towns.map((town) => {
+          const { x, y } = hexToPixel(town.coord.col, town.coord.row);
+          const isUrbanized = town.newCityColor !== null;
+          const townColor = isUrbanized ? CITY_COLORS[town.newCityColor!] : '#ffffff';
+          const isSourceSelected = ui.sourceHex && hexCoordsEqual(ui.sourceHex, town.coord);
+          const isTownClickable = currentPhase === 'buildTrack' && !ui.urbanizationMode;
+
+          // 도시화 가능 여부 확인
+          const canUrbanize = ui.urbanizationMode && ui.selectedNewCityTile && !isUrbanized;
+          const isUrbanizationClickable = canPlaceNewCity(town.coord);
+
+          // 마을 클릭 핸들러
+          const handleTownClick = () => {
+            // 도시화 모드인 경우
+            if (ui.urbanizationMode && isUrbanizationClickable) {
+              placeNewCity(town.coord);
+              return;
+            }
+            // 일반 트랙 건설 모드인 경우
+            if (currentPhase === 'buildTrack' && !ui.urbanizationMode) {
+              handleHexClick(town.coord);
+            }
+          };
+
+          return (
+            <g key={`town-${town.id}`}>
+              {/* 마을 배경 헥스 */}
+              <polygon
+                points={getHexPoints(x, y, HEX_SIZE - 2)}
+                fill={RUST_BELT_COLORS.terrain.plain}
+                stroke={
+                  isUrbanizationClickable
+                    ? '#3B82F6'  // 도시화 가능: 파란색 테두리
+                    : isSourceSelected
+                    ? '#ffffff'
+                    : '#3D5A3D'
+                }
+                strokeWidth={isUrbanizationClickable ? 4 : isSourceSelected ? 3 : 2}
+                className={(isTownClickable || isUrbanizationClickable) ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''}
+                onClick={handleTownClick}
+              />
+
+              {/* 도시화 가능 표시 - 글로우 효과 */}
+              {canUrbanize && !isUrbanized && (
+                <circle
+                  cx={x}
+                  cy={y}
+                  r={HEX_SIZE - 6}
+                  fill="rgba(59, 130, 246, 0.15)"
+                  stroke="#3B82F6"
+                  strokeWidth="2"
+                  strokeDasharray="6 3"
+                  className="cursor-pointer"
+                  onClick={handleTownClick}
+                />
+              )}
+
+              {/* 마을 디스크 (흰색 원) */}
+              <circle
+                cx={x}
+                cy={y}
+                r="22"
+                fill={townColor}
+                stroke={
+                  isUrbanizationClickable
+                    ? '#3B82F6'
+                    : isUrbanized
+                    ? 'rgba(255,255,255,0.5)'
+                    : 'rgba(0,0,0,0.3)'
+                }
+                strokeWidth={isUrbanizationClickable ? 4 : 3}
+                className={(isTownClickable || isUrbanizationClickable) ? 'cursor-pointer' : ''}
+                onClick={handleTownClick}
+              />
+
+              {/* 마을 ID (신규 도시로 변환된 경우 도시 색상 표시) */}
+              {isUrbanized ? (
+                <text
+                  x={x}
+                  y={y + 5}
+                  textAnchor="middle"
+                  fill="#ffffff"
+                  fontSize="18"
+                  fontWeight="bold"
+                  fontFamily="system-ui, sans-serif"
+                  style={{ pointerEvents: 'none' }}
+                >
+                  {town.id}
+                </text>
+              ) : (
+                <text
+                  x={x}
+                  y={y + 5}
+                  textAnchor="middle"
+                  fill="#333333"
+                  fontSize="14"
+                  fontWeight="600"
+                  fontFamily="system-ui, sans-serif"
+                  style={{ pointerEvents: 'none' }}
+                >
+                  Town
+                </text>
+              )}
+
+              {/* 마을 위 물품 큐브 (도시화 전에만) */}
+              {!isUrbanized && town.cubes.length > 0 && (
+                <g>
+                  {town.cubes.map((cubeColor, i) => {
+                    const cubeX = x - ((town.cubes.length - 1) * 14) / 2 + i * 14;
+                    const cubeY = y + 32;
+
+                    return (
+                      <rect
+                        key={`town-cube-${town.id}-${i}`}
+                        x={cubeX - 4}
+                        y={cubeY - 4}
+                        width="8"
+                        height="8"
+                        fill={CUBE_COLORS[cubeColor]}
+                        stroke="rgba(0,0,0,0.3)"
+                        strokeWidth="1"
+                        rx="1"
+                      />
+                    );
+                  })}
+                </g>
+              )}
             </g>
           );
         })}
@@ -292,6 +654,19 @@ export default function GameBoard() {
           const cityColor = CITY_COLORS[city.color];
           const isSourceSelected = ui.sourceHex && hexCoordsEqual(ui.sourceHex, city.coord);
           const isCityClickable = currentPhase === 'buildTrack';
+          const isReachableDestination = ui.reachableDestinations.some(
+            d => hexCoordsEqual(d, city.coord)
+          );
+          const isMoveGoodsPhase = currentPhase === 'moveGoods';
+
+          // 도시 클릭 핸들러
+          const handleCityClick = () => {
+            if (currentPhase === 'buildTrack') {
+              handleHexClick(city.coord);
+            } else if (isMoveGoodsPhase && isReachableDestination) {
+              selectDestinationCity(city.coord);
+            }
+          };
 
           return (
             <g key={`city-${city.id}`}>
@@ -299,10 +674,20 @@ export default function GameBoard() {
               <polygon
                 points={getHexPoints(x, y, HEX_SIZE - 2)}
                 fill={cityColor}
-                stroke={isSourceSelected ? '#ffffff' : 'rgba(255,255,255,0.2)'}
-                strokeWidth={isSourceSelected ? 4 : 2}
-                className={isCityClickable ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''}
-                onClick={() => isCityClickable && handleHexClick(city.coord)}
+                stroke={
+                  isReachableDestination
+                    ? '#00ff00'
+                    : isSourceSelected
+                    ? '#ffffff'
+                    : 'rgba(255,255,255,0.2)'
+                }
+                strokeWidth={isReachableDestination ? 4 : isSourceSelected ? 4 : 2}
+                className={
+                  (isCityClickable || isReachableDestination)
+                    ? 'cursor-pointer hover:opacity-90 transition-opacity'
+                    : ''
+                }
+                onClick={handleCityClick}
               />
 
               {/* 도시 ID 원 */}
@@ -313,6 +698,7 @@ export default function GameBoard() {
                 fill="rgba(255,255,255,0.15)"
                 stroke="rgba(255,255,255,0.5)"
                 strokeWidth="2"
+                style={{ pointerEvents: 'none' }}
               />
               <text
                 x={x}
@@ -322,6 +708,7 @@ export default function GameBoard() {
                 fontSize="20"
                 fontWeight="bold"
                 fontFamily="system-ui, sans-serif"
+                style={{ pointerEvents: 'none' }}
               >
                 {city.id}
               </text>
@@ -335,6 +722,7 @@ export default function GameBoard() {
                 fontSize="12"
                 fontWeight="600"
                 fontFamily="system-ui, sans-serif"
+                style={{ pointerEvents: 'none' }}
               >
                 {city.name}
               </text>
@@ -403,7 +791,7 @@ export default function GameBoard() {
         )}
 
         {/* 이동 경로 */}
-        {ui.movePath.length > 1 && (
+        {ui.movePath.length > 1 && !ui.movingCube && (
           <g>
             {ui.movePath.map((coord, i) => {
               if (i === 0) return null;
@@ -425,6 +813,85 @@ export default function GameBoard() {
             })}
           </g>
         )}
+
+        {/* 이동 중인 큐브 애니메이션 */}
+        <AnimatePresence>
+          {ui.movingCube && (
+            <>
+              {/* 이동 경로 표시 */}
+              <g opacity={0.5}>
+                {ui.movingCube.path.map((coord, i) => {
+                  if (i === 0) return null;
+                  const from = hexToPixel(ui.movingCube!.path[i - 1].col, ui.movingCube!.path[i - 1].row);
+                  const to = hexToPixel(coord.col, coord.row);
+                  return (
+                    <line
+                      key={`moving-path-${i}`}
+                      x1={from.x}
+                      y1={from.y}
+                      x2={to.x}
+                      y2={to.y}
+                      stroke={CUBE_COLORS[ui.movingCube!.color]}
+                      strokeWidth="6"
+                      strokeLinecap="round"
+                      strokeDasharray="8 4"
+                    />
+                  );
+                })}
+              </g>
+
+              {/* 이동 중인 큐브 */}
+              {(() => {
+                const currentPos = ui.movingCube.path[ui.movingCube.currentIndex];
+                const { x, y } = hexToPixel(currentPos.col, currentPos.row);
+                const cubeColor = CUBE_COLORS[ui.movingCube.color];
+
+                return (
+                  <motion.g
+                    key="moving-cube"
+                    initial={{ scale: 1 }}
+                    animate={{ scale: [1, 1.3, 1] }}
+                    transition={{ duration: 0.4, ease: 'easeInOut' }}
+                  >
+                    <motion.rect
+                      x={x - 10}
+                      y={y - 10}
+                      width="20"
+                      height="20"
+                      fill={cubeColor}
+                      stroke="#ffffff"
+                      strokeWidth="3"
+                      rx="3"
+                      animate={{
+                        x: x - 10,
+                        y: y - 10,
+                      }}
+                      transition={{ duration: 0.35, ease: 'easeOut' }}
+                    />
+                    {/* 글로우 효과 */}
+                    <motion.rect
+                      x={x - 12}
+                      y={y - 12}
+                      width="24"
+                      height="24"
+                      fill="none"
+                      stroke={cubeColor}
+                      strokeWidth="2"
+                      rx="4"
+                      opacity={0.5}
+                      animate={{
+                        x: x - 12,
+                        y: y - 12,
+                        opacity: [0.5, 0.8, 0.5],
+                      }}
+                      transition={{ duration: 0.35, ease: 'easeOut' }}
+                    />
+                  </motion.g>
+                );
+              })()}
+            </>
+          )}
+        </AnimatePresence>
       </svg>
 
       {/* 범례 */}

@@ -22,6 +22,8 @@ import {
   ArrowRight,
   ChevronRight,
 } from 'lucide-react';
+import AuctionPanel from './AuctionPanel';
+import GoodsGrowthPanel from './GoodsGrowthPanel';
 
 const PHASE_ICONS: Record<GamePhase, React.ReactNode> = {
   issueShares: <FileText size={18} />,
@@ -114,25 +116,9 @@ export default function PhasePanel() {
           </div>
         )}
 
-        {/* II. 플레이어 순서 */}
+        {/* II. 플레이어 순서 - AuctionPanel 사용 */}
         {currentPhase === 'determinePlayerOrder' && (
-          <div className="space-y-3">
-            <p className="text-sm text-foreground-secondary">
-              2인 게임에서는 경매를 간소화합니다.
-            </p>
-            <div className="p-3 rounded-lg bg-background/50">
-              <p className="text-sm text-foreground">
-                현재 순서: {players.player1.name} → {players.player2.name}
-              </p>
-            </div>
-            <button
-              onClick={handleNextPhase}
-              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2"
-            >
-              다음 단계로
-              <ChevronRight size={16} />
-            </button>
-          </div>
+          <AuctionPanel />
         )}
 
         {/* III. 행동 선택 */}
@@ -303,8 +289,8 @@ export default function PhasePanel() {
           </div>
         )}
 
-        {/* VI-X. 자동 단계들 */}
-        {['collectIncome', 'payExpenses', 'incomeReduction', 'goodsGrowth', 'advanceTurn'].includes(
+        {/* VI-VIII. 자동 단계들 */}
+        {['collectIncome', 'payExpenses', 'incomeReduction', 'advanceTurn'].includes(
           currentPhase
         ) && (
           <div className="space-y-3">
@@ -319,6 +305,11 @@ export default function PhasePanel() {
               <ChevronRight size={16} />
             </button>
           </div>
+        )}
+
+        {/* IX. 물품 성장 */}
+        {currentPhase === 'goodsGrowth' && (
+          <GoodsGrowthPanel />
         )}
       </div>
     </motion.div>

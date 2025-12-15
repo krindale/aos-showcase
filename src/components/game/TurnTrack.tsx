@@ -1,6 +1,7 @@
 'use client';
 
-import { GamePhase, PHASE_INFO } from '@/types/game';
+import { useGameStore } from '@/store/gameStore';
+import { GamePhase, PHASE_INFO, PLAYER_COLORS } from '@/types/game';
 
 interface TurnTrackProps {
   currentTurn: number;
@@ -14,6 +15,7 @@ export default function TurnTrack({
   currentPhase,
 }: TurnTrackProps) {
   const phaseInfo = PHASE_INFO[currentPhase];
+  const { playerOrder, players, currentPlayer } = useGameStore();
 
   return (
     <div className="flex items-center gap-4">
@@ -46,6 +48,33 @@ export default function TurnTrack({
         <span className="text-sm text-accent font-medium">
           {phaseInfo.name}
         </span>
+      </div>
+
+      {/* 구분선 */}
+      <div className="w-px h-6 bg-foreground/10" />
+
+      {/* 플레이어 순서 */}
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-foreground-secondary">순서</span>
+        <div className="flex gap-1">
+          {playerOrder.map((playerId, index) => {
+            const player = players[playerId];
+            if (!player) return null;
+            const isCurrent = playerId === currentPlayer;
+            return (
+              <div
+                key={playerId}
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white transition-all ${
+                  isCurrent ? 'ring-2 ring-accent ring-offset-1 ring-offset-background scale-110' : 'opacity-70'
+                }`}
+                style={{ backgroundColor: PLAYER_COLORS[player.color] }}
+                title={`${index + 1}번: ${player.name}`}
+              >
+                {index + 1}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

@@ -580,22 +580,22 @@ function findAllPaths(
       return;
     }
 
-    // 최대 링크 수 초과
-    if (linkCount >= maxLength) {
-      return;
-    }
-
     const neighbors = getConnectedNeighbors(current, board, playerId, visited);
 
     for (const neighbor of neighbors) {
+      // 링크 카운트: 도시/마을 사이의 트랙이 1링크
+      // 트랙을 지날 때마다 링크 카운트 증가, 도시 도착은 링크 비용 없음
+      const isNeighborCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
+      const newLinkCount = isNeighborCity ? linkCount : linkCount + 1;
+
+      // 최대 링크 수 초과 시 건너뛰기 (도시는 링크 비용 없으므로 허용)
+      if (newLinkCount > maxLength) {
+        continue;
+      }
+
       const neighborKey = hexToKey(neighbor);
       visited.add(neighborKey);
       path.push(neighbor);
-
-      // 링크 카운트: 도시/마을 사이의 트랙이 1링크
-      // 트랙을 지날 때마다 링크 카운트 증가
-      const isNeighborCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
-      const newLinkCount = isNeighborCity ? linkCount : linkCount + 1;
 
       dfs(neighbor, path, visited, newLinkCount);
 

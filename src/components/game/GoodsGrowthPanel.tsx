@@ -26,8 +26,9 @@ export default function GoodsGrowthPanel() {
     (p) => p.selectedAction === 'production'
   );
 
-  // 주사위 수 (플레이어 수)
-  const diceCount = 2; // 2인 게임
+  // 주사위 수 (플레이어 수) - 탈락하지 않은 활성 플레이어 수
+  const activePlayers = Object.values(players).filter(p => !p.eliminated);
+  const diceCount = activePlayers.length;
 
   // 열별 큐브 수 계산
   const getColumnCubes = (columnId: string): (CubeColor | null)[] => {

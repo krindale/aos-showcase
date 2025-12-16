@@ -1173,6 +1173,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   // === 단계/턴 진행 ===
   nextPhase: () => {
+    const currentState = get();
+
+    // 자동 단계 로직 실행 (단계 전환 전에 실행)
+    if (currentState.currentPhase === 'collectIncome') {
+      get().collectIncome();
+    } else if (currentState.currentPhase === 'payExpenses') {
+      get().payExpenses();
+    } else if (currentState.currentPhase === 'incomeReduction') {
+      get().applyIncomeReduction();
+    }
+
     set((state) => {
       const phases: GamePhase[] = [
         'issueShares',
@@ -1263,7 +1274,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         // 모든 플레이어가 건설 기회를 가졌는지 확인
         const allPlayersBuilt = allPlayersMoved(state.phaseState.playerMoves, activePlayers);
 
-        if (allPlayersBuilt || isLastPlayer) {
+        if (allPlayersBuilt) {
           // First Move 확인
           const firstMovePlayer = Object.entries(state.players).find(
             ([pid, p]) => activePlayers.includes(pid as PlayerId) && p.selectedAction === 'firstMove'
@@ -2332,3 +2343,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }));
   },
 }));
+
+// 디버깅용: 전역에 스토어 노출
+if (typeof window !== 'undefined') {
+  (window as unknown as { __GAME_STORE__: typeof useGameStore }).__GAME_STORE__ = useGameStore;
+}

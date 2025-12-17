@@ -47,6 +47,9 @@ import {
   allPlayersSelectedAction,
   resetPlayerActions,
   createInitialPlayerState,
+  findFirstBuildPlayer,
+  findFirstMovePlayer,
+  isLastPlayer,
 } from '@/utils/gameLogic';
 
 // 테스트에서 사용할 수 있도록 export
@@ -61,7 +64,7 @@ export function createInitialGameState(
   const bag = [...goodsDisplay.bag];
   const citiesWithCubes = boardState.cities.map((city) => {
     const cubes: CubeColor[] = [];
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < GAME_CONSTANTS.INITIAL_CUBES_PER_CITY; i++) {
       if (bag.length > 0) {
         const cube = bag.pop();
         if (cube) cubes.push(cube);
@@ -168,115 +171,173 @@ export function createInitialGameState(
   };
 }
 
-// === 스토어 인터페이스 ===
+// ============================================================
+// 스토어 인터페이스
+// ============================================================
 interface GameStore extends GameState {
-  // 게임 초기화
+  // --- 게임 라이프사이클 ---
+  /** 게임 초기화 */
   initGame: (mapId: string, playerNames: string[]) => void;
+  /** 게임 리셋 (플레이어 이름 유지) */
   resetGame: () => void;
 
-  // 플레이어 순환 헬퍼
+  // --- 플레이어 순환 헬퍼 ---
+  /** 다음 플레이어 ID 반환 */
   getNextPlayer: (playerId: PlayerId) => PlayerId;
+  /** 이전 플레이어 ID 반환 */
   getPreviousPlayer: (playerId: PlayerId) => PlayerId;
 
-  // 주식 발행
+  // --- Phase I: 주식 발행 ---
+  /** 주식 발행 ($5/주) */
   issueShare: (playerId: PlayerId, amount: number) => void;
 
-  // 플레이어 순서 경매
+  // --- Phase II: 플레이어 순서 경매 ---
+  /** 입찰 */
   placeBid: (playerId: PlayerId, amount: number) => void;
+  /** 입찰 포기 (탈락) */
   passBid: (playerId: PlayerId) => void;
-  skipBid: (playerId: PlayerId) => void;  // Turn Order 패스용
+  /** Turn Order 패스 (탈락 없이 스킵) */
+  skipBid: (playerId: PlayerId) => void;
+  /** 경매 해결 */
   resolveAuction: () => void;
 
-  // 행동 선택
+  // --- Phase III: 행동 선택 ---
+  /** 특수 행동 선택 */
   selectAction: (playerId: PlayerId, action: SpecialAction) => void;
 
-  // 트랙 건설
+  // --- Phase IV: 트랙 건설 ---
+  /** 트랙 건설 */
   buildTrack: (coord: HexCoord, edges: [number, number]) => boolean;
+  /** 트랙 건설 가능 여부 확인 */
   canBuildTrack: (coord: HexCoord, edges: [number, number]) => boolean;
-
-  // 복합 트랙 건설 (교차/공존)
+  /** 복합 트랙 건설 (교차/공존) */
   buildComplexTrack: (
     coord: HexCoord,
     newEdges: [number, number],
     trackType: 'crossing' | 'coexist'
   ) => boolean;
+  /** 복합 트랙 건설 가능 여부 확인 */
   canBuildComplexTrack: (
     coord: HexCoord,
     newEdges: [number, number],
     trackType: 'crossing' | 'coexist'
   ) => boolean;
 
-  // 물품 이동
+  // --- Phase V: 물품 이동 ---
+  /** 물품 이동 */
   moveGoods: (cubeColor: CubeColor, path: HexCoord[]) => void;
+  /** 엔진 업그레이드 (물품 이동 대신) */
   upgradeEngine: () => void;
 
-  // 수입/비용
+  // --- Phase VI-VIII: 수입/비용 ---
+  /** 수입 수집 */
   collectIncome: () => void;
+  /** 비용 지불 */
   payExpenses: () => void;
+  /** 수입 감소 */
   applyIncomeReduction: () => void;
 
-  // 물품 성장
+  // --- Phase IX: 물품 성장 ---
+  /** 물품 성장 (주사위 결과 기반) */
   growGoods: (diceResults: number[]) => void;
 
-  // 단계/턴 진행
+  // --- Phase X: 턴 진행 ---
+  /** 다음 단계로 진행 */
   nextPhase: () => void;
+  /** 턴 종료 (자동 단계 실행) */
   endTurn: () => void;
 
-  // UI 상태
+  // --- UI: 기본 선택 ---
+  /** 헥스 선택 */
   selectHex: (coord: HexCoord | null) => void;
+  /** 큐브 선택 */
   selectCube: (cityId: string, cubeIndex: number) => void;
+  /** 선택 초기화 */
   clearSelection: () => void;
+  /** 트랙 미리보기 설정 */
   setPreviewTrack: (track: { coord: HexCoord; edges: [number, number] } | null) => void;
+  /** 하이라이트 헥스 설정 */
   setHighlightedHexes: (hexes: HexCoord[]) => void;
+  /** 이동 경로 설정 */
   setMovePath: (path: HexCoord[]) => void;
 
-  // 트랙 건설 UI
-  selectSourceHex: (coord: HexCoord) => void;       // 연결점 선택
-  selectTargetHex: (coord: HexCoord) => void;       // 대상 헥스 선택 (나가는 방향 선택 UI 표시)
-  selectExitDirection: (exitEdge: number) => boolean;  // 나가는 방향 선택하여 트랙 건설
-  updateTrackPreview: (targetCoord: HexCoord) => void;  // 호버 시 미리보기 업데이트
-  resetBuildMode: () => void;                       // 빌드 모드 초기화
+  // --- UI: 트랙 건설 ---
+  /** 연결점 선택 */
+  selectSourceHex: (coord: HexCoord) => void;
+  /** 대상 헥스 선택 */
+  selectTargetHex: (coord: HexCoord) => void;
+  /** 나가는 방향 선택하여 트랙 건설 */
+  selectExitDirection: (exitEdge: number) => boolean;
+  /** 호버 시 미리보기 업데이트 */
+  updateTrackPreview: (targetCoord: HexCoord) => void;
+  /** 빌드 모드 초기화 */
+  resetBuildMode: () => void;
 
-  // 복합 트랙 UI
+  // --- UI: 복합 트랙 ---
+  /** 복합 트랙 선택 패널 표시 */
   showComplexTrackSelection: (coord: HexCoord, newEdges: [number, number]) => void;
+  /** 복합 트랙 선택 패널 숨김 */
   hideComplexTrackSelection: () => void;
 
-  // 트랙 방향 전환
+  // --- UI: 트랙 방향 전환 ---
+  /** 방향 전환할 트랙 선택 */
   selectTrackToRedirect: (coord: HexCoord) => boolean;
+  /** 트랙 방향 전환 실행 */
   redirectTrack: (coord: HexCoord, newExitEdge: number) => boolean;
+  /** 방향 전환 가능 여부 확인 */
   canRedirect: (coord: HexCoord) => boolean;
+  /** 방향 전환 선택 숨김 */
   hideRedirectSelection: () => void;
 
-  // 도시화 (Urbanization)
+  // --- UI: 도시화 (Urbanization) ---
+  /** 도시화 모드 진입 */
   enterUrbanizationMode: () => void;
+  /** 도시화 모드 종료 */
   exitUrbanizationMode: () => void;
+  /** 신규 도시 타일 선택 */
   selectNewCityTile: (tileId: NewCityTileId) => void;
+  /** 신규 도시 배치 */
   placeNewCity: (townCoord: HexCoord) => boolean;
+  /** 신규 도시 배치 가능 여부 */
   canPlaceNewCity: (townCoord: HexCoord) => boolean;
 
-  // Production (생산)
+  // --- UI: Production (생산) ---
+  /** 생산 모드 시작 */
   startProduction: () => void;
+  /** 생산 슬롯 선택 */
   selectProductionSlot: (slotIndex: number) => void;
+  /** 생산 확정 */
   confirmProduction: () => boolean;
+  /** 생산 취소 */
   cancelProduction: () => void;
+  /** 빈 슬롯 목록 반환 */
   getEmptySlots: () => number[];
 
-  // 물품 이동 UI
-  selectDestinationCity: (coord: HexCoord) => void;  // 목적지 도시 선택
-  startCubeAnimation: (path: HexCoord[], color: CubeColor) => void;  // 큐브 애니메이션 시작
-  advanceCubeAnimation: () => void;                  // 애니메이션 다음 단계
-  completeCubeMove: () => void;                      // 큐브 이동 완료
+  // --- UI: 물품 이동 애니메이션 ---
+  /** 목적지 도시 선택 */
+  selectDestinationCity: (coord: HexCoord) => void;
+  /** 큐브 애니메이션 시작 */
+  startCubeAnimation: (path: HexCoord[], color: CubeColor) => void;
+  /** 애니메이션 다음 단계 */
+  advanceCubeAnimation: () => void;
+  /** 큐브 이동 완료 */
+  completeCubeMove: () => void;
 
-  // 로그
+  // --- 로그 ---
+  /** 로그 추가 */
   addLog: (action: string) => void;
 }
 
-// === 스토어 생성 ===
+// ============================================================
+// 스토어 구현
+// ============================================================
 export const useGameStore = create<GameStore>((set, get) => ({
   // 초기 상태 (빈 게임)
   ...createInitialGameState('tutorial', ['기차-하나', '기차-둘']),
 
-  // === 게임 초기화 ===
+  // ============================================================
+  // 게임 라이프사이클
+  // ============================================================
   initGame: (mapId, playerNames) => {
     set(createInitialGameState(mapId, playerNames));
   },
@@ -290,7 +351,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set(createInitialGameState(state.mapId, playerNames));
   },
 
-  // === 플레이어 순환 헬퍼 ===
+  // ============================================================
+  // 플레이어 순환 헬퍼
+  // ============================================================
   getNextPlayer: (playerId: PlayerId) => {
     const state = get();
     const currentIndex = state.activePlayers.indexOf(playerId);
@@ -305,7 +368,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     return state.activePlayers[prevIndex];
   },
 
-  // === 주식 발행 ===
+  // ============================================================
+  // Phase I: 주식 발행
+  // ============================================================
   issueShare: (playerId, amount) => {
     set((state) => {
       const player = state.players[playerId];
@@ -344,7 +409,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  // === 플레이어 순서 경매 ===
+  // ============================================================
+  // Phase II: 플레이어 순서 경매
+  // ============================================================
   placeBid: (playerId, amount) => {
     set((state) => {
       if (!state.auction) {
@@ -545,7 +612,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  // === 행동 선택 ===
+  // ============================================================
+  // Phase III: 행동 선택
+  // ============================================================
   selectAction: (playerId, action) => {
     set((state) => {
       // 플레이어 존재 검증
@@ -616,7 +685,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  // === 트랙 건설 ===
+  // ============================================================
+  // Phase IV: 트랙 건설
+  // ============================================================
   canBuildTrack: (coord, edges) => {
     const state = get();
     const currentPlayer = state.currentPlayer;
@@ -724,7 +795,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     // 최대 트랙 수 건설 완료 시 자동으로 다음 플레이어로 전환
     if (newBuiltCount >= state.phaseState.maxTracksThisTurn) {
-      setTimeout(() => get().nextPhase(), 100);
+      setTimeout(() => get().nextPhase(), GAME_CONSTANTS.PHASE_TRANSITION_DELAY);
     }
 
     return true;
@@ -844,13 +915,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     // 최대 트랙 수 건설 완료 시 자동으로 다음 플레이어로 전환
     if (newBuiltCount >= state.phaseState.maxTracksThisTurn) {
-      setTimeout(() => get().nextPhase(), 100);
+      setTimeout(() => get().nextPhase(), GAME_CONSTANTS.PHASE_TRANSITION_DELAY);
     }
 
     return true;
   },
 
-  // === 물품 이동 ===
+  // ============================================================
+  // Phase V: 물품 이동
+  // ============================================================
   moveGoods: (cubeColor, path) => {
     set((state) => {
       if (path.length < 2) {
@@ -970,7 +1043,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  // === 수입/비용 ===
+  // ============================================================
+  // Phase VI-VIII: 수입/비용
+  // ============================================================
   collectIncome: () => {
     set((state) => {
       const newPlayers = { ...state.players };
@@ -1129,7 +1204,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  // === 물품 성장 ===
+  // ============================================================
+  // Phase IX: 물품 성장
+  // ============================================================
   growGoods: (diceResults) => {
     set((state) => {
       // Production은 이제 수동으로 처리됨 (startProduction/confirmProduction)
@@ -1224,7 +1301,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  // === 단계/턴 진행 ===
+  // ============================================================
+  // Phase X: 단계/턴 진행
+  // ============================================================
   nextPhase: () => {
     const currentState = get();
 
@@ -1264,12 +1343,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const nextPlayer = getNextPlayerId(state.currentPlayer, activePlayers);
 
       // 현재 플레이어가 마지막 플레이어인지 확인
-      const isLastPlayer = state.currentPlayer === playerOrder[playerOrder.length - 1];
+      const isLast = isLastPlayer(state.currentPlayer, playerOrder);
 
       // === I. 주식 발행 단계 ===
       if (state.currentPhase === 'issueShares') {
         // 마지막 플레이어까지 완료했으면 다음 단계로
-        if (isLastPlayer) {
+        if (isLast) {
           return {
             currentPhase: 'determinePlayerOrder' as GamePhase,
             currentPlayer: playerOrder[0],
@@ -1297,9 +1376,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (allSelected) {
           // 모든 플레이어 선택 완료 → 다음 단계
           // First Build 확인
-          const firstBuildPlayer = activePlayers.find(
-            pid => state.players[pid]?.selectedAction === 'firstBuild'
-          );
+          const firstBuildPlayer = findFirstBuildPlayer(state.players, activePlayers);
 
           // 실제로 첫 번째로 건설할 플레이어 결정
           const firstBuilder = firstBuildPlayer || playerOrder[0];
@@ -1340,13 +1417,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
         if (allPlayersBuilt) {
           // First Move 확인
-          const firstMovePlayer = activePlayers.find(
-            pid => state.players[pid]?.selectedAction === 'firstMove'
-          );
+          const firstMover = findFirstMovePlayer(state.players, activePlayers);
 
           return {
             currentPhase: 'moveGoods' as GamePhase,
-            currentPlayer: firstMovePlayer || playerOrder[0],
+            currentPlayer: firstMover || playerOrder[0],
             phaseState: {
               ...state.phaseState,
               moveGoodsRound: 1,
@@ -1379,18 +1454,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const allMoved = allPlayersMoved(updatedPlayerMoves, activePlayers);
 
         if (allMoved) {
-          // 라운드 2까지 완료했으면 다음 단계
-          if (state.phaseState.moveGoodsRound >= 2) {
+          // 모든 라운드 완료했으면 다음 단계
+          if (state.phaseState.moveGoodsRound >= GAME_CONSTANTS.MOVE_GOODS_ROUNDS) {
             return {
               currentPhase: 'collectIncome' as GamePhase,
               currentPlayer: playerOrder[0],
             };
           }
 
-          // 라운드 2로 진행
-          const firstMovePlayer = activePlayers.find(
-            pid => state.players[pid]?.selectedAction === 'firstMove'
-          );
+          // 다음 라운드로 진행
+          const firstMover = findFirstMovePlayer(state.players, activePlayers);
 
           return {
             phaseState: {
@@ -1398,7 +1471,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
               moveGoodsRound: 2,
               playerMoves: createPlayerMoves(activePlayers),
             },
-            currentPlayer: firstMovePlayer || playerOrder[0],
+            currentPlayer: firstMover || playerOrder[0],
           };
         }
 
@@ -1500,7 +1573,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }));
   },
 
-  // === UI 상태 ===
+  // ============================================================
+  // UI: 기본 선택
+  // ============================================================
   selectHex: (coord) => {
     set((state) => ({
       ui: { ...state.ui, selectedHex: coord },
@@ -2120,11 +2195,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return;
     }
 
-    // 주머니에서 큐브 2개 뽑기 (미리보기)
+    // 주머니에서 큐브 뽑기 (미리보기)
     const bag = [...state.goodsDisplay.bag];
     const cubes: CubeColor[] = [];
 
-    for (let i = 0; i < 2 && bag.length > 0; i++) {
+    for (let i = 0; i < GAME_CONSTANTS.PRODUCTION_CUBE_COUNT && bag.length > 0; i++) {
       const cube = bag.pop();
       if (cube) cubes.push(cube);
     }

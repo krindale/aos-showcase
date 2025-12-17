@@ -5,6 +5,8 @@ import {
   PlayerId,
   PlayerState,
   PlayerColor,
+  SpecialAction,
+  AuctionState,
   GAME_CONSTANTS,
   PLAYER_ID_ORDER,
 } from '@/types/game';
@@ -285,4 +287,115 @@ export function calculateAuctionPayment(
     // 중간 포기자: 절반 (올림) 지불
     return Math.ceil(bid / 2);
   }
+}
+
+// === 경매 해결 헬퍼 함수 ===
+
+/**
+ * 경매 결과에 따른 플레이어 순서 및 비용 계산
+ * @param auction 경매 상태
+ * @param activePlayers 활성 플레이어 목록
+ * @returns 새 플레이어 순서와 각 플레이어의 지불 비용
+ */
+export function resolveAuctionResult(
+  auction: AuctionState,
+  activePlayers: PlayerId[]
+): { newOrder: PlayerId[]; payments: Record<PlayerId, number> } {
+  const { highestBidder, highestBid, bids, passedPlayers } = auction;
+  const payments: Partial<Record<PlayerId, number>> = {};
+  const newOrder: PlayerId[] = [];
+
+  // 포기 순서 복사
+  const passOrder = [...passedPlayers];
+  const lastDropoutIndex = passOrder.length - 1;
+
+  // 최고 입찰자가 1번 (전액 지불)
+  if (highestBidder) {
+    payments[highestBidder] = highestBid;
+    newOrder.push(highestBidder);
+  }
+
+  // 포기한 플레이어들 처리 (포기 역순으로 순서 결정)
+  for (let i = lastDropoutIndex; i >= 0; i--) {
+    const player = passOrder[i];
+    if (newOrder.includes(player)) continue;
+
+    const playerBid = bids[player] || 0;
+    payments[player] = calculateAuctionPayment(playerBid, i, passOrder.length);
+    newOrder.push(player);
+  }
+
+  // 모든 플레이어가 순서에 있는지 확인 (안전장치)
+  for (const playerId of activePlayers) {
+    if (!newOrder.includes(playerId)) {
+      newOrder.push(playerId);
+      payments[playerId] = 0;
+    }
+  }
+
+  return { newOrder, payments: payments as Record<PlayerId, number> };
+}
+
+// === 특수 행동 검색 헬퍼 함수 ===
+
+/**
+ * 특정 행동을 선택한 플레이어 찾기
+ * @param players 플레이어 상태 맵
+ * @param activePlayers 활성 플레이어 목록
+ * @param action 찾을 행동
+ * @returns 해당 행동을 선택한 플레이어 ID 또는 undefined
+ */
+export function findPlayerWithAction(
+  players: Record<PlayerId, PlayerState>,
+  activePlayers: PlayerId[],
+  action: SpecialAction
+): PlayerId | undefined {
+  return activePlayers.find(pid => players[pid]?.selectedAction === action);
+}
+
+/**
+ * First Build 플레이어 찾기
+ */
+export function findFirstBuildPlayer(
+  players: Record<PlayerId, PlayerState>,
+  activePlayers: PlayerId[]
+): PlayerId | undefined {
+  return findPlayerWithAction(players, activePlayers, 'firstBuild');
+}
+
+/**
+ * First Move 플레이어 찾기
+ */
+export function findFirstMovePlayer(
+  players: Record<PlayerId, PlayerState>,
+  activePlayers: PlayerId[]
+): PlayerId | undefined {
+  return findPlayerWithAction(players, activePlayers, 'firstMove');
+}
+
+/**
+ * 현재 플레이어가 마지막 플레이어인지 확인
+ * @param currentPlayer 현재 플레이어
+ * @param playerOrder 플레이어 순서
+ * @returns 마지막 플레이어이면 true
+ */
+export function isLastPlayer(
+  currentPlayer: PlayerId,
+  playerOrder: PlayerId[]
+): boolean {
+  if (playerOrder.length === 0) return false;
+  return currentPlayer === playerOrder[playerOrder.length - 1];
+}
+
+/**
+ * 플레이어가 특정 행동을 선택했는지 확인
+ * @param player 플레이어 상태
+ * @param action 확인할 행동
+ * @returns 해당 행동을 선택했으면 true
+ */
+export function hasSelectedAction(
+  player: PlayerState | undefined,
+  action: SpecialAction
+): boolean {
+  return player?.selectedAction === action;
 }

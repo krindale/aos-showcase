@@ -380,6 +380,18 @@ export const GAME_CONSTANTS = {
   NORMAL_TRACK_LIMIT: 3,
   ENGINEER_TRACK_LIMIT: 4,
 
+  // 물품 이동 라운드
+  MOVE_GOODS_ROUNDS: 2,
+
+  // Production 큐브 수
+  PRODUCTION_CUBE_COUNT: 2,
+
+  // UI 딜레이 (ms)
+  PHASE_TRANSITION_DELAY: 100,
+
+  // 도시당 초기 큐브 수
+  INITIAL_CUBES_PER_CITY: 2,
+
   // 수입 감소 테이블
   INCOME_REDUCTION: [
     { min: 50, max: 999, reduction: 10 },

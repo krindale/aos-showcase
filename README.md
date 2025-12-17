@@ -13,6 +13,7 @@
 
 ## 주요 특징
 
+- **플레이어블 게임** - 2인 튜토리얼 게임 플레이 가능
 - **다크 테마** - 증기기관 시대의 산업적 느낌
 - **골드/브론즈 악센트** - 고급스러운 디자인
 - **Glassmorphism** - 모던한 반투명 효과
@@ -24,6 +25,7 @@
 | 페이지 | 경로 | 설명 |
 |--------|------|------|
 | **랜딩** | `/` | Hero 섹션, 게임보드 프리뷰, 피처 카드, 스탯 카운터 |
+| **게임** | `/game` | 2인 튜토리얼 인터랙티브 게임 (10단계 턴 시퀀스) |
 | **게임플레이** | `/gameplay` | 턴 시퀀스 타임라인, 트랙 건설 시뮬레이터 |
 | **특수 행동** | `/actions` | 7가지 특수 행동 카드 (3D 플립) |
 | **맵 갤러리** | `/maps` | 6개 맵 슬라이더 |
@@ -35,8 +37,10 @@
 Framework:    Next.js 14 (App Router)
 Styling:      Tailwind CSS
 Animation:    Framer Motion
+State:        Zustand
 Icons:        Lucide React
 Language:     TypeScript
+Testing:      Playwright (E2E)
 Deployment:   GitHub Pages
 ```
 
@@ -82,16 +86,24 @@ aos_showcase/
 │   │   ├── page.tsx              # 랜딩 페이지
 │   │   ├── layout.tsx            # 루트 레이아웃
 │   │   ├── globals.css           # 글로벌 스타일
-│   │   ├── gameplay/page.tsx     # 게임플레이 페이지
+│   │   ├── game/page.tsx         # 플레이어블 게임
+│   │   ├── gameplay/page.tsx     # 게임플레이 소개
 │   │   ├── actions/page.tsx      # 특수 행동 페이지
 │   │   ├── maps/page.tsx         # 맵 갤러리 페이지
 │   │   └── calculator/page.tsx   # 계산기 페이지
-│   └── components/
-│       ├── Navigation.tsx        # 네비게이션 바
-│       ├── Footer.tsx            # 푸터
-│       ├── HeroSection.tsx       # 히어로 섹션
-│       ├── GameBoardPreview.tsx  # 게임보드 프리뷰
-│       └── FeatureCards.tsx      # 피처 카드
+│   ├── components/
+│   │   ├── Navigation.tsx        # 네비게이션 바
+│   │   ├── Footer.tsx            # 푸터
+│   │   ├── HeroSection.tsx       # 히어로 섹션
+│   │   ├── GameBoardPreview.tsx  # 게임보드 프리뷰
+│   │   ├── FeatureCards.tsx      # 피처 카드
+│   │   └── game/                 # 게임 UI 컴포넌트
+│   ├── store/
+│   │   └── gameStore.ts          # Zustand 상태 관리
+│   └── types/
+│       └── game.ts               # 게임 타입 정의
+├── tests/
+│   └── game-phases.spec.ts       # E2E 테스트 (55개)
 ├── tailwind.config.ts            # Tailwind 설정
 ├── next.config.mjs               # Next.js 설정
 └── .github/workflows/deploy.yml  # GitHub Actions

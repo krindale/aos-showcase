@@ -13,7 +13,6 @@ import {
   ChevronRight,
   ChevronDown,
   Mountain,
-  TreePine,
   Waves,
   Home,
   X,

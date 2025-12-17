@@ -231,14 +231,18 @@ export default function PhasePanel() {
               className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2"
             >
               {(() => {
-                const currentIndex = activePlayers.indexOf(currentPlayer);
-                const isLastPlayer = currentIndex === activePlayers.length - 1;
-                if (isLastPlayer) {
-                  return '물품 이동 단계로';
-                } else {
-                  const nextPlayer = activePlayers[currentIndex + 1];
-                  return `${players[nextPlayer].name} 건설 차례로`;
+                // 클릭 후 상태 예측
+                const updatedMoves = { ...phaseState.playerMoves, [currentPlayer]: true };
+                const willAllBuilt = activePlayers.every(p => updatedMoves[p]);
+
+                if (!willAllBuilt) {
+                  // 아직 건설 안 한 플레이어 찾기
+                  const nextBuilder = activePlayers.find(p => !updatedMoves[p]);
+                  if (nextBuilder) {
+                    return `${players[nextBuilder].name} 건설 차례로`;
+                  }
                 }
+                return '물품 이동 단계로';
               })()}
               <ChevronRight size={16} />
             </button>

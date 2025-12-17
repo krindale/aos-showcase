@@ -61,15 +61,14 @@ export default function DiceRoller({ diceCount, onRoll, disabled = false }: Dice
               const DiceIcon = DICE_ICONS[value as keyof typeof DICE_ICONS];
               return (
                 <motion.div
-                  key={`dice-${index}`}
-                  initial={{ scale: 0, rotate: -180 }}
+                  key={`dice-${index}-${isRolling ? 'rolling' : 'done'}`}
+                  initial={{ scale: 0.8, opacity: 0.5 }}
                   animate={{
                     scale: 1,
-                    rotate: isRolling ? [0, 360] : 0,
+                    opacity: 1,
                   }}
                   transition={{
-                    duration: isRolling ? 0.1 : 0.3,
-                    repeat: isRolling ? Infinity : 0,
+                    duration: 0.15,
                   }}
                   className={`p-3 rounded-xl ${
                     isRolling
@@ -143,13 +142,7 @@ export default function DiceRoller({ diceCount, onRoll, disabled = false }: Dice
       >
         {isRolling ? (
           <>
-            <motion.span
-              animate={{ rotate: 360 }}
-              transition={{ duration: 0.5, repeat: Infinity }}
-            >
-              🎲
-            </motion.span>
-            굴리는 중...
+            🎲 굴리는 중...
           </>
         ) : results.length > 0 ? (
           '다시 굴리기'

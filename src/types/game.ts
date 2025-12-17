@@ -152,6 +152,7 @@ export interface AuctionState {
   highestBidder: PlayerId | null;
   passedPlayers: PlayerId[];
   bids: Record<PlayerId, number>;
+  lastActedPlayer: PlayerId | null;  // Turn Order 패스용 - 마지막 행동 플레이어
 }
 
 // === 현재 단계 임시 상태 ===

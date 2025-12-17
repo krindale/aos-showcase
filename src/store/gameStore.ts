@@ -235,6 +235,7 @@ interface GameStore extends GameState {
   // 플레이어 순서 경매
   placeBid: (playerId: PlayerId, amount: number) => void;
   passBid: (playerId: PlayerId) => void;
+  skipBid: (playerId: PlayerId) => void;  // Turn Order 패스용
   resolveAuction: () => void;
 
   // 행동 선택
@@ -399,6 +400,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             highestBidder: playerId,
             passedPlayers: [],
             bids: { [playerId]: amount } as Record<PlayerId, number>,
+            lastActedPlayer: playerId,
           },
         };
       }
@@ -412,6 +414,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           currentBidder: playerId,
           highestBid: amount,
           highestBidder: playerId,
+          lastActedPlayer: playerId,
           bids: {
             ...state.auction.bids,
             [playerId]: amount,
@@ -441,6 +444,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         auction: {
           ...state.auction,
           passedPlayers: newPassedPlayers,
+          lastActedPlayer: playerId,
         },
         logs: [
           ...state.logs,
@@ -449,6 +453,30 @@ export const useGameStore = create<GameStore>((set, get) => ({
             phase: state.currentPhase,
             player: playerId,
             action: `입찰 포기`,
+            timestamp: Date.now(),
+          },
+        ],
+      };
+    });
+  },
+
+  // Turn Order 패스: 탈락 없이 다음 입찰자로 넘어가기
+  skipBid: (playerId) => {
+    set((state) => {
+      if (!state.auction) return state;
+
+      return {
+        auction: {
+          ...state.auction,
+          lastActedPlayer: playerId,  // 마지막 행동자 업데이트 (passedPlayers에는 추가 안 함)
+        },
+        logs: [
+          ...state.logs,
+          {
+            turn: state.currentTurn,
+            phase: state.currentPhase,
+            player: playerId,
+            action: `Turn Order 패스 사용 (탈락 없음)`,
             timestamp: Date.now(),
           },
         ],
@@ -2295,14 +2323,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const incomeChanges: Partial<Record<PlayerId, number>> = {};
     state.activePlayers.forEach(p => { incomeChanges[p] = 0; });
 
-    for (const coord of path) {
-      // 도시가 아닌 헥스(트랙)만 카운트
-      const isCity = state.board.cities.some(c => hexCoordsEqual(c.coord, coord));
-      if (!isCity) {
-        const track = state.board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
-        if (track?.owner) {
-          incomeChanges[track.owner] = (incomeChanges[track.owner] || 0) + 1;
+    // 링크별로 수입 계산 (도시/마을 → 다음 도시/마을 = 1 링크)
+    // 룰북: "물품이 지나가는 각 완성된 철도 링크마다 해당 링크 소유자의 수입이 1 증가"
+    let linkStartIndex = 0;
+    const { cities, towns, trackTiles } = state.board;
+
+    for (let i = 1; i < path.length; i++) {
+      const coord = path[i];
+      const isCity = cities.some(c => hexCoordsEqual(c.coord, coord));
+      const isTown = towns.some(t => hexCoordsEqual(t.coord, coord));
+
+      if (isCity || isTown) {
+        // 이 링크(linkStartIndex → i) 구간의 트랙 소유자 찾기
+        for (let j = linkStartIndex + 1; j < i; j++) {
+          const track = trackTiles.find(t => hexCoordsEqual(t.coord, path[j]));
+          if (track?.owner) {
+            incomeChanges[track.owner] = (incomeChanges[track.owner] || 0) + 1;
+            break; // 링크당 한 번만 계산 (같은 링크 내 트랙은 같은 소유자)
+          }
         }
+        linkStartIndex = i; // 다음 링크 시작점 업데이트
       }
     }
 

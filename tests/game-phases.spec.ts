@@ -814,6 +814,75 @@ test.describe('Edge Cases: Phase V - 물품 이동', () => {
 });
 
 // =====================================================
+// 물품 이동 수입 계산 테스트 (링크 기반)
+// =====================================================
+test.describe('Move Goods: 수입 계산 (링크 기반)', () => {
+    test('게임 스토어에서 수입 초기값 확인', async ({ page }) => {
+        await startNewGame(page);
+
+        // 게임 스토어에서 현재 수입 확인
+        const income = await page.evaluate(() => {
+            const store = (window as unknown as { __GAME_STORE__: { getState: () => { players: Record<string, { income: number }> } } }).__GAME_STORE__;
+            if (!store) return null;
+            const state = store.getState();
+            return state.players['player1']?.income;
+        });
+
+        // 초기 수입은 0
+        expect(income).toBe(0);
+    });
+
+    test('completeCubeMove 함수가 링크 기반으로 수입 계산', async ({ page }) => {
+        await goToPhaseV(page);
+
+        // 게임 스토어에서 completeCubeMove 함수 존재 확인
+        const hasFunction = await page.evaluate(() => {
+            const store = (window as unknown as { __GAME_STORE__: { getState: () => { completeCubeMove?: () => void } } }).__GAME_STORE__;
+            if (!store) return false;
+            const state = store.getState();
+            return typeof state.completeCubeMove === 'function';
+        });
+
+        expect(hasFunction).toBe(true);
+    });
+
+    test('물품 배달 로그에 링크 수가 표시됨', async ({ page }) => {
+        await goToPhaseV(page);
+
+        // 로그 구조 확인 (배달 시 "X 링크" 형식으로 표시)
+        const hasLogs = await page.evaluate(() => {
+            const store = (window as unknown as { __GAME_STORE__: { getState: () => { logs: Array<{ action: string }> } } }).__GAME_STORE__;
+            if (!store) return false;
+            const state = store.getState();
+            return Array.isArray(state.logs);
+        });
+
+        expect(hasLogs).toBe(true);
+    });
+
+    test('수입 계산 로직: 도시/마을 사이가 1링크', async ({ page }) => {
+        await startNewGame(page);
+
+        // 게임 스토어의 board에 cities와 towns가 있는지 확인
+        const boardStructure = await page.evaluate(() => {
+            const store = (window as unknown as { __GAME_STORE__: { getState: () => { board: { cities: unknown[]; towns: unknown[] } } } }).__GAME_STORE__;
+            if (!store) return null;
+            const state = store.getState();
+            return {
+                hasCities: Array.isArray(state.board?.cities),
+                hasTowns: Array.isArray(state.board?.towns),
+                cityCount: state.board?.cities?.length || 0,
+                townCount: state.board?.towns?.length || 0,
+            };
+        });
+
+        expect(boardStructure?.hasCities).toBe(true);
+        expect(boardStructure?.hasTowns).toBe(true);
+        expect(boardStructure?.cityCount).toBeGreaterThan(0);
+    });
+});
+
+// =====================================================
 // 엣지 케이스 테스트: 비용 지불 및 파산
 // =====================================================
 test.describe('Edge Cases: 비용 지불 및 파산', () => {

@@ -13,6 +13,7 @@ export default function AuctionPanel() {
     playerOrder,
     placeBid,
     passBid,
+    skipBid,
     resolveAuction,
     nextPhase,
   } = useGameStore();
@@ -40,11 +41,15 @@ export default function AuctionPanel() {
 
     if (activePlayers.length === 0) return playerOrder[0];
 
-    // 마지막 입찰자 다음 플레이어
-    if (auction.highestBidder) {
-      const lastBidderIndex = activePlayers.indexOf(auction.highestBidder);
-      const nextIndex = (lastBidderIndex + 1) % activePlayers.length;
-      return activePlayers[nextIndex];
+    // lastActedPlayer 또는 highestBidder 다음 플레이어
+    // Turn Order 패스 시 lastActedPlayer가 업데이트됨
+    const lastActor = auction.lastActedPlayer || auction.highestBidder;
+    if (lastActor) {
+      const lastIndex = activePlayers.indexOf(lastActor);
+      if (lastIndex !== -1) {
+        const nextIndex = (lastIndex + 1) % activePlayers.length;
+        return activePlayers[nextIndex];
+      }
     }
 
     return activePlayers[0];
@@ -87,8 +92,7 @@ export default function AuctionPanel() {
 
   // Turn Order 패스 핸들러 (탈락 없이 패스)
   const handleTurnOrderPass = () => {
-    // Turn Order 패스는 탈락 없이 다음 입찰 기회를 얻음
-    // 현재는 간단하게 플래그만 설정
+    // 1. Turn Order 패스 사용 플래그 설정
     useGameStore.setState((state) => ({
       players: {
         ...state.players,
@@ -98,6 +102,9 @@ export default function AuctionPanel() {
         },
       },
     }));
+
+    // 2. skipBid 호출로 다음 입찰자로 진행 (탈락 없음)
+    skipBid(currentBidder);
   };
 
   // 경매 완료 처리

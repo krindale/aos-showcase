@@ -749,6 +749,10 @@ export function findCompletedLinks(board: BoardState): CompletedLink[] {
 
       if (!track) continue;
 
+      // owner가 null이 아닌 트랙만 찾았으므로 안전하게 추출
+      const trackOwner = track.owner;
+      if (!trackOwner) continue;
+
       // 트랙이 이 도시 방향으로 연결되어 있는지 확인
       const entryEdge = getOppositeEdge(edge);
       if (!track.edges.includes(entryEdge)) continue;
@@ -762,14 +766,14 @@ export function findCompletedLinks(board: BoardState): CompletedLink[] {
         track.coord,
         entryEdge,
         board,
-        track.owner!,
+        trackOwner,
         processedTrackIds
       );
 
       if (linkResult) {
         completedLinks.push({
           id: `link-${startPoint.col}-${startPoint.row}-${linkResult.endCity.col}-${linkResult.endCity.row}`,
-          owner: track.owner!,
+          owner: trackOwner,
           trackTiles: linkResult.trackTiles,
           startCity: startPoint,
           endCity: linkResult.endCity,

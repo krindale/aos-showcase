@@ -13,6 +13,7 @@ import {
   Factory,
   Mountain,
   Palmtree,
+  MapPin,
 } from 'lucide-react';
 
 const basePath = process.env.NODE_ENV === 'production' ? '/aos-showcase' : '';
@@ -43,6 +44,30 @@ const maps = [
   },
   {
     id: 2,
+    slug: 'korea',
+    name: 'Korea',
+    nameKo: '한국',
+    region: '한반도',
+    players: '3-6',
+    time: '120-180',
+    difficulty: 4,
+    theme: '동적 도시 색상',
+    icon: MapPin,
+    color: 'steam-blue',
+    bgColor: 'from-steam-blue/30 via-background-secondary to-background',
+    image: '/maps/korea.png',
+    description: '도시의 색상이 고정되지 않고, 현재 놓인 물품 큐브에 따라 동적으로 결정되는 독특한 맵입니다. 평양에서 부산까지 한반도 전역을 연결하세요.',
+    features: [
+      '도시 색상 = 현재 물품 색상',
+      '인접 도시 간 직접 철로 ($2)',
+      '신도시는 모두 회색 취급',
+      '평양/수원은 물품 보충 없음',
+    ],
+    specialRules: '물품은 같은 색 물품이 있는 도시로만 운반 가능. 산악 $3, 수원-서울/인천 $2',
+    playable: false,
+  },
+  {
+    id: 3,
     slug: 'western-us',
     name: 'Western U.S.',
     nameKo: '서부 미국',
@@ -65,7 +90,7 @@ const maps = [
     playable: false,
   },
   {
-    id: 3,
+    id: 4,
     slug: 'germany',
     name: 'Germany',
     nameKo: '독일',
@@ -88,7 +113,7 @@ const maps = [
     playable: false,
   },
   {
-    id: 4,
+    id: 5,
     slug: 'barbados',
     name: 'Barbados',
     nameKo: '바베이도스',
@@ -111,7 +136,7 @@ const maps = [
     playable: false,
   },
   {
-    id: 5,
+    id: 6,
     slug: 'st-lucia',
     name: 'St. Lucia',
     nameKo: '세인트루시아',
@@ -184,6 +209,30 @@ export default function MapsPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Fixed height container to prevent layout shifts */}
           <div className="h-[750px] relative">
+            {/* Left Arrow - 카드 중간 왼쪽 */}
+            <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 z-20">
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={prevMap}
+                className="p-4 rounded-full bg-background/80 backdrop-blur-sm border border-glass-border shadow-lg hover:bg-background transition-colors"
+              >
+                <ChevronLeft className="w-8 h-8 text-foreground" />
+              </motion.button>
+            </div>
+
+            {/* Right Arrow - 카드 중간 오른쪽 */}
+            <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-20">
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={nextMap}
+                className="p-4 rounded-full bg-background/80 backdrop-blur-sm border border-glass-border shadow-lg hover:bg-background transition-colors"
+              >
+                <ChevronRight className="w-8 h-8 text-foreground" />
+              </motion.button>
+            </div>
+
             <AnimatePresence mode="wait">
               <motion.div
                 key={currentMap.id}
@@ -315,49 +364,26 @@ export default function MapsPage() {
             </AnimatePresence>
           </div>
 
-          {/* Navigation */}
-          <div className="flex items-center justify-between mt-8">
-            {/* Prev Button */}
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={prevMap}
-              className="p-3 rounded-xl glass hover:bg-glass-hover transition-colors"
-            >
-              <ChevronLeft className="w-6 h-6 text-foreground" />
-            </motion.button>
-
-            {/* Map Indicators */}
-            <div className="flex items-center gap-3">
-              {maps.map((map, index) => (
-                <button
-                  key={map.id}
-                  onClick={() => setCurrentIndex(index)}
-                  className={`group relative`}
-                >
-                  <div
-                    className={`w-3 h-3 rounded-full transition-all ${
-                      index === currentIndex
-                        ? `bg-${map.color} scale-125`
-                        : 'bg-foreground-muted hover:bg-foreground-secondary'
-                    }`}
-                  />
-                  <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs text-foreground-muted whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity">
-                    {map.name}
-                  </span>
-                </button>
-              ))}
-            </div>
-
-            {/* Next Button */}
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={nextMap}
-              className="p-3 rounded-xl glass hover:bg-glass-hover transition-colors"
-            >
-              <ChevronRight className="w-6 h-6 text-foreground" />
-            </motion.button>
+          {/* Map Indicators */}
+          <div className="flex items-center justify-center gap-3 mt-8">
+            {maps.map((map, index) => (
+              <button
+                key={map.id}
+                onClick={() => setCurrentIndex(index)}
+                className={`group relative`}
+              >
+                <div
+                  className={`w-3 h-3 rounded-full transition-all ${
+                    index === currentIndex
+                      ? `bg-${map.color} scale-125`
+                      : 'bg-foreground-muted hover:bg-foreground-secondary'
+                  }`}
+                />
+                <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs text-foreground-muted whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity">
+                  {map.name}
+                </span>
+              </button>
+            ))}
           </div>
         </div>
       </section>

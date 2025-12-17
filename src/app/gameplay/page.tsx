@@ -152,18 +152,45 @@ const turnCategories = [
 // 모든 단계를 평탄화 (애니메이션 인덱스용)
 const allPhases = turnCategories.flatMap(cat => cat.phases);
 
-const terrainTypes = [
-  { name: '평지', cost: 2, icon: Home, color: 'bg-steam-green/20 text-steam-green' },
-  { name: '마을', cost: 3, icon: Building2, color: 'bg-steam-blue/20 text-steam-blue' },
-  { name: '산', cost: 4, icon: Mountain, color: 'bg-steam-red/20 text-steam-red' },
-  { name: '숲', cost: 3, icon: TreePine, color: 'bg-steam-green/30 text-steam-green' },
-  { name: '강', cost: 3, icon: Waves, color: 'bg-steam-blue/30 text-steam-blue' },
+// 트랙 건설 비용 (매뉴얼 기준)
+const trackCosts = {
+  // 배치 비용 (Placing)
+  placing: {
+    simple: { plain: 2, river: 3, mountain: 4 },      // 단순 트랙
+    coexist: { plain: 3, river: 4, mountain: 5 },     // 복합 공존
+    crossing: { plain: 4, river: 5, mountain: 6 },    // 복합 교차
+    town: { base: 1, perTrack: 1 },                   // 마을: $1 + 연결트랙당 $1
+  },
+  // 교체 비용 (Replacing)
+  replacing: {
+    toCrossing: 3,    // 단순 → 복합 교차
+    inTown: 3,        // 마을 내 교체
+    other: 2,         // 기타 모든 교체
+  },
+  // 방향 전환 비용 (Redirecting)
+  redirecting: 2,
+};
+
+// 시뮬레이터용 선택 항목
+const trackTypes = [
+  { id: 'simple', name: '단순 트랙', icon: Train, color: 'steam-green' },
+  { id: 'coexist', name: '복합 공존', icon: Train, color: 'steam-blue' },
+  { id: 'crossing', name: '복합 교차', icon: Train, color: 'steam-purple' },
+  { id: 'town', name: '마을 트랙', icon: Home, color: 'steam-yellow' },
+];
+
+const terrainOptions = [
+  { id: 'plain', name: '평지', icon: Home, color: 'steam-green' },
+  { id: 'river', name: '강', icon: Waves, color: 'steam-blue' },
+  { id: 'mountain', name: '산', icon: Mountain, color: 'steam-red' },
 ];
 
 export default function GameplayPage() {
   const [expandedCategories, setExpandedCategories] = useState<string[]>(['preparation']);
   const [activePhase, setActivePhase] = useState(0); // 전체 10개 중 인덱스
-  const [selectedTerrain, setSelectedTerrain] = useState<number[]>([]);
+  const [selectedTrackType, setSelectedTrackType] = useState<string>('simple');
+  const [selectedTerrain, setSelectedTerrain] = useState<string>('plain');
+  const [townConnections, setTownConnections] = useState<number>(2);
   const [animationPhase, setAnimationPhase] = useState<number | null>(null);
   const heroRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -172,7 +199,18 @@ export default function GameplayPage() {
   const isTimelineInView = useInView(timelineRef, { once: true, margin: '-100px' });
   const isTrackInView = useInView(trackRef, { once: true, margin: '-100px' });
 
-  const totalCost = selectedTerrain.reduce((sum, idx) => sum + terrainTypes[idx].cost, 0);
+  // 비용 계산
+  const calculateCost = () => {
+    if (selectedTrackType === 'town') {
+      return trackCosts.placing.town.base + (trackCosts.placing.town.perTrack * townConnections);
+    }
+    const trackType = trackCosts.placing[selectedTrackType as keyof typeof trackCosts.placing];
+    if (typeof trackType === 'object' && 'plain' in trackType) {
+      return trackType[selectedTerrain as keyof typeof trackType] as number;
+    }
+    return 0;
+  };
+  const totalCost = calculateCost();
 
   const toggleCategory = (categoryId: string) => {
     setExpandedCategories(prev =>
@@ -414,160 +452,227 @@ export default function GameplayPage() {
             initial={{ opacity: 0, y: 30 }}
             animate={isTrackInView ? { opacity: 1, y: 0 } : {}}
             transition={{ duration: 0.6 }}
-            className="text-center mb-16"
+            className="text-center mb-12"
           >
             <span className="text-accent text-sm tracking-widest uppercase mb-4 block">
-              Track Building
+              Track Building Costs
             </span>
             <h2 className="font-display text-4xl font-bold text-foreground mb-4">
-              트랙 건설 시뮬레이터
+              트랙 건설 비용표
             </h2>
             <p className="text-foreground-secondary max-w-xl mx-auto">
-              지형 타일을 선택하여 트랙 건설 비용을 계산해보세요.
-              최대 3개까지 선택할 수 있습니다.
+              트랙 유형과 지형에 따른 건설 비용을 확인하세요.
             </p>
           </motion.div>
 
-          <div className="grid lg:grid-cols-2 gap-12 items-center">
-            {/* Terrain Selection */}
+          {/* 비용표 3개 카드 */}
+          <div className="grid lg:grid-cols-3 gap-6 mb-12">
+            {/* 배치 비용 (Placing) */}
             <motion.div
-              initial={{ opacity: 0, x: -30 }}
-              animate={isTrackInView ? { opacity: 1, x: 0 } : {}}
-              transition={{ duration: 0.6, delay: 0.2 }}
+              initial={{ opacity: 0, y: 20 }}
+              animate={isTrackInView ? { opacity: 1, y: 0 } : {}}
+              transition={{ duration: 0.5, delay: 0.1 }}
+              className="glass-card p-6 rounded-2xl"
             >
-              <div className="glass-card p-8 rounded-2xl">
-                <h3 className="font-display text-xl font-semibold text-foreground mb-6">
-                  지형 선택 (최대 3개)
-                </h3>
-
-                <div className="grid grid-cols-3 gap-4 mb-8">
-                  {terrainTypes.map((terrain, index) => (
-                    <motion.button
-                      key={terrain.name}
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => {
-                        if (selectedTerrain.includes(index)) {
-                          setSelectedTerrain(selectedTerrain.filter((i) => i !== index));
-                        } else if (selectedTerrain.length < 3) {
-                          setSelectedTerrain([...selectedTerrain, index]);
-                        }
-                      }}
-                      className={`p-4 rounded-xl border-2 transition-all ${
-                        selectedTerrain.includes(index)
-                          ? 'border-accent bg-accent/10'
-                          : 'border-glass-border hover:border-accent/50'
-                      }`}
-                    >
-                      <div className={`w-10 h-10 rounded-lg ${terrain.color}
-                        flex items-center justify-center mx-auto mb-2`}>
-                        <terrain.icon className="w-5 h-5" />
-                      </div>
-                      <div className="text-sm font-medium text-foreground">
-                        {terrain.name}
-                      </div>
-                      <div className="text-xs text-accent">${terrain.cost}</div>
-                    </motion.button>
-                  ))}
+              <h3 className="font-display text-lg font-semibold text-accent mb-4 flex items-center gap-2">
+                <Train className="w-5 h-5" />
+                배치 비용 (Placing)
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-glass-border">
+                      <th className="text-left py-2 text-foreground-secondary font-normal">타일 유형</th>
+                      <th className="text-center py-2 text-steam-green">평지</th>
+                      <th className="text-center py-2 text-steam-blue">강</th>
+                      <th className="text-center py-2 text-steam-red">산</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b border-glass-border/50">
+                      <td className="py-2 text-foreground">단순 트랙</td>
+                      <td className="text-center text-foreground font-bold">$2</td>
+                      <td className="text-center text-foreground font-bold">$3</td>
+                      <td className="text-center text-foreground font-bold">$4</td>
+                    </tr>
+                    <tr className="border-b border-glass-border/50">
+                      <td className="py-2 text-foreground">복합 공존</td>
+                      <td className="text-center text-foreground font-bold">$3</td>
+                      <td className="text-center text-foreground font-bold">$4</td>
+                      <td className="text-center text-foreground font-bold">$5</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 text-foreground">복합 교차</td>
+                      <td className="text-center text-foreground font-bold">$4</td>
+                      <td className="text-center text-foreground font-bold">$5</td>
+                      <td className="text-center text-foreground font-bold">$6</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-4 p-3 rounded-lg bg-steam-yellow/10 border border-steam-yellow/30">
+                <div className="flex items-center gap-2 text-steam-yellow text-sm font-medium mb-1">
+                  <Home className="w-4 h-4" />
+                  마을 트랙
                 </div>
-
-                {/* Selected */}
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="text-foreground-secondary text-sm">선택된 지형:</span>
-                  <div className="flex gap-2">
-                    {selectedTerrain.length === 0 ? (
-                      <span className="text-foreground-muted text-sm">없음</span>
-                    ) : (
-                      selectedTerrain.map((idx) => (
-                        <span
-                          key={idx}
-                          className="px-2 py-1 rounded bg-accent/10 text-accent text-sm"
-                        >
-                          {terrainTypes[idx].name}
-                        </span>
-                      ))
-                    )}
-                  </div>
+                <div className="text-foreground-secondary text-xs">
+                  $1 (기본) + 연결 트랙당 $1
                 </div>
-
-                <button
-                  onClick={() => setSelectedTerrain([])}
-                  className="text-sm text-foreground-muted hover:text-accent transition-colors"
-                >
-                  선택 초기화
-                </button>
+                <div className="text-foreground-muted text-xs mt-1">
+                  예: 3방향 연결 = $1 + $3 = $4
+                </div>
               </div>
             </motion.div>
 
-            {/* Cost Calculation */}
+            {/* 교체 비용 (Replacing) */}
             <motion.div
-              initial={{ opacity: 0, x: 30 }}
-              animate={isTrackInView ? { opacity: 1, x: 0 } : {}}
-              transition={{ duration: 0.6, delay: 0.4 }}
+              initial={{ opacity: 0, y: 20 }}
+              animate={isTrackInView ? { opacity: 1, y: 0 } : {}}
+              transition={{ duration: 0.5, delay: 0.2 }}
+              className="glass-card p-6 rounded-2xl"
             >
-              <div className="glass-card p-8 rounded-2xl text-center">
-                <h3 className="font-display text-xl font-semibold text-foreground mb-8">
-                  건설 비용 계산
-                </h3>
+              <h3 className="font-display text-lg font-semibold text-steam-blue mb-4 flex items-center gap-2">
+                <RefreshCw className="w-5 h-5" />
+                교체 비용 (Replacing)
+              </h3>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between p-3 rounded-lg bg-glass">
+                  <span className="text-foreground text-sm">단순 → 복합 교차</span>
+                  <span className="text-accent font-bold">$3</span>
+                </div>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-glass">
+                  <span className="text-foreground text-sm">마을 내 교체</span>
+                  <span className="text-accent font-bold">$3</span>
+                </div>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-glass">
+                  <span className="text-foreground text-sm">기타 모든 교체</span>
+                  <span className="text-accent font-bold">$2</span>
+                </div>
+              </div>
+              <div className="mt-4 p-3 rounded-lg bg-steam-purple/10 border border-steam-purple/30 text-xs text-foreground-secondary">
+                <span className="text-steam-purple font-medium">참고:</span> 교체 시 지형 비용 추가 없음
+              </div>
+            </motion.div>
 
+            {/* 방향 전환 비용 (Redirecting) */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={isTrackInView ? { opacity: 1, y: 0 } : {}}
+              transition={{ duration: 0.5, delay: 0.3 }}
+              className="glass-card p-6 rounded-2xl"
+            >
+              <h3 className="font-display text-lg font-semibold text-steam-purple mb-4 flex items-center gap-2">
+                <ArrowRight className="w-5 h-5" />
+                방향 전환 (Redirecting)
+              </h3>
+              <div className="flex items-center justify-between p-4 rounded-lg bg-glass mb-4">
+                <span className="text-foreground">모든 방향 전환</span>
+                <span className="text-accent font-bold text-xl">$2</span>
+              </div>
+              <div className="space-y-2 text-xs text-foreground-secondary">
+                <p>• 미완성 트랙 구간 끝에서만 가능</p>
+                <p>• 소유권이 있거나 미소유 상태여야 함</p>
+                <p>• 마을의 트랙은 방향 전환 불가</p>
+              </div>
+            </motion.div>
+          </div>
+
+          {/* 비용 계산기 */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={isTrackInView ? { opacity: 1, y: 0 } : {}}
+            transition={{ duration: 0.5, delay: 0.4 }}
+            className="glass-card p-8 rounded-2xl"
+          >
+            <h3 className="font-display text-xl font-semibold text-foreground mb-6 text-center">
+              비용 계산기
+            </h3>
+
+            <div className="grid md:grid-cols-3 gap-8 items-center">
+              {/* 트랙 유형 선택 */}
+              <div>
+                <label className="text-foreground-secondary text-sm mb-3 block">트랙 유형</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {trackTypes.map((track) => (
+                    <button
+                      key={track.id}
+                      onClick={() => setSelectedTrackType(track.id)}
+                      className={`p-3 rounded-lg text-sm transition-all ${
+                        selectedTrackType === track.id
+                          ? `bg-${track.color}/20 border-2 border-${track.color} text-${track.color}`
+                          : 'bg-glass border-2 border-transparent text-foreground-secondary hover:border-glass-border'
+                      }`}
+                    >
+                      {track.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 지형 선택 (마을이 아닐 때만) */}
+              <div>
+                {selectedTrackType !== 'town' ? (
+                  <>
+                    <label className="text-foreground-secondary text-sm mb-3 block">지형</label>
+                    <div className="flex gap-2">
+                      {terrainOptions.map((terrain) => (
+                        <button
+                          key={terrain.id}
+                          onClick={() => setSelectedTerrain(terrain.id)}
+                          className={`flex-1 p-3 rounded-lg text-sm transition-all flex flex-col items-center gap-1 ${
+                            selectedTerrain === terrain.id
+                              ? `bg-${terrain.color}/20 border-2 border-${terrain.color} text-${terrain.color}`
+                              : 'bg-glass border-2 border-transparent text-foreground-secondary hover:border-glass-border'
+                          }`}
+                        >
+                          <terrain.icon className="w-5 h-5" />
+                          {terrain.name}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <label className="text-foreground-secondary text-sm mb-3 block">연결 트랙 수</label>
+                    <div className="flex gap-2">
+                      {[1, 2, 3, 4].map((num) => (
+                        <button
+                          key={num}
+                          onClick={() => setTownConnections(num)}
+                          className={`flex-1 p-3 rounded-lg text-sm font-bold transition-all ${
+                            townConnections === num
+                              ? 'bg-steam-yellow/20 border-2 border-steam-yellow text-steam-yellow'
+                              : 'bg-glass border-2 border-transparent text-foreground-secondary hover:border-glass-border'
+                          }`}
+                        >
+                          {num}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* 결과 */}
+              <div className="text-center">
                 <motion.div
                   key={totalCost}
                   initial={{ scale: 1.2, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  className="mb-8"
                 >
-                  <div className="counter-number text-6xl md:text-7xl">
+                  <div className="counter-number text-5xl md:text-6xl">
                     ${totalCost}
                   </div>
-                  <div className="text-foreground-secondary mt-2">
-                    총 건설 비용
+                  <div className="text-foreground-secondary mt-2 text-sm">
+                    {selectedTrackType === 'town'
+                      ? `$1 + $${townConnections} (${townConnections}연결)`
+                      : `${trackTypes.find(t => t.id === selectedTrackType)?.name} + ${terrainOptions.find(t => t.id === selectedTerrain)?.name}`
+                    }
                   </div>
                 </motion.div>
-
-                <div className="space-y-3 text-left">
-                  {selectedTerrain.length > 0 ? (
-                    selectedTerrain.map((idx, i) => (
-                      <div
-                        key={i}
-                        className="flex items-center justify-between py-2 border-b border-glass-border"
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className={`w-6 h-6 rounded ${terrainTypes[idx].color}
-                            flex items-center justify-center`}>
-                            {(() => {
-                              const Icon = terrainTypes[idx].icon;
-                              return <Icon className="w-3 h-3" />;
-                            })()}
-                          </div>
-                          <span className="text-foreground">
-                            {terrainTypes[idx].name}
-                          </span>
-                        </div>
-                        <span className="text-accent font-medium">
-                          ${terrainTypes[idx].cost}
-                        </span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-center py-8 text-foreground-muted">
-                      지형을 선택하면 비용이 표시됩니다
-                    </div>
-                  )}
-                </div>
-
-                {selectedTerrain.length > 0 && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="mt-6 p-4 rounded-xl bg-accent/10 text-sm text-foreground-secondary"
-                  >
-                    <span className="text-accent font-medium">Tip:</span> 부채 없이
-                    건설하려면 충분한 현금이 필요합니다!
-                  </motion.div>
-                )}
               </div>
-            </motion.div>
-          </div>
+            </div>
+          </motion.div>
         </div>
       </section>
 
@@ -729,7 +834,7 @@ export default function GameplayPage() {
 
                 {/* Phase 1: Issue Shares - 주식 발행 */}
                 {animationPhase === 0 && (
-                  <div className="flex flex-col items-center gap-6 w-full">
+                  <div className="flex flex-col items-center gap-5 w-full">
                     {/* 주식 카드들 */}
                     <div className="flex justify-center gap-4">
                       {[1, 2, 3].map((shareNum) => (
@@ -787,11 +892,27 @@ export default function GameplayPage() {
                       </motion.span>
                     </motion.div>
 
+                    {/* 비용 지불 안내 */}
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 2.8 }}
+                      className="flex items-center gap-3 p-3 rounded-lg bg-steam-purple/10 border border-steam-purple/30"
+                    >
+                      <DollarSign className="w-5 h-5 text-steam-purple" />
+                      <div className="text-sm">
+                        <span className="text-steam-purple font-medium">비용 지불:</span>
+                        <span className="text-foreground-secondary"> 매 턴 주식 1주당 </span>
+                        <span className="text-steam-red font-bold">-$1</span>
+                        <span className="text-foreground-secondary"> 지불</span>
+                      </div>
+                    </motion.div>
+
                     {/* 경고 메시지 */}
                     <motion.div
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      transition={{ delay: 2.8 }}
+                      transition={{ delay: 3.3 }}
                       className="text-center p-3 rounded-lg bg-steam-red/10 border border-steam-red/30"
                     >
                       <span className="text-steam-red text-sm">⚠️ 주식 1주당 게임 종료 시 -3 승점</span>
@@ -802,30 +923,21 @@ export default function GameplayPage() {
                 {/* Phase 2: Turn Order Auction - 경매장 */}
                 {animationPhase === 1 && (
                   <div className="w-full">
-                    {/* 경매대 배경 */}
-                    <div className="relative mb-8">
-                      <motion.div
-                        initial={{ scaleX: 0 }}
-                        animate={{ scaleX: 1 }}
-                        className="h-1 bg-accent/30 rounded-full mb-6"
-                      />
-                      <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-full">
-                        <motion.div
-                          initial={{ scale: 0 }}
-                          animate={{ scale: 1 }}
-                          className="text-accent text-xs tracking-wider"
-                        >
-                          턴 순서 경매
-                        </motion.div>
-                      </div>
-                    </div>
+                    {/* 경매 타이틀 */}
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="text-center mb-6"
+                    >
+                      <span className="text-accent text-sm tracking-wider">턴 순서 경매</span>
+                    </motion.div>
 
-                    {/* 플레이어들 + 입찰 */}
-                    <div className="flex justify-center gap-8 mb-6">
+                    {/* 경매 진행 과정 */}
+                    <div className="flex justify-center gap-6 mb-8">
                       {[
-                        { player: 'P1', bids: ['$2', '$3'], color: 'steam-blue', winner: false },
-                        { player: 'P2', bids: ['$3', '$5'], color: 'steam-green', winner: true },
-                        { player: 'P3', bids: ['$4'], color: 'steam-red', winner: false },
+                        { player: 'P1', bid: '$3', passOrder: 2, color: 'steam-blue' },
+                        { player: 'P2', bid: '$5', passOrder: null, color: 'steam-green' },
+                        { player: 'P3', bid: '$2', passOrder: 1, color: 'steam-red' },
                       ].map((p, pIndex) => (
                         <motion.div
                           key={p.player}
@@ -834,61 +946,105 @@ export default function GameplayPage() {
                           transition={{ delay: pIndex * 0.15 }}
                           className="text-center relative"
                         >
+                          {/* 입찰 말풍선 */}
+                          <motion.div
+                            initial={{ opacity: 0, y: 10, scale: 0.8 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            transition={{ delay: 0.5 + pIndex * 0.3 }}
+                            className={`px-3 py-1 rounded-full mb-3 ${p.passOrder === null ? 'bg-accent text-background' : 'bg-glass'} text-sm font-bold`}
+                          >
+                            {p.bid}
+                          </motion.div>
+
                           {/* 플레이어 아바타 */}
                           <motion.div
-                            animate={p.winner ? {
+                            animate={p.passOrder === null ? {
                               scale: [1, 1.1, 1],
                               boxShadow: ['0 0 0px rgba(245,158,11,0)', '0 0 20px rgba(245,158,11,0.5)', '0 0 0px rgba(245,158,11,0)']
                             } : {}}
-                            transition={{ delay: 2.5, duration: 1, repeat: Infinity }}
-                            className={`w-14 h-14 rounded-full bg-${p.color}/20 border-2 ${p.winner ? 'border-accent' : `border-${p.color}/50`} flex items-center justify-center mx-auto mb-2 relative`}
+                            transition={{ delay: 3.5, duration: 1, repeat: Infinity }}
+                            className={`w-12 h-12 rounded-full bg-${p.color}/20 border-2 ${p.passOrder === null ? 'border-accent' : `border-${p.color}/50`} flex items-center justify-center mx-auto mb-2 relative`}
                           >
-                            <Users className={`w-7 h-7 ${p.winner ? 'text-accent' : `text-${p.color}`}`} />
-                            {p.winner && (
+                            <Users className={`w-6 h-6 ${p.passOrder === null ? 'text-accent' : `text-${p.color}`}`} />
+                            {p.passOrder === null && (
                               <motion.div
                                 initial={{ scale: 0, y: 10 }}
                                 animate={{ scale: 1, y: 0 }}
-                                transition={{ delay: 2.8, type: 'spring' }}
-                                className="absolute -top-4 text-xl"
+                                transition={{ delay: 3.5, type: 'spring' }}
+                                className="absolute -top-4 text-lg"
                               >
                                 👑
                               </motion.div>
                             )}
-                          </motion.div>
-                          <div className={`text-sm font-medium ${p.winner ? 'text-accent' : 'text-foreground'}`}>{p.player}</div>
-
-                          {/* 입찰 말풍선 */}
-                          <div className="absolute -top-12 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1">
-                            {p.bids.map((bid, bidIndex) => (
+                            {p.passOrder !== null && (
                               <motion.div
-                                key={bidIndex}
-                                initial={{ opacity: 0, y: 20, scale: 0.8 }}
-                                animate={{ opacity: [0, 1, 1, 0.3], y: [20, 0, 0, -10], scale: [0.8, 1, 1, 0.9] }}
-                                transition={{
-                                  delay: 0.5 + pIndex * 0.3 + bidIndex * 0.8,
-                                  duration: 1.5,
-                                }}
-                                className={`px-3 py-1 rounded-full ${bidIndex === p.bids.length - 1 && p.winner ? 'bg-accent text-background' : 'bg-glass'} text-sm font-bold whitespace-nowrap`}
+                                initial={{ opacity: 0, scale: 0 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                transition={{ delay: 1.5 + (p.passOrder - 1) * 0.5 }}
+                                className="absolute -top-3 -right-3 w-6 h-6 rounded-full bg-steam-red text-background text-xs font-bold flex items-center justify-center"
                               >
-                                {bid}
+                                ✗
                               </motion.div>
-                            ))}
-                          </div>
+                            )}
+                          </motion.div>
+                          <div className={`text-sm font-medium ${p.passOrder === null ? 'text-accent' : 'text-foreground'}`}>{p.player}</div>
                         </motion.div>
                       ))}
                     </div>
 
-                    {/* 결과 */}
+                    {/* 순서 결정 결과 */}
                     <motion.div
-                      initial={{ opacity: 0, scale: 0.9 }}
-                      animate={{ opacity: 1, scale: 1 }}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
                       transition={{ delay: 2.5 }}
-                      className="text-center p-3 rounded-lg bg-accent/10 border border-accent/30"
+                      className="bg-glass rounded-xl p-4"
                     >
-                      <span className="text-accent font-bold">P2</span>
-                      <span className="text-foreground-secondary">가 </span>
-                      <span className="text-accent font-bold">$5</span>
-                      <span className="text-foreground-secondary">로 선턴 획득!</span>
+                      <div className="text-foreground-secondary text-xs mb-3 text-center">새로운 플레이어 순서</div>
+                      <div className="flex justify-center items-center gap-3">
+                        {[
+                          { player: 'P2', label: '1st', color: 'steam-green', reason: '최고 입찰 $5', final: true },
+                          { player: 'P1', label: '2nd', color: 'steam-blue', reason: '두 번째 포기', final: false },
+                          { player: 'P3', label: '3rd', color: 'steam-red', reason: '첫 번째 포기', final: false },
+                        ].map((p, i) => (
+                          <motion.div
+                            key={p.player}
+                            initial={{ opacity: 0, x: i === 0 ? 50 : i === 2 ? -50 : 0, y: i === 1 ? 30 : 0 }}
+                            animate={{ opacity: 1, x: 0, y: 0 }}
+                            transition={{ delay: 3 + i * 0.3, type: 'spring' }}
+                            className="text-center"
+                          >
+                            <div className={`w-10 h-10 rounded-full bg-${p.color}/20 border-2 ${p.final ? 'border-accent' : `border-${p.color}/50`} flex items-center justify-center mx-auto mb-1`}>
+                              <span className={`text-sm font-bold ${p.final ? 'text-accent' : `text-${p.color}`}`}>{p.player.slice(1)}</span>
+                            </div>
+                            <motion.div
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              transition={{ delay: 3.5 + i * 0.2 }}
+                              className={`text-xs font-bold ${p.final ? 'text-accent' : 'text-foreground-secondary'}`}
+                            >
+                              {p.label}
+                            </motion.div>
+                            <motion.div
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              transition={{ delay: 4 + i * 0.2 }}
+                              className="text-[10px] text-foreground-muted mt-1"
+                            >
+                              {p.reason}
+                            </motion.div>
+                          </motion.div>
+                        ))}
+                      </div>
+                    </motion.div>
+
+                    {/* 비용 안내 */}
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: 4.5 }}
+                      className="text-center mt-4 text-xs text-foreground-muted"
+                    >
+                      첫 포기자: 무료 | 나머지: 입찰액의 절반(올림) 지불 | 최종 2인: 전액 지불
                     </motion.div>
                   </div>
                 )}
@@ -896,8 +1052,8 @@ export default function GameplayPage() {
                 {/* Phase 3: Action Selection - 7개 행동 카드 */}
                 {animationPhase === 2 && (
                   <div className="w-full flex flex-col items-center">
-                    {/* 상단 4개 */}
-                    <div className="flex justify-center gap-3 mb-3">
+                    {/* 상단 4개 - 카드 15% 확대, 아이콘/텍스트 2배 */}
+                    <div className="flex justify-center gap-4 mb-4">
                       {[
                         { name: '선이동', icon: '➡️', color: 'steam-green' },
                         { name: '선건설', icon: '🔨', color: 'steam-blue' },
@@ -909,15 +1065,15 @@ export default function GameplayPage() {
                           initial={{ opacity: 0, y: 30, rotateY: 180 }}
                           animate={{ opacity: 1, y: 0, rotateY: 0 }}
                           transition={{ delay: i * 0.1, duration: 0.4 }}
-                          className={`w-16 h-24 rounded-lg bg-glass border-2 border-${action.color}/50 flex flex-col items-center justify-center shadow-lg`}
+                          className={`w-[74px] h-[110px] rounded-xl bg-glass border-2 border-${action.color}/50 flex flex-col items-center justify-center shadow-lg hover:scale-105 transition-transform`}
                         >
-                          <span className="text-2xl mb-1">{action.icon}</span>
-                          <span className="text-[8px] text-foreground-secondary text-center px-1">{action.name}</span>
+                          <span className="text-4xl mb-2">{action.icon}</span>
+                          <span className="text-sm text-foreground-secondary text-center px-1 font-medium">{action.name}</span>
                         </motion.div>
                       ))}
                     </div>
-                    {/* 하단 3개 */}
-                    <div className="flex justify-center gap-3">
+                    {/* 하단 3개 - 카드 15% 확대, 아이콘/텍스트 2배 */}
+                    <div className="flex justify-center gap-4">
                       {[
                         { name: '도시화', icon: '🏙️', color: 'steam-purple' },
                         { name: '생산', icon: '📦', color: 'steam-yellow' },
@@ -928,10 +1084,10 @@ export default function GameplayPage() {
                           initial={{ opacity: 0, y: 30, rotateY: 180 }}
                           animate={{ opacity: 1, y: 0, rotateY: 0 }}
                           transition={{ delay: 0.4 + i * 0.1, duration: 0.4 }}
-                          className={`w-16 h-24 rounded-lg bg-glass border-2 border-${action.color}/50 flex flex-col items-center justify-center shadow-lg`}
+                          className={`w-[74px] h-[110px] rounded-xl bg-glass border-2 border-${action.color}/50 flex flex-col items-center justify-center shadow-lg hover:scale-105 transition-transform`}
                         >
-                          <span className="text-2xl mb-1">{action.icon}</span>
-                          <span className="text-[8px] text-foreground-secondary text-center px-1">{action.name}</span>
+                          <span className="text-4xl mb-2">{action.icon}</span>
+                          <span className="text-sm text-foreground-secondary text-center px-1 font-medium">{action.name}</span>
                         </motion.div>
                       ))}
                     </div>
@@ -952,41 +1108,40 @@ export default function GameplayPage() {
                 {/* Phase 4: Track Building */}
                 {animationPhase === 3 && (
                   <div className="flex flex-col items-center gap-4 w-full">
-                    <div className="flex items-center gap-2">
+                    {/* 트랙 건설 애니메이션 - 1.5배 확대 */}
+                    <div className="flex items-center gap-3 mb-4">
                       {/* 도시 A */}
                       <motion.div
                         initial={{ scale: 0 }}
                         animate={{ scale: 1 }}
-                        className="w-14 h-14 rounded-xl bg-steam-blue/30 border-2 border-steam-blue flex items-center justify-center relative"
+                        className="w-[72px] h-[72px] rounded-xl bg-steam-blue/30 border-2 border-steam-blue flex items-center justify-center relative"
                       >
-                        <Building2 className="w-7 h-7 text-steam-blue" />
-                        <span className="absolute -bottom-5 text-xs text-foreground-secondary">A</span>
+                        <Building2 className="w-9 h-9 text-steam-blue" />
+                        <span className="absolute -bottom-5 text-xs text-foreground-secondary font-medium">A</span>
                       </motion.div>
 
-                      {/* 트랙 세그먼트들 */}
-                      {[0, 1, 2].map((i) => (
+                      {/* 트랙 세그먼트들: 평지, 산, 평지 - 1.5배 확대 */}
+                      {[
+                        { terrain: '평지', cost: 2, color: 'steam-green' },
+                        { terrain: '산', cost: 4, color: 'steam-red' },
+                        { terrain: '평지', cost: 2, color: 'steam-green' },
+                      ].map((track, i) => (
                         <motion.div
                           key={i}
                           initial={{ scaleX: 0, opacity: 0 }}
                           animate={{ scaleX: 1, opacity: 1 }}
-                          transition={{ delay: 0.5 + i * 0.5, duration: 0.4, type: 'spring' }}
+                          transition={{ delay: 0.3 + i * 0.4, duration: 0.4, type: 'spring' }}
                           className="relative"
                         >
-                          <div className="w-16 h-3 bg-accent rounded-full relative">
-                            <motion.div
-                              initial={{ width: 0 }}
-                              animate={{ width: '100%' }}
-                              transition={{ delay: 0.5 + i * 0.5, duration: 0.3 }}
-                              className="h-full bg-accent/50 rounded-full"
-                            />
-                          </div>
+                          <div className={`w-[84px] h-4 bg-${track.color}/50 rounded-full border-2 border-${track.color}`} />
                           <motion.div
-                            initial={{ opacity: 0, y: 10 }}
+                            initial={{ opacity: 0, y: 8 }}
                             animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: 0.7 + i * 0.5 }}
-                            className="absolute -top-6 left-1/2 -translate-x-1/2 text-steam-red text-xs font-bold"
+                            transition={{ delay: 0.5 + i * 0.4 }}
+                            className="absolute -top-9 left-7 -translate-x-1/2 flex flex-col items-center"
                           >
-                            -${i === 1 ? 4 : 2}
+                            <span className={`text-[10px] text-${track.color}`}>{track.terrain}</span>
+                            <span className="text-steam-red text-xs font-bold">-${track.cost}</span>
                           </motion.div>
                         </motion.div>
                       ))}
@@ -996,22 +1151,54 @@ export default function GameplayPage() {
                         initial={{ scale: 0 }}
                         animate={{ scale: 1 }}
                         transition={{ delay: 0.2 }}
-                        className="w-14 h-14 rounded-xl bg-steam-green/30 border-2 border-steam-green flex items-center justify-center relative"
+                        className="w-[72px] h-[72px] rounded-xl bg-steam-yellow/30 border-2 border-steam-yellow flex items-center justify-center relative"
                       >
-                        <Building2 className="w-7 h-7 text-steam-green" />
-                        <span className="absolute -bottom-5 text-xs text-foreground-secondary">B</span>
+                        <Building2 className="w-9 h-9 text-steam-yellow" />
+                        <span className="absolute -bottom-5 text-xs text-foreground-secondary font-medium">B</span>
                       </motion.div>
                     </div>
 
+                    {/* 가격표 - 가로 나열 */}
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 1.8 }}
+                      className="bg-glass rounded-xl p-3"
+                    >
+                      <div className="text-accent text-xs font-medium mb-2 text-center">트랙 건설 비용</div>
+                      <div className="flex items-center justify-center gap-4 text-sm">
+                        <div className="flex items-center gap-1">
+                          <span className="text-steam-green">🟢</span>
+                          <span className="text-foreground font-bold">$2</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-steam-blue">🔵</span>
+                          <span className="text-foreground font-bold">$3</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-steam-red">🔴</span>
+                          <span className="text-foreground font-bold">$4</span>
+                        </div>
+                        <div className="border-l border-glass-border pl-4">
+                          <div className="flex items-center gap-1">
+                            <span className="text-steam-purple">🏘️</span>
+                            <span className="text-foreground font-bold">$1+연결$1</span>
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+
+                    {/* 결과 */}
                     <motion.div
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       transition={{ delay: 2.5 }}
-                      className="flex items-center gap-3 mt-4 p-3 rounded-lg bg-accent/10 border border-accent/30"
+                      className="flex items-center gap-3 p-2 rounded-lg bg-accent/10 border border-accent/30"
                     >
-                      <Train className="w-5 h-5 text-accent" />
-                      <span className="text-foreground-secondary text-sm">노선 연결 완료!</span>
-                      <span className="text-steam-red font-bold">-$8</span>
+                      <Train className="w-4 h-4 text-accent" />
+                      <span className="text-foreground-secondary text-xs">노선 완료!</span>
+                      <span className="text-steam-red font-bold text-sm">-$8</span>
+                      <span className="text-foreground-muted text-[10px]">(평지+산+평지)</span>
                     </motion.div>
                   </div>
                 )}
@@ -1019,71 +1206,91 @@ export default function GameplayPage() {
                 {/* Phase 5: Move Goods */}
                 {animationPhase === 4 && (
                   <div className="flex flex-col items-center gap-4 w-full py-4">
-                    <div className="flex items-center w-full max-w-lg relative">
-                      {/* 출발 도시 */}
-                      <div className="text-center z-10">
-                        <div className="w-14 h-14 rounded-xl bg-steam-blue/30 border-2 border-steam-blue flex items-center justify-center">
-                          <Building2 className="w-7 h-7 text-steam-blue" />
+                    {/* 도시들과 링크 */}
+                    <div className="flex items-center justify-center gap-0">
+                      {[
+                        { name: '출발', color: 'steam-blue', type: 'city' },
+                        { name: '링크1', color: 'accent', type: 'link' },
+                        { name: '경유', color: 'steam-purple', type: 'city' },
+                        { name: '링크2', color: 'accent', type: 'link' },
+                        { name: '중간', color: 'steam-green', type: 'city' },
+                        { name: '링크3', color: 'accent', type: 'link' },
+                        { name: '도착', color: 'steam-yellow', type: 'city', isDestination: true },
+                      ].map((node, i) => (
+                        <div key={i} className="flex items-center">
+                          {node.type === 'link' ? (
+                            <div className="w-12 h-3 bg-accent/30 rounded-full relative">
+                              <motion.div
+                                initial={{ scaleX: 0 }}
+                                animate={{ scaleX: 1 }}
+                                transition={{ delay: 0.2 + i * 0.1, duration: 0.3 }}
+                                className="absolute inset-0 bg-accent/50 rounded-full origin-left"
+                              />
+                            </div>
+                          ) : (
+                            <motion.div
+                              initial={{ scale: 0 }}
+                              animate={{ scale: 1 }}
+                              transition={{ delay: 0.1 + i * 0.1, type: 'spring' }}
+                              className="text-center"
+                            >
+                              <motion.div
+                                animate={node.isDestination ? {
+                                  boxShadow: ['0 0 0px rgba(234,179,8,0)', '0 0 15px rgba(234,179,8,0.5)', '0 0 0px rgba(234,179,8,0)']
+                                } : {}}
+                                transition={{ duration: 1.5, repeat: Infinity, delay: 3 }}
+                                className={`w-12 h-12 rounded-xl bg-${node.color}/30 border-2 border-${node.color} flex items-center justify-center`}
+                              >
+                                <Building2 className={`w-6 h-6 text-${node.color}`} />
+                              </motion.div>
+                              <span className="text-[10px] text-foreground-secondary mt-1 block">{node.name}</span>
+                            </motion.div>
+                          )}
                         </div>
-                        <span className="text-foreground-secondary text-xs mt-1 block">출발</span>
-                      </div>
-
-                      {/* 트랙 */}
-                      <div className="flex-1 flex items-center relative mx-2">
-                        <div className="w-full h-3 bg-accent/20 rounded-full relative">
-                          {[1, 2].map((i) => (
-                            <div
-                              key={i}
-                              className="absolute top-0 bottom-0 w-0.5 bg-background"
-                              style={{ left: `${i * 33.33}%` }}
-                            />
-                          ))}
-                        </div>
-
-                        <motion.div
-                          initial={{ left: '0%' }}
-                          animate={{ left: ['0%', '33%', '66%', '100%'] }}
-                          transition={{
-                            duration: 3,
-                            times: [0, 0.33, 0.66, 1],
-                            ease: 'easeInOut',
-                            repeat: Infinity,
-                            repeatDelay: 1,
-                          }}
-                          className="absolute top-1/2 -translate-y-1/2 flex items-center"
-                          style={{ marginLeft: '-20px' }}
-                        >
-                          <div className="w-10 h-10 rounded-lg bg-accent flex items-center justify-center shadow-lg">
-                            <Train className="w-5 h-5 text-background" />
-                          </div>
-                          <motion.div className="w-7 h-7 rounded bg-steam-yellow shadow-lg flex items-center justify-center ml-1">
-                            <Package className="w-4 h-4 text-background" />
-                          </motion.div>
-                        </motion.div>
-                      </div>
-
-                      {/* 도착 도시 */}
-                      <div className="text-center z-10">
-                        <motion.div
-                          animate={{
-                            boxShadow: ['0 0 0px rgba(234,179,8,0)', '0 0 15px rgba(234,179,8,0.5)', '0 0 0px rgba(234,179,8,0)']
-                          }}
-                          transition={{ duration: 1.5, repeat: Infinity, delay: 3 }}
-                          className="w-14 h-14 rounded-xl bg-steam-yellow/30 border-2 border-steam-yellow flex items-center justify-center"
-                        >
-                          <Building2 className="w-7 h-7 text-steam-yellow" />
-                        </motion.div>
-                        <span className="text-foreground-secondary text-xs mt-1 block">도착</span>
-                      </div>
+                      ))}
                     </div>
 
+                    {/* 기차 이동 애니메이션 */}
+                    <div className="relative w-full max-w-md h-12">
+                      <motion.div
+                        initial={{ left: '0%' }}
+                        animate={{ left: ['0%', '30%', '50%', '85%'] }}
+                        transition={{
+                          duration: 4,
+                          times: [0, 0.33, 0.55, 1],
+                          ease: 'easeInOut',
+                          repeat: Infinity,
+                          repeatDelay: 1.5,
+                        }}
+                        className="absolute top-1/2 -translate-y-1/2 flex items-center"
+                      >
+                        <div className="w-10 h-10 rounded-lg bg-accent flex items-center justify-center shadow-lg">
+                          <Train className="w-5 h-5 text-background" />
+                        </div>
+                        <motion.div className="w-7 h-7 rounded bg-steam-yellow shadow-lg flex items-center justify-center ml-1">
+                          <Package className="w-4 h-4 text-background" />
+                        </motion.div>
+                      </motion.div>
+                    </div>
+
+                    {/* 수입 표시 */}
                     <motion.div
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: [0, 1, 1, 0], y: [10, 0, 0, -10] }}
-                      transition={{ delay: 3, duration: 1.5, repeat: Infinity, repeatDelay: 2.5 }}
+                      transition={{ delay: 4, duration: 1.5, repeat: Infinity, repeatDelay: 4 }}
                       className="text-steam-green font-bold text-lg"
                     >
                       +3 수입 (3링크)
+                    </motion.div>
+
+                    {/* 설명 */}
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: 1 }}
+                      className="text-center text-xs text-foreground-muted"
+                    >
+                      기관차 레벨 = 이동 가능한 최대 링크 수
                     </motion.div>
                   </div>
                 )}

@@ -344,7 +344,7 @@ function TrackCalculator() {
         <div className="counter-number text-6xl">${totalCost}</div>
         {tracks.length > 0 && (
           <div className="mt-4 text-sm text-foreground-secondary">
-            {tracks.map((t, i) => `$${t.cost}`).join(' + ')} = ${totalCost}
+            {tracks.map((t) => `$${t.cost}`).join(' + ')} = ${totalCost}
           </div>
         )}
       </motion.div>

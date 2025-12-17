@@ -116,6 +116,42 @@ const TRACK_TILES: TrackTile[] = [
   { col: 2, row: 3, edges: [2, 5], ownerColor: '#4CAF50' },  // green
 ];
 
+// 링크 데이터 - 도시/마을 간 연결 (마커는 링크 중간에 하나만 표시)
+interface RailroadLink {
+  id: string;
+  ownerColor: string;
+  // 마커를 배치할 중간 타일의 좌표
+  markerTile: { col: number; row: number };
+}
+
+const RAILROAD_LINKS: RailroadLink[] = [
+  {
+    id: 'yellow-pittsburgh-cleveland',
+    ownerColor: '#FFD600',
+    markerTile: { col: 3, row: 0 },  // 중간 타일
+  },
+  {
+    id: 'purple-pittsburgh-cincinnati',
+    ownerColor: '#9C27B0',
+    markerTile: { col: 1, row: 2 },  // 중간 타일
+  },
+  {
+    id: 'white-columbus-cleveland',
+    ownerColor: '#FFFFFF',
+    markerTile: { col: 4, row: 1 },  // 중간 타일
+  },
+  {
+    id: 'red-columbus-wheeling',
+    ownerColor: '#F44336',
+    markerTile: { col: 3, row: 3 },  // 첫 번째 타일 (2개 중)
+  },
+  {
+    id: 'green-cincinnati-columbus',
+    ownerColor: '#4CAF50',
+    markerTile: { col: 2, row: 3 },  // 두 번째 타일 (2개 중)
+  },
+];
+
 // pointy-top 헥스 좌표 계산 (odd-r offset: 홀수 행 우측 이동)
 function hexToPixel(col: number, row: number): { x: number; y: number } {
   const offset = row % 2 === 1 ? HEX_WIDTH / 2 : 0;
@@ -502,16 +538,23 @@ export default function GameBoardPreview() {
                         strokeLinecap="round"
                       />
                     ))}
-                    {/* 소유자 마커 (헥스 중앙에 배치) */}
-                    <circle
-                      cx={x}
-                      cy={y}
-                      r="7"
-                      fill={tile.ownerColor}
-                      stroke="#1a1a1a"
-                      strokeWidth="1.5"
-                    />
                   </g>
+                );
+              })}
+
+              {/* 링크 마커 (링크 중간 타일에 하나씩 배치) */}
+              {RAILROAD_LINKS.map((link) => {
+                const { x, y } = hexToPixel(link.markerTile.col, link.markerTile.row);
+                return (
+                  <circle
+                    key={`link-marker-${link.id}`}
+                    cx={x}
+                    cy={y}
+                    r="8"
+                    fill={link.ownerColor}
+                    stroke="#1a1a1a"
+                    strokeWidth="2"
+                  />
                 );
               })}
 

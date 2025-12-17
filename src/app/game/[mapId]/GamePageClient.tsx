@@ -15,7 +15,7 @@ import UrbanizationPanel from '@/components/game/UrbanizationPanel';
 import ProductionPanel from '@/components/game/ProductionPanel';
 import DebugPanel from '@/components/game/DebugPanel';
 import { calculateTrackScore } from '@/utils/trackValidation';
-import { ArrowLeft, RotateCcw, Users, Zap } from 'lucide-react';
+import { ArrowLeft, RotateCcw, Users, Zap, X } from 'lucide-react';
 import {
   PLAYER_COLOR_ORDER,
   PLAYER_COLORS,
@@ -100,13 +100,13 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
           animate={{ opacity: 1, scale: 1 }}
           className="w-full max-w-md"
         >
-          <div className="glass-card p-8 rounded-2xl">
+          <div className="glass-card p-8 rounded-2xl relative">
             <button
-              onClick={handleBack}
-              className="flex items-center gap-2 text-foreground-secondary hover:text-foreground mb-6 transition-colors"
+              onClick={() => router.back()}
+              className="absolute top-4 right-4 p-2 text-foreground-secondary hover:text-foreground hover:bg-foreground/10 rounded-lg transition-colors"
+              title="닫기"
             >
-              <ArrowLeft size={20} />
-              <span>맵 선택으로 돌아가기</span>
+              <X size={20} />
             </button>
 
             <h1 className="text-3xl font-bold text-foreground mb-2">

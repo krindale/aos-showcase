@@ -54,6 +54,7 @@ export default function PhasePanel() {
     currentPhase,
     currentPlayer,
     players,
+    activePlayers,
     phaseState,
     nextPhase,
     selectAction,
@@ -229,9 +230,16 @@ export default function PhasePanel() {
               onClick={handleNextPhase}
               className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2"
             >
-              {phaseState.playerMoves[currentPlayer] || currentPlayer === 'player2'
-                ? '물품 이동 단계로'
-                : `${players.player2.name} 건설 차례로`}
+              {(() => {
+                const currentIndex = activePlayers.indexOf(currentPlayer);
+                const isLastPlayer = currentIndex === activePlayers.length - 1;
+                if (isLastPlayer) {
+                  return '물품 이동 단계로';
+                } else {
+                  const nextPlayer = activePlayers[currentIndex + 1];
+                  return `${players[nextPlayer].name} 건설 차례로`;
+                }
+              })()}
               <ChevronRight size={16} />
             </button>
           </div>
@@ -264,7 +272,7 @@ export default function PhasePanel() {
             </div>
             <button
               onClick={upgradeEngine}
-              disabled={currentPlayerData.engineLevel >= GAME_CONSTANTS.MAX_ENGINE}
+              disabled={currentPlayerData.engineLevel >= GAME_CONSTANTS.MAX_ENGINE || phaseState.playerMoves[currentPlayer]}
               className="w-full py-2 rounded-lg text-sm font-medium bg-background/50 hover:bg-background/70 text-foreground transition-colors disabled:opacity-50"
             >
               엔진 업그레이드 (+1 링크)
@@ -274,12 +282,15 @@ export default function PhasePanel() {
               className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2"
             >
               {(() => {
-                const bothMoved = phaseState.playerMoves.player1 && phaseState.playerMoves.player2;
-                if (!phaseState.playerMoves[currentPlayer]) {
+                // 클릭 후 상태 예측
+                const updatedMoves = { ...phaseState.playerMoves, [currentPlayer]: true };
+                const willBothMoved = updatedMoves.player1 && updatedMoves.player2;
+
+                if (!willBothMoved) {
                   const otherPlayer = currentPlayer === 'player1' ? players.player2.name : players.player1.name;
                   return `${otherPlayer} 이동 차례로`;
                 }
-                if (bothMoved && phaseState.moveGoodsRound < 2) {
+                if (phaseState.moveGoodsRound < 2) {
                   return '라운드 2로';
                 }
                 return '수입 수집 단계로';

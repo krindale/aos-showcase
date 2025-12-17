@@ -13,8 +13,8 @@ interface TrackConnection {
 }
 
 export default function DebugPanel() {
-  const { board, players, currentPlayer, ui } = useGameStore();
-  const [isOpen, setIsOpen] = useState(true);
+  const { board, currentPlayer, ui } = useGameStore();
+  const [isOpen, setIsOpen] = useState(false);
 
   // 트랙 연결 분석
   const analyzeConnections = (): TrackConnection[] => {
@@ -148,7 +148,7 @@ export default function DebugPanel() {
                 {cc.connectedTracks.length > 0 ? (
                   <span className="text-green-400">
                     {' → '}
-                    {cc.connectedTracks.map((t, j) =>
+                    {cc.connectedTracks.map((t) =>
                       `(${t.coord.col},${t.coord.row}) edge${t.edge}`
                     ).join(', ')}
                   </span>

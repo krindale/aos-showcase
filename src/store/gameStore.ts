@@ -23,7 +23,7 @@ import {
 import {
   createInitialBoardState,
   initializeGoodsDisplay,
-} from '@/utils/rustBeltMap';
+} from '@/utils/tutorialMap';
 import {
   isValidConnectionPoint,
   validateFirstTrackRule,
@@ -324,7 +324,7 @@ interface GameStore extends GameState {
 // === 스토어 생성 ===
 export const useGameStore = create<GameStore>((set, get) => ({
   // 초기 상태 (빈 게임)
-  ...createInitialGameState('rust-belt', ['기차-하나', '기차-둘']),
+  ...createInitialGameState('tutorial', ['기차-하나', '기차-둘']),
 
   // === 게임 초기화 ===
   initGame: (mapId, playerNames) => {
@@ -677,6 +677,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       trackType: 'simple',
     };
 
+    const newBuiltCount = state.phaseState.builtTracksThisTurn + 1;
+
     set({
       board: {
         ...state.board,
@@ -691,7 +693,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       },
       phaseState: {
         ...state.phaseState,
-        builtTracksThisTurn: state.phaseState.builtTracksThisTurn + 1,
+        builtTracksThisTurn: newBuiltCount,
       },
       logs: [
         ...state.logs,
@@ -704,6 +706,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
         },
       ],
     });
+
+    // 최대 트랙 수 건설 완료 시 자동으로 다음 플레이어로 전환
+    if (newBuiltCount >= state.phaseState.maxTracksThisTurn) {
+      setTimeout(() => get().nextPhase(), 100);
+    }
 
     return true;
   },
@@ -781,6 +788,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       hexCoordsEqual(t.coord, coord) ? updatedTrack : t
     );
 
+    const newBuiltCount = state.phaseState.builtTracksThisTurn + 1;
+
     set({
       board: {
         ...state.board,
@@ -795,7 +804,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       },
       phaseState: {
         ...state.phaseState,
-        builtTracksThisTurn: state.phaseState.builtTracksThisTurn + 1,
+        builtTracksThisTurn: newBuiltCount,
       },
       logs: [
         ...state.logs,
@@ -808,6 +817,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
         },
       ],
     });
+
+    // 최대 트랙 수 건설 완료 시 자동으로 다음 플레이어로 전환
+    if (newBuiltCount >= state.phaseState.maxTracksThisTurn) {
+      setTimeout(() => get().nextPhase(), 100);
+    }
 
     return true;
   },
@@ -1271,8 +1285,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
       // === IV. 트랙 건설 단계 ===
       if (state.currentPhase === 'buildTrack') {
-        // 모든 플레이어가 건설 기회를 가졌는지 확인
-        const allPlayersBuilt = allPlayersMoved(state.phaseState.playerMoves, activePlayers);
+        // 현재 플레이어를 먼저 완료 처리한 후 확인
+        const updatedPlayerMoves = {
+          ...state.phaseState.playerMoves,
+          [state.currentPlayer]: true,
+        };
+        const allPlayersBuilt = allPlayersMoved(updatedPlayerMoves, activePlayers);
 
         if (allPlayersBuilt) {
           // First Move 확인
@@ -1300,17 +1318,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
             maxTracksThisTurn: state.players[nextPlayer].selectedAction === 'engineer'
               ? GAME_CONSTANTS.ENGINEER_TRACK_LIMIT
               : GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
-            playerMoves: {
-              ...state.phaseState.playerMoves,
-              [state.currentPlayer]: true,
-            },
+            playerMoves: updatedPlayerMoves,
           },
         };
       }
 
       // === V. 물품 이동 단계 ===
       if (state.currentPhase === 'moveGoods') {
-        const allMoved = allPlayersMoved(state.phaseState.playerMoves, activePlayers);
+        // 현재 플레이어를 먼저 완료 처리한 후 확인
+        const updatedPlayerMoves = {
+          ...state.phaseState.playerMoves,
+          [state.currentPlayer]: true,
+        };
+        const allMoved = allPlayersMoved(updatedPlayerMoves, activePlayers);
 
         if (allMoved) {
           // 라운드 2까지 완료했으면 다음 단계
@@ -1341,10 +1361,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           currentPlayer: nextPlayer,
           phaseState: {
             ...state.phaseState,
-            playerMoves: {
-              ...state.phaseState.playerMoves,
-              [state.currentPlayer]: true,
-            },
+            playerMoves: updatedPlayerMoves,
           },
         };
       }
@@ -1440,6 +1457,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   selectCube: (cityId, cubeIndex) => {
     const state = get();
+
+    // 이미 이번 라운드에 이동했으면 리턴
+    if (state.phaseState.playerMoves[state.currentPlayer]) {
+      console.log('이미 이번 라운드에 이동했습니다.');
+      return;
+    }
+
     const city = state.board.cities.find(c => c.id === cityId);
     if (!city) return;
 

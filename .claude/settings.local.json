@@ -32,7 +32,18 @@
       "Bash(where:*)",
       "Bash(pip install:*)",
       "Bash(npx tsc:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(lsof:*)",
+      "Bash(pkill:*)",
+      "Bash(DEBUG=pw:api npx playwright test:*)",
+      "Bash(find:*)",
+      "Bash(git -C /Users/dalelee/Desktop/aos-showcase log --oneline -10)",
+      "Bash(grep:*)",
+      "Bash(PORT=3000 npx playwright test:*)",
+      "Bash(xargs kill:*)",
+      "SlashCommand(/test-game)",
+      "Bash(open:*)",
+      "Bash(rm:*)"
     ]
   }
 }

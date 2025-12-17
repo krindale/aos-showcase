@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 import { CUBE_COLORS, CubeColor } from '@/types/game';
-import { RUST_BELT_COLUMN_MAPPING } from '@/utils/rustBeltMap';
+import { TUTORIAL_COLUMN_MAPPING } from '@/utils/tutorialMap';
 import DiceRoller from './DiceRoller';
 import { Sparkles, Package, Check, ArrowRight } from 'lucide-react';
 
@@ -32,14 +32,14 @@ export default function GoodsGrowthPanel() {
 
   // 열별 큐브 수 계산
   const getColumnCubes = (columnId: string): (CubeColor | null)[] => {
-    const columnIndex = RUST_BELT_COLUMN_MAPPING.findIndex(m => m.columnId === columnId);
+    const columnIndex = TUTORIAL_COLUMN_MAPPING.findIndex(m => m.columnId === columnId);
     if (columnIndex === -1) return [];
 
-    const startIndex = RUST_BELT_COLUMN_MAPPING.slice(0, columnIndex).reduce(
+    const startIndex = TUTORIAL_COLUMN_MAPPING.slice(0, columnIndex).reduce(
       (sum, m) => sum + m.rowCount,
       0
     );
-    const mapping = RUST_BELT_COLUMN_MAPPING[columnIndex];
+    const mapping = TUTORIAL_COLUMN_MAPPING[columnIndex];
     return goodsDisplay.slots.slice(startIndex, startIndex + mapping.rowCount);
   };
 
@@ -58,7 +58,7 @@ export default function GoodsGrowthPanel() {
     // 각 열별로 이동할 큐브 계산
     for (const [diceValue, count] of Object.entries(diceCountMap)) {
       const columnId = diceValue;
-      const mapping = RUST_BELT_COLUMN_MAPPING.find(m => m.columnId === columnId);
+      const mapping = TUTORIAL_COLUMN_MAPPING.find(m => m.columnId === columnId);
 
       if (mapping) {
         const columnCubes = getColumnCubes(columnId).filter(c => c !== null) as CubeColor[];

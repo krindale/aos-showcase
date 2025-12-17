@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence, useInView } from 'framer-motion';
 import {
   ChevronLeft,
@@ -14,7 +13,6 @@ import {
   Factory,
   Mountain,
   Palmtree,
-  Play,
 } from 'lucide-react';
 
 const basePath = process.env.NODE_ENV === 'production' ? '/aos-showcase' : '';
@@ -141,15 +139,8 @@ export default function MapsPage() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const heroRef = useRef<HTMLDivElement>(null);
   const isHeroInView = useInView(heroRef, { once: true });
-  const router = useRouter();
 
   const currentMap = maps[currentIndex];
-
-  const handlePlayGame = () => {
-    if (currentMap.playable && currentMap.slug) {
-      router.push(`/game/${currentMap.slug}`);
-    }
-  };
 
   const nextMap = () => {
     setCurrentIndex((prev) => (prev + 1) % maps.length);
@@ -316,23 +307,6 @@ export default function MapsPage() {
                           <div className="h-[52px]" />
                         )}
                       </div>
-
-                      {/* Play Game Button */}
-                      {currentMap.playable ? (
-                        <motion.button
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                          onClick={handlePlayGame}
-                          className="mt-4 w-full py-4 rounded-xl bg-accent hover:bg-accent-light text-background font-semibold text-lg flex items-center justify-center gap-2 transition-colors"
-                        >
-                          <Play className="w-5 h-5" />
-                          게임 시작
-                        </motion.button>
-                      ) : (
-                        <div className="mt-4 w-full py-4 rounded-xl bg-foreground/10 text-foreground-secondary font-medium text-center">
-                          준비 중
-                        </div>
-                      )}
                     </div>
                   </div>
                 </div>

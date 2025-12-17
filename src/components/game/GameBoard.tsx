@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useCallback, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 import {
   hexToPixel,
@@ -12,10 +12,12 @@ import {
   hexCoordsEqual,
   getNeighborHex,
   getOppositeEdge,
-  getEdgeMidpoint,
   HEX_SIZE,
+  findCompletedLinks,
+  getMovementPathSVG,
+  getAnimationPoints,
 } from '@/utils/hexGrid';
-import { RUST_BELT_MAP, RUST_BELT_COLORS, RUST_BELT_LAKE_TILES } from '@/utils/rustBeltMap';
+import { TUTORIAL_MAP, TUTORIAL_COLORS, TUTORIAL_LAKE_TILES } from '@/utils/tutorialMap';
 import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord } from '@/types/game';
 
 export default function GameBoard() {
@@ -32,7 +34,6 @@ export default function GameBoard() {
     updateTrackPreview,
     resetBuildMode,
     selectDestinationCity,
-    advanceCubeAnimation,
     completeCubeMove,
     canRedirect,
     selectTrackToRedirect,
@@ -41,31 +42,37 @@ export default function GameBoard() {
   } = useGameStore();
 
   const { width: boardWidth, height: boardHeight } = useMemo(
-    () => calculateBoardDimensions(RUST_BELT_MAP.cols, RUST_BELT_MAP.rows),
+    () => calculateBoardDimensions(TUTORIAL_MAP.cols, TUTORIAL_MAP.rows),
     []
   );
 
-  // 큐브 이동 애니메이션 처리
+  // 완성된 링크 계산 (소유 마커 표시용)
+  const completedLinks = useMemo(
+    () => findCompletedLinks(board),
+    [board]
+  );
+
+  // 완성된 링크에 포함된 트랙인지 확인
+  const isTrackInCompletedLink = useCallback(
+    (coord: HexCoord) => {
+      return completedLinks.some(link =>
+        link.trackTiles.some(t => hexCoordsEqual(t, coord))
+      );
+    },
+    [completedLinks]
+  );
+
+  // 큐브 이동 애니메이션 처리 - 1초 후 완료
   useEffect(() => {
     if (!ui.movingCube) return;
 
-    const { currentIndex, path } = ui.movingCube;
-
-    if (currentIndex >= path.length - 1) {
-      // 목적지 도착 - 이동 완료 처리
-      const timeout = setTimeout(() => {
-        completeCubeMove();
-      }, 300);
-      return () => clearTimeout(timeout);
-    }
-
-    // 다음 위치로 이동
+    // 애니메이션 완료 후 처리 (1초)
     const timeout = setTimeout(() => {
-      advanceCubeAnimation();
-    }, 400); // 400ms마다 다음 위치로
+      completeCubeMove();
+    }, 1000);
 
     return () => clearTimeout(timeout);
-  }, [ui.movingCube, advanceCubeAnimation, completeCubeMove]);
+  }, [ui.movingCube, completeCubeMove]);
 
   // 끊어진 트랙 연결 감지
   const disconnectedConnections = useMemo(() => {
@@ -226,7 +233,7 @@ export default function GameBoard() {
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       className="rounded-xl overflow-hidden border border-foreground/10"
-      style={{ backgroundColor: RUST_BELT_COLORS.background }}
+      style={{ backgroundColor: TUTORIAL_COLORS.background }}
     >
       {/* 보드 헤더 */}
       <div className="px-4 py-3 bg-background-secondary/50 border-b border-foreground/10">
@@ -238,9 +245,9 @@ export default function GameBoard() {
             {currentPhase === 'buildTrack' && !ui.urbanizationMode && ui.buildMode === 'target_selected' && '트랙이 나갈 방향을 클릭하세요 (곡선/직선 선택)'}
             {currentPhase === 'buildTrack' && !ui.urbanizationMode && ui.buildMode === 'redirect_selected' && '방향 전환 패널에서 새 방향을 선택하세요'}
             {currentPhase === 'moveGoods' && !ui.selectedCube && !ui.movingCube && '물품 큐브를 클릭하세요'}
-            {currentPhase === 'moveGoods' && ui.selectedCube && '초록색 테두리의 목적지 도시를 클릭하세요'}
+            {currentPhase === 'moveGoods' && ui.selectedCube && '금색 테두리의 목적지 도시를 클릭하세요'}
             {currentPhase === 'moveGoods' && ui.movingCube && '물품 이동 중...'}
-            {currentPhase !== 'buildTrack' && currentPhase !== 'moveGoods' && 'Rust Belt'}
+            {currentPhase !== 'buildTrack' && currentPhase !== 'moveGoods' && 'Tutorial'}
           </span>
           <span className="text-xs text-accent">
             {players[currentPlayer].name}의 차례
@@ -255,15 +262,15 @@ export default function GameBoard() {
         className="block"
       >
         {/* 배경 헥스 그리드 */}
-        {[...Array(RUST_BELT_MAP.rows)].map((_, row) =>
-          [...Array(RUST_BELT_MAP.cols - RUST_BELT_MAP.startCol)].map((_, colIndex) => {
-            const col = colIndex + RUST_BELT_MAP.startCol;
+        {[...Array(TUTORIAL_MAP.rows)].map((_, row) =>
+          [...Array(TUTORIAL_MAP.cols - TUTORIAL_MAP.startCol)].map((_, colIndex) => {
+            const col = colIndex + TUTORIAL_MAP.startCol;
             const { x, y } = hexToPixel(col, row);
 
             if (!shouldRenderHex(col, row)) return null;
 
             const coord = { col, row };
-            const isLake = RUST_BELT_LAKE_TILES.some(
+            const isLake = TUTORIAL_LAKE_TILES.some(
               (l) => l.col === col && l.row === row
             );
             const isSourceSelected = ui.sourceHex && hexCoordsEqual(ui.sourceHex, coord);
@@ -283,8 +290,8 @@ export default function GameBoard() {
                     isHighlighted
                       ? 'rgba(212, 168, 83, 0.3)' // 건설 가능 헥스 하이라이트
                       : isLake
-                      ? RUST_BELT_COLORS.terrain.lake
-                      : RUST_BELT_COLORS.terrain.plain
+                      ? TUTORIAL_COLORS.terrain.lake
+                      : TUTORIAL_COLORS.terrain.plain
                   }
                   stroke={
                     isSourceSelected
@@ -389,7 +396,7 @@ export default function GameBoard() {
               <path
                 d={pathData}
                 fill="none"
-                stroke={RUST_BELT_COLORS.terrain.plain}
+                stroke={TUTORIAL_COLORS.terrain.plain}
                 strokeWidth="6"
                 strokeLinecap="round"
                 className={isTrackClickable ? 'cursor-pointer' : ''}
@@ -432,7 +439,7 @@ export default function GameBoard() {
                   <path
                     d={secondaryPathData}
                     fill="none"
-                    stroke={RUST_BELT_COLORS.terrain.plain}
+                    stroke={TUTORIAL_COLORS.terrain.plain}
                     strokeWidth="6"
                     strokeLinecap="round"
                   />
@@ -452,19 +459,21 @@ export default function GameBoard() {
                 </>
               )}
 
-              {/* 소유자 마커 */}
-              <circle
-                cx={x}
-                cy={y}
-                r="7"
-                fill={ownerColor}
-                stroke={isRedirectable && ui.buildMode === 'idle' ? '#ffa500' : '#1a1a1a'}
-                strokeWidth={isRedirectable && ui.buildMode === 'idle' ? 2 : 1.5}
-                className={isTrackClickable ? 'cursor-pointer' : ''}
-                onClick={(e) => handleTrackClick(e)}
-              />
-              {/* 복합 트랙: 두 번째 소유자 마커 */}
-              {hasSecondary && tile.secondaryOwner && (
+              {/* 소유자 마커 - 미완성 트랙(완성된 링크에 포함되지 않은 트랙)에만 표시 */}
+              {!isTrackInCompletedLink(tile.coord) && (
+                <circle
+                  cx={x}
+                  cy={y}
+                  r="7"
+                  fill={ownerColor}
+                  stroke={isRedirectable && ui.buildMode === 'idle' ? '#ffa500' : '#1a1a1a'}
+                  strokeWidth={isRedirectable && ui.buildMode === 'idle' ? 2 : 1.5}
+                  className={isTrackClickable ? 'cursor-pointer' : ''}
+                  onClick={(e) => handleTrackClick(e)}
+                />
+              )}
+              {/* 복합 트랙: 두 번째 소유자 마커 (미완성 트랙에만) */}
+              {!isTrackInCompletedLink(tile.coord) && hasSecondary && tile.secondaryOwner && (
                 <circle
                   cx={x + 10}
                   cy={y - 10}
@@ -475,6 +484,22 @@ export default function GameBoard() {
                 />
               )}
             </g>
+          );
+        })}
+
+        {/* 완성된 링크 소유 마커 - 링크 중앙에 하나만 표시 */}
+        {completedLinks.map((link) => {
+          const ownerColor = PLAYER_COLORS[players[link.owner].color];
+          return (
+            <circle
+              key={link.id}
+              cx={link.centerPosition.x}
+              cy={link.centerPosition.y}
+              r="8"
+              fill={ownerColor}
+              stroke="#1a1a1a"
+              strokeWidth="2"
+            />
           );
         })}
 
@@ -546,7 +571,7 @@ export default function GameBoard() {
               {/* 마을 배경 헥스 */}
               <polygon
                 points={getHexPoints(x, y, HEX_SIZE - 2)}
-                fill={RUST_BELT_COLORS.terrain.plain}
+                fill={TUTORIAL_COLORS.terrain.plain}
                 stroke={
                   isUrbanizationClickable
                     ? '#3B82F6'  // 도시화 가능: 파란색 테두리
@@ -676,7 +701,7 @@ export default function GameBoard() {
                 fill={cityColor}
                 stroke={
                   isReachableDestination
-                    ? '#00ff00'
+                    ? '#e6c77a'  // 골드 악센트 (accent-light)
                     : isSourceSelected
                     ? '#ffffff'
                     : 'rgba(255,255,255,0.2)'
@@ -790,108 +815,60 @@ export default function GameBoard() {
           </g>
         )}
 
-        {/* 이동 경로 */}
+        {/* 이동 경로 - 트랙을 따라 곡선으로 표시 */}
         {ui.movePath.length > 1 && !ui.movingCube && (
-          <g>
-            {ui.movePath.map((coord, i) => {
-              if (i === 0) return null;
-              const from = hexToPixel(ui.movePath[i - 1].col, ui.movePath[i - 1].row);
-              const to = hexToPixel(coord.col, coord.row);
-              return (
-                <line
-                  key={`path-${i}`}
-                  x1={from.x}
-                  y1={from.y}
-                  x2={to.x}
-                  y2={to.y}
-                  stroke="#d4a853"
-                  strokeWidth="4"
-                  strokeLinecap="round"
-                  strokeDasharray="8 4"
-                />
-              );
-            })}
-          </g>
+          <path
+            d={getMovementPathSVG(ui.movePath, board, HEX_SIZE - 2)}
+            fill="none"
+            stroke="#d4a853"
+            strokeWidth="4"
+            strokeLinecap="round"
+            strokeDasharray="8 4"
+          />
         )}
 
-        {/* 이동 중인 큐브 애니메이션 */}
-        <AnimatePresence>
-          {ui.movingCube && (
-            <>
-              {/* 이동 경로 표시 */}
-              <g opacity={0.5}>
-                {ui.movingCube.path.map((coord, i) => {
-                  if (i === 0) return null;
-                  const from = hexToPixel(ui.movingCube!.path[i - 1].col, ui.movingCube!.path[i - 1].row);
-                  const to = hexToPixel(coord.col, coord.row);
-                  return (
-                    <line
-                      key={`moving-path-${i}`}
-                      x1={from.x}
-                      y1={from.y}
-                      x2={to.x}
-                      y2={to.y}
-                      stroke={CUBE_COLORS[ui.movingCube!.color]}
-                      strokeWidth="6"
-                      strokeLinecap="round"
-                      strokeDasharray="8 4"
-                    />
-                  );
-                })}
-              </g>
+        {/* 이동 중인 큐브 애니메이션 - Framer Motion 사용 */}
+        {ui.movingCube && (() => {
+          // 경로의 모든 애니메이션 포인트 계산
+          const animPoints = getAnimationPoints(ui.movingCube.path, board, HEX_SIZE - 2, 5);
 
-              {/* 이동 중인 큐브 */}
-              {(() => {
-                const currentPos = ui.movingCube.path[ui.movingCube.currentIndex];
-                const { x, y } = hexToPixel(currentPos.col, currentPos.row);
-                const cubeColor = CUBE_COLORS[ui.movingCube.color];
+          // 모든 x, y 좌표 배열 생성
+          const xPoints = animPoints.map(p => p.x - 9);
+          const yPoints = animPoints.map(p => p.y - 9);
 
-                return (
-                  <motion.g
-                    key="moving-cube"
-                    initial={{ scale: 1 }}
-                    animate={{ scale: [1, 1.3, 1] }}
-                    transition={{ duration: 0.4, ease: 'easeInOut' }}
-                  >
-                    <motion.rect
-                      x={x - 10}
-                      y={y - 10}
-                      width="20"
-                      height="20"
-                      fill={cubeColor}
-                      stroke="#ffffff"
-                      strokeWidth="3"
-                      rx="3"
-                      animate={{
-                        x: x - 10,
-                        y: y - 10,
-                      }}
-                      transition={{ duration: 0.35, ease: 'easeOut' }}
-                    />
-                    {/* 글로우 효과 */}
-                    <motion.rect
-                      x={x - 12}
-                      y={y - 12}
-                      width="24"
-                      height="24"
-                      fill="none"
-                      stroke={cubeColor}
-                      strokeWidth="2"
-                      rx="4"
-                      opacity={0.5}
-                      animate={{
-                        x: x - 12,
-                        y: y - 12,
-                        opacity: [0.5, 0.8, 0.5],
-                      }}
-                      transition={{ duration: 0.35, ease: 'easeOut' }}
-                    />
-                  </motion.g>
-                );
-              })()}
-            </>
-          )}
-        </AnimatePresence>
+          return (
+            <g>
+              {/* 이동 경로 표시 - 트랙을 따라 점선으로 */}
+              <path
+                d={getMovementPathSVG(ui.movingCube.path, board, HEX_SIZE - 2)}
+                fill="none"
+                stroke={CUBE_COLORS[ui.movingCube.color]}
+                strokeWidth="4"
+                strokeLinecap="round"
+                strokeDasharray="6 3"
+                opacity={0.4}
+              />
+
+              {/* 큐브 - Framer Motion으로 경로 따라 이동 */}
+              <motion.rect
+                key="moving-cube"
+                width="18"
+                height="18"
+                fill={CUBE_COLORS[ui.movingCube.color]}
+                stroke="#ffffff"
+                strokeWidth="2"
+                rx="3"
+                initial={{ x: xPoints[0], y: yPoints[0] }}
+                animate={{ x: xPoints, y: yPoints }}
+                transition={{
+                  duration: 1,
+                  ease: 'linear',
+                  times: animPoints.map((_, i) => i / (animPoints.length - 1))
+                }}
+              />
+            </g>
+          );
+        })()}
       </svg>
 
       {/* 범례 */}
@@ -899,14 +876,14 @@ export default function GameBoard() {
         <div className="flex items-center gap-2">
           <div
             className="w-5 h-5 rounded"
-            style={{ backgroundColor: RUST_BELT_COLORS.terrain.plain }}
+            style={{ backgroundColor: TUTORIAL_COLORS.terrain.plain }}
           />
           <span className="text-xs text-foreground-secondary">평지</span>
         </div>
         <div className="flex items-center gap-2">
           <div
             className="w-5 h-5 rounded"
-            style={{ backgroundColor: RUST_BELT_COLORS.terrain.lake }}
+            style={{ backgroundColor: TUTORIAL_COLORS.terrain.lake }}
           />
           <span className="text-xs text-foreground-secondary">호수</span>
         </div>

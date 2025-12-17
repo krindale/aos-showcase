@@ -3,13 +3,12 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
-import { PlayerId, PLAYER_COLORS, ACTION_INFO, GAME_CONSTANTS } from '@/types/game';
+import { PlayerId, PLAYER_COLORS, GAME_CONSTANTS } from '@/types/game';
 import {
   DollarSign,
   TrendingUp,
   Train,
   FileText,
-  Zap,
   Plus,
   Minus,
   Skull,
@@ -68,7 +67,7 @@ export default function PlayerPanel({ playerId }: PlayerPanelProps) {
     >
       {/* 헤더 */}
       <div
-        className="px-4 py-3 rounded-t-xl flex items-center justify-between"
+        className="px-3 py-2 rounded-t-xl flex items-center justify-between"
         style={{
           backgroundColor: isEliminated
             ? 'rgba(239, 68, 68, 0.2)'
@@ -80,56 +79,56 @@ export default function PlayerPanel({ playerId }: PlayerPanelProps) {
           }`,
         }}
       >
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <div
-            className="w-4 h-4 rounded-full"
+            className="w-3 h-3 rounded-full"
             style={{
               backgroundColor: isEliminated ? '#ef4444' : playerColor,
             }}
           />
-          <span className={`font-semibold ${isEliminated ? 'text-red-400 line-through' : 'text-foreground'}`}>
+          <span className={`font-semibold text-sm ${isEliminated ? 'text-red-400 line-through' : 'text-foreground'}`}>
             {player.name}
           </span>
           {isEliminated && (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/30 text-red-400 flex items-center gap-1">
-              <Skull size={12} />
+            <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-500/30 text-red-400 flex items-center gap-1">
+              <Skull size={10} />
               파산
             </span>
           )}
           {isActive && !isEliminated && (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-accent/20 text-accent">
+            <span className="text-xs px-1.5 py-0.5 rounded-full bg-accent/20 text-accent">
               현재 턴
             </span>
           )}
         </div>
       </div>
 
-      {/* 스탯 그리드 */}
-      <div className="p-4 grid grid-cols-2 gap-3">
+      {/* 스탯 그리드 - 높이 줄임 */}
+      <div className="p-2 grid grid-cols-2 gap-2">
         {/* 현금 */}
-        <div className="flex items-center gap-2 p-2 rounded-lg bg-background/50">
-          <DollarSign size={16} className="text-green-400" />
+        <div className="flex items-center gap-2 p-1.5 rounded-lg bg-background/50">
+          <DollarSign size={14} className="text-green-400" />
           <div>
             <div className="text-xs text-foreground-secondary">현금</div>
-            <div className="text-lg font-bold text-foreground">${player.cash}</div>
+            <div className="text-base font-bold text-foreground">${player.cash}</div>
           </div>
         </div>
 
         {/* 수입 */}
-        <div className="flex items-center gap-2 p-2 rounded-lg bg-background/50">
-          <TrendingUp size={16} className="text-blue-400" />
+        <div className="flex items-center gap-2 p-1.5 rounded-lg bg-background/50">
+          <TrendingUp size={14} className="text-blue-400" />
           <div>
             <div className="text-xs text-foreground-secondary">수입</div>
-            <div className="text-lg font-bold text-foreground">{player.income}</div>
+            <div className="text-base font-bold text-foreground">{player.income}</div>
           </div>
         </div>
 
         {/* 엔진 레벨 */}
-        <div className="flex items-center gap-2 p-2 rounded-lg bg-background/50">
-          <Train size={16} className="text-yellow-400" />
+        <div className="flex items-center gap-2 p-1.5 rounded-lg bg-background/50">
+          <Train size={14} className="text-yellow-400" />
           <div>
             <div className="text-xs text-foreground-secondary">엔진</div>
-            <div className="text-lg font-bold text-foreground">
+            <div className="text-base font-bold text-foreground">
               {player.engineLevel}
               <span className="text-xs text-foreground-secondary"> / {GAME_CONSTANTS.MAX_ENGINE}</span>
             </div>
@@ -137,11 +136,11 @@ export default function PlayerPanel({ playerId }: PlayerPanelProps) {
         </div>
 
         {/* 발행 주식 */}
-        <div className="flex items-center gap-2 p-2 rounded-lg bg-background/50">
-          <FileText size={16} className="text-purple-400" />
+        <div className="flex items-center gap-2 p-1.5 rounded-lg bg-background/50">
+          <FileText size={14} className="text-purple-400" />
           <div>
             <div className="text-xs text-foreground-secondary">주식</div>
-            <div className="text-lg font-bold text-foreground">
+            <div className="text-base font-bold text-foreground">
               {player.issuedShares}
               <span className="text-xs text-foreground-secondary"> 주</span>
             </div>
@@ -150,8 +149,8 @@ export default function PlayerPanel({ playerId }: PlayerPanelProps) {
       </div>
 
       {/* 비용 표시 */}
-      <div className="px-4 pb-2">
-        <div className="text-xs text-foreground-secondary flex items-center justify-between p-2 rounded bg-background/30">
+      <div className="px-2 pb-2">
+        <div className="text-xs text-foreground-secondary flex items-center justify-between p-1.5 rounded bg-background/30">
           <span>턴 비용</span>
           <span className="text-foreground">
             ${expense} (주식 {player.issuedShares} + 엔진 {player.engineLevel})
@@ -159,26 +158,9 @@ export default function PlayerPanel({ playerId }: PlayerPanelProps) {
         </div>
       </div>
 
-      {/* 선택한 행동 */}
-      {player.selectedAction && (
-        <div className="px-4 pb-3">
-          <div className="p-2 rounded-lg bg-accent/10 border border-accent/30">
-            <div className="flex items-center gap-2">
-              <Zap size={14} className="text-accent" />
-              <span className="text-sm font-medium text-accent">
-                {ACTION_INFO[player.selectedAction].name}
-              </span>
-            </div>
-            <p className="text-xs text-foreground-secondary mt-1">
-              {ACTION_INFO[player.selectedAction].description}
-            </p>
-          </div>
-        </div>
-      )}
-
       {/* 주식 발행 UI (해당 단계에서만, 탈락하지 않은 경우) */}
       {currentPhase === 'issueShares' && isActive && !isEliminated && (
-        <div className="px-4 pb-4 space-y-2">
+        <div className="px-3 pb-3 space-y-2 border-t border-foreground/10 pt-2">
           {/* 발행량 선택 */}
           <div className="flex items-center justify-between p-2 rounded-lg bg-background/50">
             <span className="text-sm text-foreground-secondary">발행할 주식</span>

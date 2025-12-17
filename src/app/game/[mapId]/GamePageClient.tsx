@@ -15,13 +15,14 @@ import UrbanizationPanel from '@/components/game/UrbanizationPanel';
 import ProductionPanel from '@/components/game/ProductionPanel';
 import DebugPanel from '@/components/game/DebugPanel';
 import { calculateTrackScore } from '@/utils/trackValidation';
-import { ArrowLeft, RotateCcw, Users } from 'lucide-react';
+import { ArrowLeft, RotateCcw, Users, Zap } from 'lucide-react';
 import {
   PLAYER_COLOR_ORDER,
   PLAYER_COLORS,
-  TURNS_BY_PLAYER_COUNT
+  TURNS_BY_PLAYER_COUNT,
+  ACTION_INFO,
 } from '@/types/game';
-import { RUST_BELT_MAP } from '@/utils/rustBeltMap';
+import { TUTORIAL_MAP } from '@/utils/tutorialMap';
 
 interface GamePageClientProps {
   mapId: string;
@@ -43,8 +44,8 @@ const COLOR_NAMES: Record<string, string> = {
 export default function GamePageClient({ mapId }: GamePageClientProps) {
   const router = useRouter();
 
-  // 맵 설정 (현재는 Rust Belt만 지원)
-  const mapConfig = RUST_BELT_MAP;
+  // 맵 설정 (현재는 Tutorial만 지원)
+  const mapConfig = TUTORIAL_MAP;
   const supportedPlayers = mapConfig.supportedPlayers;
 
   const [showSetup, setShowSetup] = useState(true);
@@ -352,6 +353,38 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
 
             {/* 오른쪽: 패널들 */}
             <div className="lg:col-span-4 space-y-4">
+              {/* 선택한 행동 표시 */}
+              {activePlayers.some(pid => players[pid].selectedAction) && (
+                <div className="rounded-xl border border-foreground/10 bg-background-secondary p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Zap size={14} className="text-accent" />
+                    <span className="text-xs font-medium text-foreground-secondary">선택 행동</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {activePlayers.map(pid => {
+                      const player = players[pid];
+                      const action = player.selectedAction;
+                      if (!action) return null;
+                      return (
+                        <div
+                          key={pid}
+                          className="flex items-center gap-2 px-2 py-1 rounded bg-accent/10 border border-accent/20"
+                        >
+                          <div
+                            className="w-2 h-2 rounded-full"
+                            style={{ backgroundColor: PLAYER_COLORS[player.color] }}
+                          />
+                          <span className="text-xs text-foreground">{player.name}</span>
+                          <span className="text-xs font-medium text-accent">
+                            {ACTION_INFO[action].name}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* 현재 단계 */}
               <PhasePanel />
 

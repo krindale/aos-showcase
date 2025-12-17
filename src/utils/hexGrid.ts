@@ -473,7 +473,7 @@ export function getExitDirections(
 function getConnectedNeighbors(
   currentCoord: HexCoord,
   board: BoardState,
-  _playerId: PlayerId, // 현재 미사용 - 모든 플레이어의 트랙 사용 가능
+  playerId: PlayerId, // 자기 소유 트랙만 사용
   visitedKey: Set<string>
 ): HexCoord[] {
   const neighbors: HexCoord[] = [];
@@ -497,9 +497,9 @@ function getConnectedNeighbors(
         continue;
       }
 
-      // 이웃에 트랙이 있고, 해당 트랙이 현재 도시 방향으로 연결되어 있는지 확인 (소유자 무관)
+      // 이웃에 자기 소유 트랙이 있고, 해당 트랙이 현재 도시 방향으로 연결되어 있는지 확인
       const neighborTrack = board.trackTiles.find(
-        t => hexCoordsEqual(t.coord, neighbor) && t.owner !== null // 완성된 트랙만 (소유자 있음)
+        t => hexCoordsEqual(t.coord, neighbor) && t.owner === playerId // 자기 소유 트랙만
       );
       if (neighborTrack) {
         const entryEdge = getOppositeEdge(edge);
@@ -515,8 +515,8 @@ function getConnectedNeighbors(
         console.log(`  edge ${edge}: 이웃 (${neighbor.col}, ${neighbor.row})에 완성된 트랙 없음`);
       }
     }
-  } else if (currentTrack && currentTrack.owner !== null) {
-    // 완성된 트랙에서: 트랙의 양 끝 방향으로 이동 가능 (소유자 무관)
+  } else if (currentTrack && currentTrack.owner === playerId) {
+    // 자기 소유 트랙에서: 트랙의 양 끝 방향으로 이동 가능
     console.log(`[트랙에서 탐색] 트랙 edges: [${currentTrack.edges}]`);
     for (const edge of currentTrack.edges) {
       const neighbor = getNeighborHex(currentCoord, edge);
@@ -534,9 +534,9 @@ function getConnectedNeighbors(
         continue;
       }
 
-      // 이웃에 완성된 트랙이 있고, 연결되어 있는지 확인 (소유자 무관)
+      // 이웃에 자기 소유 트랙이 있고, 연결되어 있는지 확인
       const neighborTrack = board.trackTiles.find(
-        t => hexCoordsEqual(t.coord, neighbor) && t.owner !== null // 완성된 트랙만
+        t => hexCoordsEqual(t.coord, neighbor) && t.owner === playerId // 자기 소유 트랙만
       );
       if (neighborTrack) {
         const entryEdge = getOppositeEdge(edge);
@@ -583,12 +583,13 @@ function findAllPaths(
     const neighbors = getConnectedNeighbors(current, board, playerId, visited);
 
     for (const neighbor of neighbors) {
-      // 링크 카운트: 도시/마을 사이의 트랙이 1링크
-      // 트랙을 지날 때마다 링크 카운트 증가, 도시 도착은 링크 비용 없음
+      // 링크 카운트: "완성된 철도 링크" = 도시/마을 사이의 연결 (중간 트랙 수 무관)
+      // 도시/마을에 도착할 때만 링크 카운트 증가
       const isNeighborCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
-      const newLinkCount = isNeighborCity ? linkCount : linkCount + 1;
+      const isNeighborTown = board.towns.some(t => hexCoordsEqual(t.coord, neighbor));
+      const newLinkCount = (isNeighborCity || isNeighborTown) ? linkCount + 1 : linkCount;
 
-      // 최대 링크 수 초과 시 건너뛰기 (도시는 링크 비용 없으므로 허용)
+      // 최대 링크 수 초과 시 건너뛰기
       if (newLinkCount > maxLength) {
         continue;
       }
@@ -612,18 +613,20 @@ function findAllPaths(
 }
 
 /**
- * 경로의 링크 수 계산 (도시 사이의 트랙 타일 수)
+ * 경로의 링크 수 계산 (도시/마을 사이의 완성된 연결 수)
  */
 function countPathLinks(path: HexCoord[], board: BoardState): number {
   let linkCount = 0;
   for (const coord of path) {
-    // 도시가 아닌 헥스(트랙)만 카운트
+    // 도시/마을을 지날 때마다 링크 카운트 (시작점 제외)
     const isCity = board.cities.some(c => hexCoordsEqual(c.coord, coord));
-    if (!isCity) {
+    const isTown = board.towns.some(t => hexCoordsEqual(t.coord, coord));
+    if (isCity || isTown) {
       linkCount++;
     }
   }
-  return linkCount;
+  // 시작점은 링크에 포함되지 않으므로 -1
+  return Math.max(0, linkCount - 1);
 }
 
 /**
@@ -708,4 +711,350 @@ export function findReachableDestinations(
   }
 
   return reachable;
+}
+
+/**
+ * 완성된 철도 링크 정보
+ */
+export interface CompletedLink {
+  id: string;
+  owner: PlayerId;
+  trackTiles: HexCoord[];  // 링크에 포함된 트랙 타일들
+  startCity: HexCoord;     // 시작 도시/마을
+  endCity: HexCoord;       // 끝 도시/마을
+  centerPosition: { x: number; y: number };  // 마커 표시 위치
+}
+
+/**
+ * 모든 완성된 철도 링크 찾기
+ * 완성된 링크 = 도시/마을에서 다른 도시/마을까지 연결된 트랙 그룹
+ */
+export function findCompletedLinks(board: BoardState): CompletedLink[] {
+  const completedLinks: CompletedLink[] = [];
+  const processedTrackIds = new Set<string>();
+
+  // 모든 도시와 마을에서 시작
+  const startPoints = [
+    ...board.cities.map(c => c.coord),
+    ...board.towns.map(t => t.coord),
+  ];
+
+  for (const startPoint of startPoints) {
+    // 이 도시/마을에 연결된 트랙 찾기
+    for (let edge = 0; edge < 6; edge++) {
+      const neighbor = getNeighborHex(startPoint, edge);
+      const track = board.trackTiles.find(
+        t => hexCoordsEqual(t.coord, neighbor) && t.owner !== null
+      );
+
+      if (!track) continue;
+
+      // 트랙이 이 도시 방향으로 연결되어 있는지 확인
+      const entryEdge = getOppositeEdge(edge);
+      if (!track.edges.includes(entryEdge)) continue;
+
+      // 이미 처리된 트랙이면 건너뛰기
+      const trackKey = hexToKey(track.coord);
+      if (processedTrackIds.has(trackKey)) continue;
+
+      // 이 트랙에서 시작해서 다른 도시/마을까지 경로 추적
+      const linkResult = traceLinkFromTrack(
+        track.coord,
+        entryEdge,
+        board,
+        track.owner!,
+        processedTrackIds
+      );
+
+      if (linkResult) {
+        completedLinks.push({
+          id: `link-${startPoint.col}-${startPoint.row}-${linkResult.endCity.col}-${linkResult.endCity.row}`,
+          owner: track.owner!,
+          trackTiles: linkResult.trackTiles,
+          startCity: startPoint,
+          endCity: linkResult.endCity,
+          centerPosition: calculateLinkCenter(linkResult.trackTiles),
+        });
+      }
+    }
+  }
+
+  return completedLinks;
+}
+
+/**
+ * 트랙에서 시작해서 다른 도시/마을까지 추적
+ */
+function traceLinkFromTrack(
+  startTrackCoord: HexCoord,
+  entryEdge: number,
+  board: BoardState,
+  owner: PlayerId,
+  processedTrackIds: Set<string>
+): { trackTiles: HexCoord[]; endCity: HexCoord } | null {
+  const trackTiles: HexCoord[] = [];
+  let currentCoord = startTrackCoord;
+  let currentEntryEdge = entryEdge;
+
+  while (true) {
+    const track = board.trackTiles.find(
+      t => hexCoordsEqual(t.coord, currentCoord) && t.owner === owner
+    );
+
+    if (!track) return null;
+
+    // 이 트랙 추가
+    trackTiles.push(currentCoord);
+    processedTrackIds.add(hexToKey(currentCoord));
+
+    // 나가는 방향 찾기 (들어온 방향의 반대쪽)
+    const exitEdge = track.edges.find(e => e !== currentEntryEdge);
+    if (exitEdge === undefined) return null;
+
+    // 다음 이웃 확인
+    const nextNeighbor = getNeighborHex(currentCoord, exitEdge);
+
+    // 다음이 도시/마을인지 확인
+    const isCity = board.cities.some(c => hexCoordsEqual(c.coord, nextNeighbor));
+    const isTown = board.towns.some(t => hexCoordsEqual(t.coord, nextNeighbor));
+
+    if (isCity || isTown) {
+      // 완성된 링크!
+      return { trackTiles, endCity: nextNeighbor };
+    }
+
+    // 다음 트랙으로 이동
+    const nextTrack = board.trackTiles.find(
+      t => hexCoordsEqual(t.coord, nextNeighbor) && t.owner === owner
+    );
+
+    if (!nextTrack) return null;
+
+    // 다음 트랙이 연결되어 있는지 확인
+    const nextEntryEdge = getOppositeEdge(exitEdge);
+    if (!nextTrack.edges.includes(nextEntryEdge)) return null;
+
+    currentCoord = nextNeighbor;
+    currentEntryEdge = nextEntryEdge;
+  }
+}
+
+/**
+ * 링크의 중앙 위치 계산
+ */
+function calculateLinkCenter(trackTiles: HexCoord[]): { x: number; y: number } {
+  if (trackTiles.length === 0) {
+    return { x: 0, y: 0 };
+  }
+
+  // 중간 트랙 선택
+  const middleIndex = Math.floor(trackTiles.length / 2);
+  const middleTrack = trackTiles[middleIndex];
+
+  return hexToPixel(middleTrack.col, middleTrack.row);
+}
+
+
+/**
+ * 물품 이동 전체 경로의 SVG path 생성
+ * 트랙을 따라 곡선으로 그림
+ */
+export function getMovementPathSVG(
+  path: HexCoord[],
+  board: BoardState,
+  hexSize: number
+): string {
+  if (path.length < 2) return '';
+
+  const pathParts: string[] = [];
+
+  for (let i = 0; i < path.length; i++) {
+    const coord = path[i];
+    const pixel = hexToPixel(coord.col, coord.row);
+
+    const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
+    const isCity = board.cities.some(c => hexCoordsEqual(c.coord, coord));
+    const isTown = board.towns.some(t => hexCoordsEqual(t.coord, coord));
+
+    if (i === 0) {
+      // 시작점 (도시)
+      if (isCity || isTown) {
+        pathParts.push(`M ${pixel.x} ${pixel.y}`);
+
+        // 다음 헥스로 나가는 엣지
+        if (i + 1 < path.length) {
+          const nextEdge = getConnectingEdge(coord, path[i + 1]);
+          if (nextEdge !== null) {
+            const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize);
+            pathParts.push(`L ${exitPoint.x} ${exitPoint.y}`);
+          }
+        }
+      }
+    } else if (i === path.length - 1) {
+      // 끝점 (도시)
+      if (isCity || isTown) {
+        const prevEdge = getConnectingEdge(coord, path[i - 1]);
+        if (prevEdge !== null) {
+          const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize);
+          pathParts.push(`L ${entryPoint.x} ${entryPoint.y}`);
+        }
+        pathParts.push(`L ${pixel.x} ${pixel.y}`);
+      }
+    } else {
+      // 중간 트랙
+      if (track) {
+        const prevEdge = getConnectingEdge(coord, path[i - 1]);
+        const nextEdge = getConnectingEdge(coord, path[i + 1]);
+
+        if (prevEdge !== null && nextEdge !== null) {
+          const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize);
+          const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize);
+
+          // 엣지 간 거리로 직선/곡선 결정
+          const edgeDiff = Math.abs(prevEdge - nextEdge);
+          const edgeDist = Math.min(edgeDiff, 6 - edgeDiff);
+
+          pathParts.push(`L ${entryPoint.x} ${entryPoint.y}`);
+
+          if (edgeDist === 3) {
+            // 직선 트랙
+            pathParts.push(`L ${exitPoint.x} ${exitPoint.y}`);
+          } else {
+            // 곡선 트랙 - 베지어 곡선
+            pathParts.push(`Q ${pixel.x} ${pixel.y} ${exitPoint.x} ${exitPoint.y}`);
+          }
+        }
+      } else if (isTown) {
+        // 마을 통과
+        const prevEdge = getConnectingEdge(coord, path[i - 1]);
+        const nextEdge = getConnectingEdge(coord, path[i + 1]);
+
+        if (prevEdge !== null && nextEdge !== null) {
+          const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize);
+          const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize);
+
+          pathParts.push(`L ${entryPoint.x} ${entryPoint.y}`);
+          pathParts.push(`L ${pixel.x} ${pixel.y}`);
+          pathParts.push(`L ${exitPoint.x} ${exitPoint.y}`);
+        }
+      }
+    }
+  }
+
+  return pathParts.join(' ');
+}
+
+/**
+ * 물품 이동 애니메이션을 위한 경로 포인트들 생성
+ * 트랙을 따라 이동하는 포인트 배열 반환
+ */
+export function getAnimationPoints(
+  path: HexCoord[],
+  board: BoardState,
+  hexSize: number,
+  pointsPerSegment: number = 10
+): { x: number; y: number }[] {
+  if (path.length < 2) return [];
+
+  const points: { x: number; y: number }[] = [];
+
+  for (let i = 0; i < path.length; i++) {
+    const coord = path[i];
+    const pixel = hexToPixel(coord.col, coord.row);
+
+    const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
+    const isTown = board.towns.some(t => hexCoordsEqual(t.coord, coord));
+
+    if (i === 0) {
+      // 시작 도시 중심
+      points.push(pixel);
+
+      // 나가는 엣지까지
+      if (i + 1 < path.length) {
+        const nextEdge = getConnectingEdge(coord, path[i + 1]);
+        if (nextEdge !== null) {
+          const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize);
+          // 중간 포인트 추가
+          for (let j = 1; j <= pointsPerSegment; j++) {
+            const t = j / pointsPerSegment;
+            points.push({
+              x: pixel.x + (exitPoint.x - pixel.x) * t,
+              y: pixel.y + (exitPoint.y - pixel.y) * t,
+            });
+          }
+        }
+      }
+    } else if (i === path.length - 1) {
+      // 끝 도시
+      const prevEdge = getConnectingEdge(coord, path[i - 1]);
+      if (prevEdge !== null) {
+        const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize);
+        // 이전 헥스 경계에서 진입점으로
+        for (let j = 1; j <= pointsPerSegment; j++) {
+          const t = j / pointsPerSegment;
+          points.push({
+            x: entryPoint.x + (pixel.x - entryPoint.x) * t,
+            y: entryPoint.y + (pixel.y - entryPoint.y) * t,
+          });
+        }
+      }
+    } else {
+      // 중간 헥스 (트랙 또는 마을)
+      const prevEdge = getConnectingEdge(coord, path[i - 1]);
+      const nextEdge = getConnectingEdge(coord, path[i + 1]);
+
+      if (prevEdge !== null && nextEdge !== null) {
+        const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize);
+        const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize);
+
+        // 진입점 추가
+        points.push(entryPoint);
+
+        if (track) {
+          // 트랙: 직선 또는 곡선
+          const edgeDiff = Math.abs(prevEdge - nextEdge);
+          const edgeDist = Math.min(edgeDiff, 6 - edgeDiff);
+
+          if (edgeDist === 3) {
+            // 직선
+            for (let j = 1; j <= pointsPerSegment; j++) {
+              const t = j / pointsPerSegment;
+              points.push({
+                x: entryPoint.x + (exitPoint.x - entryPoint.x) * t,
+                y: entryPoint.y + (exitPoint.y - entryPoint.y) * t,
+              });
+            }
+          } else {
+            // 베지어 곡선
+            for (let j = 1; j <= pointsPerSegment; j++) {
+              const t = j / pointsPerSegment;
+              const oneMinusT = 1 - t;
+              points.push({
+                x: oneMinusT * oneMinusT * entryPoint.x + 2 * oneMinusT * t * pixel.x + t * t * exitPoint.x,
+                y: oneMinusT * oneMinusT * entryPoint.y + 2 * oneMinusT * t * pixel.y + t * t * exitPoint.y,
+              });
+            }
+          }
+        } else if (isTown) {
+          // 마을: 중심 경유
+          for (let j = 1; j <= pointsPerSegment / 2; j++) {
+            const t = j / (pointsPerSegment / 2);
+            points.push({
+              x: entryPoint.x + (pixel.x - entryPoint.x) * t,
+              y: entryPoint.y + (pixel.y - entryPoint.y) * t,
+            });
+          }
+          for (let j = 1; j <= pointsPerSegment / 2; j++) {
+            const t = j / (pointsPerSegment / 2);
+            points.push({
+              x: pixel.x + (exitPoint.x - pixel.x) * t,
+              y: pixel.y + (exitPoint.y - pixel.y) * t,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  return points;
 }

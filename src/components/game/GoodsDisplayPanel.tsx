@@ -3,19 +3,19 @@
 import { motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 import { CUBE_COLORS, CubeColor, GOODS_DISPLAY_CONFIG, GoodsColumnId } from '@/types/game';
-import { RUST_BELT_COLUMN_MAPPING, RUST_BELT_CITIES } from '@/utils/rustBeltMap';
+import { TUTORIAL_COLUMN_MAPPING, TUTORIAL_CITIES } from '@/utils/tutorialMap';
 import { Package, Plus } from 'lucide-react';
 
 // 열 정보 조회 헬퍼 함수
 function getColumnInfo(columnId: GoodsColumnId): { label: string; cityName: string; isNewCity: boolean } {
-  const mapping = RUST_BELT_COLUMN_MAPPING.find(m => m.columnId === columnId);
+  const mapping = TUTORIAL_COLUMN_MAPPING.find(m => m.columnId === columnId);
   if (!mapping) {
     return { label: columnId, cityName: '?', isNewCity: false };
   }
 
   // 기존 도시인 경우 도시 이름 조회
   if (!mapping.isNewCity) {
-    const city = RUST_BELT_CITIES.find(c => c.id === mapping.cityId);
+    const city = TUTORIAL_CITIES.find(c => c.id === mapping.cityId);
     return {
       label: columnId,
       cityName: city?.name || mapping.cityId,

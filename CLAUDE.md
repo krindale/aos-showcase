@@ -138,6 +138,17 @@ npm run build
 # 결과: out/ 디렉토리에 정적 파일 생성
 ```
 
+### 테스트 실행
+게임 테스트는 `/test-game` 슬래시 커맨드를 사용합니다.
+```bash
+# Claude Code에서 테스트 실행:
+/test-game
+```
+
+테스트 파일:
+- `tests/game-phases.spec.ts` - 게임 단계별 기본 테스트 (50개)
+- `tests/ui-state.spec.ts` - 상세 UI 상태 테스트 (버튼 텍스트, 플레이어 전환, Phase 전환)
+
 ### GitHub Pages 배포
 - `.github/workflows/deploy.yml` 자동 배포 설정됨
 - `main` 브랜치 푸시 시 자동 배포

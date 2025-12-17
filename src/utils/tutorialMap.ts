@@ -1,4 +1,4 @@
-// Rust Belt 맵 데이터
+// Tutorial 맵 데이터
 // Age of Steam Deluxe Edition 기본 맵
 
 import {
@@ -15,13 +15,13 @@ import {
 } from '@/types/game';
 
 // === 맵 메타 정보 ===
-export const RUST_BELT_MAP = {
-  id: 'rust-belt',
-  name: 'Rust Belt',
-  nameKo: '러스트 벨트',
+export const TUTORIAL_MAP = {
+  id: 'tutorial',
+  name: 'Tutorial',
+  nameKo: '튜토리얼',
   description: '미국 중서부와 동부를 연결하는 철도 네트워크',
-  players: { min: 2, max: 6 },
-  supportedPlayers: [2, 3, 4, 5, 6],  // 지원하는 플레이어 수 목록
+  players: { min: 2, max: 2 },
+  supportedPlayers: [2],  // 튜토리얼은 2인 전용
   difficulty: 2,
   cols: 7,
   rows: 5,
@@ -29,15 +29,15 @@ export const RUST_BELT_MAP = {
 };
 
 // MapConfig 형식의 맵 설정 (게임 초기화용)
-export const RUST_BELT_MAP_CONFIG: MapConfig = {
-  id: RUST_BELT_MAP.id,
-  name: RUST_BELT_MAP.name,
-  supportedPlayers: RUST_BELT_MAP.supportedPlayers,
-  description: RUST_BELT_MAP.description,
+export const TUTORIAL_MAP_CONFIG: MapConfig = {
+  id: TUTORIAL_MAP.id,
+  name: TUTORIAL_MAP.name,
+  supportedPlayers: TUTORIAL_MAP.supportedPlayers,
+  description: TUTORIAL_MAP.description,
 };
 
 // === 도시 데이터 ===
-export const RUST_BELT_CITIES: City[] = [
+export const TUTORIAL_CITIES: City[] = [
   {
     id: 'P',
     name: 'Pittsburgh',
@@ -75,13 +75,13 @@ export const RUST_BELT_CITIES: City[] = [
   },
 ];
 
-// === 마을 위치 (Rust Belt에서는 마을 없음, 확장용) ===
-export const RUST_BELT_TOWNS: Town[] = [];
+// === 마을 위치 (Tutorial에서는 마을 없음, 확장용) ===
+export const TUTORIAL_TOWNS: Town[] = [];
 
 // === 물품 디스플레이 열-도시 매핑 ===
-// Rust Belt 맵에서 주사위 결과(1-6)가 어느 도시에 물품을 배치하는지 정의
+// Tutorial 맵에서 주사위 결과(1-6)가 어느 도시에 물품을 배치하는지 정의
 // A-D는 신규 도시(Urbanization)용 열
-export const RUST_BELT_COLUMN_MAPPING: GoodsColumnMapping[] = [
+export const TUTORIAL_COLUMN_MAPPING: GoodsColumnMapping[] = [
   { columnId: '1' as GoodsColumnId, cityId: 'P', isNewCity: false, rowCount: 6 }, // Pittsburgh
   { columnId: '2' as GoodsColumnId, cityId: 'C', isNewCity: false, rowCount: 6 }, // Cleveland
   { columnId: '3' as GoodsColumnId, cityId: 'O', isNewCity: false, rowCount: 6 }, // Columbus
@@ -96,7 +96,7 @@ export const RUST_BELT_COLUMN_MAPPING: GoodsColumnMapping[] = [
 
 // 주사위 결과에서 도시 ID 가져오기
 export function getCityIdByDiceResult(diceResult: number): string | null {
-  const mapping = RUST_BELT_COLUMN_MAPPING.find(
+  const mapping = TUTORIAL_COLUMN_MAPPING.find(
     m => m.columnId === String(diceResult) && !m.isNewCity
   );
   return mapping?.cityId || null;
@@ -104,11 +104,11 @@ export function getCityIdByDiceResult(diceResult: number): string | null {
 
 // 열 ID에서 도시 정보 가져오기
 export function getColumnCityInfo(columnId: GoodsColumnId): GoodsColumnMapping | undefined {
-  return RUST_BELT_COLUMN_MAPPING.find(m => m.columnId === columnId);
+  return TUTORIAL_COLUMN_MAPPING.find(m => m.columnId === columnId);
 }
 
 // === 호수 타일 ===
-export const RUST_BELT_LAKE_TILES: { col: number; row: number }[] = [
+export const TUTORIAL_LAKE_TILES: { col: number; row: number }[] = [
   { col: 6, row: 0 },
   { col: 6, row: 1 },
   { col: 6, row: 2 },
@@ -116,18 +116,18 @@ export const RUST_BELT_LAKE_TILES: { col: number; row: number }[] = [
 ];
 
 // === 헥스 타일 (지형 정보) ===
-export function generateRustBeltHexTiles(): HexTile[] {
+export function generateTutorialHexTiles(): HexTile[] {
   const tiles: HexTile[] = [];
 
-  for (let row = 0; row < RUST_BELT_MAP.rows; row++) {
-    for (let col = RUST_BELT_MAP.startCol; col < RUST_BELT_MAP.cols; col++) {
+  for (let row = 0; row < TUTORIAL_MAP.rows; row++) {
+    for (let col = TUTORIAL_MAP.startCol; col < TUTORIAL_MAP.cols; col++) {
       // 호수인지 확인
-      const isLake = RUST_BELT_LAKE_TILES.some(
+      const isLake = TUTORIAL_LAKE_TILES.some(
         (l) => l.col === col && l.row === row
       );
 
       // 도시인지 확인 (도시 헥스는 지형 없음)
-      const isCity = RUST_BELT_CITIES.some(
+      const isCity = TUTORIAL_CITIES.some(
         (c) => c.coord.col === col && c.coord.row === row
       );
 
@@ -200,20 +200,20 @@ export function placeCubesOnCities(
 export function createInitialBoardState(): BoardState {
   const goodsDisplay = initializeGoodsDisplay();
   const { cities } = placeCubesOnCities(
-    RUST_BELT_CITIES.map((c) => ({ ...c, cubes: [] })),
+    TUTORIAL_CITIES.map((c) => ({ ...c, cubes: [] })),
     goodsDisplay
   );
 
   return {
     cities,
-    towns: RUST_BELT_TOWNS,
+    towns: TUTORIAL_TOWNS,
     trackTiles: [],
-    hexTiles: generateRustBeltHexTiles(),
+    hexTiles: generateTutorialHexTiles(),
   };
 }
 
 // === 색상 상수 (UI용) ===
-export const RUST_BELT_COLORS = {
+export const TUTORIAL_COLORS = {
   // 도시 색상 (세련된 톤)
   cities: {
     P: CITY_COLORS.red,      // Pittsburgh
@@ -239,11 +239,11 @@ export const RUST_BELT_COLORS = {
 // === 유효한 헥스인지 확인 ===
 export function isValidHex(col: number, row: number): boolean {
   // 범위 체크
-  if (col < RUST_BELT_MAP.startCol || col >= RUST_BELT_MAP.cols) return false;
-  if (row < 0 || row >= RUST_BELT_MAP.rows) return false;
+  if (col < TUTORIAL_MAP.startCol || col >= TUTORIAL_MAP.cols) return false;
+  if (row < 0 || row >= TUTORIAL_MAP.rows) return false;
 
   // 호수 체크
-  if (RUST_BELT_LAKE_TILES.some((l) => l.col === col && l.row === row)) {
+  if (TUTORIAL_LAKE_TILES.some((l) => l.col === col && l.row === row)) {
     return false;
   }
 
@@ -252,19 +252,19 @@ export function isValidHex(col: number, row: number): boolean {
 
 // === 도시 헥스인지 확인 ===
 export function isCityHex(col: number, row: number): boolean {
-  return RUST_BELT_CITIES.some(
+  return TUTORIAL_CITIES.some(
     (c) => c.coord.col === col && c.coord.row === row
   );
 }
 
 // === 도시 ID로 도시 찾기 ===
 export function getCityById(cityId: string): City | undefined {
-  return RUST_BELT_CITIES.find((c) => c.id === cityId);
+  return TUTORIAL_CITIES.find((c) => c.id === cityId);
 }
 
 // === 좌표로 도시 찾기 ===
 export function getCityAtCoord(col: number, row: number): City | undefined {
-  return RUST_BELT_CITIES.find(
+  return TUTORIAL_CITIES.find(
     (c) => c.coord.col === col && c.coord.row === row
   );
 }

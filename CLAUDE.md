@@ -71,6 +71,8 @@ src/
 │   ├── page.tsx           # 랜딩 페이지 (/, HeroSection + GameBoardPreview + FeatureCards)
 │   ├── layout.tsx         # 루트 레이아웃 (Navigation + Footer 포함)
 │   ├── globals.css        # 글로벌 스타일, 유틸리티 클래스
+│   ├── game/
+│   │   └── page.tsx       # 플레이어블 게임 페이지 (2인 튜토리얼)
 │   ├── gameplay/
 │   │   └── page.tsx       # 게임플레이 페이지 (턴 시퀀스, 트랙 건설)
 │   ├── actions/
@@ -79,12 +81,26 @@ src/
 │   │   └── page.tsx       # 맵 갤러리 (6개 맵 슬라이더)
 │   └── calculator/
 │       └── page.tsx       # 계산기 (트랙 비용, 승점, 수입)
-└── components/
-    ├── Navigation.tsx     # 글래스모피즘 네비게이션 바
-    ├── Footer.tsx         # 푸터 (링크, 소셜)
-    ├── HeroSection.tsx    # 풀스크린 히어로 + 패럴랙스
-    ├── GameBoardPreview.tsx # 헥스 그리드 인터랙티브 프리뷰
-    └── FeatureCards.tsx   # 피처 카드 + 숫자 카운트업
+├── components/
+│   ├── Navigation.tsx     # 글래스모피즘 네비게이션 바
+│   ├── Footer.tsx         # 푸터 (링크, 소셜)
+│   ├── HeroSection.tsx    # 풀스크린 히어로 + 패럴랙스
+│   ├── GameBoardPreview.tsx # 헥스 그리드 인터랙티브 프리뷰
+│   ├── FeatureCards.tsx   # 피처 카드 + 숫자 카운트업
+│   └── game/              # 게임 UI 컴포넌트
+│       ├── GameBoard.tsx       # 헥스 그리드 게임보드
+│       ├── PlayerPanel.tsx     # 플레이어 정보 패널
+│       ├── PhasePanel.tsx      # 현재 단계 표시
+│       ├── ActionPanel.tsx     # 행동 선택 UI
+│       ├── AuctionPanel.tsx    # 경매 UI
+│       ├── BuildTrackPanel.tsx # 트랙 건설 UI
+│       └── MoveGoodsPanel.tsx  # 물품 이동 UI
+├── store/
+│   └── gameStore.ts       # Zustand 게임 상태 관리
+└── types/
+    └── game.ts            # 게임 타입 정의
+tests/
+└── game-phases.spec.ts    # Playwright E2E 테스트 (55개)
 ```
 
 ## 주요 컴포넌트
@@ -125,6 +141,56 @@ src/
 - 인터랙티브 슬라이더
 - 실시간 계산 결과
 
+## 플레이어블 게임 (`/game`)
+
+2인 튜토리얼 게임을 플레이할 수 있는 인터랙티브 게임 페이지입니다.
+
+### 게임 단계 (10 Phases)
+1. **Issue Shares** - 주식 발행 ($5/주)
+2. **Determine Player Order** - 경매로 플레이어 순서 결정
+3. **Select Actions** - 7가지 특수 행동 중 선택
+4. **Build Track** - 트랙 건설 (최대 3개, Engineer 선택 시 4개)
+5. **Move Goods** - 물품 이동 (2라운드)
+6. **Collect Income** - 수입 수집
+7. **Pay Expenses** - 비용 지불 (주식 + 엔진 레벨)
+8. **Income Reduction** - 수입 감소
+9. **Goods Growth** - 물품 성장 (주사위)
+10. **Advance Turn Marker** - 턴 마커 전진
+
+### 주요 게임 로직
+
+**수입 계산 (링크 기반)**
+- 물품이 지나가는 각 철도 링크(도시/마을 → 도시/마을)마다 해당 링크 소유자 수입 +1
+- 트랙 타일 수가 아닌 링크 수로 계산
+
+**경매 시스템**
+- `placeBid()`: 입찰
+- `passBid()`: 포기 (탈락)
+- `skipBid()`: Turn Order 패스 (탈락 없이 다음 입찰자로)
+- `lastActedPlayer`: 마지막 행동 플레이어 추적
+
+**7가지 특수 행동**
+- First Move, First Build, Engineer, Locomotive, Urbanization, Production, Turn Order
+
+### 게임 상태 관리 (Zustand)
+
+```typescript
+// src/store/gameStore.ts
+interface GameStore {
+  // 게임 상태
+  currentTurn: number;
+  currentPhase: GamePhase;
+  players: Record<PlayerId, PlayerState>;
+  board: BoardState;
+  auction: AuctionState | null;
+
+  // 주요 함수
+  placeBid, passBid, skipBid, resolveAuction,
+  selectAction, buildTrack, completeCubeMove,
+  nextPhase, resetGame, ...
+}
+```
+
 ## 빌드 & 배포
 
 ### 개발 서버
@@ -137,6 +203,16 @@ npm run dev
 npm run build
 # 결과: out/ 디렉토리에 정적 파일 생성
 ```
+
+### 테스트 실행
+게임 테스트는 `/test-game` 슬래시 커맨드를 사용합니다.
+```bash
+# Claude Code에서 테스트 실행:
+/test-game
+```
+
+테스트 파일:
+- `tests/game-phases.spec.ts` - 게임 단계별 기본 테스트 (55개)
 
 ### GitHub Pages 배포
 - `.github/workflows/deploy.yml` 자동 배포 설정됨

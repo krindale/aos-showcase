@@ -15,9 +15,12 @@ import {
   Palmtree,
 } from 'lucide-react';
 
+const basePath = process.env.NODE_ENV === 'production' ? '/aos-showcase' : '';
+
 const maps = [
   {
     id: 1,
+    slug: 'rust-belt',
     name: 'Rust Belt',
     nameKo: '러스트 벨트',
     region: '미국 북동부',
@@ -36,9 +39,11 @@ const maps = [
       '기본 규칙 적용',
     ],
     specialRules: null,
+    playable: true, // 게임 플레이 가능 여부
   },
   {
     id: 2,
+    slug: 'western-us',
     name: 'Western U.S.',
     nameKo: '서부 미국',
     region: '미국 서부',
@@ -57,9 +62,11 @@ const maps = [
       '자원이 분산되어 있음',
     ],
     specialRules: '산악 트랙 건설 비용 증가',
+    playable: false,
   },
   {
     id: 3,
+    slug: 'germany',
     name: 'Germany',
     nameKo: '독일',
     region: '중부 유럽',
@@ -78,9 +85,11 @@ const maps = [
       '다양한 물품 색상',
     ],
     specialRules: '도시 연결 보너스',
+    playable: false,
   },
   {
     id: 4,
+    slug: 'barbados',
     name: 'Barbados',
     nameKo: '바베이도스',
     region: '카리브해',
@@ -99,9 +108,11 @@ const maps = [
       '제한된 턴 수',
     ],
     specialRules: '솔로 모드 규칙 적용',
+    playable: false,
   },
   {
     id: 5,
+    slug: 'st-lucia',
     name: 'St. Lucia',
     nameKo: '세인트루시아',
     region: '카리브해',
@@ -120,6 +131,7 @@ const maps = [
       '빠른 게임 진행',
     ],
     specialRules: '2인 모드 규칙 적용',
+    playable: false,
   },
 ];
 
@@ -192,7 +204,7 @@ export default function MapsPage() {
                       <div className="aspect-[4/3] rounded-2xl bg-background-tertiary border border-glass-border overflow-hidden">
                         {/* Map Image */}
                         <img
-                          src={currentMap.image}
+                          src={`${basePath}${currentMap.image}`}
                           alt={currentMap.name}
                           className="w-full h-full object-contain bg-background-secondary"
                         />

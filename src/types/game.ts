@@ -380,6 +380,18 @@ export const GAME_CONSTANTS = {
   NORMAL_TRACK_LIMIT: 3,
   ENGINEER_TRACK_LIMIT: 4,
 
+  // 물품 이동 라운드
+  MOVE_GOODS_ROUNDS: 2,
+
+  // Production 큐브 수
+  PRODUCTION_CUBE_COUNT: 2,
+
+  // UI 딜레이 (ms)
+  PHASE_TRANSITION_DELAY: 100,
+
+  // 도시당 초기 큐브 수
+  INITIAL_CUBES_PER_CITY: 2,
+
   // 수입 감소 테이블
   INCOME_REDUCTION: [
     { min: 50, max: 999, reduction: 10 },
@@ -489,3 +501,64 @@ export const ACTION_INFO: Record<SpecialAction, { name: string; description: str
     description: '다음 플레이어 순서 결정 시 한 번 패스할 수 있습니다.',
   },
 };
+
+// === 에러 처리 타입 ===
+
+/**
+ * 게임 에러 코드
+ */
+export type GameErrorCode =
+  | 'PLAYER_NOT_FOUND'
+  | 'INVALID_PHASE'
+  | 'INVALID_ACTION'
+  | 'INSUFFICIENT_FUNDS'
+  | 'MAX_SHARES_REACHED'
+  | 'ACTION_ALREADY_SELECTED'
+  | 'INVALID_TRACK_PLACEMENT'
+  | 'INVALID_MOVE'
+  | 'NOT_YOUR_TURN';
+
+/**
+ * 게임 에러 인터페이스
+ */
+export interface GameError {
+  code: GameErrorCode;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+/**
+ * 작업 결과 타입 (성공 또는 실패)
+ */
+export type Result<T = void> =
+  | { success: true; value: T }
+  | { success: false; error: GameError };
+
+/**
+ * Result 헬퍼 함수들
+ */
+export const Result = {
+  ok: <T>(value: T): Result<T> => ({ success: true, value }),
+  fail: (code: GameErrorCode, message: string, details?: Record<string, unknown>): Result<never> => ({
+    success: false,
+    error: { code, message, details },
+  }),
+  isOk: <T>(result: Result<T>): result is { success: true; value: T } => result.success,
+  isFail: <T>(result: Result<T>): result is { success: false; error: GameError } => !result.success,
+};
+
+// === 타입 가드 함수 ===
+
+/**
+ * 문자열이 유효한 PlayerId인지 검사
+ */
+export function isValidPlayerId(id: string): id is PlayerId {
+  return PLAYER_ID_ORDER.includes(id as PlayerId);
+}
+
+/**
+ * 값이 null 또는 undefined가 아닌지 검사
+ */
+export function isNonNullable<T>(value: T): value is NonNullable<T> {
+  return value !== null && value !== undefined;
+}

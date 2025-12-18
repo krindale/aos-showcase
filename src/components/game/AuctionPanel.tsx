@@ -3,20 +3,19 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { PlayerId, PLAYER_COLORS } from '@/types/game';
 import { DollarSign, User, Crown, XCircle, Check } from 'lucide-react';
 
 export default function AuctionPanel() {
-  const {
-    auction,
-    players,
-    playerOrder,
-    placeBid,
-    passBid,
-    skipBid,
-    resolveAuction,
-    nextPhase,
-  } = useGameStore();
+  const { auction, players, playerOrder } = useGameStore(
+    useShallow((state) => ({
+      auction: state.auction,
+      players: state.players,
+      playerOrder: state.playerOrder,
+    }))
+  );
+  const { placeBid, passBid, skipBid, resolveAuction, nextPhase } = useGameStore();
 
   // 입찰 금액 상태
   const [bidAmount, setBidAmount] = useState(1);

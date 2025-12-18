@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { PlayerId, PLAYER_COLORS, GAME_CONSTANTS } from '@/types/game';
 import {
   DollarSign,
@@ -19,7 +20,14 @@ interface PlayerPanelProps {
 }
 
 export default function PlayerPanel({ playerId }: PlayerPanelProps) {
-  const { players, currentPlayer, currentPhase, issueShare } = useGameStore();
+  const { players, currentPlayer, currentPhase } = useGameStore(
+    useShallow((state) => ({
+      players: state.players,
+      currentPlayer: state.currentPlayer,
+      currentPhase: state.currentPhase,
+    }))
+  );
+  const issueShare = useGameStore((state) => state.issueShare);
   const player = players[playerId];
   const isActive = currentPlayer === playerId;
   const playerColor = PLAYER_COLORS[player.color];

@@ -1210,7 +1210,7 @@ export default function GameplayPage() {
                       {[
                         { name: '출발', color: 'steam-blue', type: 'city' },
                         { name: '링크1', color: 'accent', type: 'link' },
-                        { name: '경유', color: 'steam-purple', type: 'city' },
+                        { name: '마을', color: 'steam-purple', type: 'town' },
                         { name: '링크2', color: 'accent', type: 'link' },
                         { name: '중간', color: 'steam-green', type: 'city' },
                         { name: '링크3', color: 'accent', type: 'link' },
@@ -1226,6 +1226,18 @@ export default function GameplayPage() {
                                 className="absolute inset-0 bg-accent/50 rounded-full origin-left"
                               />
                             </div>
+                          ) : node.type === 'town' ? (
+                            <motion.div
+                              initial={{ scale: 0 }}
+                              animate={{ scale: 1 }}
+                              transition={{ delay: 0.1 + i * 0.1, type: 'spring' }}
+                              className="text-center"
+                            >
+                              <div className={`w-10 h-10 rounded-lg bg-${node.color}/20 border-2 border-${node.color}/50 flex items-center justify-center`}>
+                                <Home className={`w-5 h-5 text-${node.color}`} />
+                              </div>
+                              <span className="text-[10px] text-foreground-muted mt-1 block">{node.name}</span>
+                            </motion.div>
                           ) : (
                             <motion.div
                               initial={{ scale: 0 }}

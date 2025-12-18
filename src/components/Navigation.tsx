@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -12,21 +12,32 @@ const navItems = [
   { href: '/actions', label: 'Actions', labelKo: '특수 행동' },
   { href: '/maps', label: 'Maps', labelKo: '맵' },
   { href: '/calculator', label: 'Calculator', labelKo: '계산기' },
-];
+] as const;
 
 export default function Navigation() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const pathname = usePathname();
+  const lastScrollY = useRef(0);
+  const ticking = useRef(false);
+
+  // 스크롤 이벤트 throttle (requestAnimationFrame 사용)
+  const handleScroll = useCallback(() => {
+    lastScrollY.current = window.scrollY;
+
+    if (!ticking.current) {
+      requestAnimationFrame(() => {
+        setIsScrolled(lastScrollY.current > 50);
+        ticking.current = false;
+      });
+      ticking.current = true;
+    }
+  }, []);
 
   useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 50);
-    };
-
-    window.addEventListener('scroll', handleScroll);
+    window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
+  }, [handleScroll]);
 
   return (
     <>

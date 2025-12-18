@@ -14,7 +14,6 @@
     "gsap": "^3.14.2",
     "lucide-react": "^0.561.0",
     "next": "14.2.35",
-    "pdf-to-png-converter": "^3.11.0",
     "react": "^18",
     "react-dom": "^18",
     "zustand": "^5.0.9"
@@ -24,10 +23,8 @@
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
-    "canvas": "^3.2.0",
     "eslint": "^8",
     "eslint-config-next": "14.2.35",
-    "pdfjs-dist": "^5.4.449",
     "playwright": "^1.57.0",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",

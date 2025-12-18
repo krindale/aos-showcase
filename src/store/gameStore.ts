@@ -10,7 +10,6 @@ import {
   TrackTile,
   CubeColor,
   PlayerState,
-  PlayerColor,
   GAME_CONSTANTS,
   TRACK_REPLACE_COSTS,
   NEW_CITY_TILES,
@@ -41,68 +40,20 @@ import {
   findLongestPath,
   findReachableDestinations,
 } from '@/utils/hexGrid';
+import {
+  getNextPlayerId,
+  createPlayerMoves,
+  allPlayersMoved,
+  allPlayersSelectedAction,
+  resetPlayerActions,
+  createInitialPlayerState,
+  findFirstBuildPlayer,
+  findFirstMovePlayer,
+  isLastPlayer,
+} from '@/utils/gameLogic';
 
-// === 헬퍼 함수 ===
-
-// 다음 플레이어 ID 계산 (순환)
-function getNextPlayerId(currentPlayer: PlayerId, activePlayers: PlayerId[]): PlayerId {
-  const currentIndex = activePlayers.indexOf(currentPlayer);
-  const nextIndex = (currentIndex + 1) % activePlayers.length;
-  return activePlayers[nextIndex];
-}
-
-// 동적 playerMoves 객체 생성 (모두 false로 초기화)
-function createPlayerMoves(activePlayers: PlayerId[]): Record<PlayerId, boolean> {
-  const moves: Partial<Record<PlayerId, boolean>> = {};
-  activePlayers.forEach(p => { moves[p] = false; });
-  return moves as Record<PlayerId, boolean>;
-}
-
-// 모든 플레이어가 이동했는지 확인
-function allPlayersMoved(playerMoves: Record<PlayerId, boolean>, activePlayers: PlayerId[]): boolean {
-  return activePlayers.every(p => playerMoves[p]);
-}
-
-// 모든 플레이어가 행동을 선택했는지 확인
-function allPlayersSelectedAction(players: Record<PlayerId, PlayerState>, activePlayers: PlayerId[]): boolean {
-  return activePlayers.every(p => players[p]?.selectedAction !== null);
-}
-
-// 플레이어들의 selectedAction 초기화
-function resetPlayerActions(
-  players: Record<PlayerId, PlayerState>,
-  activePlayers: PlayerId[]
-): Record<PlayerId, PlayerState> {
-  const updated: Partial<Record<PlayerId, PlayerState>> = {};
-  activePlayers.forEach(pid => {
-    if (players[pid]) {
-      updated[pid] = { ...players[pid], selectedAction: null };
-    }
-  });
-  return { ...players, ...updated };
-}
-
-// === 초기 상태 생성 ===
-function createInitialPlayerState(
-  id: PlayerId,
-  name: string,
-  color: PlayerColor
-): PlayerState {
-  return {
-    id,
-    name,
-    color,
-    cash: GAME_CONSTANTS.STARTING_CASH,
-    income: GAME_CONSTANTS.STARTING_INCOME,
-    engineLevel: GAME_CONSTANTS.STARTING_ENGINE,
-    issuedShares: GAME_CONSTANTS.STARTING_SHARES,
-    selectedAction: null,
-    turnOrderPassUsed: false,
-    eliminated: false,
-  };
-}
-
-function createInitialGameState(
+// 테스트에서 사용할 수 있도록 export
+export function createInitialGameState(
   mapId: string,
   playerNames: string[]
 ): GameState {
@@ -113,9 +64,10 @@ function createInitialGameState(
   const bag = [...goodsDisplay.bag];
   const citiesWithCubes = boardState.cities.map((city) => {
     const cubes: CubeColor[] = [];
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < GAME_CONSTANTS.INITIAL_CUBES_PER_CITY; i++) {
       if (bag.length > 0) {
-        cubes.push(bag.pop()!);
+        const cube = bag.pop();
+        if (cube) cubes.push(cube);
       }
     }
     return { ...city, cubes };
@@ -219,115 +171,173 @@ function createInitialGameState(
   };
 }
 
-// === 스토어 인터페이스 ===
+// ============================================================
+// 스토어 인터페이스
+// ============================================================
 interface GameStore extends GameState {
-  // 게임 초기화
+  // --- 게임 라이프사이클 ---
+  /** 게임 초기화 */
   initGame: (mapId: string, playerNames: string[]) => void;
+  /** 게임 리셋 (플레이어 이름 유지) */
   resetGame: () => void;
 
-  // 플레이어 순환 헬퍼
+  // --- 플레이어 순환 헬퍼 ---
+  /** 다음 플레이어 ID 반환 */
   getNextPlayer: (playerId: PlayerId) => PlayerId;
+  /** 이전 플레이어 ID 반환 */
   getPreviousPlayer: (playerId: PlayerId) => PlayerId;
 
-  // 주식 발행
+  // --- Phase I: 주식 발행 ---
+  /** 주식 발행 ($5/주) */
   issueShare: (playerId: PlayerId, amount: number) => void;
 
-  // 플레이어 순서 경매
+  // --- Phase II: 플레이어 순서 경매 ---
+  /** 입찰 */
   placeBid: (playerId: PlayerId, amount: number) => void;
+  /** 입찰 포기 (탈락) */
   passBid: (playerId: PlayerId) => void;
-  skipBid: (playerId: PlayerId) => void;  // Turn Order 패스용
+  /** Turn Order 패스 (탈락 없이 스킵) */
+  skipBid: (playerId: PlayerId) => void;
+  /** 경매 해결 */
   resolveAuction: () => void;
 
-  // 행동 선택
+  // --- Phase III: 행동 선택 ---
+  /** 특수 행동 선택 */
   selectAction: (playerId: PlayerId, action: SpecialAction) => void;
 
-  // 트랙 건설
+  // --- Phase IV: 트랙 건설 ---
+  /** 트랙 건설 */
   buildTrack: (coord: HexCoord, edges: [number, number]) => boolean;
+  /** 트랙 건설 가능 여부 확인 */
   canBuildTrack: (coord: HexCoord, edges: [number, number]) => boolean;
-
-  // 복합 트랙 건설 (교차/공존)
+  /** 복합 트랙 건설 (교차/공존) */
   buildComplexTrack: (
     coord: HexCoord,
     newEdges: [number, number],
     trackType: 'crossing' | 'coexist'
   ) => boolean;
+  /** 복합 트랙 건설 가능 여부 확인 */
   canBuildComplexTrack: (
     coord: HexCoord,
     newEdges: [number, number],
     trackType: 'crossing' | 'coexist'
   ) => boolean;
 
-  // 물품 이동
+  // --- Phase V: 물품 이동 ---
+  /** 물품 이동 */
   moveGoods: (cubeColor: CubeColor, path: HexCoord[]) => void;
+  /** 엔진 업그레이드 (물품 이동 대신) */
   upgradeEngine: () => void;
 
-  // 수입/비용
+  // --- Phase VI-VIII: 수입/비용 ---
+  /** 수입 수집 */
   collectIncome: () => void;
+  /** 비용 지불 */
   payExpenses: () => void;
+  /** 수입 감소 */
   applyIncomeReduction: () => void;
 
-  // 물품 성장
+  // --- Phase IX: 물품 성장 ---
+  /** 물품 성장 (주사위 결과 기반) */
   growGoods: (diceResults: number[]) => void;
 
-  // 단계/턴 진행
+  // --- Phase X: 턴 진행 ---
+  /** 다음 단계로 진행 */
   nextPhase: () => void;
+  /** 턴 종료 (자동 단계 실행) */
   endTurn: () => void;
 
-  // UI 상태
+  // --- UI: 기본 선택 ---
+  /** 헥스 선택 */
   selectHex: (coord: HexCoord | null) => void;
+  /** 큐브 선택 */
   selectCube: (cityId: string, cubeIndex: number) => void;
+  /** 선택 초기화 */
   clearSelection: () => void;
+  /** 트랙 미리보기 설정 */
   setPreviewTrack: (track: { coord: HexCoord; edges: [number, number] } | null) => void;
+  /** 하이라이트 헥스 설정 */
   setHighlightedHexes: (hexes: HexCoord[]) => void;
+  /** 이동 경로 설정 */
   setMovePath: (path: HexCoord[]) => void;
 
-  // 트랙 건설 UI
-  selectSourceHex: (coord: HexCoord) => void;       // 연결점 선택
-  selectTargetHex: (coord: HexCoord) => void;       // 대상 헥스 선택 (나가는 방향 선택 UI 표시)
-  selectExitDirection: (exitEdge: number) => boolean;  // 나가는 방향 선택하여 트랙 건설
-  updateTrackPreview: (targetCoord: HexCoord) => void;  // 호버 시 미리보기 업데이트
-  resetBuildMode: () => void;                       // 빌드 모드 초기화
+  // --- UI: 트랙 건설 ---
+  /** 연결점 선택 */
+  selectSourceHex: (coord: HexCoord) => void;
+  /** 대상 헥스 선택 */
+  selectTargetHex: (coord: HexCoord) => void;
+  /** 나가는 방향 선택하여 트랙 건설 */
+  selectExitDirection: (exitEdge: number) => boolean;
+  /** 호버 시 미리보기 업데이트 */
+  updateTrackPreview: (targetCoord: HexCoord) => void;
+  /** 빌드 모드 초기화 */
+  resetBuildMode: () => void;
 
-  // 복합 트랙 UI
+  // --- UI: 복합 트랙 ---
+  /** 복합 트랙 선택 패널 표시 */
   showComplexTrackSelection: (coord: HexCoord, newEdges: [number, number]) => void;
+  /** 복합 트랙 선택 패널 숨김 */
   hideComplexTrackSelection: () => void;
 
-  // 트랙 방향 전환
+  // --- UI: 트랙 방향 전환 ---
+  /** 방향 전환할 트랙 선택 */
   selectTrackToRedirect: (coord: HexCoord) => boolean;
+  /** 트랙 방향 전환 실행 */
   redirectTrack: (coord: HexCoord, newExitEdge: number) => boolean;
+  /** 방향 전환 가능 여부 확인 */
   canRedirect: (coord: HexCoord) => boolean;
+  /** 방향 전환 선택 숨김 */
   hideRedirectSelection: () => void;
 
-  // 도시화 (Urbanization)
+  // --- UI: 도시화 (Urbanization) ---
+  /** 도시화 모드 진입 */
   enterUrbanizationMode: () => void;
+  /** 도시화 모드 종료 */
   exitUrbanizationMode: () => void;
+  /** 신규 도시 타일 선택 */
   selectNewCityTile: (tileId: NewCityTileId) => void;
+  /** 신규 도시 배치 */
   placeNewCity: (townCoord: HexCoord) => boolean;
+  /** 신규 도시 배치 가능 여부 */
   canPlaceNewCity: (townCoord: HexCoord) => boolean;
 
-  // Production (생산)
+  // --- UI: Production (생산) ---
+  /** 생산 모드 시작 */
   startProduction: () => void;
+  /** 생산 슬롯 선택 */
   selectProductionSlot: (slotIndex: number) => void;
+  /** 생산 확정 */
   confirmProduction: () => boolean;
+  /** 생산 취소 */
   cancelProduction: () => void;
+  /** 빈 슬롯 목록 반환 */
   getEmptySlots: () => number[];
 
-  // 물품 이동 UI
-  selectDestinationCity: (coord: HexCoord) => void;  // 목적지 도시 선택
-  startCubeAnimation: (path: HexCoord[], color: CubeColor) => void;  // 큐브 애니메이션 시작
-  advanceCubeAnimation: () => void;                  // 애니메이션 다음 단계
-  completeCubeMove: () => void;                      // 큐브 이동 완료
+  // --- UI: 물품 이동 애니메이션 ---
+  /** 목적지 도시 선택 */
+  selectDestinationCity: (coord: HexCoord) => void;
+  /** 큐브 애니메이션 시작 */
+  startCubeAnimation: (path: HexCoord[], color: CubeColor) => void;
+  /** 애니메이션 다음 단계 */
+  advanceCubeAnimation: () => void;
+  /** 큐브 이동 완료 */
+  completeCubeMove: () => void;
 
-  // 로그
+  // --- 로그 ---
+  /** 로그 추가 */
   addLog: (action: string) => void;
 }
 
-// === 스토어 생성 ===
+// ============================================================
+// 스토어 구현
+// ============================================================
 export const useGameStore = create<GameStore>((set, get) => ({
   // 초기 상태 (빈 게임)
   ...createInitialGameState('tutorial', ['기차-하나', '기차-둘']),
 
-  // === 게임 초기화 ===
+  // ============================================================
+  // 게임 라이프사이클
+  // ============================================================
   initGame: (mapId, playerNames) => {
     set(createInitialGameState(mapId, playerNames));
   },
@@ -341,7 +351,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set(createInitialGameState(state.mapId, playerNames));
   },
 
-  // === 플레이어 순환 헬퍼 ===
+  // ============================================================
+  // 플레이어 순환 헬퍼
+  // ============================================================
   getNextPlayer: (playerId: PlayerId) => {
     const state = get();
     const currentIndex = state.activePlayers.indexOf(playerId);
@@ -356,14 +368,23 @@ export const useGameStore = create<GameStore>((set, get) => ({
     return state.activePlayers[prevIndex];
   },
 
-  // === 주식 발행 ===
+  // ============================================================
+  // Phase I: 주식 발행
+  // ============================================================
   issueShare: (playerId, amount) => {
     set((state) => {
       const player = state.players[playerId];
+      if (!player) {
+        console.error(`[ERROR] issueShare: 플레이어 없음 - playerId: ${playerId}`);
+        return state;
+      }
       const maxShares = GAME_CONSTANTS.MAX_SHARES - player.issuedShares;
       const actualAmount = Math.min(amount, maxShares);
 
-      if (actualAmount <= 0) return state;
+      if (actualAmount <= 0) {
+        console.warn(`[WARN] issueShare: 발행 불가 - playerId: ${playerId}, 요청: ${amount}, 최대 가능: ${maxShares}`);
+        return state;
+      }
 
       return {
         players: {
@@ -388,7 +409,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  // === 플레이어 순서 경매 ===
+  // ============================================================
+  // Phase II: 플레이어 순서 경매
+  // ============================================================
   placeBid: (playerId, amount) => {
     set((state) => {
       if (!state.auction) {
@@ -406,7 +429,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
 
       // 입찰
-      if (amount <= state.auction.highestBid) return state;
+      if (amount <= state.auction.highestBid) {
+        console.warn(`[WARN] placeBid: 입찰 금액 부족 - playerId: ${playerId}, 입찰: $${amount}, 현재 최고: $${state.auction.highestBid}`);
+        return state;
+      }
 
       return {
         auction: {
@@ -436,7 +462,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   passBid: (playerId) => {
     set((state) => {
-      if (!state.auction) return state;
+      if (!state.auction) {
+        console.warn(`[WARN] passBid: 경매 없음 - playerId: ${playerId}`);
+        return state;
+      }
 
       const newPassedPlayers = [...state.auction.passedPlayers, playerId];
 
@@ -463,7 +492,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
   // Turn Order 패스: 탈락 없이 다음 입찰자로 넘어가기
   skipBid: (playerId) => {
     set((state) => {
-      if (!state.auction) return state;
+      if (!state.auction) {
+        console.warn(`[WARN] skipBid: 경매 없음 - playerId: ${playerId}`);
+        return state;
+      }
 
       return {
         auction: {
@@ -486,7 +518,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   resolveAuction: () => {
     set((state) => {
-      if (!state.auction) return state;
+      if (!state.auction) {
+        console.warn('[WARN] resolveAuction: 경매 없음');
+        return state;
+      }
 
       const { highestBidder, highestBid, bids, passedPlayers } = state.auction;
 
@@ -505,9 +540,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
       // 최고 입찰자가 1번 (전액 지불)
       if (highestBidder) {
+        const bidderCash = newPlayers[highestBidder].cash - highestBid;
+        if (bidderCash < 0) {
+          console.warn(`[WARN] resolveAuction: 현금 부족 - ${highestBidder}, 입찰: $${highestBid}, 보유: $${newPlayers[highestBidder].cash}`);
+        }
         newPlayers[highestBidder] = {
           ...newPlayers[highestBidder],
-          cash: newPlayers[highestBidder].cash - highestBid,
+          cash: Math.max(0, bidderCash),
         };
         newPlayerOrder.push(highestBidder);
       }
@@ -529,7 +568,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           if (playerBid > 0) {
             newPlayers[player] = {
               ...newPlayers[player],
-              cash: newPlayers[player].cash - playerBid,
+              cash: Math.max(0, newPlayers[player].cash - playerBid),
             };
           }
         } else {
@@ -537,7 +576,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           if (playerBid > 0) {
             newPlayers[player] = {
               ...newPlayers[player],
-              cash: newPlayers[player].cash - Math.ceil(playerBid / 2),
+              cash: Math.max(0, newPlayers[player].cash - Math.ceil(playerBid / 2)),
             };
           }
         }
@@ -573,20 +612,32 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  // === 행동 선택 ===
+  // ============================================================
+  // Phase III: 행동 선택
+  // ============================================================
   selectAction: (playerId, action) => {
     set((state) => {
+      // 플레이어 존재 검증
+      const player = state.players[playerId];
+      if (!player) {
+        console.error(`[ERROR] selectAction: 플레이어 없음 - playerId: ${playerId}`);
+        return state;
+      }
+
       // 이미 선택된 행동인지 확인
       const alreadySelected = Object.values(state.players).some(
         (p) => p.selectedAction === action
       );
-      if (alreadySelected) return state;
+      if (alreadySelected) {
+        console.warn(`[WARN] selectAction: 이미 선택된 행동 - playerId: ${playerId}, action: ${action}`);
+        return state;
+      }
 
       const newState: Partial<GameState> = {
         players: {
           ...state.players,
           [playerId]: {
-            ...state.players[playerId],
+            ...player,
             selectedAction: action,
           },
         },
@@ -594,12 +645,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
       // Locomotive 즉시 적용
       if (action === 'locomotive') {
-        const player = state.players[playerId];
+        const currentPlayers = newState.players ?? state.players;
         if (player.engineLevel < GAME_CONSTANTS.MAX_ENGINE) {
           newState.players = {
-            ...newState.players!,
+            ...currentPlayers,
             [playerId]: {
-              ...newState.players![playerId],
+              ...currentPlayers[playerId],
               engineLevel: player.engineLevel + 1,
             },
           };
@@ -634,7 +685,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  // === 트랙 건설 ===
+  // ============================================================
+  // Phase IV: 트랙 건설
+  // ============================================================
   canBuildTrack: (coord, edges) => {
     const state = get();
     const currentPlayer = state.currentPlayer;
@@ -693,7 +746,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (terrain === 'mountain') cost = GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
 
     const player = state.players[currentPlayer];
+    if (!player) {
+      console.error(`[ERROR] buildTrack: 플레이어 없음 - currentPlayer: ${currentPlayer}`);
+      return false;
+    }
     if (player.cash < cost) {
+      console.warn(`[WARN] buildTrack: 현금 부족 - 필요: $${cost}, 보유: $${player.cash}`);
       return false;
     }
 
@@ -737,7 +795,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     // 최대 트랙 수 건설 완료 시 자동으로 다음 플레이어로 전환
     if (newBuiltCount >= state.phaseState.maxTracksThisTurn) {
-      setTimeout(() => get().nextPhase(), 100);
+      setTimeout(() => get().nextPhase(), GAME_CONSTANTS.PHASE_TRANSITION_DELAY);
     }
 
     return true;
@@ -792,7 +850,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
 
     const currentPlayer = state.currentPlayer;
-    const existingTrack = state.board.trackTiles.find(t => hexCoordsEqual(t.coord, coord))!;
+    const existingTrack = state.board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
+    if (!existingTrack) {
+      console.error('[ERROR] buildComplexTrack: Track not found at', coord);
+      return false;
+    }
 
     // 교체 비용 계산
     const cost = trackType === 'crossing'
@@ -800,7 +862,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
       : TRACK_REPLACE_COSTS.default;
 
     const player = state.players[currentPlayer];
+    if (!player) {
+      console.error(`[ERROR] buildComplexTrack: 플레이어 없음 - currentPlayer: ${currentPlayer}`);
+      return false;
+    }
     if (player.cash < cost) {
+      console.warn(`[WARN] buildComplexTrack: 현금 부족 - 필요: $${cost}, 보유: $${player.cash}`);
       return false;
     }
 
@@ -848,16 +915,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     // 최대 트랙 수 건설 완료 시 자동으로 다음 플레이어로 전환
     if (newBuiltCount >= state.phaseState.maxTracksThisTurn) {
-      setTimeout(() => get().nextPhase(), 100);
+      setTimeout(() => get().nextPhase(), GAME_CONSTANTS.PHASE_TRANSITION_DELAY);
     }
 
     return true;
   },
 
-  // === 물품 이동 ===
+  // ============================================================
+  // Phase V: 물품 이동
+  // ============================================================
   moveGoods: (cubeColor, path) => {
     set((state) => {
-      if (path.length < 2) return state;
+      if (path.length < 2) {
+        console.warn(`[WARN] moveGoods: 경로 부족 - cubeColor: ${cubeColor}, pathLength: ${path.length}`);
+        return state;
+      }
 
       const fromCoord = path[0];
       // TODO: toCoord를 사용한 도착 도시 검증 로직 추가 예정
@@ -892,12 +964,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
 
       const newPlayers = { ...state.players };
-      for (const [playerId, incomeGain] of Object.entries(incomeChanges)) {
+      for (const playerId of state.activePlayers) {
+        const incomeGain = incomeChanges[playerId] ?? 0;
         if (incomeGain > 0) {
-          newPlayers[playerId as PlayerId] = {
-            ...newPlayers[playerId as PlayerId],
+          newPlayers[playerId] = {
+            ...newPlayers[playerId],
             income: Math.min(
-              newPlayers[playerId as PlayerId].income + incomeGain,
+              newPlayers[playerId].income + incomeGain,
               GAME_CONSTANTS.MAX_INCOME
             ),
           };
@@ -929,7 +1002,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
   upgradeEngine: () => {
     set((state) => {
       const player = state.players[state.currentPlayer];
-      if (player.engineLevel >= GAME_CONSTANTS.MAX_ENGINE) return state;
+      if (!player) {
+        console.error(`[ERROR] upgradeEngine: 플레이어 없음 - currentPlayer: ${state.currentPlayer}`);
+        return state;
+      }
+      if (player.engineLevel >= GAME_CONSTANTS.MAX_ENGINE) {
+        console.warn(`[WARN] upgradeEngine: 최대 레벨 도달 - playerId: ${state.currentPlayer}, engineLevel: ${player.engineLevel}`);
+        return state;
+      }
 
       const oldLevel = player.engineLevel;
       const newLevel = player.engineLevel + 1;
@@ -963,14 +1043,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  // === 수입/비용 ===
+  // ============================================================
+  // Phase VI-VIII: 수입/비용
+  // ============================================================
   collectIncome: () => {
     set((state) => {
       const newPlayers = { ...state.players };
       const newLogs = [...state.logs];
 
-      for (const playerId of Object.keys(newPlayers) as PlayerId[]) {
+      for (const playerId of state.activePlayers) {
         const player = newPlayers[playerId];
+        if (!player) continue;
         const incomeCollected = Math.max(0, player.income);
         newPlayers[playerId] = {
           ...player,
@@ -998,8 +1081,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const bankruptPlayers: PlayerId[] = [];
       const newLogs = [...state.logs];
 
-      for (const playerId of Object.keys(newPlayers) as PlayerId[]) {
+      for (const playerId of state.activePlayers) {
         const player = newPlayers[playerId];
+        if (!player) continue;
 
         // 이미 탈락한 플레이어는 건너뛰기
         if (player.eliminated) continue;
@@ -1085,8 +1169,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const newPlayers = { ...state.players };
       const newLogs = [...state.logs];
 
-      for (const playerId of Object.keys(newPlayers) as PlayerId[]) {
+      for (const playerId of state.activePlayers) {
         const player = newPlayers[playerId];
+        if (!player) continue;
         let reduction = 0;
 
         for (const rule of GAME_CONSTANTS.INCOME_REDUCTION) {
@@ -1119,7 +1204,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  // === 물품 성장 ===
+  // ============================================================
+  // Phase IX: 물품 성장
+  // ============================================================
   growGoods: (diceResults) => {
     set((state) => {
       // Production은 이제 수동으로 처리됨 (startProduction/confirmProduction)
@@ -1177,8 +1264,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         let moved = 0;
         for (let i = 0; i < rowCount && moved < count; i++) {
           const slotIdx = startIdx + i;
-          if (newSlots[slotIdx]) {
-            city.cubes.push(newSlots[slotIdx]!);
+          const cube = newSlots[slotIdx];
+          if (cube) {
+            city.cubes.push(cube);
             newSlots[slotIdx] = null;
             moved++;
           }
@@ -1213,7 +1301,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  // === 단계/턴 진행 ===
+  // ============================================================
+  // Phase X: 단계/턴 진행
+  // ============================================================
   nextPhase: () => {
     const currentState = get();
 
@@ -1243,15 +1333,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const currentIndex = phases.indexOf(state.currentPhase);
       const playerOrder = state.playerOrder;
       const { activePlayers } = state;
+
+      // 빈 배열 방어 검증
+      if (playerOrder.length === 0 || activePlayers.length === 0) {
+        console.error('[ERROR] nextPhase: playerOrder 또는 activePlayers가 비어있음');
+        return state;
+      }
+
       const nextPlayer = getNextPlayerId(state.currentPlayer, activePlayers);
 
       // 현재 플레이어가 마지막 플레이어인지 확인
-      const isLastPlayer = state.currentPlayer === playerOrder[playerOrder.length - 1];
+      const isLast = isLastPlayer(state.currentPlayer, playerOrder);
 
       // === I. 주식 발행 단계 ===
       if (state.currentPhase === 'issueShares') {
         // 마지막 플레이어까지 완료했으면 다음 단계로
-        if (isLastPlayer) {
+        if (isLast) {
           return {
             currentPhase: 'determinePlayerOrder' as GamePhase,
             currentPlayer: playerOrder[0],
@@ -1279,9 +1376,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         if (allSelected) {
           // 모든 플레이어 선택 완료 → 다음 단계
           // First Build 확인
-          const firstBuildPlayer = Object.entries(state.players).find(
-            ([pid, p]) => activePlayers.includes(pid as PlayerId) && p.selectedAction === 'firstBuild'
-          )?.[0] as PlayerId | undefined;
+          const firstBuildPlayer = findFirstBuildPlayer(state.players, activePlayers);
 
           // 실제로 첫 번째로 건설할 플레이어 결정
           const firstBuilder = firstBuildPlayer || playerOrder[0];
@@ -1322,13 +1417,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
         if (allPlayersBuilt) {
           // First Move 확인
-          const firstMovePlayer = Object.entries(state.players).find(
-            ([pid, p]) => activePlayers.includes(pid as PlayerId) && p.selectedAction === 'firstMove'
-          )?.[0] as PlayerId | undefined;
+          const firstMover = findFirstMovePlayer(state.players, activePlayers);
 
           return {
             currentPhase: 'moveGoods' as GamePhase,
-            currentPlayer: firstMovePlayer || playerOrder[0],
+            currentPlayer: firstMover || playerOrder[0],
             phaseState: {
               ...state.phaseState,
               moveGoodsRound: 1,
@@ -1361,18 +1454,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const allMoved = allPlayersMoved(updatedPlayerMoves, activePlayers);
 
         if (allMoved) {
-          // 라운드 2까지 완료했으면 다음 단계
-          if (state.phaseState.moveGoodsRound >= 2) {
+          // 모든 라운드 완료했으면 다음 단계
+          if (state.phaseState.moveGoodsRound >= GAME_CONSTANTS.MOVE_GOODS_ROUNDS) {
             return {
               currentPhase: 'collectIncome' as GamePhase,
               currentPlayer: playerOrder[0],
             };
           }
 
-          // 라운드 2로 진행
-          const firstMovePlayer = Object.entries(state.players).find(
-            ([pid, p]) => activePlayers.includes(pid as PlayerId) && p.selectedAction === 'firstMove'
-          )?.[0] as PlayerId | undefined;
+          // 다음 라운드로 진행
+          const firstMover = findFirstMovePlayer(state.players, activePlayers);
 
           return {
             phaseState: {
@@ -1380,7 +1471,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
               moveGoodsRound: 2,
               playerMoves: createPlayerMoves(activePlayers),
             },
-            currentPlayer: firstMovePlayer || playerOrder[0],
+            currentPlayer: firstMover || playerOrder[0],
           };
         }
 
@@ -1445,6 +1536,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
   endTurn: () => {
     const state = get();
 
+    // 빈 배열 방어 검증
+    if (state.playerOrder.length === 0 || state.activePlayers.length === 0) {
+      console.error('[ERROR] endTurn: playerOrder 또는 activePlayers가 비어있음');
+      return;
+    }
+
     // 모든 단계 자동 실행
     state.collectIncome();
     state.payExpenses();
@@ -1453,7 +1550,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set((prevState) => ({
       currentTurn: prevState.currentTurn + 1,
       currentPhase: 'issueShares',
-      currentPlayer: prevState.playerOrder[0],
+      currentPlayer: prevState.playerOrder[0] ?? prevState.activePlayers[0],
       phaseState: {
         builtTracksThisTurn: 0,
         maxTracksThisTurn: GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
@@ -1476,7 +1573,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }));
   },
 
-  // === UI 상태 ===
+  // ============================================================
+  // UI: 기본 선택
+  // ============================================================
   selectHex: (coord) => {
     set((state) => ({
       ui: { ...state.ui, selectedHex: coord },
@@ -1652,8 +1751,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   selectExitDirection: (exitEdge) => {
     const state = get();
+    const targetHex = state.ui.targetHex;
+    const entryEdge = state.ui.entryEdge;
 
-    if (state.ui.buildMode !== 'target_selected' || !state.ui.targetHex || state.ui.entryEdge === null) {
+    if (state.ui.buildMode !== 'target_selected' || !targetHex || entryEdge === null) {
       return false;
     }
 
@@ -1665,11 +1766,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     // 트랙 건설: targetHex에 트랙 배치
     // edges: [들어오는 엣지, 나가는 엣지]
-    const edges: [number, number] = [state.ui.entryEdge, exitEdge];
+    const edges: [number, number] = [entryEdge, exitEdge];
 
     // 기존 트랙이 있는지 확인
     const existingTrack = state.board.trackTiles.find(
-      t => hexCoordsEqual(t.coord, state.ui.targetHex!)
+      t => hexCoordsEqual(t.coord, targetHex)
     );
 
     // 기존 트랙이 있고 단순 트랙이면 복합 트랙 선택 패널 표시
@@ -1683,12 +1784,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
       if (!edgesOverlap) {
         // 복합 트랙 선택 패널 표시
-        state.showComplexTrackSelection(state.ui.targetHex!, edges);
+        state.showComplexTrackSelection(targetHex, edges);
         return true;
       }
     }
 
-    const success = state.buildTrack(state.ui.targetHex, edges);
+    const success = state.buildTrack(targetHex, edges);
 
     if (success) {
       // 빌드 모드 초기화
@@ -1994,7 +2095,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return false;
     }
 
-    const selectedTileId = state.ui.selectedNewCityTile!;
+    const selectedTileId = state.ui.selectedNewCityTile;
+    if (!selectedTileId) {
+      console.error('[ERROR] placeNewCity: No new city tile selected');
+      return false;
+    }
     const tile = state.newCityTiles.find(t => t.id === selectedTileId);
     if (!tile) return false;
 
@@ -2090,12 +2195,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return;
     }
 
-    // 주머니에서 큐브 2개 뽑기 (미리보기)
+    // 주머니에서 큐브 뽑기 (미리보기)
     const bag = [...state.goodsDisplay.bag];
     const cubes: CubeColor[] = [];
 
-    for (let i = 0; i < 2 && bag.length > 0; i++) {
-      cubes.push(bag.pop()!);
+    for (let i = 0; i < GAME_CONSTANTS.PRODUCTION_CUBE_COUNT && bag.length > 0; i++) {
+      const cube = bag.pop();
+      if (cube) cubes.push(cube);
     }
 
     if (cubes.length === 0) {
@@ -2347,12 +2453,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
 
     const newPlayers = { ...state.players };
-    for (const [playerId, incomeGain] of Object.entries(incomeChanges)) {
+    for (const playerId of state.activePlayers) {
+      const incomeGain = incomeChanges[playerId] ?? 0;
       if (incomeGain > 0) {
-        newPlayers[playerId as PlayerId] = {
-          ...newPlayers[playerId as PlayerId],
+        newPlayers[playerId] = {
+          ...newPlayers[playerId],
           income: Math.min(
-            newPlayers[playerId as PlayerId].income + incomeGain,
+            newPlayers[playerId].income + incomeGain,
             GAME_CONSTANTS.MAX_INCOME
           ),
         };

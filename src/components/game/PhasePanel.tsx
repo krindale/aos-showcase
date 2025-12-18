@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import {
   GamePhase,
   PHASE_INFO,
@@ -56,10 +57,16 @@ export default function PhasePanel() {
     players,
     activePlayers,
     phaseState,
-    nextPhase,
-    selectAction,
-    upgradeEngine,
-  } = useGameStore();
+  } = useGameStore(
+    useShallow((state) => ({
+      currentPhase: state.currentPhase,
+      currentPlayer: state.currentPlayer,
+      players: state.players,
+      activePlayers: state.activePlayers,
+      phaseState: state.phaseState,
+    }))
+  );
+  const { nextPhase, selectAction, upgradeEngine } = useGameStore();
 
   const phaseInfo = PHASE_INFO[currentPhase];
   const currentPlayerData = players[currentPlayer];

@@ -181,8 +181,8 @@ export function placeCubesOnCities(
   for (const city of updatedCities) {
     for (let i = 0; i < 2; i++) {
       if (newBag.length > 0) {
-        const cube = newBag.pop()!;
-        city.cubes.push(cube);
+        const cube = newBag.pop();
+        if (cube) city.cubes.push(cube);
       }
     }
   }

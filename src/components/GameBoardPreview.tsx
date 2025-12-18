@@ -318,7 +318,7 @@ export default function GameBoardPreview() {
     }
   }, [isInView]);
 
-  // 애니메이션 사이클
+  // 애니메이션 사이클 (requestAnimationFrame cleanup 개선)
   useEffect(() => {
     if (!showRoute) return;
 
@@ -326,13 +326,20 @@ export default function GameBoardPreview() {
     const pauseDuration = 2000; // 2초 대기
     const totalCycle = animationDuration + pauseDuration;
 
-    const interval = setInterval(() => {
+    let animationFrameId: number | null = null;
+    let isActive = true;
+
+    // 애니메이션 실행 함수 (중복 제거)
+    const runAnimation = () => {
+      if (!isActive) return;
+
       setAnimationProgress(0);
       setShowIncome(false);
 
-      // 애니메이션 진행
       const startTime = Date.now();
       const animate = () => {
+        if (!isActive) return;
+
         const elapsed = Date.now() - startTime;
         const progress = Math.min(elapsed / animationDuration, 1);
         setAnimationProgress(progress);
@@ -341,11 +348,19 @@ export default function GameBoardPreview() {
           setShowIncome(true);
         }
 
-        if (elapsed < animationDuration) {
-          requestAnimationFrame(animate);
+        if (elapsed < animationDuration && isActive) {
+          animationFrameId = requestAnimationFrame(animate);
         }
       };
-      requestAnimationFrame(animate);
+      animationFrameId = requestAnimationFrame(animate);
+    };
+
+    // 초기 애니메이션 시작
+    runAnimation();
+
+    // 주기적 애니메이션 반복
+    const interval = setInterval(() => {
+      runAnimation();
     }, totalCycle);
 
     // 배달 순환
@@ -353,24 +368,11 @@ export default function GameBoardPreview() {
       setCurrentDelivery((prev) => (prev + 1) % DELIVERY_ANIMATIONS.length);
     }, totalCycle);
 
-    // 초기 애니메이션 시작
-    const startTime = Date.now();
-    const animate = () => {
-      const elapsed = Date.now() - startTime;
-      const progress = Math.min(elapsed / animationDuration, 1);
-      setAnimationProgress(progress);
-
-      if (progress >= 1) {
-        setShowIncome(true);
-      }
-
-      if (elapsed < animationDuration) {
-        requestAnimationFrame(animate);
-      }
-    };
-    requestAnimationFrame(animate);
-
     return () => {
+      isActive = false;
+      if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+      }
       clearInterval(interval);
       clearInterval(deliveryInterval);
     };

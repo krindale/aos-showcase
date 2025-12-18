@@ -13,6 +13,13 @@ const PARTICLES = Array.from({ length: 20 }, (_, i) => ({
   delay: (i * 0.7) % 10,
 }));
 
+// 스탯 데이터 상수화 (렌더링 시 재생성 방지)
+const HERO_STATS = [
+  { icon: Zap, value: '3-6', label: '플레이어' },
+  { icon: Globe, value: '6+', label: '다양한 맵' },
+  { icon: TrendingUp, value: '120', label: '분 소요' },
+] as const;
+
 export default function HeroSection() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isMounted, setIsMounted] = useState(false);
@@ -142,11 +149,7 @@ export default function HeroSection() {
           transition={{ duration: 0.8, delay: 0.8 }}
           className="grid grid-cols-3 gap-4 md:gap-8 max-w-xl mx-auto"
         >
-          {[
-            { icon: Zap, value: '3-6', label: '플레이어' },
-            { icon: Globe, value: '6+', label: '다양한 맵' },
-            { icon: TrendingUp, value: '120', label: '분 소요' },
-          ].map((stat, index) => (
+          {HERO_STATS.map((stat, index) => (
             <motion.div
               key={stat.label}
               initial={{ opacity: 0, scale: 0.8 }}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useState, memo } from 'react';
 import { motion, useInView } from 'framer-motion';
 import {
   Truck,
@@ -136,7 +136,7 @@ const actions = [
   },
 ];
 
-function ActionCard({ action, index }: { action: typeof actions[0]; index: number }) {
+const ActionCard = memo(function ActionCard({ action, index }: { action: typeof actions[0]; index: number }) {
   const [isFlipped, setIsFlipped] = useState(false);
 
   return (
@@ -257,7 +257,7 @@ function ActionCard({ action, index }: { action: typeof actions[0]; index: numbe
       </motion.div>
     </motion.div>
   );
-}
+});
 
 export default function ActionsPage() {
   const heroRef = useRef<HTMLDivElement>(null);

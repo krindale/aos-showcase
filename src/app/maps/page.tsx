@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import Image from 'next/image';
 import { motion, AnimatePresence, useInView } from 'framer-motion';
 import {
   ChevronLeft,
@@ -250,12 +251,15 @@ export default function MapsPage() {
                   <div className="grid lg:grid-cols-2 gap-12 items-start h-full">
                     {/* Map Visual */}
                     <div className="relative">
-                      <div className="aspect-[4/3] rounded-2xl bg-background-tertiary border border-glass-border overflow-hidden">
+                      <div className="relative aspect-[4/3] rounded-2xl bg-background-tertiary border border-glass-border overflow-hidden">
                         {/* Map Image */}
-                        <img
+                        <Image
                           src={`${basePath}${currentMap.image}`}
                           alt={currentMap.name}
-                          className="w-full h-full object-contain bg-background-secondary"
+                          fill
+                          sizes="(max-width: 1024px) 100vw, 50vw"
+                          className="object-contain bg-background-secondary"
+                          priority={false}
                         />
 
                         {/* Overlay gradient for better text contrast */}

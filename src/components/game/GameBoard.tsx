@@ -3,6 +3,7 @@
 import { useMemo, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import {
   hexToPixel,
   getHexPoints,
@@ -21,12 +22,25 @@ import { TUTORIAL_MAP, TUTORIAL_COLORS, TUTORIAL_LAKE_TILES } from '@/utils/tuto
 import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord } from '@/types/game';
 
 export default function GameBoard() {
+  // Zustand selector 최적화: useShallow로 불필요한 리렌더링 방지
   const {
     board,
     currentPhase,
     currentPlayer,
     players,
     ui,
+  } = useGameStore(
+    useShallow((state) => ({
+      board: state.board,
+      currentPhase: state.currentPhase,
+      currentPlayer: state.currentPlayer,
+      players: state.players,
+      ui: state.ui,
+    }))
+  );
+
+  // Actions (참조가 변하지 않으므로 별도 selector)
+  const {
     selectCube,
     selectSourceHex,
     selectTargetHex,
@@ -107,6 +121,34 @@ export default function GameBoard() {
     }
 
     return disconnected;
+  }, [board.trackTiles]);
+
+  // 트랙 경로 계산 캐시 (SVG 경로 계산은 비용이 큼)
+  const trackPathCache = useMemo(() => {
+    const cache = new Map<string, {
+      pathData: string;
+      ties: { x: number; y: number; angle: number }[];
+      secondaryPathData: string | null;
+      secondaryTies: { x: number; y: number; angle: number }[];
+    }>();
+
+    for (const tile of board.trackTiles) {
+      const { x, y } = hexToPixel(tile.coord.col, tile.coord.row);
+      const pathData = getTrackPath(x, y, tile.edges[0], tile.edges[1], HEX_SIZE - 2);
+      const ties = getRailroadTies(x, y, tile.edges[0], tile.edges[1], HEX_SIZE - 2);
+
+      const hasSecondary = tile.trackType !== 'simple' && tile.secondaryEdges;
+      const secondaryPathData = hasSecondary
+        ? getTrackPath(x, y, tile.secondaryEdges![0], tile.secondaryEdges![1], HEX_SIZE - 2)
+        : null;
+      const secondaryTies = hasSecondary
+        ? getRailroadTies(x, y, tile.secondaryEdges![0], tile.secondaryEdges![1], HEX_SIZE - 2)
+        : [];
+
+      cache.set(tile.id, { pathData, ties, secondaryPathData, secondaryTies });
+    }
+
+    return cache;
   }, [board.trackTiles]);
 
   // 헥스가 유효한 연결점인지 확인 (도시 또는 현재 플레이어의 트랙)
@@ -321,18 +363,16 @@ export default function GameBoard() {
         {/* 트랙 타일 */}
         {board.trackTiles.map((tile) => {
           const { x, y } = hexToPixel(tile.coord.col, tile.coord.row);
-          const pathData = getTrackPath(x, y, tile.edges[0], tile.edges[1], HEX_SIZE - 2);
-          const ties = getRailroadTies(x, y, tile.edges[0], tile.edges[1], HEX_SIZE - 2);
+          // 캐시에서 경로 데이터 가져오기 (계산 비용 절감)
+          const cached = trackPathCache.get(tile.id);
+          const pathData = cached?.pathData ?? '';
+          const ties = cached?.ties ?? [];
           const ownerColor = tile.owner ? PLAYER_COLORS[players[tile.owner].color] : '#888';
 
           // 복합 트랙인 경우 두 번째 경로도 렌더링
           const hasSecondary = tile.trackType !== 'simple' && tile.secondaryEdges;
-          const secondaryPathData = hasSecondary
-            ? getTrackPath(x, y, tile.secondaryEdges![0], tile.secondaryEdges![1], HEX_SIZE - 2)
-            : null;
-          const secondaryTies = hasSecondary
-            ? getRailroadTies(x, y, tile.secondaryEdges![0], tile.secondaryEdges![1], HEX_SIZE - 2)
-            : [];
+          const secondaryPathData = cached?.secondaryPathData ?? null;
+          const secondaryTies = cached?.secondaryTies ?? [];
           const secondaryOwnerColor = hasSecondary && tile.secondaryOwner
             ? PLAYER_COLORS[players[tile.secondaryOwner].color]
             : '#888';

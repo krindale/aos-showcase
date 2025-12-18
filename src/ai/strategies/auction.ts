@@ -9,7 +9,8 @@ import { GameState, PlayerId } from '@/types/game';
 export type AuctionDecision =
   | { action: 'bid'; amount: number }
   | { action: 'pass' }
-  | { action: 'skip' }; // Turn Order 패스 사용
+  | { action: 'skip' } // Turn Order 패스 사용
+  | { action: 'complete' }; // 경매 완료 (혼자 남음)
 
 /**
  * 경매 입찰 결정
@@ -37,6 +38,14 @@ export function decideAuctionBid(state: GameState, playerId: PlayerId): AuctionD
       return { action: 'bid', amount: 1 };
     }
     return { action: 'pass' };
+  }
+
+  // 경매 완료 조건 체크 - 혼자 남았으면 경매 완료
+  const activePlayers = state.playerOrder.filter(p => !auction.passedPlayers.includes(p));
+  if (activePlayers.length <= 1) {
+    console.log(`[AI 경매] ${player.name}: 경매 완료 대기 (혼자 남음)`);
+    // 'complete' 액션으로 executeAITurn에서 resolveAuction 호출하도록 함
+    return { action: 'complete' } as AuctionDecision;
   }
 
   const currentBid = auction.highestBid;

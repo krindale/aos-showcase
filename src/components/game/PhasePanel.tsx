@@ -57,6 +57,7 @@ export default function PhasePanel() {
     players,
     activePlayers,
     phaseState,
+    aiExecution,
   } = useGameStore(
     useShallow((state) => ({
       currentPhase: state.currentPhase,
@@ -64,8 +65,12 @@ export default function PhasePanel() {
       players: state.players,
       activePlayers: state.activePlayers,
       phaseState: state.phaseState,
+      aiExecution: state.aiExecution,
     }))
   );
+
+  // AI 실행 중 여부 (버튼 비활성화에 사용)
+  const isAIExecuting = aiExecution.pending;
   const { nextPhase, selectAction, upgradeEngine } = useGameStore();
 
   const phaseInfo = PHASE_INFO[currentPhase];
@@ -116,7 +121,8 @@ export default function PhasePanel() {
             </p>
             <button
               onClick={handleNextPhase}
-              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2"
+              disabled={isAIExecuting}
+              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               다음 단계로
               <ChevronRight size={16} />
@@ -199,7 +205,8 @@ export default function PhasePanel() {
                 {currentPlayerData.selectedAction && (
                   <button
                     onClick={handleNextPhase}
-                    className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 mt-4"
+                    disabled={isAIExecuting}
+                    className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 mt-4 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {players.player1.selectedAction && players.player2.selectedAction
                       ? '트랙 건설 단계로'
@@ -248,7 +255,8 @@ export default function PhasePanel() {
             </div>
             <button
               onClick={handleNextPhase}
-              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2"
+              disabled={isAIExecuting}
+              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {(() => {
                 // 클릭 후 상태 예측
@@ -296,14 +304,15 @@ export default function PhasePanel() {
             </div>
             <button
               onClick={() => upgradeEngine()}
-              disabled={currentPlayerData.engineLevel >= GAME_CONSTANTS.MAX_ENGINE || phaseState.playerMoves[currentPlayer]}
-              className="w-full py-2 rounded-lg text-sm font-medium bg-background/50 hover:bg-background/70 text-foreground transition-colors disabled:opacity-50"
+              disabled={isAIExecuting || currentPlayerData.engineLevel >= GAME_CONSTANTS.MAX_ENGINE || phaseState.playerMoves[currentPlayer]}
+              className="w-full py-2 rounded-lg text-sm font-medium bg-background/50 hover:bg-background/70 text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               엔진 업그레이드 (+1 링크)
             </button>
             <button
               onClick={handleNextPhase}
-              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2"
+              disabled={isAIExecuting}
+              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {(() => {
                 // 클릭 후 상태 예측
@@ -334,7 +343,8 @@ export default function PhasePanel() {
             </p>
             <button
               onClick={handleNextPhase}
-              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2"
+              disabled={isAIExecuting}
+              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               진행
               <ChevronRight size={16} />

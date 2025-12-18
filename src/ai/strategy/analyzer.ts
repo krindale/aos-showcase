@@ -656,3 +656,228 @@ export function countNearbyOpponentTracks(
     t => hexDistance(t.coord, coord) <= radius
   ).length;
 }
+
+/**
+ * 상대 트랙 분석 결과
+ */
+export interface OpponentAnalysis {
+  /** 상대가 연결하려는 것으로 추정되는 도시들 */
+  targetCities: string[];
+  /** 상대 트랙과 각 도시까지의 거리 */
+  cityDistances: Map<string, number>;
+  /** 상대가 이미 도시에 연결했는지 */
+  connectedCities: string[];
+  /** 상대 트랙 총 개수 */
+  trackCount: number;
+}
+
+/**
+ * 상대 트랙 분석
+ *
+ * 상대방의 트랙 위치를 분석하여 어느 도시를 향해 건설 중인지 추론
+ */
+export function analyzeOpponentTracks(
+  state: GameState,
+  playerId: PlayerId
+): OpponentAnalysis {
+  const { board } = state;
+  const opponentId = playerId === 'player1' ? 'player2' : 'player1';
+
+  const opponentTracks = board.trackTiles.filter(t => t.owner === opponentId);
+  const cityDistances = new Map<string, number>();
+  const connectedCities: string[] = [];
+
+  // 각 도시까지 상대 트랙의 최소 거리 계산
+  for (const city of board.cities) {
+    let minDistance = Infinity;
+    let isConnected = false;
+
+    for (const track of opponentTracks) {
+      const distance = hexDistance(track.coord, city.coord);
+      minDistance = Math.min(minDistance, distance);
+
+      // 거리가 1이면 도시에 인접 (연결됨)
+      if (distance === 1) {
+        // 트랙의 엣지가 도시를 향하는지 확인
+        const edgeToCity = getEdgeBetweenHexes(track.coord, city.coord);
+        if (edgeToCity >= 0 && track.edges.includes(edgeToCity)) {
+          isConnected = true;
+        }
+      }
+    }
+
+    if (opponentTracks.length > 0) {
+      cityDistances.set(city.id, minDistance);
+    }
+
+    if (isConnected) {
+      connectedCities.push(city.id);
+    }
+  }
+
+  // 상대가 향하는 목표 도시 추론 (거리 2 이하, 아직 연결 안 된 도시)
+  const targetCities: string[] = [];
+  cityDistances.forEach((distance, cityId) => {
+    if (distance <= 2 && !connectedCities.includes(cityId)) {
+      targetCities.push(cityId);
+    }
+  });
+
+  // 로그 출력
+  if (opponentTracks.length > 0) {
+    console.log(`[상대 분석] ${state.players[opponentId]?.name}:`);
+    console.log(`  - 트랙 수: ${opponentTracks.length}`);
+    console.log(`  - 연결된 도시: ${connectedCities.join(', ') || '없음'}`);
+    console.log(`  - 목표 추정 도시: ${targetCities.join(', ') || '없음'}`);
+  }
+
+  return {
+    targetCities,
+    cityDistances,
+    connectedCities,
+    trackCount: opponentTracks.length,
+  };
+}
+
+/**
+ * 상대 분석 결과를 바탕으로 전략 점수 조정
+ *
+ * @returns 각 시나리오별 점수 조정값 (양수: 유리, 음수: 불리)
+ */
+/**
+ * 경로의 중간 도시 목록 반환 (A* 최적 경로 기반)
+ * 예: C→I 경로가 C→O→I로 지나가면 ['O'] 반환
+ */
+export function getIntermediateCities(
+  route: DeliveryRoute,
+  board: BoardState
+): string[] {
+  const sourceCity = board.cities.find(c => c.id === route.from);
+  const targetCity = board.cities.find(c => c.id === route.to);
+  if (!sourceCity || !targetCity) return [];
+
+  const path = findOptimalPath(sourceCity.coord, targetCity.coord, board);
+  const intermediateCities: string[] = [];
+
+  for (const coord of path) {
+    const city = board.cities.find(c => hexCoordsEqual(c.coord, coord));
+    if (city && city.id !== route.from && city.id !== route.to) {
+      intermediateCities.push(city.id);
+    }
+  }
+
+  return intermediateCities;
+}
+
+/**
+ * AI의 트랙 네트워크에 연결된 도시 목록 반환
+ */
+export function getConnectedCities(
+  state: GameState,
+  playerId: PlayerId
+): string[] {
+  const { board } = state;
+  const playerTracks = board.trackTiles.filter(t => t.owner === playerId);
+
+  if (playerTracks.length === 0) {
+    return board.cities.map(c => c.id);  // 트랙 없으면 모든 도시
+  }
+
+  const connectedCities: string[] = [];
+
+  for (const city of board.cities) {
+    for (const track of playerTracks) {
+      const distance = hexDistance(track.coord, city.coord);
+      if (distance === 1) {
+        const edgeToCity = getEdgeBetweenHexes(track.coord, city.coord);
+        if (edgeToCity >= 0 && track.edges.includes(edgeToCity)) {
+          connectedCities.push(city.id);
+          break;
+        }
+      }
+    }
+  }
+
+  return connectedCities;
+}
+
+/**
+ * 다중 링크 경로를 단일 링크 세그먼트로 분해
+ * 예: C→I (via O) → [C→O, O→I]
+ */
+export function breakRouteIntoSegments(
+  route: DeliveryRoute,
+  board: BoardState
+): DeliveryRoute[] {
+  const intermediateCities = getIntermediateCities(route, board);
+
+  if (intermediateCities.length === 0) {
+    return [route];  // 직접 연결, 1링크 경로
+  }
+
+  const segments: DeliveryRoute[] = [];
+  const cities = [route.from, ...intermediateCities, route.to];
+
+  for (let i = 0; i < cities.length - 1; i++) {
+    segments.push({
+      from: cities[i],
+      to: cities[i + 1],
+      priority: route.priority,
+    });
+  }
+
+  return segments;
+}
+
+export function getStrategyAdjustments(
+  state: GameState,
+  playerId: PlayerId,
+  opponentAnalysis: OpponentAnalysis
+): Map<string, number> {
+  const adjustments = new Map<string, number>();
+
+  // 상대 트랙이 없으면 조정 없음
+  if (opponentAnalysis.trackCount === 0) {
+    return adjustments;
+  }
+
+  // 각 시나리오의 목표 경로와 상대 목표 도시 비교
+  const ALL_SCENARIOS = [
+    { name: 'northern_express', routes: ['P', 'C'] },
+    { name: 'columbus_hub', routes: ['P', 'C', 'W', 'I', 'O'] },
+    { name: 'eastern_dominance', routes: ['P', 'W', 'O'] },
+    { name: 'western_corridor', routes: ['I', 'O', 'P'] },
+  ];
+
+  for (const scenario of ALL_SCENARIOS) {
+    let adjustment = 0;
+
+    // 상대가 이미 연결한 도시와 시나리오 경로가 겹치면 감점
+    for (const cityId of opponentAnalysis.connectedCities) {
+      if (scenario.routes.includes(cityId)) {
+        adjustment -= 25;  // 상대가 이미 점령한 도시
+        console.log(`[전략 조정] ${scenario.name}: ${cityId} 상대 점령 -25점`);
+      }
+    }
+
+    // 상대가 향하는 도시와 시나리오 경로가 겹치면 감점
+    for (const cityId of opponentAnalysis.targetCities) {
+      if (scenario.routes.includes(cityId)) {
+        adjustment -= 15;  // 상대가 향하는 도시
+        console.log(`[전략 조정] ${scenario.name}: ${cityId} 상대 목표 -15점`);
+      }
+    }
+
+    // 상대가 아직 관심 없는 도시에 시나리오가 집중하면 가점
+    for (const cityId of scenario.routes) {
+      const distance = opponentAnalysis.cityDistances.get(cityId);
+      if (distance && distance >= 4) {
+        adjustment += 10;  // 상대에게서 먼 도시
+      }
+    }
+
+    adjustments.set(scenario.name, adjustment);
+  }
+
+  return adjustments;
+}

@@ -85,16 +85,20 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       if (next.has(index)) {
         next.delete(index);
         // AI 해제 시 이름 복원
-        if (playerNames[index] === '컴퓨터-기차') {
+        if (playerNames[index].startsWith('컴퓨터-기차')) {
           const newNames = [...playerNames];
           newNames[index] = `기차-${['하나', '둘', '셋', '넷', '다섯', '여섯'][index]}`;
           setPlayerNames(newNames);
         }
       } else {
         next.add(index);
-        // AI 설정 시 이름 변경
+        // AI 설정 시 이름 변경 (로마 숫자 패턴)
+        // 현재 AI 수 + 1이 새 AI의 번호
+        const aiCount = next.size;
+        const romanNumerals = ['', 'II', 'III', 'IV', 'V', 'VI'];
+        const suffix = romanNumerals[aiCount - 1] || `${aiCount}`;
         const newNames = [...playerNames];
-        newNames[index] = '컴퓨터-기차';
+        newNames[index] = aiCount === 1 ? '컴퓨터-기차' : `컴퓨터-기차${suffix}`;
         setPlayerNames(newNames);
       }
       return next;

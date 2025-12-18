@@ -22,7 +22,7 @@ import {
   CapturedAIContext,
   MovingCubeContext,
 } from '@/types/game';
-import { getAIDecision, AI_TURN_DELAY, isCurrentPlayerAI } from '@/ai';
+import { getAIDecision, AI_TURN_DELAY, isCurrentPlayerAI, aiPlayerManager } from '@/ai';
 import {
   createInitialBoardState,
   initializeGoodsDisplay,
@@ -482,10 +482,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
   // 게임 라이프사이클
   // ============================================================
   initGame: (mapId, playerNames, aiPlayers = []) => {
+    // 기존 AI 인스턴스 정리
+    aiPlayerManager.clear();
+
+    // 새 게임 상태 설정
     set({
       ...createInitialGameState(mapId, playerNames, aiPlayers),
       aiExecution: { pending: false, executionId: 0 },
     });
+
+    // AI 플레이어 인스턴스 등록
+    const activePlayers = PLAYER_ID_ORDER.slice(0, playerNames.length);
+    for (const aiConfig of aiPlayers) {
+      const playerId = activePlayers[aiConfig.playerIndex];
+      if (playerId) {
+        aiPlayerManager.getOrCreate(playerId, aiConfig.name);
+      }
+    }
+
+    console.log(`[initGame] AI 플레이어 ${aiPlayerManager.count}명 등록됨`);
   },
 
   resetGame: () => {
@@ -500,10 +515,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
       .filter(p => p.isAI)
       .map(p => ({ playerIndex: p.playerIndex, name: p.name }));
 
+    // AI 인스턴스 상태 리셋 (인스턴스는 유지, 전략만 초기화)
+    aiPlayerManager.resetAll();
+
     set({
       ...createInitialGameState(state.mapId, playerNames, aiPlayers),
       aiExecution: { pending: false, executionId: 0 },
     });
+
+    console.log(`[resetGame] AI 플레이어 ${aiPlayerManager.count}명 리셋됨`);
   },
 
   // ============================================================
@@ -572,6 +592,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
             store.passBid(capturedContext.currentPlayer);
           } else if (auctionDecision.action === 'skip') {
             store.skipBid(capturedContext.currentPlayer);
+          } else if (auctionDecision.action === 'complete') {
+            // 경매 완료 - 혼자 남았을 때
+            console.log('[AI 경매] 경매 완료 처리');
+            store.resolveAuction();
+            store.nextPhase();
+            releaseAILock(executionId, get, set);
+            scheduleAICheck(get);
+            return;
           }
           // 경매: 락 해제 후 다음 AI 체크 스케줄링
           // (passBid/placeBid 내 scheduleAICheck는 락이 아직 걸려있어 실행 안됨)
@@ -765,9 +793,42 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   passBid: (playerId) => {
     set((state) => {
+      // 첫 번째 플레이어가 입찰 없이 포기하는 경우 (auction이 null)
       if (!state.auction) {
-        console.warn(`[WARN] passBid: 경매 없음 - playerId: ${playerId}`);
-        return state;
+        console.log(`[passBid] 첫 번째 플레이어 포기 - playerId: ${playerId}`);
+        const newPassedPlayers = [playerId];
+        const activePlayers = state.playerOrder.filter(p => !newPassedPlayers.includes(p));
+
+        // 다음 입찰자 계산
+        let nextBidder: PlayerId;
+        if (activePlayers.length <= 1) {
+          // 경매 종료 (모두 포기 또는 1명 남음)
+          nextBidder = activePlayers[0] || state.playerOrder[0];
+        } else {
+          nextBidder = activePlayers[0];
+        }
+
+        return {
+          auction: {
+            currentBidder: nextBidder,
+            highestBid: 0,
+            highestBidder: null,
+            passedPlayers: newPassedPlayers,
+            bids: {} as Record<PlayerId, number>,
+            lastActedPlayer: playerId,
+          },
+          currentPlayer: nextBidder,
+          logs: [
+            ...state.logs,
+            {
+              turn: state.currentTurn,
+              phase: state.currentPhase,
+              player: playerId,
+              action: `입찰 포기 (첫 번째)`,
+              timestamp: Date.now(),
+            },
+          ],
+        };
       }
 
       const newPassedPlayers = [...state.auction.passedPlayers, playerId];
@@ -854,7 +915,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
         return state;
       }
 
-      const { highestBidder, highestBid, bids, passedPlayers } = state.auction;
+      const { highestBid, bids, passedPlayers } = state.auction;
+      let { highestBidder } = state.auction;
 
       // 비용 지불 및 순서 결정
       const newPlayers = { ...state.players };
@@ -868,6 +930,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
       // 포기 순서 복사 (원본 변경 방지)
       const passOrder = [...passedPlayers];
       const lastDropoutIndex = passOrder.length - 1;
+
+      // highestBidder가 없으면 (모두 포기하거나 입찰 없이 완료된 경우)
+      // 포기하지 않은 플레이어를 승자로 설정
+      if (!highestBidder) {
+        const activePlayers = state.activePlayers.filter(p => !passedPlayers.includes(p));
+        if (activePlayers.length > 0) {
+          highestBidder = activePlayers[0];
+          console.log(`[resolveAuction] 입찰 없이 완료 - 승자: ${highestBidder}`);
+        }
+      }
 
       // 최고 입찰자가 1번 (전액 지불)
       if (highestBidder) {

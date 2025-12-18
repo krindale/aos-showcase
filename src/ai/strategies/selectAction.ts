@@ -6,7 +6,8 @@
 
 import { GameState, PlayerId, SpecialAction } from '@/types/game';
 import { countPlayerTracks } from '../evaluator';
-import { getSelectedStrategy } from '../strategy/state';
+import { getSelectedStrategy, hasSelectedStrategy } from '../strategy/state';
+import { reevaluateStrategy } from '../strategy/selector';
 
 /**
  * 사용 가능한 행동 목록 반환
@@ -55,6 +56,13 @@ export function decideAction(state: GameState, playerId: PlayerId): SpecialActio
     console.error('[AI 행동] 선택 가능한 행동 없음');
     return 'turnOrder';
   }
+
+  // 전략이 없거나 재평가 필요시 (상대 트랙, 물품 변화 고려)
+  if (!hasSelectedStrategy(playerId)) {
+    console.log(`[AI 행동] ${player.name}: 전략 없음 - 초기화 및 평가 중...`);
+  }
+  // 항상 재평가하여 상대 트랙/물품 상황 반영
+  reevaluateStrategy(state, playerId);
 
   // 선택된 전략 가져오기
   const strategy = getSelectedStrategy(playerId);

@@ -118,12 +118,14 @@ export function resetPlayerActions(
  * @param id 플레이어 ID
  * @param name 플레이어 이름
  * @param color 플레이어 색상
+ * @param isAI AI 플레이어 여부 (기본값: false)
  * @returns 초기 플레이어 상태
  */
 export function createInitialPlayerState(
   id: PlayerId,
   name: string,
-  color: PlayerColor
+  color: PlayerColor,
+  isAI: boolean = false
 ): PlayerState {
   return {
     id,
@@ -136,6 +138,7 @@ export function createInitialPlayerState(
     selectedAction: null,
     turnOrderPassUsed: false,
     eliminated: false,
+    isAI,
   };
 }
 

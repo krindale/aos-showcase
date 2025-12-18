@@ -72,7 +72,8 @@ src/
 │   ├── layout.tsx         # 루트 레이아웃 (Navigation + Footer 포함)
 │   ├── globals.css        # 글로벌 스타일, 유틸리티 클래스
 │   ├── game/
-│   │   └── page.tsx       # 플레이어블 게임 페이지 (2인 튜토리얼)
+│   │   └── [mapId]/       # 동적 라우트 (tutorial, rust-belt 등)
+│   │       └── page.tsx   # 플레이어블 게임 페이지
 │   ├── gameplay/
 │   │   └── page.tsx       # 게임플레이 페이지 (턴 시퀀스, 트랙 건설)
 │   ├── actions/
@@ -81,6 +82,21 @@ src/
 │   │   └── page.tsx       # 맵 갤러리 (7개 맵 슬라이더: Rust Belt, Korea, Western US 등)
 │   └── calculator/
 │       └── page.tsx       # 계산기 (트랙 비용, 승점, 수입 시뮬레이터)
+├── ai/                    # AI 엔진 시스템
+│   ├── index.ts           # AI 메인 엔트리포인트
+│   ├── evaluator.ts       # 상태 평가 함수
+│   ├── strategies/        # Phase별 AI 전략
+│   │   ├── issueShares.ts     # 주식 발행 결정
+│   │   ├── auction.ts         # 경매 입찰 결정
+│   │   ├── selectAction.ts    # 행동 선택 결정
+│   │   ├── buildTrack.ts      # 트랙 건설 결정
+│   │   └── moveGoods.ts       # 물품 이동 결정
+│   └── strategy/          # 전략 선택 시스템
+│       ├── types.ts           # 전략 타입 정의
+│       ├── scenarios.ts       # 전략 시나리오
+│       ├── analyzer.ts        # 보드 상태 분석
+│       ├── selector.ts        # 전략 선택/재평가
+│       └── state.ts           # 전략 상태 관리
 ├── components/
 │   ├── Navigation.tsx     # 글래스모피즘 네비게이션 바
 │   ├── Footer.tsx         # 푸터 (링크, 소셜)
@@ -89,16 +105,18 @@ src/
 │   ├── FeatureCards.tsx   # 피처 카드 + 숫자 카운트업
 │   └── game/              # 게임 UI 컴포넌트
 │       ├── GameBoard.tsx       # 헥스 그리드 게임보드
-│       ├── PlayerPanel.tsx     # 플레이어 정보 패널
-│       ├── PhasePanel.tsx      # 현재 단계 표시
+│       ├── PlayerPanel.tsx     # 플레이어 정보 패널 (AI 표시 포함)
+│       ├── PhasePanel.tsx      # 현재 단계 표시 (AI 생각 중 상태)
 │       ├── ActionPanel.tsx     # 행동 선택 UI
 │       ├── AuctionPanel.tsx    # 경매 UI
 │       ├── BuildTrackPanel.tsx # 트랙 건설 UI
 │       └── MoveGoodsPanel.tsx  # 물품 이동 UI
 ├── store/
-│   └── gameStore.ts       # Zustand 게임 상태 관리
-└── types/
-    └── game.ts            # 게임 타입 정의
+│   └── gameStore.ts       # Zustand 게임 상태 관리 (AI 턴 실행 포함)
+├── types/
+│   └── game.ts            # 게임 타입 정의
+└── utils/
+    └── gameLogic.ts       # 게임 로직 유틸리티
 tests/
 └── game-phases.spec.ts    # Playwright E2E 테스트 (55개)
 ```
@@ -208,11 +226,71 @@ interface GameStore {
   players: Record<PlayerId, PlayerState>;
   board: BoardState;
   auction: AuctionState | null;
+  isAIThinking: boolean;  // AI 턴 진행 중 여부
 
   // 주요 함수
   placeBid, passBid, skipBid, resolveAuction,
   selectAction, buildTrack, completeCubeMove,
-  nextPhase, resetGame, ...
+  nextPhase, resetGame, executeAITurn, ...
+}
+```
+
+### AI 시스템 (`src/ai/`)
+
+AI는 자동으로 게임을 플레이하며, 4가지 전략 시나리오 중 하나를 선택하여 목표를 달성합니다.
+
+#### AI 전략 시나리오 (4가지)
+
+```typescript
+// src/ai/strategy/scenarios.ts
+const AI_STRATEGIES = [
+  'Northern Express',    // Pittsburgh → Cleveland 북부 라인
+  'Columbus Hub',        // Columbus 중심 허브 전략
+  'Eastern Dominance',   // Cleveland-Pittsburgh 동부 지배
+  'Western Corridor',    // Cincinnati-Columbus 서부 회랑
+];
+```
+
+#### AI 의사결정 흐름
+
+1. **전략 선택** (`selector.ts`)
+   - 게임 시작 시 보드 상태 분석
+   - 물품 배치, 경쟁자 위치 등 고려
+   - 4가지 시나리오 점수 계산 후 최적 선택
+
+2. **Phase별 결정** (`strategies/`)
+   - `issueShares.ts`: 현금 필요량에 따른 주식 발행
+   - `auction.ts`: 플레이어 순서 경매 입찰
+   - `selectAction.ts`: 7가지 행동 중 전략에 맞는 선택
+   - `buildTrack.ts`: 목표 경로를 향한 트랙 건설
+   - `moveGoods.ts`: 최대 수입을 위한 물품 이동
+
+3. **트랙 방향 평가** (`analyzer.ts`)
+   - A* 알고리즘으로 최적 경로 탐색
+   - 트랙 위치 + 방향(edges) 모두 평가
+   - 목표 도시 방향으로 올바른 트랙 선택
+
+#### AI 턴 실행
+
+```typescript
+// gameStore.ts
+executeAITurn(): void {
+  // 1. 현재 phase에 맞는 AI 결정 함수 호출
+  // 2. 결정에 따라 게임 상태 업데이트
+  // 3. 500ms 딜레이 후 다음 phase로 전환
+}
+```
+
+#### AI 트랙 건설 로직
+
+```typescript
+// buildTrack.ts
+function evaluateTrackForRoute(coord, route, board, playerId, edges) {
+  // 1. 최적 경로상 위치 점수 (+100)
+  // 2. 다음 건설 위치 보너스 (+50)
+  // 3. 출구 엣지가 목표 방향이면 보너스 (+80)
+  // 4. 입구 엣지가 이전 경로면 보너스 (+40)
+  // 5. 경로와 무관한 방향이면 감점 (-50)
 }
 ```
 

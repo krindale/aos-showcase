@@ -132,9 +132,17 @@ export default function PhasePanel() {
         {/* III. 행동 선택 */}
         {currentPhase === 'selectActions' && (
           <div className="space-y-3">
-            <p className="text-sm text-foreground-secondary mb-3">
-              <span className="text-accent font-medium">{currentPlayerData.name}</span>, 행동을 선택하세요:
-            </p>
+            {currentPlayerData.isAI ? (
+              <div className="text-center py-4">
+                <div className="animate-pulse text-accent font-medium">
+                  {currentPlayerData.name} (AI) 행동 선택 중...
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-foreground-secondary mb-3">
+                <span className="text-accent font-medium">{currentPlayerData.name}</span>, 행동을 선택하세요:
+              </p>
+            )}
             {/* 선택 현황 표시 */}
             <div className="p-2 rounded-lg bg-background/30 text-xs text-foreground-secondary">
               {players.player1.selectedAction ? (
@@ -149,52 +157,57 @@ export default function PhasePanel() {
                 <span>{players.player2.name}: 선택 대기</span>
               )}
             </div>
-            <div className="grid grid-cols-1 gap-2">
-              {ACTIONS.map((action) => {
-                const info = ACTION_INFO[action];
-                const taken = isActionTaken(action);
-                const isSelected = currentPlayerData.selectedAction === action;
+            {/* AI가 아닌 경우에만 행동 선택 버튼 표시 */}
+            {!currentPlayerData.isAI && (
+              <>
+                <div className="grid grid-cols-1 gap-2">
+                  {ACTIONS.map((action) => {
+                    const info = ACTION_INFO[action];
+                    const taken = isActionTaken(action);
+                    const isSelected = currentPlayerData.selectedAction === action;
 
-                return (
+                    return (
+                      <button
+                        key={action}
+                        onClick={() => handleSelectAction(action)}
+                        disabled={taken || currentPlayerData.selectedAction !== null}
+                        className={`p-3 rounded-lg text-left transition-all ${
+                          isSelected
+                            ? 'bg-accent/20 border border-accent'
+                            : taken
+                            ? 'bg-background/30 opacity-50 cursor-not-allowed'
+                            : currentPlayerData.selectedAction !== null
+                            ? 'bg-background/30 opacity-50 cursor-not-allowed'
+                            : 'bg-background/50 hover:bg-background/70 border border-transparent'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-sm text-foreground">
+                            {info.name}
+                          </span>
+                          {taken && !isSelected && (
+                            <span className="text-xs text-foreground-secondary">선택됨</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-foreground-secondary mt-1">
+                          {info.description}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+                {currentPlayerData.selectedAction && (
                   <button
-                    key={action}
-                    onClick={() => handleSelectAction(action)}
-                    disabled={taken || currentPlayerData.selectedAction !== null}
-                    className={`p-3 rounded-lg text-left transition-all ${
-                      isSelected
-                        ? 'bg-accent/20 border border-accent'
-                        : taken
-                        ? 'bg-background/30 opacity-50 cursor-not-allowed'
-                        : currentPlayerData.selectedAction !== null
-                        ? 'bg-background/30 opacity-50 cursor-not-allowed'
-                        : 'bg-background/50 hover:bg-background/70 border border-transparent'
-                    }`}
+                    onClick={handleNextPhase}
+                    className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 mt-4"
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium text-sm text-foreground">
-                        {info.name}
-                      </span>
-                      {taken && !isSelected && (
-                        <span className="text-xs text-foreground-secondary">선택됨</span>
-                      )}
-                    </div>
-                    <p className="text-xs text-foreground-secondary mt-1">
-                      {info.description}
-                    </p>
+                    {players.player1.selectedAction && players.player2.selectedAction
+                      ? '트랙 건설 단계로'
+                      : `${currentPlayer === 'player1' ? players.player2.name : players.player1.name} 차례로`}
+                    <ChevronRight size={16} />
                   </button>
-                );
-              })}
-            </div>
-            {currentPlayerData.selectedAction && (
-              <button
-                onClick={handleNextPhase}
-                className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 mt-4"
-              >
-                {players.player1.selectedAction && players.player2.selectedAction
-                  ? '트랙 건설 단계로'
-                  : `${currentPlayer === 'player1' ? players.player2.name : players.player1.name} 차례로`}
-                <ChevronRight size={16} />
-              </button>
+                )}
+              </>
             )}
           </div>
         )}

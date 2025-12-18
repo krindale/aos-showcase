@@ -111,6 +111,7 @@ export interface PlayerState {
   selectedAction: SpecialAction | null;
   turnOrderPassUsed: boolean;  // Turn Order 패스 사용 여부
   eliminated: boolean;         // 파산으로 탈락 여부
+  isAI: boolean;               // AI 플레이어 여부
 }
 
 // === 게임 보드 상태 ===
@@ -368,7 +369,7 @@ export const GAME_CONSTANTS = {
   MAX_ENGINE: 6,
   MAX_SHARES: 15,
   MAX_INCOME: 50,
-  MIN_INCOME: -10,
+  MIN_INCOME: 0, // 수입이 0 미만이 되면 파산 (룰북 기준)
 
   // 비용
   SHARE_VALUE: 5,

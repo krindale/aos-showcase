@@ -13,6 +13,7 @@ import {
   Plus,
   Minus,
   Skull,
+  Bot,
 } from 'lucide-react';
 
 interface PlayerPanelProps {
@@ -20,17 +21,20 @@ interface PlayerPanelProps {
 }
 
 export default function PlayerPanel({ playerId }: PlayerPanelProps) {
-  const { players, currentPlayer, currentPhase } = useGameStore(
+  const { players, currentPlayer, currentPhase, isAIThinking } = useGameStore(
     useShallow((state) => ({
       players: state.players,
       currentPlayer: state.currentPlayer,
       currentPhase: state.currentPhase,
+      isAIThinking: state.isAIThinking,
     }))
   );
   const issueShare = useGameStore((state) => state.issueShare);
   const player = players[playerId];
   const isActive = currentPlayer === playerId;
   const playerColor = PLAYER_COLORS[player.color];
+  const isAI = player.isAI;
+  const isAICurrentlyThinking = isAI && isActive && isAIThinking;
 
   // 다중 주식 발행을 위한 상태
   const [shareAmount, setShareAmount] = useState(1);
@@ -97,6 +101,12 @@ export default function PlayerPanel({ playerId }: PlayerPanelProps) {
           <span className={`font-semibold text-sm ${isEliminated ? 'text-red-400 line-through' : 'text-foreground'}`}>
             {player.name}
           </span>
+          {isAI && (
+            <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400 flex items-center gap-1">
+              <Bot size={10} />
+              AI
+            </span>
+          )}
           {isEliminated && (
             <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-500/30 text-red-400 flex items-center gap-1">
               <Skull size={10} />
@@ -105,7 +115,7 @@ export default function PlayerPanel({ playerId }: PlayerPanelProps) {
           )}
           {isActive && !isEliminated && (
             <span className="text-xs px-1.5 py-0.5 rounded-full bg-accent/20 text-accent">
-              현재 턴
+              {isAICurrentlyThinking ? '생각 중...' : '현재 턴'}
             </span>
           )}
         </div>
@@ -166,8 +176,8 @@ export default function PlayerPanel({ playerId }: PlayerPanelProps) {
         </div>
       </div>
 
-      {/* 주식 발행 UI (해당 단계에서만, 탈락하지 않은 경우) */}
-      {currentPhase === 'issueShares' && isActive && !isEliminated && (
+      {/* 주식 발행 UI (해당 단계에서만, 탈락하지 않은 경우, AI가 아닌 경우) */}
+      {currentPhase === 'issueShares' && isActive && !isEliminated && !isAI && (
         <div className="px-3 pb-3 space-y-2 border-t border-foreground/10 pt-2">
           {/* 발행량 선택 */}
           <div className="flex items-center justify-between p-2 rounded-lg bg-background/50">

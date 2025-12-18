@@ -272,15 +272,23 @@ export function getNextTargetRoute(
   // 우선순위 순으로 미완성 + 물품 있는 경로 찾기
   for (const route of strategy.targetRoutes) {
     const progress = getRouteProgress(state, playerId, route);
+    const hasCubes = hasMatchingCubes(state, route);
 
     // 완성되지 않은 경로이고 물품이 있는 경우만
-    if (progress < 1.0 && hasMatchingCubes(state, route)) {
+    if (progress < 1.0 && hasCubes) {
       return route;
+    }
+
+    // 디버깅: 왜 스킵되는지 로그
+    if (progress >= 1.0) {
+      console.log(`[AI 전략] ${route.from}→${route.to} 스킵: 이미 완성됨`);
+    } else if (!hasCubes) {
+      console.log(`[AI 전략] ${route.from}→${route.to} 스킵: 물품 없음`);
     }
   }
 
-  // 모든 경로에 물품이 없으면 전략 재평가
-  console.log(`[AI 전략] ${state.players[playerId]?.name}: 현재 전략(${strategy.nameKo})의 모든 경로에 물품 없음 - 전략 재평가`);
+  // 모든 경로가 완성되었거나 물품이 없으면 전략 재평가
+  console.log(`[AI 전략] ${state.players[playerId]?.name}: 현재 전략(${strategy.nameKo})의 모든 경로 완성/물품없음 - 전략 재평가`);
 
   // 다른 시나리오 중 물품이 있는 것 찾기
   const scores = evaluateAllScenarios(state, playerId);

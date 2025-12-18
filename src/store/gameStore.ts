@@ -18,6 +18,9 @@ import {
   PLAYER_ID_ORDER,
   PLAYER_COLOR_ORDER,
   TURNS_BY_PLAYER_COUNT,
+  AIExecutionQueue,
+  CapturedAIContext,
+  MovingCubeContext,
 } from '@/types/game';
 import { getAIDecision, AI_TURN_DELAY, isCurrentPlayerAI } from '@/ai';
 import {
@@ -198,6 +201,111 @@ export function createInitialGameState(
 }
 
 // ============================================================
+// AI 동기화 헬퍼 (레이스 컨디션 방지)
+// ============================================================
+
+/** AI 체크 debounce 타임아웃 ID */
+let aiCheckTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+/** AI 체크 debounce 딜레이 (ms) */
+const AI_CHECK_DEBOUNCE = 150;
+
+/**
+ * AI 실행 락 획득 시도
+ * @returns executionId if acquired, null if already locked
+ */
+const tryAcquireAILock = (get: () => GameStore, set: (partial: Partial<GameStore>) => void): number | null => {
+  const state = get();
+  if (state.aiExecution.pending) {
+    console.log('[AI Lock] 이미 실행 중 - 락 획득 실패');
+    return null;
+  }
+  const executionId = Date.now();
+  set({ aiExecution: { pending: true, executionId } });
+  console.log(`[AI Lock] 락 획득 성공 - executionId: ${executionId}`);
+  return executionId;
+};
+
+/**
+ * AI 실행 락 해제
+ * @param executionId 획득한 executionId
+ */
+const releaseAILock = (
+  executionId: number,
+  get: () => GameStore,
+  set: (partial: Partial<GameStore>) => void
+): void => {
+  const state = get();
+  if (state.aiExecution.executionId === executionId) {
+    set({ aiExecution: { pending: false, executionId: 0 } });
+    console.log(`[AI Lock] 락 해제 - executionId: ${executionId}`);
+  } else {
+    console.warn(`[AI Lock] 락 해제 실패 - executionId 불일치: ${executionId} vs ${state.aiExecution.executionId}`);
+  }
+};
+
+/**
+ * 실행 컨텍스트 유효성 검증
+ * @returns true if context is still valid
+ */
+const validateExecutionContext = (
+  context: CapturedAIContext,
+  get: () => GameStore
+): boolean => {
+  const currentState = get();
+  const isValid = (
+    currentState.currentPlayer === context.currentPlayer &&
+    currentState.currentPhase === context.currentPhase &&
+    currentState.aiExecution.executionId === context.executionId
+  );
+  if (!isValid) {
+    console.warn('[AI Context] 컨텍스트 유효성 검증 실패:', {
+      expected: { player: context.currentPlayer, phase: context.currentPhase, execId: context.executionId },
+      actual: { player: currentState.currentPlayer, phase: currentState.currentPhase, execId: currentState.aiExecution.executionId },
+    });
+  }
+  return isValid;
+};
+
+/** 플레이어 행동이 필요한 단계들 */
+const PLAYER_ACTION_PHASES: GamePhase[] = [
+  'issueShares',
+  'determinePlayerOrder',
+  'selectActions',
+  'buildTrack',
+  'moveGoods',
+];
+
+/**
+ * 중앙 집중식 AI 스케줄러 (debounce 적용)
+ * 모든 AI 트리거 포인트에서 이 함수를 호출하여 중복 실행 방지
+ */
+const scheduleAICheck = (get: () => GameStore): void => {
+  // 기존 타임아웃 취소 (debounce)
+  if (aiCheckTimeoutId) {
+    clearTimeout(aiCheckTimeoutId);
+  }
+
+  aiCheckTimeoutId = setTimeout(() => {
+    aiCheckTimeoutId = null;
+
+    const state = get();
+
+    // 조건 체크
+    const isPhaseMatch = PLAYER_ACTION_PHASES.includes(state.currentPhase);
+    const isAI = isCurrentPlayerAI(state);
+    const notPending = !state.aiExecution.pending;
+
+    console.log(`[AI 스케줄러] phase=${state.currentPhase}, player=${state.currentPlayer}, isAI=${isAI}, pending=${state.aiExecution.pending}`);
+
+    if (isPhaseMatch && isAI && notPending) {
+      console.log('[AI 스케줄러] 조건 충족 - AI 턴 실행');
+      state.executeAITurn();
+    }
+  }, AI_CHECK_DEBOUNCE);
+};
+
+// ============================================================
 // 스토어 인터페이스
 // ============================================================
 interface GameStore extends GameState {
@@ -210,8 +318,8 @@ interface GameStore extends GameState {
   // --- AI 관련 ---
   /** AI 턴 실행 */
   executeAITurn: () => void;
-  /** AI 턴 실행 중 여부 */
-  isAIThinking: boolean;
+  /** AI 실행 상태 (레이스 컨디션 방지) */
+  aiExecution: AIExecutionQueue;
 
   // --- 플레이어 순환 헬퍼 ---
   /** 다음 플레이어 ID 반환 */
@@ -259,7 +367,7 @@ interface GameStore extends GameState {
   /** 물품 이동 */
   moveGoods: (cubeColor: CubeColor, path: HexCoord[]) => void;
   /** 엔진 업그레이드 (물품 이동 대신) */
-  upgradeEngine: () => void;
+  upgradeEngine: (playerId?: PlayerId) => void;
 
   // --- Phase VI-VIII: 수입/비용 ---
   /** 수입 수집 */
@@ -367,8 +475,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   // 초기 상태 (빈 게임) - AI 플레이어 포함
   ...createInitialGameState('tutorial', ['기차-하나', '컴퓨터-기차'], [TUTORIAL_GAME_CONFIG.defaultAI]),
 
-  // AI 생각 중 상태
-  isAIThinking: false,
+  // AI 실행 상태 (레이스 컨디션 방지)
+  aiExecution: { pending: false, executionId: 0 },
 
   // ============================================================
   // 게임 라이프사이클
@@ -376,7 +484,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   initGame: (mapId, playerNames, aiPlayers = []) => {
     set({
       ...createInitialGameState(mapId, playerNames, aiPlayers),
-      isAIThinking: false,
+      aiExecution: { pending: false, executionId: 0 },
     });
   },
 
@@ -394,7 +502,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     set({
       ...createInitialGameState(state.mapId, playerNames, aiPlayers),
-      isAIThinking: false,
+      aiExecution: { pending: false, executionId: 0 },
     });
   },
 
@@ -411,10 +519,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return;
     }
 
-    if (state.isAIThinking) {
-      console.log('[AI] 이미 생각 중입니다.');
+    // 락 획득 시도 (레이스 컨디션 방지)
+    const executionId = tryAcquireAILock(get, set);
+    if (!executionId) {
+      console.log('[AI] 이미 실행 중 - 락 획득 실패');
       return;
     }
+
+    // 컨텍스트 캡처 (setTimeout 내부에서 사용)
+    const capturedContext: CapturedAIContext = {
+      currentPlayer,
+      currentPhase: state.currentPhase,
+      phaseState: { ...state.phaseState },
+      executionId,
+    };
 
     // moveGoods 단계에서 추가 디버그 로그
     if (state.currentPhase === 'moveGoods') {
@@ -422,21 +540,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
       console.log(`[AI moveGoods] selectedActions:`, Object.entries(state.players).map(([id, p]) => `${id}: ${p.selectedAction}`).join(', '));
     }
 
-    set({ isAIThinking: true });
-
-    // AI 결정 가져오기
+    // AI 결정 가져오기 (캡처된 상태 기반)
     const decision = getAIDecision(state, currentPlayer);
 
     console.log(`[AI] ${player.name} 결정:`, decision);
 
     // 결정 실행 (약간의 딜레이 후)
     setTimeout(() => {
+      // 컨텍스트 유효성 검증
+      if (!validateExecutionContext(capturedContext, get)) {
+        console.warn('[AI] 컨텍스트 불일치 - 실행 취소');
+        releaseAILock(executionId, get, set);
+        return;
+      }
+
       const store = get();
 
       switch (decision.type) {
         case 'issueShares':
           if (decision.amount > 0) {
-            store.issueShare(currentPlayer, decision.amount);
+            store.issueShare(capturedContext.currentPlayer, decision.amount);
           }
           store.nextPhase();
           break;
@@ -444,18 +567,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
         case 'auction': {
           const { decision: auctionDecision } = decision;
           if (auctionDecision.action === 'bid') {
-            store.placeBid(currentPlayer, auctionDecision.amount);
+            store.placeBid(capturedContext.currentPlayer, auctionDecision.amount);
           } else if (auctionDecision.action === 'pass') {
-            store.passBid(currentPlayer);
+            store.passBid(capturedContext.currentPlayer);
           } else if (auctionDecision.action === 'skip') {
-            store.skipBid(currentPlayer);
+            store.skipBid(capturedContext.currentPlayer);
           }
-          // 경매 해결은 nextPhase에서 자동 처리
-          break;
+          // 경매: 락 해제 후 다음 AI 체크 스케줄링
+          // (passBid/placeBid 내 scheduleAICheck는 락이 아직 걸려있어 실행 안됨)
+          releaseAILock(executionId, get, set);
+          scheduleAICheck(get);
+          return;
         }
 
         case 'selectAction':
-          store.selectAction(currentPlayer, decision.action);
+          store.selectAction(capturedContext.currentPlayer, decision.action);
           store.nextPhase();
           break;
 
@@ -468,17 +594,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
             const afterBuildState = get();
             const { builtTracksThisTurn, maxTracksThisTurn } = afterBuildState.phaseState;
 
-            // 아직 더 건설할 수 있으면 다시 AI 결정 실행
+            // 아직 더 건설할 수 있으면 다시 AI 결정 실행 (스케줄러 사용)
             if (builtTracksThisTurn < maxTracksThisTurn) {
-              set({ isAIThinking: false });
-              setTimeout(() => {
-                const currentState = get();
-                if (currentState.currentPhase === 'buildTrack' &&
-                    isCurrentPlayerAI(currentState) &&
-                    !currentState.isAIThinking) {
-                  get().executeAITurn();
-                }
-              }, AI_TURN_DELAY);
+              releaseAILock(executionId, get, set);
+              scheduleAICheck(get);
               return; // nextPhase 호출하지 않음
             }
           }
@@ -493,9 +612,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
             // 큐브 선택 및 이동 (completeCubeMove에서 nextPhase 호출됨)
             store.selectCube(moveDecision.sourceCityId, moveDecision.cubeIndex);
             store.selectDestinationCity(moveDecision.destinationCoord);
-            // move 액션은 completeCubeMove에서 nextPhase가 호출되므로 여기서 호출하지 않음
+            // move 액션: 애니메이션이 완료될 때까지 락 유지
+            // completeCubeMove에서 releaseAILock 호출됨
+            return;
           } else if (moveDecision.action === 'upgradeEngine') {
-            store.upgradeEngine();
+            // 중요: captured currentPlayer를 사용 (레이스 컨디션 방지)
+            store.upgradeEngine(capturedContext.currentPlayer);
             store.nextPhase();
           } else {
             // skip
@@ -510,15 +632,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
           break;
       }
 
-      set({ isAIThinking: false });
-
-      // 다음 플레이어도 AI인지 확인하고 자동 실행
-      setTimeout(() => {
-        const nextState = get();
-        if (isCurrentPlayerAI(nextState) && !nextState.isAIThinking) {
-          get().executeAITurn();
-        }
-      }, AI_TURN_DELAY / 2);
+      // 락 해제 및 다음 AI 체크 스케줄링
+      releaseAILock(executionId, get, set);
+      scheduleAICheck(get);
     }, AI_TURN_DELAY);
   },
 
@@ -643,15 +759,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       };
     });
 
-    // AI 턴 트리거
-    setTimeout(() => {
-      const updatedState = get();
-      if (updatedState.currentPhase === 'determinePlayerOrder' &&
-          isCurrentPlayerAI(updatedState) &&
-          !updatedState.isAIThinking) {
-        get().executeAITurn();
-      }
-    }, 100);
+    // AI 턴 트리거 (중앙 집중식 스케줄러 사용)
+    scheduleAICheck(get);
   },
 
   passBid: (playerId) => {
@@ -697,15 +806,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       };
     });
 
-    // AI 턴 트리거
-    setTimeout(() => {
-      const updatedState = get();
-      if (updatedState.currentPhase === 'determinePlayerOrder' &&
-          isCurrentPlayerAI(updatedState) &&
-          !updatedState.isAIThinking) {
-        get().executeAITurn();
-      }
-    }, 100);
+    // AI 턴 트리거 (중앙 집중식 스케줄러 사용)
+    scheduleAICheck(get);
   },
 
   // Turn Order 패스: 탈락 없이 다음 입찰자로 넘어가기
@@ -741,15 +843,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       };
     });
 
-    // AI 턴 트리거
-    setTimeout(() => {
-      const updatedState = get();
-      if (updatedState.currentPhase === 'determinePlayerOrder' &&
-          isCurrentPlayerAI(updatedState) &&
-          !updatedState.isAIThinking) {
-        get().executeAITurn();
-      }
-    }, 100);
+    // AI 턴 트리거 (중앙 집중식 스케줄러 사용)
+    scheduleAICheck(get);
   },
 
   resolveAuction: () => {
@@ -1258,20 +1353,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  upgradeEngine: () => {
+  upgradeEngine: (targetPlayerId?: PlayerId) => {
     set((state) => {
-      const player = state.players[state.currentPlayer];
+      // targetPlayerId가 제공되면 사용, 아니면 currentPlayer 사용
+      const playerId = targetPlayerId || state.currentPlayer;
+      const player = state.players[playerId];
       if (!player) {
-        console.error(`[ERROR] upgradeEngine: 플레이어 없음 - currentPlayer: ${state.currentPlayer}`);
+        console.error(`[ERROR] upgradeEngine: 플레이어 없음 - playerId: ${playerId}`);
         return state;
       }
       if (player.engineLevel >= GAME_CONSTANTS.MAX_ENGINE) {
-        console.warn(`[WARN] upgradeEngine: 최대 레벨 도달 - playerId: ${state.currentPlayer}, engineLevel: ${player.engineLevel}`);
+        console.warn(`[WARN] upgradeEngine: 최대 레벨 도달 - playerId: ${playerId}, engineLevel: ${player.engineLevel}`);
         return state;
       }
       // 이미 이동했으면 업그레이드 불가 (물품 이동 또는 업그레이드 중 택1)
-      if (state.phaseState.playerMoves[state.currentPlayer]) {
-        console.warn(`[WARN] upgradeEngine: 이미 이동 완료 - playerId: ${state.currentPlayer}`);
+      if (state.phaseState.playerMoves[playerId]) {
+        console.warn(`[WARN] upgradeEngine: 이미 이동 완료 - playerId: ${playerId}`);
         return state;
       }
 
@@ -1282,7 +1379,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return {
         players: {
           ...state.players,
-          [state.currentPlayer]: {
+          [playerId]: {
             ...player,
             engineLevel: newLevel,
           },
@@ -1291,7 +1388,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           ...state.phaseState,
           playerMoves: {
             ...state.phaseState.playerMoves,
-            [state.currentPlayer]: true,
+            [playerId]: true,
           },
         },
         logs: [
@@ -1299,7 +1396,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           {
             turn: state.currentTurn,
             phase: state.currentPhase,
-            player: state.currentPlayer,
+            player: playerId,
             action: `엔진 업그레이드: ${oldLevel} → ${newLevel} 링크`,
             timestamp: Date.now(),
           },
@@ -1885,24 +1982,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       };
     });
 
-    // AI 턴 트리거 (상태 업데이트 후)
-    // 플레이어 행동이 필요한 단계에서만 AI 실행
-    const playerActionPhases: GamePhase[] = ['issueShares', 'determinePlayerOrder', 'selectActions', 'buildTrack', 'moveGoods'];
-    setTimeout(() => {
-      const updatedState = get();
-      const isPhaseMatch = playerActionPhases.includes(updatedState.currentPhase);
-      const isAI = isCurrentPlayerAI(updatedState);
-      const notThinking = !updatedState.isAIThinking;
-
-      console.log(`[AI 트리거 체크] phase=${updatedState.currentPhase}, currentPlayer=${updatedState.currentPlayer}, isAI=${isAI}, isAIThinking=${updatedState.isAIThinking}, isPhaseMatch=${isPhaseMatch}`);
-
-      if (isPhaseMatch && isAI && notThinking) {
-        console.log(`[AI 트리거] 조건 충족 - AI 턴 실행`);
-        get().executeAITurn();
-      } else {
-        console.log(`[AI 트리거] 조건 미충족 - AI 턴 실행 안함`);
-      }
-    }, 100);
+    // AI 턴 트리거 (중앙 집중식 스케줄러 사용)
+    scheduleAICheck(get);
   },
 
   endTurn: () => {
@@ -2749,6 +2830,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return city;
     });
 
+    // 실행 컨텍스트 캡처 (completeCubeMove에서 사용)
+    const context: MovingCubeContext = {
+      playerId: state.currentPlayer,
+      phase: state.currentPhase,
+      moveRound: state.phaseState.moveGoodsRound,
+    };
+
     set({
       board: {
         ...state.board,
@@ -2760,6 +2848,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           color,
           path,
           currentIndex: 0,
+          context,  // 캡처된 컨텍스트 저장
         },
         movePath: path,
         selectedCube: null,
@@ -2795,7 +2884,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const state = get();
     if (!state.ui.movingCube) return;
 
-    const { path, color } = state.ui.movingCube;
+    const { path, color, context } = state.ui.movingCube;
+
+    // 캡처된 컨텍스트에서 플레이어 ID 사용 (레이스 컨디션 방지)
+    const movingPlayerId = context.playerId;
 
     // 경로의 트랙 소유자에게 수입 추가 (동적 플레이어 지원)
     const incomeChanges: Partial<Record<PlayerId, number>> = {};
@@ -2841,13 +2933,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // 총 링크 수 계산 (로그용)
     const totalLinks = Object.values(incomeChanges).reduce((a, b) => a + b, 0);
 
+    // 캡처된 플레이어 ID 사용 (state.currentPlayer 대신)
     set({
       players: newPlayers,
       phaseState: {
         ...state.phaseState,
         playerMoves: {
           ...state.phaseState.playerMoves,
-          [state.currentPlayer]: true,
+          [movingPlayerId]: true,  // 캡처된 플레이어 ID 사용
         },
       },
       ui: {
@@ -2861,15 +2954,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
         ...state.logs,
         {
           turn: state.currentTurn,
-          phase: state.currentPhase,
-          player: state.currentPlayer,
-          action: `${color} 물품 배달 (${totalLinks} 링크, +${incomeChanges[state.currentPlayer]} 수입)`,
+          phase: context.phase,  // 캡처된 phase 사용
+          player: movingPlayerId,  // 캡처된 플레이어 ID 사용
+          action: `${color} 물품 배달 (${totalLinks} 링크, +${incomeChanges[movingPlayerId] ?? 0} 수입)`,
           timestamp: Date.now(),
         },
       ],
     });
 
-    // 물품 이동 완료 후 다음 단계로 진행
+    // 물품 이동 완료 후 AI 락 해제 및 다음 단계로 진행
+    // AI의 'move' 액션에서 락을 유지했으므로 여기서 해제
+    const currentExecId = state.aiExecution.executionId;
+    if (state.aiExecution.pending && currentExecId > 0) {
+      releaseAILock(currentExecId, get, set);
+    }
+
     get().nextPhase();
   },
 

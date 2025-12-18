@@ -64,9 +64,9 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   const targetRoute = getNextTargetRoute(state, playerId);
   const strategyName = strategy?.nameKo ?? '없음';
 
-  // 목표 경로가 없으면 (모든 경로에 물품 없음) 건설 스킵
+  // 목표 경로가 없으면 (모든 경로 완성 또는 물품 없음) 건설 스킵
   if (!targetRoute) {
-    console.log(`[AI 트랙] ${player.name}: 목표 경로 없음 (물품 없음) - 건설 스킵`);
+    console.log(`[AI 트랙] ${player.name}: 목표 경로 없음 (모든 경로 완성/물품 없음) - 건설 스킵`);
     return { action: 'skip' };
   }
 

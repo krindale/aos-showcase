@@ -324,6 +324,100 @@ export function hasMatchingCubes(
 }
 
 /**
+ * 경로가 실제로 완성되었는지 확인 (BFS로 연결 여부 확인)
+ *
+ * 출발 도시에서 목적지 도시까지 플레이어 트랙을 통해 연결되어 있는지 확인
+ */
+export function isRouteComplete(
+  board: BoardState,
+  playerId: PlayerId,
+  sourceCity: { coord: HexCoord },
+  targetCity: { coord: HexCoord }
+): boolean {
+  const playerTracks = board.trackTiles.filter(t => t.owner === playerId);
+  if (playerTracks.length === 0) return false;
+
+  // BFS로 연결 확인
+  const visited = new Set<string>();
+  const queue: HexCoord[] = [sourceCity.coord];
+  const coordKey = (c: HexCoord) => `${c.col},${c.row}`;
+
+  visited.add(coordKey(sourceCity.coord));
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+
+    // 목적지 도달
+    if (hexCoordsEqual(current, targetCity.coord)) {
+      return true;
+    }
+
+    // 현재 위치가 도시인지 확인
+    const isCity = board.cities.some(c => hexCoordsEqual(c.coord, current));
+
+    if (isCity) {
+      // 도시는 모든 인접 헥스와 연결 가능
+      for (let edge = 0; edge < 6; edge++) {
+        const neighbor = getNeighborHex(current, edge);
+        const neighborKey = coordKey(neighbor);
+
+        if (visited.has(neighborKey)) continue;
+
+        // 인접한 플레이어 트랙이 있고, 해당 트랙이 도시 방향 엣지를 가지고 있는지 확인
+        const neighborTrack = playerTracks.find(t => hexCoordsEqual(t.coord, neighbor));
+        if (neighborTrack) {
+          // 트랙의 엣지가 현재 도시를 향하는지 확인
+          const oppositeEdge = (edge + 3) % 6;
+          if (neighborTrack.edges.includes(oppositeEdge)) {
+            visited.add(neighborKey);
+            queue.push(neighbor);
+          }
+        }
+
+        // 인접한 도시도 확인 (직접 연결된 도시)
+        const neighborCity = board.cities.find(c => hexCoordsEqual(c.coord, neighbor));
+        if (neighborCity && !visited.has(neighborKey)) {
+          visited.add(neighborKey);
+          queue.push(neighbor);
+        }
+      }
+    } else {
+      // 현재 위치가 트랙인 경우
+      const currentTrack = playerTracks.find(t => hexCoordsEqual(t.coord, current));
+      if (currentTrack) {
+        // 트랙의 각 엣지 방향으로 탐색
+        for (const edge of currentTrack.edges) {
+          const neighbor = getNeighborHex(current, edge);
+          const neighborKey = coordKey(neighbor);
+
+          if (visited.has(neighborKey)) continue;
+
+          // 인접한 플레이어 트랙 확인
+          const neighborTrack = playerTracks.find(t => hexCoordsEqual(t.coord, neighbor));
+          if (neighborTrack) {
+            // 연결 가능한지 확인 (상대 엣지가 있어야 함)
+            const oppositeEdge = (edge + 3) % 6;
+            if (neighborTrack.edges.includes(oppositeEdge)) {
+              visited.add(neighborKey);
+              queue.push(neighbor);
+            }
+          }
+
+          // 인접한 도시 확인
+          const neighborCity = board.cities.find(c => hexCoordsEqual(c.coord, neighbor));
+          if (neighborCity) {
+            visited.add(neighborKey);
+            queue.push(neighbor);
+          }
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
  * 경로 완성도 계산 (0-1)
  *
  * AI의 트랙이 출발지→목적지를 얼마나 연결했는지
@@ -343,6 +437,12 @@ export function getRouteProgress(
   // 총 거리
   const totalDistance = hexDistance(sourceCity.coord, targetCity.coord);
   if (totalDistance === 0) return 1;
+
+  // 실제 연결 여부 확인 - 완성되면 1.0 반환
+  if (isRouteComplete(board, playerId, sourceCity, targetCity)) {
+    console.log(`[AI 경로] ${route.from}→${route.to} 경로 완성됨!`);
+    return 1.0;
+  }
 
   // 플레이어 트랙 중 경로에 있는 것 찾기
   const playerTracks = board.trackTiles.filter(t => t.owner === playerId);

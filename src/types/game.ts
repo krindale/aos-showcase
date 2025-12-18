@@ -171,6 +171,38 @@ export interface PhaseState {
   locomotiveUsed: boolean;
 }
 
+// === AI 실행 동기화 ===
+
+/**
+ * AI 실행 큐 상태
+ * isAIThinking 대신 사용하여 레이스 컨디션 방지
+ */
+export interface AIExecutionQueue {
+  pending: boolean;        // AI 실행 중 여부
+  executionId: number;     // 현재 실행의 고유 ID (중복 방지)
+}
+
+/**
+ * AI 실행 컨텍스트
+ * setTimeout 콜백에서 사용할 캡처된 상태
+ */
+export interface CapturedAIContext {
+  currentPlayer: PlayerId;
+  currentPhase: GamePhase;
+  phaseState: PhaseState;
+  executionId: number;
+}
+
+/**
+ * 물품 이동 애니메이션 컨텍스트
+ * 애니메이션 완료 시 사용할 캡처된 상태
+ */
+export interface MovingCubeContext {
+  playerId: PlayerId;        // 이동을 수행한 플레이어
+  phase: GamePhase;          // 이동 시작 시 단계
+  moveRound: 1 | 2;          // 이동 라운드
+}
+
 // === UI 상태 ===
 export type BuildMode = 'idle' | 'source_selected' | 'target_selected' | 'redirect_selected';
 
@@ -229,6 +261,7 @@ export interface UIState {
     color: CubeColor;
     path: HexCoord[];
     currentIndex: number;
+    context: MovingCubeContext;  // 캡처된 실행 컨텍스트
   } | null;
   reachableDestinations: HexCoord[];             // 이동 가능한 목적지 도시들
 }

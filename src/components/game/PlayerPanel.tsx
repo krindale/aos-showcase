@@ -21,12 +21,12 @@ interface PlayerPanelProps {
 }
 
 export default function PlayerPanel({ playerId }: PlayerPanelProps) {
-  const { players, currentPlayer, currentPhase, isAIThinking } = useGameStore(
+  const { players, currentPlayer, currentPhase, aiExecution } = useGameStore(
     useShallow((state) => ({
       players: state.players,
       currentPlayer: state.currentPlayer,
       currentPhase: state.currentPhase,
-      isAIThinking: state.isAIThinking,
+      aiExecution: state.aiExecution,
     }))
   );
   const issueShare = useGameStore((state) => state.issueShare);
@@ -34,7 +34,7 @@ export default function PlayerPanel({ playerId }: PlayerPanelProps) {
   const isActive = currentPlayer === playerId;
   const playerColor = PLAYER_COLORS[player.color];
   const isAI = player.isAI;
-  const isAICurrentlyThinking = isAI && isActive && isAIThinking;
+  const isAICurrentlyThinking = isAI && isActive && aiExecution.pending;
 
   // 다중 주식 발행을 위한 상태
   const [shareAmount, setShareAmount] = useState(1);

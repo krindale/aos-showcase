@@ -295,7 +295,7 @@ export default function PhasePanel() {
               )}
             </div>
             <button
-              onClick={upgradeEngine}
+              onClick={() => upgradeEngine()}
               disabled={currentPlayerData.engineLevel >= GAME_CONSTANTS.MAX_ENGINE || phaseState.playerMoves[currentPlayer]}
               className="w-full py-2 rounded-lg text-sm font-medium bg-background/50 hover:bg-background/70 text-foreground transition-colors disabled:opacity-50"
             >

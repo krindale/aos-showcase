@@ -87,3 +87,21 @@ export const STRATEGY_SWITCH_THRESHOLD = 30;  // 이 점수 미만이면 전략 
 export function getRouteId(route: DeliveryRoute): string {
   return `${route.from}-${route.to}`;
 }
+
+/**
+ * 경로 탐색 결과 (순수 함수용)
+ */
+export interface RouteSearchResult {
+  route: DeliveryRoute | null;
+  needsStrategyReeval: boolean;
+  reason?: 'no_strategy' | 'all_routes_exhausted' | 'no_goods';
+}
+
+/**
+ * 전략 재평가 결과
+ */
+export interface ReevalResult {
+  changed: boolean;
+  reason?: string;
+  newStrategy?: AIStrategy;
+}

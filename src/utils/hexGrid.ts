@@ -771,8 +771,17 @@ export function findCompletedLinks(board: BoardState): CompletedLink[] {
       );
 
       if (linkResult) {
+        // 양방향 중복 방지를 위해 좌표를 정렬하여 고유 ID 생성
+        const [minCoord, maxCoord] = [startPoint, linkResult.endCity].sort((a, b) =>
+          a.col !== b.col ? a.col - b.col : a.row - b.row
+        );
+        const linkId = `link-${trackOwner}-${minCoord.col}-${minCoord.row}-${maxCoord.col}-${maxCoord.row}`;
+
+        // 이미 추가된 링크인지 확인
+        if (completedLinks.some(l => l.id === linkId)) continue;
+
         completedLinks.push({
-          id: `link-${startPoint.col}-${startPoint.row}-${linkResult.endCity.col}-${linkResult.endCity.row}`,
+          id: linkId,
           owner: trackOwner,
           trackTiles: linkResult.trackTiles,
           startCity: startPoint,

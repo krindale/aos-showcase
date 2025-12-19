@@ -55,13 +55,13 @@ export default function DiceRoller({ diceCount, onRoll, disabled = false }: Dice
     <div className="space-y-4">
       {/* 주사위 표시 */}
       <div className="flex items-center justify-center gap-4">
-        <AnimatePresence mode="wait">
+        <AnimatePresence>
           {results.length > 0 ? (
             results.map((value, index) => {
               const DiceIcon = DICE_ICONS[value as keyof typeof DICE_ICONS];
               return (
                 <motion.div
-                  key={`dice-${index}-${isRolling ? 'rolling' : 'done'}`}
+                  key={`dice-${index}`}
                   initial={{ scale: 0.8, opacity: 0.5 }}
                   animate={{
                     scale: 1,

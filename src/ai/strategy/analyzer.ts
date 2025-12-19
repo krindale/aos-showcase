@@ -305,20 +305,17 @@ export function hasMatchingCubes(
   // 출발 도시 찾기
   const sourceCity = board.cities.find(c => c.id === route.from);
   if (!sourceCity) {
-    console.log(`[hasMatchingCubes] ${route.from}→${route.to}: 출발 도시 없음`);
     return false;
   }
 
   // 목적지 도시 색상 찾기
   const targetCity = board.cities.find(c => c.id === route.to);
   if (!targetCity) {
-    console.log(`[hasMatchingCubes] ${route.from}→${route.to}: 목적지 도시 없음`);
     return false;
   }
 
   // 출발 도시에 목적지 색상의 큐브가 있는지 확인
   const hasMatch = sourceCity.cubes.some(cube => cube === targetCity.color);
-  console.log(`[hasMatchingCubes] ${route.from}→${route.to}: ${sourceCity.id}의 큐브=[${sourceCity.cubes.join(',')}], 목적지색상=${targetCity.color}, 매칭=${hasMatch}`);
 
   return hasMatch;
 }
@@ -634,6 +631,17 @@ export function evaluateTrackForRoute(
     } else if (minDistToPath === 2) {
       score += 5;   // 경로에서 2칸 떨어짐
     }
+  }
+
+  // 3. 출발/도착 도시에 인접하면 최소 점수 보장 (폴백 상황에서 중요)
+  const distToSource = hexDistance(trackCoord, sourceCity.coord);
+  const distToTarget = hexDistance(trackCoord, targetCity.coord);
+
+  if (distToSource === 1) {
+    score = Math.max(score, 25);  // 출발 도시 인접 시 최소 25점
+  }
+  if (distToTarget === 1) {
+    score = Math.max(score, 25);  // 도착 도시 인접 시 최소 25점
   }
 
   return score;

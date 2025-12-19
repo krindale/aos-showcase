@@ -9,6 +9,7 @@ import {
   FeasibilityResult,
   STRATEGY_SWITCH_THRESHOLD,
   DeliveryRoute,
+  RouteSearchResult,
 } from './types';
 import { ALL_SCENARIOS } from './scenarios';
 import {
@@ -407,6 +408,71 @@ export function adjustRoutePriorities(
 }
 
 /**
+ * [순수 함수] 다음 목표 경로 탐색 (전략 변경 없음)
+ *
+ * 현재 전략에서 물품이 있는 미완성 경로를 찾습니다.
+ * 전략 변경이 필요하면 needsStrategyReeval: true를 반환합니다.
+ */
+export function findNextTargetRoute(
+  state: GameState,
+  playerId: PlayerId
+): RouteSearchResult {
+  const strategy = getSelectedStrategy(playerId);
+  if (!strategy) {
+    return { route: null, needsStrategyReeval: true, reason: 'no_strategy' };
+  }
+
+  const connectedCities = getConnectedCities(state, playerId);
+
+  // 우선순위 순으로 미완성 + 물품 있는 경로 찾기
+  for (const route of strategy.targetRoutes) {
+    const progress = getRouteProgress(state, playerId, route);
+    const hasCubes = hasMatchingCubes(state, route);
+
+    if (progress < 1.0 && hasCubes) {
+      // 다중 링크 경로인 경우 세그먼트로 분해
+      const segments = breakRouteIntoSegments(route, state.board);
+
+      if (segments.length > 1) {
+        // 정방향: 연결된 도시에서 시작하는 미완성 세그먼트
+        for (const segment of segments) {
+          const segmentProgress = getRouteProgress(state, playerId, segment);
+          if (segmentProgress < 1.0 && connectedCities.includes(segment.from)) {
+            return { route: segment, needsStrategyReeval: false };
+          }
+        }
+
+        // 역방향: 도착 도시에서 시작하는 미완성 세그먼트
+        for (let i = segments.length - 1; i >= 0; i--) {
+          const segment = segments[i];
+          const segmentProgress = getRouteProgress(state, playerId, segment);
+          if (segmentProgress < 1.0 && connectedCities.includes(segment.to)) {
+            return {
+              route: { from: segment.to, to: segment.from, priority: segment.priority },
+              needsStrategyReeval: false
+            };
+          }
+        }
+
+        // 연결된 세그먼트가 없으면 첫 번째 미완성 세그먼트
+        for (const segment of segments) {
+          const segmentProgress = getRouteProgress(state, playerId, segment);
+          if (segmentProgress < 1.0) {
+            return { route: segment, needsStrategyReeval: false };
+          }
+        }
+      }
+
+      // 1링크 경로는 그대로 반환
+      return { route, needsStrategyReeval: false };
+    }
+  }
+
+  // 모든 경로가 완성되었거나 물품이 없음
+  return { route: null, needsStrategyReeval: true, reason: 'all_routes_exhausted' };
+}
+
+/**
  * 다음 목표 경로 가져오기 (미완성 경로 중 우선순위 높은 것)
  *
  * 다중 링크 경로는 세그먼트로 분해하여 빌드 가능한 세그먼트 반환.
@@ -416,89 +482,43 @@ export function getNextTargetRoute(
   state: GameState,
   playerId: PlayerId
 ): DeliveryRoute | null {
-  const strategy = getSelectedStrategy(playerId);
-  if (!strategy) return null;
+  // 1. 순수 함수로 경로 탐색
+  const result = findNextTargetRoute(state, playerId);
 
-  // AI가 연결된 도시 목록 가져오기
-  const connectedCities = getConnectedCities(state, playerId);
-  console.log(`[AI 전략] ${state.players[playerId]?.name} 연결 도시: [${connectedCities.join(', ')}]`);
-
-  // 우선순위 순으로 미완성 + 물품 있는 경로 찾기
-  for (const route of strategy.targetRoutes) {
-    const progress = getRouteProgress(state, playerId, route);
-    const hasCubes = hasMatchingCubes(state, route);
-
-    // 완성되지 않은 경로이고 물품이 있는 경우만
-    if (progress < 1.0 && hasCubes) {
-      // 다중 링크 경로인 경우 세그먼트로 분해
-      const segments = breakRouteIntoSegments(route, state.board);
-
-      if (segments.length > 1) {
-        console.log(`[AI 전략] ${route.from}→${route.to}: 다중 링크 경로 → 세그먼트 [${segments.map(s => `${s.from}→${s.to}`).join(', ')}]`);
-
-        // 정방향: 연결된 도시에서 시작하는 미완성 세그먼트 찾기
-        for (const segment of segments) {
-          const segmentProgress = getRouteProgress(state, playerId, segment);
-          if (segmentProgress < 1.0 && connectedCities.includes(segment.from)) {
-            console.log(`[AI 전략] ${route.from}→${route.to} 중 세그먼트 ${segment.from}→${segment.to} 선택 (연결됨)`);
-            return segment;
-          }
-        }
-
-        // 역방향: 도착 도시에서 시작하는 미완성 세그먼트 찾기
-        for (let i = segments.length - 1; i >= 0; i--) {
-          const segment = segments[i];
-          const segmentProgress = getRouteProgress(state, playerId, segment);
-          if (segmentProgress < 1.0 && connectedCities.includes(segment.to)) {
-            console.log(`[AI 전략] ${route.from}→${route.to} 중 세그먼트 ${segment.to}→${segment.from} 선택 (역방향, 연결됨)`);
-            return { from: segment.to, to: segment.from, priority: segment.priority };
-          }
-        }
-
-        // 연결된 세그먼트가 없으면 첫 번째 미완성 세그먼트 반환
-        for (const segment of segments) {
-          const segmentProgress = getRouteProgress(state, playerId, segment);
-          if (segmentProgress < 1.0) {
-            console.log(`[AI 전략] ${route.from}→${route.to} 중 세그먼트 ${segment.from}→${segment.to} 선택 (미연결)`);
-            return segment;
-          }
-        }
-      }
-
-      // 1링크 경로는 그대로 반환
-      return route;
-    }
-
-    // 디버깅: 왜 스킵되는지 로그
-    if (progress >= 1.0) {
-      console.log(`[AI 전략] ${route.from}→${route.to} 스킵: 이미 완성됨`);
-    } else if (!hasCubes) {
-      console.log(`[AI 전략] ${route.from}→${route.to} 스킵: 물품 없음`);
-    }
+  if (result.route) {
+    return result.route;
   }
 
-  // 모든 경로가 완성되었거나 물품이 없으면 전략 재평가
-  console.log(`[AI 전략] ${state.players[playerId]?.name}: 현재 전략(${strategy.nameKo})의 모든 경로 완성/물품없음 - 전략 재평가`);
+  // 2. 전략이 없는 경우
+  if (result.reason === 'no_strategy') {
+    return null;
+  }
+
+  // 3. 재평가 필요 - 여기서만 전략 변경 수행
+  const strategy = getSelectedStrategy(playerId);
+  const connectedCities = getConnectedCities(state, playerId);
+  const player = state.players[playerId];
+
+  console.log(`[AI 전략] ${player?.name}: 모든 경로 소진 - 대안 탐색`);
 
   // 다른 시나리오 중 물품이 있는 것 찾기
   const scores = evaluateAllScenarios(state, playerId);
   const scoredWithGoods = scores.filter(s => s.matchingCubes > 0);
 
-  if (scoredWithGoods.length > 0) {
+  if (scoredWithGoods.length > 0 && strategy) {
     scoredWithGoods.sort((a, b) => b.score - a.score);
     const newStrategy = scoredWithGoods[0].scenario;
 
     // 현재 전략과 다르면 전환
     if (newStrategy.name !== strategy.name) {
-      console.log(`[AI 전략] ${state.players[playerId]?.name}: 전략 변경 ${strategy.nameKo} → ${newStrategy.nameKo}`);
+      console.log(`[AI 전략] ${player?.name}: 전략 변경 ${strategy.nameKo} → ${newStrategy.nameKo}`);
       setSelectedStrategy(playerId, newStrategy, state.currentTurn);
 
-      // 새 전략에서 물품 있는 경로 찾기 (세그먼트 분해 포함)
+      // 새 전략에서 물품 있는 경로 찾기
       for (const route of newStrategy.targetRoutes) {
         if (hasMatchingCubes(state, route)) {
           const segments = breakRouteIntoSegments(route, state.board);
           if (segments.length > 1) {
-            // 연결된 세그먼트 찾기
             for (const segment of segments) {
               const segmentProgress = getRouteProgress(state, playerId, segment);
               if (segmentProgress < 1.0 && connectedCities.includes(segment.from)) {
@@ -515,40 +535,32 @@ export function getNextTargetRoute(
   // 어떤 전략도 물품이 없으면 아무 물품이나 배달 가능한 경로 찾기
   const allOpportunities = analyzeDeliveryOpportunities(state);
   if (allOpportunities.length > 0) {
-    // 연결된 도시에서 출발하는 배달 기회 우선 선택
     const reachableOpportunities = allOpportunities.filter(opp =>
       connectedCities.includes(opp.sourceCityId)
     );
 
     if (reachableOpportunities.length > 0) {
       const best = reachableOpportunities[0];
-      // 이 경로도 다중 링크인지 확인
       const tempRoute: DeliveryRoute = { from: best.sourceCityId, to: best.targetCityId, priority: 1 };
       const segments = breakRouteIntoSegments(tempRoute, state.board);
 
       if (segments.length > 1) {
-        // 연결된 세그먼트 찾기
         for (const segment of segments) {
           if (connectedCities.includes(segment.from)) {
-            console.log(`[AI 전략] ${state.players[playerId]?.name}: 임시 경로 ${segment.from}→${segment.to} 사용 (세그먼트, 연결됨)`);
             return segment;
           }
         }
       }
-
-      console.log(`[AI 전략] ${state.players[playerId]?.name}: 임시 경로 ${best.sourceCityId}→${best.targetCityId} 사용 (연결됨)`);
       return tempRoute;
     }
 
-    // 연결된 도시가 없으면 (트랙이 없는 경우) 첫 번째 기회 사용
+    // 트랙이 없는 경우 첫 번째 기회 사용
     const playerTracks = state.board.trackTiles.filter(t => t.owner === playerId);
     if (playerTracks.length === 0) {
       const best = allOpportunities[0];
-      console.log(`[AI 전략] ${state.players[playerId]?.name}: 임시 경로 ${best.sourceCityId}→${best.targetCityId} 사용 (첫 트랙)`);
       return { from: best.sourceCityId, to: best.targetCityId, priority: 1 };
     }
   }
 
-  console.log(`[AI 전략] ${state.players[playerId]?.name}: 연결 가능한 배달 경로 없음 - 건설 스킵`);
   return null;
 }

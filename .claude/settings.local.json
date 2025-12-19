@@ -43,7 +43,17 @@
       "Bash(xargs kill:*)",
       "SlashCommand(/test-game)",
       "Bash(open:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nfeat: Korea 맵 추가 및 계산기 메뉴얼 기준 개선\n\n## 변경 사항\n\n### Korea 맵 추가\n- 맵 갤러리에 Korea 맵 추가 (Rust Belt 다음 순서)\n- korea.png 이미지 파일 추가\n- 특수 규칙: 동적 도시 색상, 인접 도시 직접 철로\n\n### 계산기 개선 (메뉴얼 기준)\n\n**트랙 비용 계산기**\n- 작업 유형: 배치, 교체, 방향 전환\n- 트랙 유형: 단순, 복합 공존, 복합 교차, 마을\n- 지형별 비용: 평지/강/산\n- 최대 4개 트랙 지원 (Engineer)\n\n**승점 계산기**\n- 수입 트랙 위치 × 3점\n- 완성된 링크 트랙 타일 × 1점\n- 발행 주식 × -3점\n\n**수입 시뮬레이터**\n- Phase VI: 수입 수집\n- Phase VII: 비용 지불 (기관차 + 주식)\n- Phase VIII: 수입 감소 테이블\n- 현금 부족 시 수입 감소, 파산 경고\n\n### 문서 업데이트\n- CLAUDE.md 계산기 및 맵 섹션 상세화\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git diff:*)",
+      "Bash(gh pr create:*)",
+      "Bash(git pull:*)",
+      "Bash(PORT=3002 npx playwright test:*)",
+      "Bash(ping:*)",
+      "Bash(npm run test:unit:*)",
+      "Bash(echo:*)",
+      "Bash(wc:*)",
+      "Bash(tasklist /FI \"IMAGENAME eq npx*\")"
     ]
   }
 }

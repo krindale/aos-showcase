@@ -430,7 +430,8 @@ export function isWithinBounds(
 /**
  * 대상 헥스에서 나갈 수 있는 방향들 계산
  * entryEdge: 들어오는 엣지 (이 엣지는 제외)
- * 호수, 도시, 기존 트랙이 있는 방향은 제외
+ * 호수, 연결 불가능한 기존 트랙이 있는 방향은 제외
+ * 도시는 항상 연결 가능
  */
 export function getExitDirections(
   targetCoord: HexCoord,
@@ -450,6 +451,28 @@ export function getExitDirections(
       h => hexCoordsEqual(h.coord, neighbor) && h.terrain === 'lake'
     );
     if (isLake) continue;
+
+    // 도시인지 확인 - 도시는 항상 연결 가능
+    const isCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
+    if (isCity) {
+      exitDirections.push({
+        exitEdge: edge,
+        neighborCoord: neighbor,
+      });
+      continue;
+    }
+
+    // 기존 트랙이 있는지 확인
+    const existingTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor));
+    if (existingTrack) {
+      // 기존 트랙이 있으면, 해당 트랙이 연결을 받을 수 있는지 확인
+      // 새 트랙의 exitEdge에 대해, 기존 트랙은 반대 엣지(oppositeEdge)를 가져야 연결 가능
+      const oppositeEdge = getOppositeEdge(edge);
+      if (!existingTrack.edges.includes(oppositeEdge)) {
+        // 기존 트랙이 연결을 받을 수 없으면 이 방향 제외
+        continue;
+      }
+    }
 
     // 나가는 방향이 유효하면 추가
     exitDirections.push({

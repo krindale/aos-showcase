@@ -5,8 +5,8 @@
  */
 
 import { GameState, PlayerId, HexCoord, CubeColor, BoardState, GAME_CONSTANTS } from '@/types/game';
-import { DeliveryOpportunity, DeliveryRoute, AIStrategy } from './types';
-import { getNeighborHex, hexCoordsEqual } from '@/utils/hexGrid';
+import { DeliveryOpportunity, DeliveryRoute, AIStrategy, DynamicDeliverableRoute } from './types';
+import { getNeighborHex, hexCoordsEqual, getBuildableNeighbors } from '@/utils/hexGrid';
 
 // 경로 캐시 (출발지-목적지 → 경로)
 const pathCache: Map<string, HexCoord[]> = new Map();
@@ -634,9 +634,98 @@ export function evaluateTrackForRoute(
     } else if (minDistToPath === 2) {
       score += 5;   // 경로에서 2칸 떨어짐
     }
+
+    // 3. 경로에 없어도 엣지 방향 평가 (목적지 방향으로 가는지)
+    if (edges) {
+      const [edge0, edge1] = edges;
+
+      // 목적지 도시 방향 확인
+      const edgeToTarget = getEdgeBetweenHexes(trackCoord, targetCity.coord);
+
+      // 출발지 도시 방향 확인
+      const edgeToSource = getEdgeBetweenHexes(trackCoord, sourceCity.coord);
+
+      // 출구 엣지가 목적지 방향 또는 그와 가까운 방향을 향하면 보너스
+      if (edgeToTarget >= 0) {
+        // 정확히 목적지 방향
+        if (edge0 === edgeToTarget || edge1 === edgeToTarget) {
+          score += 40;  // 목적지 방향으로 연결됨
+        }
+        // 인접 방향 (±1)도 괜찮음
+        else if (edge0 === (edgeToTarget + 1) % 6 || edge0 === (edgeToTarget + 5) % 6 ||
+                 edge1 === (edgeToTarget + 1) % 6 || edge1 === (edgeToTarget + 5) % 6) {
+          score += 20;  // 목적지 인근 방향
+        }
+      }
+
+      // 입구 엣지가 출발지 방향에서 오면 보너스
+      if (edgeToSource >= 0) {
+        if (edge0 === edgeToSource || edge1 === edgeToSource) {
+          score += 20;  // 출발지에서 연결됨
+        }
+      }
+
+      // 두 엣지 모두 목적지와 반대 방향(±3)이면 큰 감점
+      const oppositeToTarget = edgeToTarget >= 0 ? (edgeToTarget + 3) % 6 : -1;
+      if (oppositeToTarget >= 0 &&
+          (edge0 === oppositeToTarget || edge1 === oppositeToTarget)) {
+        score -= 30;  // 목적지 반대 방향
+      }
+    }
   }
 
   return score;
+}
+
+/**
+ * 트랙 위치를 현재 전략의 모든 미완성 경로에 대해 평가
+ *
+ * 여러 경로에 도움이 되는 위치(허브, 교차점)에 보너스 부여
+ *
+ * @param coord 트랙 좌표
+ * @param strategy AI 전략
+ * @param state 게임 상태
+ * @param playerId 플레이어 ID
+ * @param edges 트랙 엣지 (옵션)
+ * @returns 다중 경로 종합 점수
+ */
+export function evaluateTrackForMultipleRoutes(
+  coord: HexCoord,
+  strategy: AIStrategy,
+  state: GameState,
+  playerId: PlayerId,
+  edges?: [number, number]
+): number {
+  let totalScore = 0;
+  let routeCount = 0;
+
+  for (const route of strategy.targetRoutes) {
+    // minTurn 조건 확인 (아직 추진할 턴이 아니면 가중치 낮춤)
+    const minTurn = route.minTurn ?? 0;
+    const isFutureTurn = state.currentTurn < minTurn;
+
+    // 경로 진행도 확인
+    const progress = getRouteProgress(state, playerId, route);
+    if (progress >= 1.0) continue;  // 완성된 경로 제외
+
+    const routeScore = evaluateTrackForRoute(coord, route, state.board, playerId, edges);
+    if (routeScore > 0) {
+      routeCount++;
+      // 우선순위가 높은 경로에 가중치 (priority 1 = ×3, 2 = ×2, 3 = ×1)
+      const priorityWeight = 4 - route.priority;
+      // 미래 턴 경로는 가중치 낮춤 (0.5배)
+      const turnWeight = isFutureTurn ? 0.5 : 1.0;
+      totalScore += routeScore * priorityWeight * turnWeight;
+    }
+  }
+
+  // 여러 경로에 도움이 되면 교차점/허브 보너스
+  if (routeCount >= 2) {
+    totalScore += 50 * (routeCount - 1);  // 2경로 +50, 3경로 +100
+    console.log(`[AI 다중경로] (${coord.col},${coord.row}) ${routeCount}개 경로에 도움, 교차점 보너스 +${50 * (routeCount - 1)}`);
+  }
+
+  return totalScore;
 }
 
 /**
@@ -829,6 +918,294 @@ export function breakRouteIntoSegments(
   return segments;
 }
 
+/**
+ * 화물 위치 기반 다중 링크 배달 경로 탐색
+ *
+ * 현재 화물 위치와 목적지 도시를 분석하여
+ * 엔진 레벨 내에서 실행 가능한 경로 목록 반환
+ *
+ * @param state 게임 상태
+ * @param playerId 플레이어 ID
+ * @param maxLinks 최대 링크 수 (엔진 레벨)
+ * @returns 실행 가능한 배달 경로 목록
+ */
+export function findMultiLinkDeliveryRoutes(
+  state: GameState,
+  playerId: PlayerId,
+  maxLinks: number
+): DeliveryRoute[] {
+  const opportunities = analyzeDeliveryOpportunities(state);
+  const routes: DeliveryRoute[] = [];
+  const seenRoutes = new Set<string>();
+
+  for (const opp of opportunities) {
+    const routeKey = `${opp.sourceCityId}-${opp.targetCityId}`;
+    if (seenRoutes.has(routeKey)) continue;
+    seenRoutes.add(routeKey);
+
+    // 출발지에서 목적지까지 경로 분석
+    const tempRoute: DeliveryRoute = {
+      from: opp.sourceCityId,
+      to: opp.targetCityId,
+      priority: 1,
+    };
+    const segments = breakRouteIntoSegments(tempRoute, state.board);
+    const linkCount = segments.length;
+
+    // 엔진 레벨 내에서 실행 가능한 경로만
+    if (linkCount <= maxLinks) {
+      // 우선순위 계산: 링크 수가 적을수록 높은 우선순위
+      const priority = linkCount <= 2 ? 1 : (linkCount <= 4 ? 2 : 3);
+
+      routes.push({
+        from: opp.sourceCityId,
+        to: opp.targetCityId,
+        priority,
+        linkCount,
+      });
+    }
+  }
+
+  // 링크 수 오름차순으로 정렬 (짧은 경로 우선)
+  routes.sort((a, b) => (a.linkCount ?? 1) - (b.linkCount ?? 1));
+
+  return routes;
+}
+
+/**
+ * 현재 게임 상태에서 최적의 다중 링크 전략 평가
+ *
+ * 화물 위치, 도시 색상, 기존 트랙 네트워크를 종합 분석하여
+ * 가장 유리한 다중 링크 경로 추천
+ */
+export function evaluateBestMultiLinkStrategy(
+  state: GameState,
+  playerId: PlayerId
+): { route: DeliveryRoute; score: number }[] {
+  const player = state.players[playerId];
+  if (!player) return [];
+
+  const engineLevel = player.engineLevel;
+  const connectedCities = getConnectedCities(state, playerId);
+  const routes = findMultiLinkDeliveryRoutes(state, playerId, Math.max(engineLevel, 3));
+
+  const scoredRoutes: { route: DeliveryRoute; score: number }[] = [];
+
+  for (const route of routes) {
+    let score = 0;
+    const linkCount = route.linkCount ?? 1;
+
+    // 1. 연결된 도시에서 시작하면 보너스
+    if (connectedCities.includes(route.from)) {
+      score += 30;
+    }
+
+    // 2. 엔진 레벨로 한 번에 배달 가능하면 보너스
+    if (linkCount <= engineLevel) {
+      score += 25;
+    }
+
+    // 3. 2-3링크 경로에 보너스 (가성비 최적)
+    if (linkCount >= 2 && linkCount <= 3) {
+      score += 20;
+    }
+
+    // 4. 경로 진행도 보너스
+    const progress = getRouteProgress(state, playerId, route);
+    if (progress > 0 && progress < 1.0) {
+      score += progress * 40;  // 진행 중인 경로 우선
+    }
+
+    // 5. 링크당 수입 효율 (긴 경로일수록 수입 높음)
+    score += linkCount * 5;
+
+    scoredRoutes.push({ route, score });
+  }
+
+  // 점수 내림차순 정렬
+  scoredRoutes.sort((a, b) => b.score - a.score);
+
+  return scoredRoutes;
+}
+
+/**
+ * 상대 트랙이 경로를 실질적으로 차단했는지 확인
+ *
+ * 차단 기준:
+ * 1. 목적지 도시 주변 6방향 중 4개 이상이 상대 트랙으로 막힘
+ * 2. 또는 AI 트랙에서 목적지까지 경로가 완전히 차단됨
+ */
+export function isRoutePracticallyBlocked(
+  state: GameState,
+  playerId: PlayerId,
+  route: DeliveryRoute
+): boolean {
+  const { board } = state;
+
+  const sourceCity = board.cities.find(c => c.id === route.from);
+  const targetCity = board.cities.find(c => c.id === route.to);
+  if (!sourceCity || !targetCity) return true;
+
+  // 상대 트랙만 필터링 (null owner는 미소유 트랙)
+  const opponentTracks = board.trackTiles.filter(
+    t => t.owner !== playerId && t.owner !== null
+  );
+
+  // 상대 트랙이 없으면 차단되지 않음
+  if (opponentTracks.length === 0) return false;
+
+  // 1. AI가 이미 목적지에 연결되어 있는지 확인
+  let aiConnectedDirections = 0;
+
+  for (let edge = 0; edge < 6; edge++) {
+    const neighbor = getNeighborHex(targetCity.coord, edge);
+
+    // AI 트랙이 이 방향에 있는지 확인
+    const aiTrack = board.trackTiles.find(
+      t => t.owner === playerId && hexCoordsEqual(t.coord, neighbor)
+    );
+    if (aiTrack) {
+      const oppositeEdge = (edge + 3) % 6;
+      if (aiTrack.edges.includes(oppositeEdge)) {
+        aiConnectedDirections++;
+      }
+    }
+  }
+
+  // AI가 이미 연결된 방향이 있으면 차단 아님
+  if (aiConnectedDirections > 0) {
+    return false;
+  }
+
+  // 2. 목적지 도시 주변에 실제로 건설 가능한 위치가 있는지 확인
+  const targetBuildable = getBuildableNeighbors(targetCity.coord, board, playerId);
+  if (targetBuildable.length === 0) {
+    console.log(`[차단 감지] ${route.from}→${route.to}: 목적지 ${route.to} 주변에 건설 가능한 위치 없음`);
+    return true;
+  }
+
+  // 3. 출발지 도시 주변에 실제로 건설 가능한 위치가 있는지 확인
+  // (AI가 이미 출발지에 연결되어 있으면 이 체크는 필요 없음)
+  let aiConnectedToSource = false;
+  for (let edge = 0; edge < 6; edge++) {
+    const neighbor = getNeighborHex(sourceCity.coord, edge);
+    const aiTrack = board.trackTiles.find(
+      t => t.owner === playerId && hexCoordsEqual(t.coord, neighbor)
+    );
+    if (aiTrack) {
+      aiConnectedToSource = true;
+      break;
+    }
+  }
+
+  if (!aiConnectedToSource) {
+    const sourceBuildable = getBuildableNeighbors(sourceCity.coord, board, playerId);
+    if (sourceBuildable.length === 0) {
+      console.log(`[차단 감지] ${route.from}→${route.to}: 출발지 ${route.from} 주변에 건설 가능한 위치 없음`);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * 현재 화물 상황에서 실행 가능한 대안 경로 찾기
+ *
+ * 차단되지 않은 경로 중 AI가 연결된 도시에서 출발하는 경로 우선
+ */
+export function findAlternativeRoute(
+  state: GameState,
+  playerId: PlayerId
+): DeliveryRoute | null {
+  const opportunities = analyzeDeliveryOpportunities(state);
+  const connectedCities = getConnectedCities(state, playerId);
+
+  console.log(`[대안 탐색] 연결된 도시: [${connectedCities.join(', ')}], 배달 기회: ${opportunities.length}개`);
+
+  // 점수화하여 정렬
+  interface ScoredAlternative {
+    route: DeliveryRoute;
+    score: number;
+  }
+
+  const alternatives: ScoredAlternative[] = [];
+
+  // 중복 제거를 위한 Set
+  const seenRoutes = new Set<string>();
+
+  for (const opp of opportunities) {
+    const routeKey = `${opp.sourceCityId}-${opp.targetCityId}`;
+    if (seenRoutes.has(routeKey)) continue;
+    seenRoutes.add(routeKey);
+
+    const route: DeliveryRoute = {
+      from: opp.sourceCityId,
+      to: opp.targetCityId,
+      priority: 1,
+    };
+
+    // 차단된 경로는 제외
+    if (isRoutePracticallyBlocked(state, playerId, route)) {
+      console.log(`[대안 탐색] ${route.from}→${route.to}: 차단됨 - 제외`);
+      continue;
+    }
+
+    let score = 0;
+
+    // 연결된 도시에서 출발하면 보너스
+    if (connectedCities.includes(route.from)) {
+      score += 50;
+    }
+
+    // 연결된 도시로 도착하면 보너스
+    if (connectedCities.includes(route.to)) {
+      score += 30;
+    }
+
+    // 거리가 짧을수록 보너스
+    score += Math.max(0, 20 - opp.distance * 3);
+
+    alternatives.push({ route, score });
+  }
+
+  // 점수순 정렬
+  alternatives.sort((a, b) => b.score - a.score);
+
+  if (alternatives.length > 0) {
+    const best = alternatives[0];
+    console.log(`[대안 탐색] 최적 대안: ${best.route.from}→${best.route.to} (점수: ${best.score})`);
+    return best.route;
+  }
+
+  console.log(`[대안 탐색] 대안 경로 없음`);
+  return null;
+}
+
+/**
+ * 현재 전략의 모든 경로 중 차단된 경로 목록 반환
+ */
+export function analyzeBlockedRoutes(
+  state: GameState,
+  playerId: PlayerId,
+  strategy: AIStrategy
+): DeliveryRoute[] {
+  const blockedRoutes: DeliveryRoute[] = [];
+
+  for (const route of strategy.targetRoutes) {
+    if (isRoutePracticallyBlocked(state, playerId, route)) {
+      blockedRoutes.push(route);
+    }
+  }
+
+  if (blockedRoutes.length > 0) {
+    console.log(`[차단 분석] ${state.players[playerId]?.name}: ${blockedRoutes.length}개 경로 차단됨`);
+    blockedRoutes.forEach(r => console.log(`  - ${r.from}→${r.to}`));
+  }
+
+  return blockedRoutes;
+}
+
 export function getStrategyAdjustments(
   state: GameState,
   playerId: PlayerId,
@@ -880,4 +1257,111 @@ export function getStrategyAdjustments(
   }
 
   return adjustments;
+}
+
+/**
+ * 보드의 모든 배달 가능한 경로를 동적으로 생성
+ *
+ * 시나리오와 무관하게 현재 화물 색상 → 도시 색상 매칭으로 경로 생성
+ * 각 경로에 대해 링크 수, 연결 상태, 진행도 계산
+ */
+export function findAllDeliverableRoutes(
+  state: GameState,
+  playerId: PlayerId
+): DynamicDeliverableRoute[] {
+  const { board } = state;
+  const routes: DynamicDeliverableRoute[] = [];
+  const connectedCities = getConnectedCities(state, playerId);
+  const seenRoutes = new Set<string>();
+
+  console.log(`[동적 경로] ${state.players[playerId]?.name} 연결된 도시: [${connectedCities.join(', ')}]`);
+
+  for (const city of board.cities) {
+    // 화물이 없으면 스킵
+    if (city.cubes.length === 0) continue;
+
+    // 각 화물 색상에 대해 목적지 찾기
+    for (const cubeColor of city.cubes) {
+      // 해당 색상의 목적지 도시들 찾기
+      const targetCities = board.cities.filter(
+        c => c.color === cubeColor && c.id !== city.id
+      );
+
+      for (const target of targetCities) {
+        // 중복 경로 스킵 (같은 출발-도착)
+        const routeKey = `${city.id}-${target.id}`;
+        if (seenRoutes.has(routeKey)) continue;
+        seenRoutes.add(routeKey);
+
+        // A* 알고리즘으로 최단 경로 계산
+        const path = findOptimalPath(city.coord, target.coord, board);
+        // 링크 수 = 경로상 도시/마을 수 - 1 (대략적으로 헥스 거리 사용)
+        const linkCount = path.length > 0
+          ? Math.max(1, countLinksInPath(path, board))
+          : hexDistance(city.coord, target.coord);
+
+        // 경로 진행도 계산
+        const tempRoute: DeliveryRoute = { from: city.id, to: target.id, priority: 1 };
+        const progress = getRouteProgress(state, playerId, tempRoute);
+
+        // 이미 완성된 경로는 스킵
+        if (progress >= 1.0) continue;
+
+        routes.push({
+          from: city.id,
+          to: target.id,
+          cubeColor,
+          linkCount,
+          isSourceConnected: connectedCities.includes(city.id),
+          isTargetConnected: connectedCities.includes(target.id),
+          progress,
+        });
+      }
+    }
+  }
+
+  // 점수 계산하여 정렬 (짧은 경로, 연결된 도시 우선)
+  routes.sort((a, b) => {
+    // 출발 도시 연결 우선
+    if (a.isSourceConnected !== b.isSourceConnected) {
+      return a.isSourceConnected ? -1 : 1;
+    }
+    // 진행도 높은 경로 우선
+    if (a.progress !== b.progress) {
+      return b.progress - a.progress;
+    }
+    // 짧은 경로 우선
+    return a.linkCount - b.linkCount;
+  });
+
+  console.log(`[동적 경로] 총 ${routes.length}개 배달 가능 경로 발견`);
+  routes.slice(0, 5).forEach(r => {
+    console.log(`  - ${r.from}→${r.to} (${r.cubeColor}, ${r.linkCount}링크, 연결=${r.isSourceConnected}, 진행=${(r.progress * 100).toFixed(0)}%)`);
+  });
+
+  return routes;
+}
+
+/**
+ * 경로에서 링크 수 계산 (도시/마을 간 연결 수)
+ */
+function countLinksInPath(path: HexCoord[], board: BoardState): number {
+  if (path.length <= 1) return 0;
+
+  let linkCount = 0;
+
+  for (let i = 1; i < path.length; i++) {
+    const coord = path[i];
+    // 도시인지 확인
+    const isCity = board.cities.some(c => hexCoordsEqual(c.coord, coord));
+    // 마을인지 확인
+    const isTown = board.towns?.some(t => hexCoordsEqual(t.coord, coord));
+
+    if (isCity || isTown) {
+      linkCount++;
+    }
+  }
+
+  // 마지막이 목적지 도시면 이미 카운트됨
+  return Math.max(1, linkCount);
 }

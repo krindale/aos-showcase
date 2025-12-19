@@ -11,6 +11,36 @@ export interface DeliveryRoute {
   from: string;       // 출발 도시 ID
   to: string;         // 목적지 도시 ID
   priority: number;   // 우선순위 (1 = 최우선, 3 = 후순위)
+  linkCount?: number; // 예상 링크 수 (1-6)
+  minTurn?: number;   // 이 경로를 추진할 최소 턴 (0 = 처음부터)
+}
+
+/**
+ * 전략 단계 (게임 진행에 따른 전략 변화)
+ */
+export type StrategyPhase = 'early' | 'mid' | 'late';
+
+/**
+ * 턴에 따른 전략 단계 결정
+ * - early: 턴 1-2 (1링크 경로 집중)
+ * - mid: 턴 3-4 (2-3링크 경로 확장)
+ * - late: 턴 5+ (3-6링크 장거리 경로)
+ */
+export function getStrategyPhase(turn: number): StrategyPhase {
+  if (turn <= 2) return 'early';
+  if (turn <= 4) return 'mid';
+  return 'late';
+}
+
+/**
+ * 전략 단계별 최적 링크 수 범위
+ */
+export function getOptimalLinkRange(phase: StrategyPhase): { min: number; max: number } {
+  switch (phase) {
+    case 'early': return { min: 1, max: 2 };
+    case 'mid': return { min: 2, max: 4 };
+    case 'late': return { min: 3, max: 6 };
+  }
 }
 
 /**
@@ -43,6 +73,21 @@ export interface DeliveryOpportunity {
   targetCityId: string;           // 목적지 도시 ID
   targetCoord: HexCoord;          // 목적지 좌표
   distance: number;               // 헥스 거리
+}
+
+/**
+ * 동적 배달 가능 경로 (화물 기반 분석용)
+ *
+ * 시나리오와 무관하게 현재 화물 색상 → 도시 색상 매칭으로 생성
+ */
+export interface DynamicDeliverableRoute {
+  from: string;                   // 출발 도시 ID
+  to: string;                     // 도착 도시 ID
+  cubeColor: CubeColor;           // 화물 색상
+  linkCount: number;              // 필요한 링크 수 (A* 계산)
+  isSourceConnected: boolean;     // 출발 도시가 AI 네트워크에 연결됨
+  isTargetConnected: boolean;     // 도착 도시가 AI 네트워크에 연결됨
+  progress: number;               // 경로 진행도 (0-1)
 }
 
 /**

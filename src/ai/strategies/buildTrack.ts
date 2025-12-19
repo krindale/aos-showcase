@@ -15,7 +15,7 @@ import {
 import { getBuildableNeighbors, getExitDirections, hexCoordsEqual } from '@/utils/hexGrid';
 import { getSelectedStrategy, hasSelectedStrategy } from '../strategy/state';
 import { getNextTargetRoute, reevaluateStrategy } from '../strategy/selector';
-import { evaluateTrackForRoute, getIntermediateCities, getConnectedCities } from '../strategy/analyzer';
+import { evaluateTrackForRoute, evaluateTrackForMultipleRoutes, getIntermediateCities, getConnectedCities, isRoutePracticallyBlocked } from '../strategy/analyzer';
 import type { DeliveryRoute } from '../strategy/types';
 
 export type TrackBuildDecision =
@@ -67,21 +67,51 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   reevaluateStrategy(state, playerId);
 
   // 전략 및 목표 경로 가져오기 (순서 중요: getNextTargetRoute가 전략 변경 가능)
-  const targetRoute = getNextTargetRoute(state, playerId);
-  const strategy = getSelectedStrategy(playerId);  // 변경된 전략 가져옴
-  const strategyName = strategy?.nameKo ?? '없음';
+  // 최대 5개 경로 시도 (첫 번째 경로에서 건설 불가능하면 다음 경로 시도)
+  const excludeRoutes: string[] = [];
+  const MAX_ROUTE_ATTEMPTS = 5;
 
-  // 목표 경로가 없으면 (모든 경로 완성 또는 물품 없음) 건설 스킵
-  if (!targetRoute) {
-    console.log(`[AI 트랙] ${player.name}: 목표 경로 없음 (모든 경로 완성/물품 없음) - 건설 스킵`);
-    return { action: 'skip' };
+  let targetRoute: ReturnType<typeof getNextTargetRoute> = null;
+  let candidates: BuildCandidate[] = [];
+  let strategy = getSelectedStrategy(playerId);
+  let strategyName = strategy?.nameKo ?? '없음';
+
+  for (let attempt = 0; attempt < MAX_ROUTE_ATTEMPTS; attempt++) {
+    targetRoute = getNextTargetRoute(state, playerId, excludeRoutes);
+
+    if (!targetRoute) {
+      console.log(`[AI 트랙] ${player.name}: 목표 경로 없음 (시도 ${attempt + 1}/${MAX_ROUTE_ATTEMPTS})`);
+      break;
+    }
+
+    const routeKey = `${targetRoute.from}→${targetRoute.to}`;
+    console.log(`[AI 트랙] ${player.name}: 경로 시도 ${attempt + 1}/${MAX_ROUTE_ATTEMPTS} - ${routeKey}`);
+
+    // **실시간 차단 감지**: 목표 경로가 실질적으로 차단되었는지 확인
+    if (isRoutePracticallyBlocked(state, playerId, targetRoute)) {
+      console.log(`[AI 전술] ${player.name}: ${routeKey} 차단됨 - 다음 경로 시도`);
+      excludeRoutes.push(routeKey);
+      continue;
+    }
+
+    // 건설 가능한 후보 탐색
+    candidates = findBuildCandidates(state, playerId, targetRoute);
+
+    if (candidates.length === 0) {
+      console.log(`[AI 트랙] ${player.name}: ${routeKey} 근처에 건설 가능한 위치 없음 - 다음 경로 시도`);
+      excludeRoutes.push(routeKey);
+      continue;
+    }
+
+    // 후보를 찾았으면 루프 종료
+    strategy = getSelectedStrategy(playerId);
+    strategyName = strategy?.nameKo ?? '없음';
+    break;
   }
 
-  // 건설 가능한 후보 탐색
-  const candidates = findBuildCandidates(state, playerId, targetRoute);
-
-  if (candidates.length === 0) {
-    console.log(`[AI 트랙] ${player.name}: 건설 가능한 위치 없음`);
+  // 모든 시도 후에도 후보가 없으면 스킵
+  if (!targetRoute || candidates.length === 0) {
+    console.log(`[AI 트랙] ${player.name}: 모든 경로 시도 실패 - 건설 스킵`);
     return { action: 'skip' };
   }
 
@@ -157,9 +187,14 @@ function findBuildCandidates(
           const cost = getTerrainCost(neighbor.coord, board);
           const score = evaluateTrackPosition(state, neighbor.coord, playerId);
 
-          // 전략 경로 점수 계산 (엣지 방향 포함)
+          // 전략 경로 점수 계산 (다중 경로 고려)
           let routeScore = 0;
-          if (targetRoute) {
+          const strategy = getSelectedStrategy(playerId);
+          if (strategy) {
+            // 현재 전략의 모든 미완성 경로를 고려
+            routeScore = evaluateTrackForMultipleRoutes(neighbor.coord, strategy, state, playerId, edges);
+          } else if (targetRoute) {
+            // 전략 없으면 단일 경로만
             routeScore = evaluateTrackForRoute(neighbor.coord, targetRoute, board, playerId, edges);
           }
 
@@ -209,9 +244,12 @@ function findBuildCandidates(
           const cost = getTerrainCost(neighbor.coord, board);
           const score = evaluateTrackPosition(state, neighbor.coord, playerId);
 
-          // 전략 경로 점수 계산 (엣지 방향 포함)
+          // 전략 경로 점수 계산 (다중 경로 고려)
           let routeScore = 0;
-          if (targetRoute) {
+          const strategy = getSelectedStrategy(playerId);
+          if (strategy) {
+            routeScore = evaluateTrackForMultipleRoutes(neighbor.coord, strategy, state, playerId, edges);
+          } else if (targetRoute) {
             routeScore = evaluateTrackForRoute(neighbor.coord, targetRoute, board, playerId, edges);
           }
 
@@ -241,64 +279,73 @@ function findBuildCandidates(
       const intermediateCities = getIntermediateCities(targetRoute, board);
       const allRouteCities = [targetRoute.from, ...intermediateCities, targetRoute.to];
 
-      // AI가 연결된 도시들을 먼저 시도
+      // AI가 연결된 도시 목록
       const connectedCities = getConnectedCities(state, playerId);
-      const sortedCities = allRouteCities.sort((a, b) => {
-        const aConnected = connectedCities.includes(a) ? 0 : 1;
-        const bConnected = connectedCities.includes(b) ? 0 : 1;
-        return aConnected - bConnected;
-      });
+      const connectedRouteCities = allRouteCities.filter(cityId => connectedCities.includes(cityId));
+      const disconnectedRouteCities = allRouteCities.filter(cityId => !connectedCities.includes(cityId));
 
-      console.log(`[AI 트랙] 경로상 도시: [${allRouteCities.join(', ')}], 연결된 도시 우선: [${sortedCities.join(', ')}]`);
+      console.log(`[AI 트랙] 경로상 도시: [${allRouteCities.join(', ')}]`);
+      console.log(`[AI 트랙] 연결된 도시: [${connectedRouteCities.join(', ')}], 연결 안 된 도시: [${disconnectedRouteCities.join(', ')}]`);
 
-      for (const cityId of sortedCities) {
-        const city = board.cities.find(c => c.id === cityId);
-        if (!city) continue;
+      // 도시 목록에서 후보 찾는 헬퍼 함수
+      const findCandidatesFromCities = (citiesToTry: string[], isConnected: boolean) => {
+        for (const cityId of citiesToTry) {
+          const city = board.cities.find(c => c.id === cityId);
+          if (!city) continue;
 
-        const neighbors = getBuildableNeighbors(city.coord, board, playerId);
+          const neighbors = getBuildableNeighbors(city.coord, board, playerId);
 
-        for (const neighbor of neighbors) {
-          // 이미 트랙이 있는 곳은 제외
-          const existingTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor.coord));
-          if (existingTrack) continue;
+          for (const neighbor of neighbors) {
+            // 이미 트랙이 있는 곳은 제외
+            const existingTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor.coord));
+            if (existingTrack) continue;
 
-          const exitDirs = getExitDirections(neighbor.coord, neighbor.targetEdge, board);
+            const exitDirs = getExitDirections(neighbor.coord, neighbor.targetEdge, board);
 
-          for (const exitDir of exitDirs) {
-            const edges: [number, number] = [neighbor.targetEdge, exitDir.exitEdge];
+            for (const exitDir of exitDirs) {
+              const edges: [number, number] = [neighbor.targetEdge, exitDir.exitEdge];
 
-            if (!validateFirstTrackRule(neighbor.coord, edges, board)) continue;
+              if (!validateFirstTrackRule(neighbor.coord, edges, board)) continue;
 
-            const cost = getTerrainCost(neighbor.coord, board);
-            const score = evaluateTrackPosition(state, neighbor.coord, playerId);
-            const routeScore = evaluateTrackForRoute(neighbor.coord, targetRoute, board, playerId, edges);
+              const cost = getTerrainCost(neighbor.coord, board);
+              const score = evaluateTrackPosition(state, neighbor.coord, playerId);
 
-            // 최소 점수 임계값: 경로와 무관한 후보 제외 (26점 같은 낮은 점수 방지)
-            const MIN_FALLBACK_ROUTE_SCORE = 50;
-            if (routeScore < MIN_FALLBACK_ROUTE_SCORE) {
-              console.log(`[AI 트랙] 폴백 후보 제외: (${neighbor.coord.col},${neighbor.coord.row}) edges=[${edges}] routeScore=${routeScore} < ${MIN_FALLBACK_ROUTE_SCORE}`);
-              continue;
-            }
+              // 폴백에서는 동적으로 선택된 targetRoute를 직접 평가
+              // (시나리오 기반 evaluateTrackForMultipleRoutes는 동적 경로에 0점을 줄 수 있음)
+              const routeScore = evaluateTrackForRoute(neighbor.coord, targetRoute, board, playerId, edges);
 
-            // 연결된 도시에서 시작하면 보너스
-            const connectionBonus = connectedCities.includes(cityId) ? 50 : 0;
+              // 연결된 도시에서 시작하면 보너스
+              const connectionBonus = isConnected ? 50 : 0;
 
-            // 중복 제거
-            const isDuplicate = candidates.some(
-              c => hexCoordsEqual(c.coord, neighbor.coord) &&
-                   c.edges[0] === edges[0] && c.edges[1] === edges[1]
-            );
-            if (!isDuplicate) {
-              candidates.push({
-                coord: neighbor.coord,
-                edges,
-                score: score + connectionBonus,
-                cost,
-                routeScore,
-              });
+              // 중복 제거
+              const isDuplicate = candidates.some(
+                c => hexCoordsEqual(c.coord, neighbor.coord) &&
+                     c.edges[0] === edges[0] && c.edges[1] === edges[1]
+              );
+              if (!isDuplicate) {
+                candidates.push({
+                  coord: neighbor.coord,
+                  edges,
+                  score: score + connectionBonus,
+                  cost,
+                  routeScore,
+                });
+              }
             }
           }
         }
+      };
+
+      // 1차: 연결된 도시에서만 시도
+      if (connectedRouteCities.length > 0) {
+        console.log(`[AI 트랙] 1차 시도: 연결된 도시 [${connectedRouteCities.join(', ')}]에서만 건설`);
+        findCandidatesFromCities(connectedRouteCities, true);
+      }
+
+      // 2차: 연결된 도시에서 후보가 없으면 연결 안 된 도시도 시도 (어쩔 수 없는 경우)
+      if (candidates.length === 0 && disconnectedRouteCities.length > 0) {
+        console.log(`[AI 트랙] 2차 시도: 연결된 도시에서 후보 없음 - 연결 안 된 도시 [${disconnectedRouteCities.join(', ')}] 시도`);
+        findCandidatesFromCities(disconnectedRouteCities, false);
       }
     }
   }

@@ -43,7 +43,9 @@
       "Bash(xargs kill:*)",
       "SlashCommand(/test-game)",
       "Bash(open:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(git stash:*)",
+      "Bash(xargs kill -9)"
     ]
   }
 }

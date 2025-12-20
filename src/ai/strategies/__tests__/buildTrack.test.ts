@@ -7,7 +7,6 @@ import { calculateMinFallbackScore, findNetworkExpansionTarget } from '../buildT
 import { resetStrategyStates } from '../../strategy/state';
 import {
   createMockGameState,
-  createMockCity,
   addTrack,
 } from '../../__tests__/helpers/mockState';
 import type { GameState } from '@/types/game';
@@ -32,7 +31,7 @@ describe('calculateMinFallbackScore', () => {
   describe('연결된 도시가 있는 경우', () => {
     it('트랙 있고 연결된 도시가 있으면 15 반환', () => {
       // 트랙 추가
-      let state = addTrack(baseState, { col: 3, row: 0 }, [3, 0], 'player1');
+      const state = addTrack(baseState, { col: 3, row: 0 }, [3, 0], 'player1');
 
       const result = calculateMinFallbackScore(state, 'player1', ['Pittsburgh']);
 
@@ -43,7 +42,7 @@ describe('calculateMinFallbackScore', () => {
   describe('기본 상황', () => {
     it('트랙 있고 연결된 도시가 없으면 20 반환', () => {
       // 트랙 추가하지만 도시와 연결 안됨 (미완성 구간)
-      let state = addTrack(baseState, { col: 2, row: 2 }, [3, 0], 'player1');
+      const state = addTrack(baseState, { col: 2, row: 2 }, [3, 0], 'player1');
 
       const result = calculateMinFallbackScore(state, 'player1', []);
 

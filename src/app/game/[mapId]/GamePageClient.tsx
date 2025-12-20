@@ -4,6 +4,9 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { useGameStore, TUTORIAL_GAME_CONFIG } from '@/store/gameStore';
+
+// 개발 모드에서 AI 디버거 활성화
+import '@/ai/debug';
 import GameBoard from '@/components/game/GameBoard';
 import PlayerPanel from '@/components/game/PlayerPanel';
 import PhasePanel from '@/components/game/PhasePanel';
@@ -14,8 +17,9 @@ import RedirectTrackPanel from '@/components/game/RedirectTrackPanel';
 import UrbanizationPanel from '@/components/game/UrbanizationPanel';
 import ProductionPanel from '@/components/game/ProductionPanel';
 import DebugPanel from '@/components/game/DebugPanel';
+import AIDebugModal from '@/components/game/AIDebugModal';
 import { calculateTrackScore } from '@/utils/trackValidation';
-import { ArrowLeft, RotateCcw, Users, Zap, X, Bot } from 'lucide-react';
+import { ArrowLeft, RotateCcw, Users, Zap, X, Bot, Activity } from 'lucide-react';
 import {
   PLAYER_COLOR_ORDER,
   PLAYER_COLORS,
@@ -55,6 +59,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   const [aiPlayerIndexes, setAiPlayerIndexes] = useState<Set<number>>(
     mapId === 'tutorial' ? new Set([1]) : new Set()
   );
+  const [showAIDebug, setShowAIDebug] = useState(false);
 
   const {
     initGame,
@@ -479,6 +484,24 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
 
       {/* 디버그 패널 */}
       <DebugPanel />
+
+      {/* AI 디버그 버튼 (우측 하단) */}
+      {process.env.NODE_ENV === 'development' && (
+        <button
+          onClick={() => setShowAIDebug(true)}
+          className="fixed bottom-6 right-6 z-40 p-4 bg-accent/90 hover:bg-accent text-background rounded-full shadow-lg transition-all hover:scale-110"
+          title="AI 디버거"
+        >
+          <Activity size={24} />
+        </button>
+      )}
+
+      {/* AI 디버그 모달 */}
+      <AIDebugModal
+        isOpen={showAIDebug}
+        onClose={() => setShowAIDebug(false)}
+        playerId="player2"
+      />
     </div>
   );
 }

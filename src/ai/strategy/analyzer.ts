@@ -504,6 +504,272 @@ export function isRouteBlockedByOpponent(
 }
 
 /**
+ * 도시의 사용 가능한 엣지(면) 찾기
+ *
+ * 각 도시 헥스는 6개의 엣지를 가지고 있으며,
+ * 각 엣지에는 하나의 철도만 연결될 수 있음
+ *
+ * @param cityCoord 도시 좌표
+ * @param board 보드 상태
+ * @param playerId 플레이어 ID
+ * @returns 사용 가능한 엣지 번호 배열 (상대 점유, 호수, 맵 밖 제외)
+ */
+export function findAvailableCityEdges(
+  cityCoord: HexCoord,
+  board: BoardState,
+  playerId: PlayerId
+): number[] {
+  const availableEdges: number[] = [];
+
+  for (let edge = 0; edge < 6; edge++) {
+    const neighbor = getNeighborHex(cityCoord, edge);
+    const oppositeEdge = (edge + 3) % 6;
+
+    // 1. 맵 밖이면 제외 (hexTiles에 없음)
+    const hex = board.hexTiles.find(h => hexCoordsEqual(h.coord, neighbor));
+    // 도시 헥스는 hexTiles에 없으므로 도시인지도 확인
+    const isNeighborCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
+    if (!hex && !isNeighborCity) continue;
+
+    // 2. 호수이면 제외
+    if (hex?.terrain === 'lake') continue;
+
+    // 3. 상대 트랙이 이 엣지를 점유하면 제외
+    // (상대 트랙이 neighbor 헥스에 있고, oppositeEdge가 도시를 향하면 점유)
+    const opponentTrack = board.trackTiles.find(
+      t => t.owner !== playerId &&
+           t.owner !== null &&
+           hexCoordsEqual(t.coord, neighbor) &&
+           t.edges.includes(oppositeEdge)
+    );
+    if (opponentTrack) continue;
+
+    availableEdges.push(edge);
+  }
+
+  return availableEdges;
+}
+
+/**
+ * 특정 도시 엣지로 도달하는 경로 계산
+ *
+ * 목표 도시의 특정 엣지로 진입하려면 해당 엣지 방향의 인접 헥스에 도달해야 함
+ *
+ * @param from 출발 좌표
+ * @param targetCity 목표 도시 좌표
+ * @param targetEdge 목표 도시의 도착 엣지 번호
+ * @param board 보드 상태
+ * @param playerId 플레이어 ID
+ * @returns 경로 (from에서 엔트리 헥스까지), 경로 없으면 빈 배열
+ */
+export function findPathToEdge(
+  from: HexCoord,
+  targetCity: HexCoord,
+  targetEdge: number,
+  board: BoardState,
+  playerId: PlayerId
+): HexCoord[] {
+  // 목표: targetCity에 인접한 헥스 중 targetEdge 방향의 헥스에 도달
+  const entryHex = getNeighborHex(targetCity, targetEdge);
+
+  // 맵 밖이거나 호수이면 경로 없음
+  const hex = board.hexTiles.find(h => hexCoordsEqual(h.coord, entryHex));
+  const isCity = board.cities.some(c => hexCoordsEqual(c.coord, entryHex));
+  if (!hex && !isCity) return [];
+  if (hex?.terrain === 'lake') return [];
+
+  // 출발점과 엔트리 헥스가 같으면 이미 도착
+  if (hexCoordsEqual(from, entryHex)) {
+    return [entryHex];
+  }
+
+  // A*로 from → entryHex 경로 계산
+  // 상대 트랙을 피하는 A* 사용 (새 파라미터로 확장)
+  return findOptimalPathAvoidingOpponent(from, entryHex, board, playerId);
+}
+
+/**
+ * 상대 트랙을 피하면서 최적 경로 찾기
+ *
+ * 기존 A*에서 상대 트랙이 있는 헥스를 피하거나 높은 비용 부여
+ */
+export function findOptimalPathAvoidingOpponent(
+  from: HexCoord,
+  to: HexCoord,
+  board: BoardState,
+  playerId: PlayerId
+): HexCoord[] {
+  // A* 알고리즘 구현
+  interface Node {
+    coord: HexCoord;
+    g: number;  // 시작점에서 현재까지 실제 비용
+    h: number;  // 현재에서 목적지까지 휴리스틱 (예상 비용)
+    f: number;  // g + h
+    parent: Node | null;
+  }
+
+  const openSet: Node[] = [];
+  const closedSet: Set<string> = new Set();
+  const coordKey = (c: HexCoord) => `${c.col},${c.row}`;
+
+  // 지형 비용 계산 + 상대 트랙 페널티
+  const getTerrainCost = (coord: HexCoord): number => {
+    // 도시는 통과 비용 0
+    if (board.cities.some(c => hexCoordsEqual(c.coord, coord))) {
+      return 0;
+    }
+
+    const hex = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
+    if (!hex) return Infinity; // 맵 밖
+    if (hex.terrain === 'lake') return Infinity; // 호수는 건설 불가
+
+    let baseCost = GAME_CONSTANTS.PLAIN_TRACK_COST;
+    if (hex.terrain === 'mountain') baseCost = GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
+    if (hex.terrain === 'river') baseCost = GAME_CONSTANTS.RIVER_TRACK_COST;
+
+    // 상대 트랙이 있으면 높은 비용 (피하도록 유도)
+    // 단, 복합 트랙으로 지나갈 수 있으므로 무한대는 아님
+    const opponentTrack = board.trackTiles.find(
+      t => t.owner !== playerId && t.owner !== null && hexCoordsEqual(t.coord, coord)
+    );
+    if (opponentTrack) {
+      // 단순 트랙이면 복합 트랙으로 지나갈 수 있음 (추가 비용)
+      // 복합 트랙이면 지나갈 수 없음
+      if (opponentTrack.trackType === 'simple') {
+        baseCost += 5; // 복합 트랙 비용 추가
+      } else {
+        return Infinity; // 이미 복합 트랙이면 못 지나감
+      }
+    }
+
+    return baseCost;
+  };
+
+  // 시작 노드
+  const startNode: Node = {
+    coord: from,
+    g: 0,
+    h: hexDistance(from, to),
+    f: hexDistance(from, to),
+    parent: null,
+  };
+  openSet.push(startNode);
+
+  while (openSet.length > 0) {
+    // f 값이 가장 낮은 노드 선택
+    openSet.sort((a, b) => a.f - b.f);
+    const current = openSet.shift()!;
+
+    // 목적지 도달
+    if (hexCoordsEqual(current.coord, to)) {
+      // 경로 재구성
+      const path: HexCoord[] = [];
+      let node: Node | null = current;
+      while (node) {
+        path.unshift(node.coord);
+        node = node.parent;
+      }
+      return path;
+    }
+
+    closedSet.add(coordKey(current.coord));
+
+    // 6방향 이웃 탐색
+    for (let edge = 0; edge < 6; edge++) {
+      const neighbor = getNeighborHex(current.coord, edge);
+      const neighborKey = coordKey(neighbor);
+
+      // 이미 방문한 노드 스킵
+      if (closedSet.has(neighborKey)) continue;
+
+      // 지형 비용 계산
+      const terrainCost = getTerrainCost(neighbor);
+      if (terrainCost === Infinity) continue; // 건설 불가 지형
+
+      const moveCost = terrainCost;
+      const newG = current.g + moveCost;
+
+      // 기존 노드 찾기
+      const existingIndex = openSet.findIndex(n => hexCoordsEqual(n.coord, neighbor));
+      if (existingIndex >= 0) {
+        // 더 좋은 경로면 업데이트
+        if (newG < openSet[existingIndex].g) {
+          openSet[existingIndex].g = newG;
+          openSet[existingIndex].f = newG + openSet[existingIndex].h;
+          openSet[existingIndex].parent = current;
+        }
+      } else {
+        // 새 노드 추가
+        const h = hexDistance(neighbor, to);
+        openSet.push({
+          coord: neighbor,
+          g: newG,
+          h,
+          f: newG + h,
+          parent: current,
+        });
+      }
+    }
+  }
+
+  // 경로 없음
+  return [];
+}
+
+/**
+ * AI 현재 위치에서 목표 도시의 최적 엣지 선택
+ *
+ * 여러 사용 가능한 엣지 중에서 AI의 현재 위치에서 가장 가까운 엣지를 선택
+ *
+ * @param currentPos AI의 현재 위치 (마지막 트랙 끝 또는 도시)
+ * @param targetCity 목표 도시 좌표
+ * @param availableEdges 사용 가능한 엣지 목록
+ * @param board 보드 상태
+ * @param playerId 플레이어 ID
+ * @param remainingTracks 이번 턴에 건설 가능한 트랙 수
+ * @returns 최적 경로 및 엣지 또는 null
+ */
+export function findBestEdgeToCity(
+  currentPos: HexCoord,
+  targetCity: HexCoord,
+  availableEdges: number[],
+  board: BoardState,
+  playerId: PlayerId,
+  remainingTracks: number
+): { path: HexCoord[]; edge: number; canComplete: boolean } | null {
+  const candidates: { path: HexCoord[]; edge: number; distance: number }[] = [];
+
+  for (const edge of availableEdges) {
+    const path = findPathToEdge(currentPos, targetCity, edge, board, playerId);
+    if (path.length === 0) continue;
+
+    candidates.push({
+      path,
+      edge,
+      distance: path.length,
+    });
+  }
+
+  if (candidates.length === 0) return null;
+
+  // 거리순 정렬 (가장 가까운 엣지 우선)
+  candidates.sort((a, b) => a.distance - b.distance);
+
+  const best = candidates[0];
+  // 도시까지 연결하려면 path.length + 1 (마지막 헥스에서 도시로)
+  // 단, path에 출발지가 포함되어 있으므로 실제 건설할 트랙 수는 path.length
+  const canComplete = best.distance <= remainingTracks + 1;
+
+  console.log(`[AI 트랙] 최적 엣지 선택: edge ${best.edge}, 거리=${best.distance}, 완성가능=${canComplete}`);
+
+  return {
+    path: best.path,
+    edge: best.edge,
+    canComplete,
+  };
+}
+
+/**
  * 두 인접 헥스 사이의 연결 엣지 찾기
  *
  * A 헥스에서 B 헥스로 가는 엣지 번호 반환 (-1: 인접하지 않음)
@@ -860,19 +1126,20 @@ export function getStrategyAdjustments(
   for (const scenario of ALL_SCENARIOS) {
     let adjustment = 0;
 
-    // 상대가 이미 연결한 도시와 시나리오 경로가 겹치면 감점
+    // 상대가 이미 연결한 도시와 시나리오 경로가 겹치면 감점 (완화됨)
+    // 복합 트랙으로 상대 경로를 교차/공존할 수 있으므로 감점 축소
     for (const cityId of opponentAnalysis.connectedCities) {
       if (scenario.routes.includes(cityId)) {
-        adjustment -= 25;  // 상대가 이미 점령한 도시
-        console.log(`[전략 조정] ${scenario.name}: ${cityId} 상대 점령 -25점`);
+        adjustment -= 10;  // 상대가 이미 점령한 도시 (기존 -25 → -10)
+        console.log(`[전략 조정] ${scenario.name}: ${cityId} 상대 점령 -10점`);
       }
     }
 
-    // 상대가 향하는 도시와 시나리오 경로가 겹치면 감점
+    // 상대가 향하는 도시와 시나리오 경로가 겹치면 감점 (완화됨)
     for (const cityId of opponentAnalysis.targetCities) {
       if (scenario.routes.includes(cityId)) {
-        adjustment -= 15;  // 상대가 향하는 도시
-        console.log(`[전략 조정] ${scenario.name}: ${cityId} 상대 목표 -15점`);
+        adjustment -= 5;  // 상대가 향하는 도시 (기존 -15 → -5)
+        console.log(`[전략 조정] ${scenario.name}: ${cityId} 상대 목표 -5점`);
       }
     }
 

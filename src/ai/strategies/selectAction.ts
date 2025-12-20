@@ -1,12 +1,12 @@
 /**
  * Phase III: 행동 선택 전략
  *
- * AI가 선택한 전략에 따라 7가지 특수 행동 중 하나를 선택합니다.
+ * AI가 동적 화물 기반 전략에 따라 7가지 특수 행동 중 하나를 선택합니다.
  */
 
 import { GameState, PlayerId, SpecialAction } from '@/types/game';
 import { countPlayerTracks } from '../evaluator';
-import { getSelectedStrategy, hasSelectedStrategy } from '../strategy/state';
+import { getCurrentRoute, hasSelectedStrategy } from '../strategy/state';
 import { reevaluateStrategy } from '../strategy/selector';
 
 /**
@@ -33,11 +33,10 @@ function getAvailableActions(state: GameState): SpecialAction[] {
 /**
  * 행동 선택 결정
  *
- * 전략:
- * 1. 선택된 전략의 preferredActions 우선
- * 2. locomotive - 엔진 레벨이 전략의 minEngineLevel보다 낮으면 우선
- * 3. engineer - 트랙이 적으면 우선
- * 4. 기본 우선순위대로 선택
+ * 동적 화물 기반 전략:
+ * 1. 엔진 레벨이 목표 경로 거리보다 낮으면 locomotive 우선
+ * 2. 트랙이 적으면 engineer 우선
+ * 3. 기본 우선순위대로 선택
  *
  * @param state 게임 상태
  * @param playerId AI 플레이어 ID
@@ -57,56 +56,43 @@ export function decideAction(state: GameState, playerId: PlayerId): SpecialActio
     return 'turnOrder';
   }
 
-  // 전략이 없거나 재평가 필요시 (상대 트랙, 물품 변화 고려)
+  // 경로 없으면 재평가
   if (!hasSelectedStrategy(playerId)) {
-    console.log(`[AI 행동] ${player.name}: 전략 없음 - 초기화 및 평가 중...`);
+    console.log(`[AI 행동] ${player.name}: 경로 없음 - 초기화 및 평가 중...`);
   }
   // 항상 재평가하여 상대 트랙/물품 상황 반영
   reevaluateStrategy(state, playerId);
 
-  // 선택된 전략 가져오기
-  const strategy = getSelectedStrategy(playerId);
-  const strategyName = strategy?.nameKo ?? '없음';
+  // 현재 목표 경로 가져오기
+  const currentRoute = getCurrentRoute(playerId);
+  const routeStr = currentRoute ? `${currentRoute.from}→${currentRoute.to}` : '없음';
 
-  // 엔진 레벨이 전략의 최소 요구보다 낮으면 locomotive 우선
-  const minEngineLevel = strategy?.minEngineLevel ?? 2;
+  // 동적 전략: 기본 엔진 레벨 요구치 2 (1링크 배달 위해)
+  const minEngineLevel = 2;
   if (player.engineLevel < minEngineLevel && available.includes('locomotive')) {
-    console.log(`[AI 행동] ${player.name}: locomotive (전략=${strategyName}, 엔진 ${player.engineLevel} < ${minEngineLevel})`);
+    console.log(`[AI 행동] ${player.name}: locomotive (경로=${routeStr}, 엔진 ${player.engineLevel} < ${minEngineLevel})`);
     return 'locomotive';
   }
 
-  // 전략의 선호 행동 우선
-  if (strategy) {
-    for (const preferred of strategy.preferredActions) {
-      if (available.includes(preferred)) {
-        // 추가 조건 검사
-        if (preferred === 'locomotive' && player.engineLevel >= minEngineLevel) {
-          continue;  // 엔진 충분하면 스킵
-        }
-        if (preferred === 'engineer' && player.cash < 6) {
-          continue;  // 현금 부족하면 스킵 (추가 트랙 건설 비용)
-        }
-
-        console.log(`[AI 행동] ${player.name}: ${preferred} (전략=${strategyName}, 선호 행동)`);
-        return preferred;
-      }
-    }
-  }
-
-  // 트랙이 적으면 engineer 우선 (전략과 무관하게)
+  // 트랙이 적으면 engineer 우선
   const trackCount = countPlayerTracks(state.board, playerId);
-  if (trackCount < 3 && available.includes('engineer')) {
+  if (trackCount < 3 && available.includes('engineer') && player.cash >= 6) {
     console.log(`[AI 행동] ${player.name}: engineer (트랙 ${trackCount}개, 4개 건설 가능)`);
     return 'engineer';
   }
 
+  // 첫 번째 트랙 건설 전이면 firstBuild 우선
+  if (trackCount === 0 && available.includes('firstBuild')) {
+    console.log(`[AI 행동] ${player.name}: firstBuild (첫 트랙 건설)`);
+    return 'firstBuild';
+  }
+
   // 기본 우선순위대로 선택
-  // firstMove는 전략적으로 선호하지 않으면 낮은 우선순위
   const fallbackPriority: SpecialAction[] = [
     'firstBuild',
     'locomotive',
     'engineer',
-    'firstMove',  // 전략에서 명시적으로 선호하지 않으면 낮은 우선순위
+    'firstMove',
     'urbanization',
     'production',
     'turnOrder',
@@ -114,7 +100,15 @@ export function decideAction(state: GameState, playerId: PlayerId): SpecialActio
 
   for (const action of fallbackPriority) {
     if (available.includes(action)) {
-      console.log(`[AI 행동] ${player.name}: ${action} (기본 우선순위)`);
+      // 추가 조건 검사
+      if (action === 'locomotive' && player.engineLevel >= 3) {
+        continue;  // 엔진 충분하면 스킵
+      }
+      if (action === 'engineer' && player.cash < 6) {
+        continue;  // 현금 부족하면 스킵
+      }
+
+      console.log(`[AI 행동] ${player.name}: ${action} (경로=${routeStr}, 기본 우선순위)`);
       return action;
     }
   }

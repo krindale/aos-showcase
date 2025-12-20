@@ -628,6 +628,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
               scheduleAICheck(get);
               return; // nextPhase 호출하지 않음
             }
+          } else if (buildDecision.action === 'buildComplex') {
+            // 복합 트랙 건설 (교차 또는 공존)
+            store.buildComplexTrack(buildDecision.coord, buildDecision.edges, buildDecision.trackType);
+
+            // 트랙 건설 후 상태 확인
+            const afterBuildState = get();
+            const { builtTracksThisTurn, maxTracksThisTurn } = afterBuildState.phaseState;
+
+            // 아직 더 건설할 수 있으면 다시 AI 결정 실행 (스케줄러 사용)
+            if (builtTracksThisTurn < maxTracksThisTurn) {
+              releaseAILock(executionId, get, set);
+              scheduleAICheck(get);
+              return; // nextPhase 호출하지 않음
+            }
           }
           // 더 이상 건설 불가하거나 skip이면 다음 플레이어로 전환
           store.nextPhase();

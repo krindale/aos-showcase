@@ -1,94 +1,98 @@
 /**
- * AI 전략 상태 관리
+ * AI 전략 상태 관리 (단순화 버전)
  *
- * 플레이어별 선택된 전략을 저장하고 관리
+ * 정적 시나리오 대신 현재 목표 경로만 저장
  */
 
 import { PlayerId } from '@/types/game';
-import { AIStrategy, AIStrategyState } from './types';
+import { DeliveryRoute } from './types';
 
 /**
- * 플레이어별 전략 상태 저장소
+ * 플레이어별 현재 목표 경로 저장소
  */
-const strategyStates: Map<PlayerId, AIStrategyState> = new Map();
+const currentTargetRoutes: Map<PlayerId, DeliveryRoute> = new Map();
 
 /**
- * 전략 상태 초기화 (게임 리셋 시)
+ * 현재 목표 경로 가져오기
+ */
+export function getCurrentRoute(playerId: PlayerId): DeliveryRoute | null {
+  return currentTargetRoutes.get(playerId) || null;
+}
+
+/**
+ * 현재 목표 경로 설정
+ */
+export function setCurrentRoute(playerId: PlayerId, route: DeliveryRoute): void {
+  currentTargetRoutes.set(playerId, route);
+}
+
+/**
+ * 모든 경로 초기화 (게임 리셋 시)
+ */
+export function clearCurrentRoutes(): void {
+  currentTargetRoutes.clear();
+  console.log('[AI 전략] 경로 상태 초기화');
+}
+
+/**
+ * 전략 상태 초기화 (게임 리셋 시) - 호환성 유지용 alias
  */
 export function resetStrategyStates(): void {
-  strategyStates.clear();
-  console.log('[AI 전략] 상태 초기화');
+  clearCurrentRoutes();
 }
 
 /**
- * 플레이어의 선택된 전략 가져오기
+ * 플레이어의 선택된 전략 가져오기 - 호환성 유지용
+ *
+ * @deprecated getCurrentRoute 사용 권장
  */
-export function getSelectedStrategy(playerId: PlayerId): AIStrategy | null {
-  const state = strategyStates.get(playerId);
-  return state?.strategy || null;
+export function getSelectedStrategy(playerId: PlayerId): {
+  name: string;
+  nameKo: string;
+  targetRoutes: DeliveryRoute[];
+} | null {
+  const route = currentTargetRoutes.get(playerId);
+  if (!route) return null;
+
+  return {
+    name: 'dynamic_cargo_based',
+    nameKo: '화물 기반 동적 전략',
+    targetRoutes: [route],
+  };
 }
 
 /**
- * 플레이어의 전략 설정
+ * 플레이어의 전략 설정 - 호환성 유지용
+ *
+ * @deprecated setCurrentRoute 사용 권장
  */
 export function setSelectedStrategy(
   playerId: PlayerId,
-  strategy: AIStrategy,
-  turn: number
+  strategy: { targetRoutes: DeliveryRoute[] },
+  _turn: number
 ): void {
-  strategyStates.set(playerId, {
-    playerId,
-    strategy,
-    selectedTurn: turn,
-    routeProgress: new Map(),
-  });
+  if (strategy.targetRoutes.length > 0) {
+    currentTargetRoutes.set(playerId, strategy.targetRoutes[0]);
+  }
 }
 
 /**
- * 전략이 선택되어 있는지 확인
+ * 전략이 선택되어 있는지 확인 - 호환성 유지용
  */
 export function hasSelectedStrategy(playerId: PlayerId): boolean {
-  return strategyStates.has(playerId);
-}
-
-/**
- * 플레이어의 전략 상태 전체 가져오기
- */
-export function getStrategyState(playerId: PlayerId): AIStrategyState | null {
-  return strategyStates.get(playerId) || null;
-}
-
-/**
- * 경로 진행도 업데이트
- */
-export function updateRouteProgress(
-  playerId: PlayerId,
-  routeId: string,
-  progress: number
-): void {
-  const state = strategyStates.get(playerId);
-  if (state) {
-    state.routeProgress.set(routeId, progress);
-  }
+  return currentTargetRoutes.has(playerId);
 }
 
 /**
  * 디버깅용: 현재 전략 상태 로그
  */
 export function logStrategyState(playerId: PlayerId): void {
-  const state = strategyStates.get(playerId);
-  if (!state) {
-    console.log(`[AI 전략] ${playerId}: 전략 없음`);
+  const route = currentTargetRoutes.get(playerId);
+  if (!route) {
+    console.log(`[AI 전략] ${playerId}: 경로 없음`);
     return;
   }
 
   console.log(`[AI 전략] ${playerId}:`);
-  console.log(`  - 시나리오: ${state.strategy.nameKo}`);
-  console.log(`  - 선택 턴: ${state.selectedTurn}`);
-  console.log(`  - 목표 경로:`);
-
-  for (const route of state.strategy.targetRoutes) {
-    const progress = state.routeProgress.get(`${route.from}-${route.to}`) || 0;
-    console.log(`    ${route.from} → ${route.to} (우선순위: ${route.priority}, 진행: ${(progress * 100).toFixed(0)}%)`);
-  }
+  console.log(`  - 현재 경로: ${route.from} → ${route.to} (우선순위: ${route.priority})`);
 }

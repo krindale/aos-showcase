@@ -24,9 +24,9 @@ import { decideBuildTrack, TrackBuildDecision } from './strategies/buildTrack';
 import { decideMoveGoods, MoveGoodsDecision } from './strategies/moveGoods';
 
 // 전략 시스템 임포트 (호환성 유지용)
-import { selectInitialStrategy, reevaluateStrategy } from './strategy/selector';
-import { getSelectedStrategy, setSelectedStrategy, resetStrategyStates, hasSelectedStrategy, logStrategyState } from './strategy/state';
-import { AIStrategy } from './strategy/types';
+import { reevaluateStrategy, getNextTargetRoute } from './strategy/selector';
+import { getSelectedStrategy, setCurrentRoute, resetStrategyStates, hasSelectedStrategy, logStrategyState, getCurrentRoute } from './strategy/state';
+import { DynamicStrategy } from './strategy/types';
 
 /**
  * AI 결정 타입
@@ -58,8 +58,11 @@ export function initializeAIStrategy(state: GameState, playerId: PlayerId): void
     return;
   }
 
-  const strategy = selectInitialStrategy(state, playerId);
-  setSelectedStrategy(playerId, strategy, state.currentTurn);
+  // 동적 화물 기반 전략 사용
+  const route = getNextTargetRoute(state, playerId);
+  if (route) {
+    setCurrentRoute(playerId, route);
+  }
   logStrategyState(playerId);
 }
 
@@ -159,7 +162,7 @@ export function isCurrentPlayerAI(state: GameState): boolean {
 /**
  * AI 플레이어의 현재 전략 가져오기
  */
-export function getAIStrategy(playerId: PlayerId): AIStrategy | null {
+export function getAIStrategy(playerId: PlayerId): DynamicStrategy | null {
   // 새 시스템: AIPlayer 인스턴스 확인
   const aiPlayer = aiPlayerManager.get(playerId);
   if (aiPlayer) {
@@ -175,5 +178,5 @@ export { AIPlayer } from './AIPlayer';
 export { AIPlayerManager, aiPlayerManager } from './AIPlayerManager';
 
 // === 전략 타입 및 함수 재export (호환성) ===
-export type { AIStrategy } from './strategy/types';
-export { getSelectedStrategy } from './strategy/state';
+export type { DynamicStrategy } from './strategy/types';
+export { getSelectedStrategy, getCurrentRoute } from './strategy/state';

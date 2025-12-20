@@ -14,6 +14,16 @@ export interface DeliveryRoute {
 }
 
 /**
+ * 동적 전략 타입 (화물 기반)
+ * 정적 시나리오 대신 동적으로 경로를 선택
+ */
+export interface DynamicStrategy {
+  name: string;                  // 전략 ID (예: 'dynamic')
+  nameKo: string;                // 전략 한글명
+  targetRoutes: DeliveryRoute[]; // 현재 목표 경로
+}
+
+/**
  * 전략 우선순위 타입
  */
 export type StrategyPriority = 'speed' | 'income' | 'blocking';

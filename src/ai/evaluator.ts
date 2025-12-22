@@ -96,11 +96,11 @@ export function evaluateMoveValue(
   let score = 0;
 
   // 링크 수 = 수입
-  score += linksCount * 3; // 수입이 점수에 3배로 반영되므로
+  score += linksCount * 5; // 기존 3 -> 5로 상향. 수입이 점수에 크게 반영되도록
 
   // 자신의 트랙 사용 시 추가 점수
   if (usesOwnTracks) {
-    score += linksCount * 2;
+    score += linksCount * 3; // 기존 2 -> 3으로 상향
   }
 
   return score;

@@ -5,7 +5,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   evaluateTrackForRoute,
-  hexDistance,
   getConnectedCities,
   getRouteProgress,
   hasMatchingCubes,
@@ -15,6 +14,7 @@ import {
   breakRouteIntoSegments,
   getIntermediateCities,
 } from '../analyzer';
+import { hexDistance } from '@/utils/hexGrid';
 import { resetStrategyStates } from '../state';
 import {
   createMockGameState,
@@ -80,14 +80,14 @@ describe('evaluateTrackForRoute', () => {
       const trackCoord: HexCoord = { col: 3, row: 0 };
       const edges: [number, number] = [3, 0]; // 왼쪽에서 오른쪽으로
 
-      const score = evaluateTrackForRoute(trackCoord, route, board, playerId, edges);
+      const { score } = evaluateTrackForRoute(route, board, trackCoord, edges, playerId);
 
       expect(score).toBeGreaterThanOrEqual(25);
     });
   });
 
   describe('도착 도시 인접', () => {
-    it('도착 도시에 인접하면 최소 25점 보장', () => {
+    it('도착 도이에 인접하면 최소 25점 보장', () => {
       const route: DeliveryRoute = {
         from: 'Pittsburgh',
         to: 'Cleveland',
@@ -98,7 +98,7 @@ describe('evaluateTrackForRoute', () => {
       const trackCoord: HexCoord = { col: 2, row: 1 };
       const edges: [number, number] = [3, 0];
 
-      const score = evaluateTrackForRoute(trackCoord, route, board, playerId, edges);
+      const { score } = evaluateTrackForRoute(route, board, trackCoord, edges, playerId);
 
       expect(score).toBeGreaterThanOrEqual(25);
     });
@@ -116,7 +116,7 @@ describe('evaluateTrackForRoute', () => {
       const trackCoord: HexCoord = { col: 0, row: 3 };
       const edges: [number, number] = [4, 1];
 
-      const score = evaluateTrackForRoute(trackCoord, route, board, playerId, edges);
+      const { score } = evaluateTrackForRoute(route, board, trackCoord, edges, playerId);
 
       // 경로와 무관하면 낮은 점수 (보통 0 이하 또는 매우 낮음)
       expect(score).toBeLessThan(50);
@@ -137,12 +137,12 @@ describe('evaluateTrackForRoute', () => {
       // Cleveland 방향 (왼쪽 아래)으로 향하는 엣지
       const goodEdges: [number, number] = [0, 3]; // 오른쪽 입구, 왼쪽 출구
 
-      const scoreGood = evaluateTrackForRoute(trackCoord, route, board, playerId, goodEdges);
+      const { score: scoreGood } = evaluateTrackForRoute(route, board, trackCoord, goodEdges, playerId);
 
       // 반대 방향 엣지
       const badEdges: [number, number] = [3, 0]; // 왼쪽 입구, 오른쪽 출구
 
-      const scoreBad = evaluateTrackForRoute(trackCoord, route, board, playerId, badEdges);
+      const { score: scoreBad } = evaluateTrackForRoute(route, board, trackCoord, badEdges, playerId);
 
       // 좋은 방향이 더 높은 점수 (구현에 따라 다를 수 있음)
       // 최소한 인접 보너스는 동일하게 받음

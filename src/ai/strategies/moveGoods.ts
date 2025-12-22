@@ -98,13 +98,13 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
         // 전략 경로 점수 계산
         let routeScore = 0;
         if (strategy && targetRoute) {
-          // 전략 경로와 정확히 일치하면 높은 점수
+          // 전략 경로와 정확히 일치하면 점수 추가
           if (city.id === targetRoute.from && destCity.id === targetRoute.to) {
-            routeScore = 30;  // 최우선
+            routeScore = 12;  // 기존 30 -> 12로 하향 (수익이 2링크 이상 더 높으면 수익 우선)
           }
-          // 출발지 또는 목적지만 일치하면 중간 점수
+          // 출발지 또는 목적지만 일치하면
           else if (city.id === targetRoute.from || destCity.id === targetRoute.to) {
-            routeScore = 15;
+            routeScore = 6;   // 기존 15 -> 6으로 하향
           }
           // 전략의 모든 targetRoutes와 비교
           else if (strategy.targetRoutes.some(r =>
@@ -112,7 +112,7 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
             (r.from === city.id) ||
             (r.to === destCity.id)
           )) {
-            routeScore = 10;
+            routeScore = 4;   // 기존 10 -> 4로 하향
           }
         }
 

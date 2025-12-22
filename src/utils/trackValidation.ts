@@ -4,7 +4,14 @@ import {
   getNeighborHex,
   getOppositeEdge,
   hexCoordsEqual,
+  isCityOrTown,
+  isTrackPartOfCompletedLink,
 } from './hexGrid';
+
+export {
+  isCityOrTown,
+  isTrackPartOfCompletedLink
+};
 
 /**
  * 연결점으로 유효한 헥스인지 확인 (도시 또는 플레이어의 트랙)
@@ -132,14 +139,7 @@ export function getOpenEdges(
   return track.edges;
 }
 
-/**
- * 헥스가 도시 또는 마을인지 확인
- */
-export function isCityOrTown(coord: HexCoord, board: BoardState): boolean {
-  const isCity = board.cities.some(c => hexCoordsEqual(c.coord, coord));
-  const isTown = board.towns.some(t => hexCoordsEqual(t.coord, coord));
-  return isCity || isTown;
-}
+
 
 /**
  * 완성된 철도 링크인지 확인 (도시/마을 → 도시/마을 연결)
@@ -213,32 +213,7 @@ export function isCompletedLink(
   }
 }
 
-/**
- * 특정 트랙 타일이 완성된 링크의 일부인지 확인
- */
-export function isTrackPartOfCompletedLink(
-  trackCoord: HexCoord,
-  board: BoardState
-): boolean {
-  const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, trackCoord));
-  if (!track) return false;
 
-  // 트랙의 양쪽 방향으로 도시/마을까지 도달 가능한지 확인
-  for (const edge of track.edges) {
-    const neighborCoord = getNeighborHex(trackCoord, edge);
-
-    // 이웃이 도시/마을인 경우
-    if (isCityOrTown(neighborCoord, board)) {
-      // 반대 방향으로 도시/마을까지 연결 확인
-      const result = isCompletedLink(neighborCoord, getOppositeEdge(edge), board);
-      if (result.isComplete) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
 
 /**
  * 플레이어의 모든 완성된 링크 찾기 (점수 계산용)
@@ -460,9 +435,10 @@ export function canRedirectTrack(
   // 소유자 확인 (소유자 없거나 현재 플레이어 소유)
   if (track.owner !== null && track.owner !== currentPlayer) return false;
 
-  // 미완성 구간의 끝점인지 확인
-  const { isEndpoint } = isEndpointOfIncompleteSection(trackCoord, board);
-  return isEndpoint;
+  // 완성된 링크의 일부인지 확인 (완성된 링크는 수정 불가)
+  if (isTrackPartOfCompletedLink(trackCoord, board)) return false;
+
+  return true;
 }
 
 /**
@@ -476,8 +452,12 @@ export function getRedirectableEdges(
   const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, trackCoord));
   if (!track) return null;
 
-  const { isEndpoint, connectedEdge, openEdge } = isEndpointOfIncompleteSection(trackCoord, board);
-  if (!isEndpoint || connectedEdge === null || openEdge === null) return null;
+  const { connectedEdge, openEdge } = isEndpointOfIncompleteSection(trackCoord, board);
+
+  // 끝점이 아니더라도 리다이렉트를 시도할 수 있도록 허용 (AI 보정 등)
+  // 연결된 엣지가 없으면 첫 번째 엣지를 기준으로 삼음
+  const actualConnectedEdge = connectedEdge !== null ? connectedEdge : track.edges[0];
+  const actualOpenEdge = openEdge !== null ? openEdge : track.edges[1];
 
   // 가능한 방향들 (연결된 엣지 제외, 막힌 방향 제외)
   const availableEdges: number[] = [];
@@ -511,7 +491,7 @@ export function getRedirectableEdges(
     availableEdges.push(edge);
   }
 
-  return { currentOpenEdge: openEdge, availableEdges };
+  return { currentOpenEdge: actualOpenEdge, availableEdges };
 }
 
 /**

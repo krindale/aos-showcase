@@ -355,9 +355,45 @@ export function isValidBuildTarget(coord: HexCoord, board: BoardState): boolean 
   // 호수인 경우 건설 불가
   if (hexTile && hexTile.terrain === 'lake') return false;
 
-  // 이미 트랙이 있는 경우 건설 불가 (복합 트랙은 추후 지원)
+  // 이미 트랙이 있는 경우 건설 불가 (교체 허용 시 제외)
   const hasTrack = board.trackTiles.some(t => hexCoordsEqual(t.coord, coord));
   if (hasTrack) return false;
+
+  return true;
+}
+
+/**
+ * 헥스가 건설 대상으로 유효한지 확인 (교체 가능성 포함)
+ */
+export function isValidBuildTargetWithReplace(
+  coord: HexCoord,
+  board: BoardState,
+  playerId: PlayerId
+): boolean {
+  // 맵 경계 내에 있는지 확인
+  const hexTile = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
+  const isCity = board.cities.some(c => hexCoordsEqual(c.coord, coord));
+
+  if (!hexTile && !isCity) {
+    return false;
+  }
+  if (isCity) {
+    return false;
+  }
+  if (hexTile && hexTile.terrain === 'lake') {
+    return false;
+  }
+
+  const existingTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
+  if (existingTrack) {
+    // 내 'simple' 트랙만 교체(방향 전환) 가능
+    if (existingTrack.owner !== playerId || existingTrack.trackType !== 'simple') return false;
+
+    // 완성된 링크의 일부라면 교체 불가
+    if (isTrackPartOfCompletedLink(coord, board)) return false;
+
+    return true;
+  }
 
   return true;
 }
@@ -389,7 +425,8 @@ export function calculateTrackEdges(
 export function getBuildableNeighbors(
   sourceCoord: HexCoord,
   board: BoardState,
-  currentPlayer: PlayerId
+  currentPlayer: PlayerId,
+  allowReplace: boolean = false
 ): { coord: HexCoord; sourceEdge: number; targetEdge: number }[] {
   const buildableNeighbors: { coord: HexCoord; sourceEdge: number; targetEdge: number }[] = [];
 
@@ -420,7 +457,11 @@ export function getBuildableNeighbors(
     const neighbor = getNeighborHex(sourceCoord, sourceEdge);
 
     // 건설 가능한 대상인지 확인
-    if (isValidBuildTarget(neighbor, board)) {
+    const isValid = allowReplace
+      ? isValidBuildTargetWithReplace(neighbor, board, currentPlayer)
+      : isValidBuildTarget(neighbor, board);
+
+    if (isValid) {
       const targetEdge = getOppositeEdge(sourceEdge);
       buildableNeighbors.push({
         coord: neighbor,
@@ -510,39 +551,33 @@ export function getConnectedNeighbors(
   // 현재 위치가 트랙인지 확인 (소유자 무관)
   const currentTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, currentCoord));
 
-  console.log(`[getConnectedNeighbors] 현재 좌표: (${currentCoord.col}, ${currentCoord.row}), 도시: ${isCurrentCity}, 트랙: ${currentTrack ? 'O' : 'X'}`);
 
   if (isCurrentCity) {
     // 도시에서: 6방향 모두에서 완성된 트랙이 연결되어 있는지 확인
-    console.log(`[도시에서 탐색] 6방향 확인 중...`);
     for (let edge = 0; edge < 6; edge++) {
       const neighbor = getNeighborHex(currentCoord, edge);
       const neighborKey = hexToKey(neighbor);
       if (visitedKey.has(neighborKey)) {
-        console.log(`  edge ${edge}: 이미 방문함`);
         continue;
       }
 
       // 이웃에 트랙이 있고, 해당 트랙이 현재 도시 방향으로 연결되어 있는지 확인
       let neighborTracks = board.trackTiles.filter(t => hexCoordsEqual(t.coord, neighbor));
-      if (playerId) {
-        neighborTracks = neighborTracks.filter(t => t.owner === playerId);
+      if (playerId !== undefined && playerId !== null) {
+        neighborTracks = neighborTracks.filter(t => t.owner === playerId || t.secondaryOwner === playerId);
       }
 
       for (const t of neighborTracks) {
         const entryEdge = getOppositeEdge(edge);
-        console.log(`  edge ${edge}: 이웃 (${neighbor.col}, ${neighbor.row})에 트랙 발견, 유형: ${t.trackType}, edges: [${t.edges}], secondaryEdges: [${t.secondaryEdges || '없음'}], 필요한 entryEdge: ${entryEdge}`);
 
         // 1. 기본 경로 확인
         if (t.edges.includes(entryEdge)) {
-          console.log(`    → 기본 경로 연결됨! 이웃 추가`);
           neighbors.push(neighbor);
           break; // 한 쪽이라도 연결되면 이웃으로 인정
         }
 
         // 2. 복합 트랙의 보조 경로 확인
         if (t.secondaryEdges && t.secondaryEdges.includes(entryEdge)) {
-          console.log(`    → 보조 경로(복합) 연결됨! 이웃 추가`);
           neighbors.push(neighbor);
           break;
         }
@@ -555,19 +590,26 @@ export function getConnectedNeighbors(
       currentCoordTracks = currentCoordTracks.filter(t => t.owner === playerId);
     }
 
-    // 현재 헥스에 있는 모든 가능한 출구 방향 수집 (기본 + 보조)
-    const allOutgoingEdges = new Set<number>();
+    // 현재 헥스에 있는 모든 가능한 출구 방향과 해당 소유자 수집
+    const outgoingEdgesAndOwners = new Map<number, Set<PlayerId>>();
     currentCoordTracks.forEach(t => {
-      t.edges.forEach(e => allOutgoingEdges.add(e));
-      if (t.secondaryEdges) {
-        t.secondaryEdges.forEach(e => allOutgoingEdges.add(e));
+      if (t.owner) {
+        t.edges.forEach(e => {
+          if (!outgoingEdgesAndOwners.has(e)) outgoingEdgesAndOwners.set(e, new Set());
+          outgoingEdgesAndOwners.get(e)!.add(t.owner!);
+        });
+      }
+      if (t.secondaryEdges && t.secondaryOwner) {
+        t.secondaryEdges.forEach(e => {
+          if (!outgoingEdgesAndOwners.has(e)) outgoingEdgesAndOwners.set(e, new Set());
+          outgoingEdgesAndOwners.get(e)!.add(t.secondaryOwner!);
+        });
       }
     });
 
-    const outgoingEdgesArray = Array.from(allOutgoingEdges);
-    console.log(`[트랙에서 탐색] 전체 사용 가능 edges: [${outgoingEdgesArray}]`);
+    const outgoingEdges = Array.from(outgoingEdgesAndOwners.keys());
 
-    for (const edge of outgoingEdgesArray) {
+    for (const edge of outgoingEdges) {
       const neighbor = getNeighborHex(currentCoord, edge);
       const neighborKey = hexToKey(neighbor);
       if (visitedKey.has(neighborKey)) {
@@ -577,22 +619,28 @@ export function getConnectedNeighbors(
       // 이웃이 도시인지 확인
       const isNeighborCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
       if (isNeighborCity) {
-        console.log(`  edge ${edge}: 이웃 (${neighbor.col}, ${neighbor.row})은 도시 → 추가`);
         neighbors.push(neighbor);
         continue;
       }
 
       // 이웃에 트랙이 있고, 연결되어 있는지 확인
       let neighborTracks = board.trackTiles.filter(t => hexCoordsEqual(t.coord, neighbor));
-      if (playerId) {
-        neighborTracks = neighborTracks.filter(t => t.owner === playerId);
-      }
+
+      // [중요: 링크 규칙] 트랙 간의 연결은 소유자가 같아야 함
+      const currentEdgeOwners = outgoingEdgesAndOwners.get(edge) || new Set<PlayerId>();
+
       for (const t of neighborTracks) {
         const entryEdge = getOppositeEdge(edge);
-        console.log(`  edge ${edge}: 이웃 (${neighbor.col}, ${neighbor.row}) 트랙 확인, 유형: ${t.trackType}, edges: [${t.edges}], secondaryEdges: [${t.secondaryEdges || '없음'}], 필요한 entryEdge: ${entryEdge}`);
 
-        if (t.edges.includes(entryEdge) || (t.secondaryEdges && t.secondaryEdges.includes(entryEdge))) {
-          console.log(`    → 연결됨! 이웃 추가`);
+        // 1. 소유권 확인: 현재 헥스의 해당 엣지를 나가는 소유자 중 하나가 이웃 트랙의 해당 엣지 소유자와 같아야 함
+        const isBasicMatch = t.edges.includes(entryEdge) && t.owner && currentEdgeOwners.has(t.owner);
+        const isSecondaryMatch = t.secondaryEdges && t.secondaryEdges.includes(entryEdge) && t.secondaryOwner && currentEdgeOwners.has(t.secondaryOwner);
+
+        // 2. 만약 특정 플레이어의 망을 탐색 중이라면(playerId 존재), 해당 플레이어 소유여야 함
+        const matchesRequest = !playerId || t.owner === playerId || t.secondaryOwner === playerId;
+
+        if ((isBasicMatch || isSecondaryMatch) && matchesRequest) {
+          console.log(`  edge ${edge}: 이웃 (${neighbor.col}, ${neighbor.row}) 트랙 확인, 소유자 매칭 성공! 필요한 entryEdge: ${entryEdge}`);
           neighbors.push(neighbor);
           break;
         }
@@ -949,6 +997,87 @@ function calculateLinkCenter(trackTiles: HexCoord[]): { x: number; y: number } {
   const middleTrack = trackTiles[middleIndex];
 
   return hexToPixel(middleTrack.col, middleTrack.row);
+}
+
+/**
+ * 헥스가 도시 또는 마을인지 확인
+ */
+export function isCityOrTown(coord: HexCoord, board: BoardState): boolean {
+  const isCity = board.cities.some(c => hexCoordsEqual(c.coord, coord));
+  const isTown = board.towns.some(t => hexCoordsEqual(t.coord, coord));
+  return isCity || isTown;
+}
+
+/**
+ * 특정 헥스에서 시작하여 해당 엣지 방향으로 따라갔을 때 도시/마을에 도달하는지 확인
+ */
+function checkConnectionToCity(
+  startHex: HexCoord,
+  startEdge: number,
+  board: BoardState
+): boolean {
+  let currentHex = startHex;
+  let currentEdge = startEdge;
+  const visited = new Set<string>();
+  visited.add(`${startHex.col},${startHex.row}`);
+
+  while (true) {
+    // 1. 다음 헥스로 이동
+    const nextHex = getNeighborHex(currentHex, currentEdge);
+    const coordKey = `${nextHex.col},${nextHex.row}`;
+
+    // 2. 도시/마을인지 확인
+    if (isCityOrTown(nextHex, board)) {
+      return true;
+    }
+
+    // 3. 순환 감지 (이미 방문한 곳이면 실패)
+    if (visited.has(coordKey)) {
+      return false;
+    }
+    visited.add(coordKey);
+
+    // 4. 다음 헥스에 연결된 트랙이 있는지 확인
+    const nextTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, nextHex));
+    if (!nextTrack) {
+      return false; // 끊긴 길
+    }
+
+    // 5. 트랙 연결성 확인
+    const entryEdge = getOppositeEdge(currentEdge);
+    if (!nextTrack.edges.includes(entryEdge)) {
+      return false; // 연결되지 않은 트랙
+    }
+
+    // 6. 다음 나가는 엣지 찾기
+    // 단순 트랙(edges 2개)만 가정.
+    const exitEdge = nextTrack.edges.find(e => e !== entryEdge);
+    if (exitEdge === undefined) {
+      return false; // 막다른 길
+    }
+
+    // 확인 계속
+    currentHex = nextHex;
+    currentEdge = exitEdge;
+  }
+}
+
+/**
+ * 특정 트랙 타일이 완성된 링크의 일부인지 확인
+ */
+export function isTrackPartOfCompletedLink(
+  trackCoord: HexCoord,
+  board: BoardState
+): boolean {
+  const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, trackCoord));
+  if (!track || track.edges.length !== 2) return false;
+
+  // 트랙의 양쪽 엣지 방향으로 각각 탐색하여 도시/마을에 도달하는지 확인
+  const connectsDir1 = checkConnectionToCity(trackCoord, track.edges[0], board);
+  const connectsDir2 = checkConnectionToCity(trackCoord, track.edges[1], board);
+
+  // 양쪽 모두 도시/마을과 연결되어 있다면 완성된 링크의 일부임
+  return connectsDir1 && connectsDir2;
 }
 
 

@@ -64,6 +64,28 @@ describe('getNextTargetRoute - 동적 화물 기반 전략', () => {
       // 엔진 레벨 1 + 2 = 3 이내 경로 선택
       expect(route).not.toBeNull();
     });
+
+    describe('엔진 레벨 기반 우선순위 (핵심 요청 사항)', () => {
+      it('엔진 레벨 혹은 엔진 레벨+1인 경로에 강력한 우선순위 부여', () => {
+        let state = createMockGameState();
+        state = setPlayerEngine(state, 'player1', 1); // 엔진 레벨 1
+
+        // 기회 A: Cleveland -> Columbus (거리 2, 엔진+1 매칭)
+        // Columbus는 red 임
+        state = addCubesToCity(state, 'Cleveland', ['red']);
+
+        // 기회 B: Cleveland -> Pittsburgh (거리 4, 엔진+3 매칭)
+        // Pittsburgh는 yellow 임
+        state = addCubesToCity(state, 'Cleveland', ['yellow']);
+
+        const route = getNextTargetRoute(state, 'player1');
+        expect(route).not.toBeNull();
+
+        // 거리 2인 A가 거리 4인 B보다 엔진 매칭 보너스(+500) 덕분에 우선순위가 높아야 함
+        expect(route?.from).toBe('Cleveland');
+        expect(route?.to).toBe('Columbus');
+      });
+    });
   });
 
   describe('배달 가능한 화물이 없는 경우', () => {

@@ -1130,7 +1130,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     // 이미 트랙이 있는지 확인
     const existingTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
-    if (existingTrack) return false;
+    if (existingTrack) {
+      // 리다이렉트 가능 여부 확인
+      if (!canRedirectTrack(coord, board, currentPlayer)) {
+        return false;
+      }
+    }
 
     // 연결성 검증
     const hasExistingTrack = playerHasTrack(board, currentPlayer);
@@ -1185,9 +1190,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
     )?.terrain || 'plain';
 
     // 비용 계산
-    let cost = GAME_CONSTANTS.PLAIN_TRACK_COST;
-    if (terrain === 'river') cost = GAME_CONSTANTS.RIVER_TRACK_COST;
-    if (terrain === 'mountain') cost = GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
+    let cost = 0;
+    const existingTrack = state.board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
+
+    if (existingTrack) {
+      // 리다이렉트 비용 적용
+      cost = TRACK_REPLACE_COSTS.redirect;
+    } else {
+      // 일반 건설 비용 계산
+      cost = GAME_CONSTANTS.PLAIN_TRACK_COST;
+      if (terrain === 'river') cost = GAME_CONSTANTS.RIVER_TRACK_COST;
+      if (terrain === 'mountain') cost = GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
+    }
 
     const player = state.players[currentPlayer];
     if (!player) {
@@ -1199,20 +1213,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return false;
     }
 
+    // 트랙 데이터 생성/수정
+    const trackId = existingTrack ? existingTrack.id : `track-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const newTrack: TrackTile = {
-      id: `track-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: trackId,
       coord,
       edges,
       owner: currentPlayer,
       trackType: 'simple',
     };
 
+    const newTrackTiles = existingTrack
+      ? state.board.trackTiles.map(t => hexCoordsEqual(t.coord, coord) ? newTrack : t)
+      : [...state.board.trackTiles, newTrack];
+
     const newBuiltCount = state.phaseState.builtTracksThisTurn + 1;
 
     set({
       board: {
         ...state.board,
-        trackTiles: [...state.board.trackTiles, newTrack],
+        trackTiles: newTrackTiles,
       },
       players: {
         ...state.players,

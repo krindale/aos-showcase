@@ -22,6 +22,7 @@ import {
   findAvailableCityEdges,
   findBestEdgeToCity,
   isRouteComplete,
+  isOnOptimalPath,
 } from '../strategy/analyzer';
 import type { DeliveryRoute } from '../strategy/types';
 
@@ -73,7 +74,7 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   // 현금이 충분한지 및 전략 업데이트
   reevaluateStrategy(state, playerId);
 
-  // 순수 함수로 경로 탐색 먼저 시도
+  // 전략 재평가 (순수 함수)
   const routeResult = findNextTargetRoute(state, playerId);
   let targetRoute = routeResult.route;
 
@@ -84,27 +85,41 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
 
   // [핵심 추가] 이미 배달이 가능한 상태인지 확인 (타사 선로 포함)
   if (targetRoute) {
-    const isAlreadyConnected = isRouteComplete(state, targetRoute);
     const playerTracks = state.board.trackTiles.filter(t => t.owner === playerId);
 
-    // 이 경로 상에 내 트랙이 하나도 없고 + 타사가 이미 연결했다면 목표 전환
-    // (analyzer.ts와 싱크를 맞춤: 내 트랙이 하나라도 있다면 타사 선로가 있어도 끝까지 지음)
-    const hasOwnTrackForThisRoute = playerTracks.length > 0; // 단순화된 체크, evaluateTrackForRoute의 로직과 유사하게 작동하도록 유도
+    // 이 경로 상에 내 트랙이 실제로 있는지 확인 (최적 경로 기반)
+    const sourceCity = state.board.cities.find(c => c.id === targetRoute!.from);
+    const targetCity = state.board.cities.find(c => c.id === targetRoute!.to);
 
-    if (isAlreadyConnected && !hasOwnTrackForThisRoute) {
-      console.log(`[AI 트랙] ${player.name}: 목표 경로(${targetRoute.from}→${targetRoute.to})가 타인에 의해 이미 연결됨 - 신규 목표 탐색`);
+    const hasOwnTrackForThisRoute = sourceCity && targetCity && playerTracks.some(t => {
+      return isOnOptimalPath(t.coord, sourceCity.coord, targetCity.coord, state.board);
+    });
 
-      // 즉시 다음 목표 탐색 (이미 연결된 경로는 selector에서 제외될 것임)
-      targetRoute = getNextTargetRoute(state, playerId);
+    // [수정] 경로가 이미 완성되었는지 확인 (내 트랙만으로 연결되었거나, 타사 트랙 포함해서라도 연결됨)
+    const isAlreadyConnected = isRouteComplete(state, targetRoute);
 
-      if (!targetRoute) {
-        // 배달 경로가 없으면 네트워크 확장을 시도
-        targetRoute = findNetworkExpansionTarget(state, playerId);
+    // 이미 완성된 경로라면, 남은 건설 횟수가 있을 경우 '즉시' 다른 경로를 찾도록 유도
+    if (isAlreadyConnected) {
+      console.log(`[AI 트랙] ${player.name}: 현재 목표(${targetRoute.from}->${targetRoute.to}) 완공됨. 추가 건설 기회 탐색.`);
+
+      // 1. 다음 배달 우선순위 경로 찾기
+      const nextRouteResult = findNextTargetRoute(state, playerId);
+      if (nextRouteResult.route && !isRouteComplete(state, nextRouteResult.route)) {
+        console.log(`[AI 트랙] 새로운 목표 전환: ${nextRouteResult.route.from}->${nextRouteResult.route.to}`);
+        targetRoute = nextRouteResult.route;
+      } else {
+        // 2. 배달 경로가 없으면 네트워크 확장 시도
+        const expansionTarget = findNetworkExpansionTarget(state, playerId);
+        if (expansionTarget) {
+          console.log(`[AI 트랙] 네트워크 확장 목표 설정: ${expansionTarget.from}->${expansionTarget.to}`);
+          targetRoute = expansionTarget;
+        }
       }
 
-      if (!targetRoute) {
-        console.log(`[AI 트랙] ${player.name}: 추가 가능한 목표 없음 - 건설 종료`);
-        return { action: 'skip' };
+      // 여전히 목표가 없고, 이미 연결된 상태라면 스킵할 수밖에 없음 -> 일반 확장 모드로 전환
+      if (isRouteComplete(state, targetRoute!)) {
+        console.log(`[AI 트랙] ${player.name}: 목표(${targetRoute!.from}->${targetRoute!.to}) 이미 완성됨. 대체 목표 없음 -> 일반 확장 모드 전환.`);
+        targetRoute = null;
       }
     }
   }
@@ -112,24 +127,40 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   const strategy = getSelectedStrategy(playerId);
   const strategyName = strategy?.nameKo ?? '없음';
 
-  // 목표 경로가 여전히 없으면(드문 경우) 스킵
-  if (!targetRoute) {
-    console.log(`[AI 트랙] ${player.name}: 목표 없음 - 건설 스킵`);
-    return { action: 'skip' };
-  }
+
 
   // 건설 가능한 후보 탐색
-  const candidates = findBuildCandidates(state, playerId, targetRoute);
+  let candidates = findBuildCandidates(state, playerId, targetRoute);
 
   if (candidates.length === 0) {
-    console.log(`[AI 트랙] ${player.name}: 건설 가능한 위치 없음`);
-    return { action: 'skip' };
+    if (targetRoute) {
+      console.log(`[AI 트랙] ${player.name}: 목표(${targetRoute.from}->${targetRoute.to}) 건설 불가 (경로 막힘 등). 대체 목표 탐색 시도.`);
+
+      // 1. 현재 목표를 제외하고 다른 네트워크 확장 목표 탐색
+      // (이미 완성된 경로는 findNetworkExpansionTarget에서 걸러짐)
+      const excludeCities = [targetRoute.to];
+      const altTarget = findNetworkExpansionTarget(state, playerId, excludeCities);
+
+      if (altTarget) {
+        console.log(`[AI 트랙] 대체 목표 설정: ${altTarget.from}->${altTarget.to}`);
+        targetRoute = altTarget;
+        // 새 목표로 다시 탐색
+        candidates = findBuildCandidates(state, playerId, targetRoute);
+      } else {
+        console.log(`[AI 트랙] 대체 목표 없음. 일반 확장 모드로 전환.`);
+        candidates = findBuildCandidates(state, playerId, null);
+      }
+    }
+
+    if (candidates.length === 0) {
+      console.log(`[AI 트랙] ${player.name}: 건설 가능한 위치 없음 (Fallback 실패)`);
+      return { action: 'skip' };
+    }
   }
 
   // 전략 경로 점수 계산 및 필터링
   const validCandidates = candidates.filter(c => {
     // 이미 타사 선로를 포함하여 연결이 완성된 경우 해당 경로로의 건설 점수를 삭감하거나 처리
-    // 이는 findBuildCandidates 내부에서도 고려되지만, 여기서 최종 점수와 함께 판단
     return true;
   });
 
@@ -138,7 +169,21 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     return { action: 'skip' };
   }
 
+  // [핵심 추가] 이번 턴에 이미 지은 트랙이 있다면, 그 트랙에서 이어가는 것에 강력 가중치
+  const playerTracks = state.board.trackTiles.filter(t => t.owner === playerId);
+  const lastBuiltTrack = state.phaseState.builtTracksThisTurn > 0
+    ? playerTracks[playerTracks.length - 1] // 가장 최근 추가된 트랙
+    : null;
+
   // 총점 (기본 점수 + 경로 점수 × 2) 기준으로 정렬
+  validCandidates.forEach(c => {
+    // analyzer에 lastBuiltCoord 전달하여 연속성 보너스 적용
+    if (targetRoute && lastBuiltTrack) {
+      const continuityScore = evaluateTrackForRoute(targetRoute, state.board, c.coord, c.edges, playerId, lastBuiltTrack.coord).score;
+      c.routeScore = Math.max(c.routeScore, continuityScore);
+    }
+  });
+
   validCandidates.sort((a, b) => {
     const aTotalScore = a.score + a.routeScore * 2;
     const bTotalScore = b.score + b.routeScore * 2;
@@ -155,7 +200,67 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   // 최적 경로상에 있거나 내 트랙 근처라면 끈기 있게 건설함
   const skipThreshold = -100;
   if (bestTotalScore < skipThreshold || best.routeScore < -500) {
-    console.log(`[AI 트랙] ${player.name}: 건설 점수 낮음 (총점=${bestTotalScore.toFixed(1)}, 경로점수=${best.routeScore.toFixed(1)}) - 건설 건너뜀`);
+    console.log(`[AI 트랙] ${player.name}: 건설 점수 낮음 (총점=${bestTotalScore.toFixed(1)}, 경로점수=${best.routeScore.toFixed(1)})`);
+
+    // 점수가 낮다는 것은 현재 targetRoute로는 갈 곳이 없다는 뜻일 수 있음.
+    // 따라서 여기서도 대체 목표 탐색을 시도해야 함.
+    if (targetRoute) {
+      console.log(`[AI 트랙] 현재 목표(${targetRoute.from}->${targetRoute.to})로는 적절한 후보가 없음. 대체 목표 탐색.`);
+      const excludeCities = [targetRoute.to];
+      const altTarget = findNetworkExpansionTarget(state, playerId, excludeCities);
+
+      if (altTarget) {
+        console.log(`[AI 트랙] 대체 목표 전환 및 재평가: ${altTarget.from}->${altTarget.to}`);
+        // 재귀 호출 대신, 여기서 간단히 재계산 (복잡도 방지 위해 1회만 수행)
+        // 1. 새 목표로 후보 다시 찾기
+        const newCandidates = findBuildCandidates(state, playerId, altTarget);
+
+        if (newCandidates.length > 0) {
+          // 2. 점수 재계산
+          const playerTracks = state.board.trackTiles.filter(t => t.owner === playerId);
+          const lastBuiltTrack = state.phaseState.builtTracksThisTurn > 0 ? playerTracks[playerTracks.length - 1] : null;
+
+          newCandidates.forEach(c => {
+            const result = evaluateTrackForRoute(altTarget, state.board, c.coord, c.edges, playerId);
+            c.routeScore = result.score;
+            c.intention = result.intention;
+            // 연속성 보너스
+            if (lastBuiltTrack) {
+              const continuityScore = evaluateTrackForRoute(altTarget, state.board, c.coord, c.edges, playerId, lastBuiltTrack.coord).score;
+              c.routeScore = Math.max(c.routeScore, continuityScore);
+            }
+          });
+
+          newCandidates.sort((a, b) => {
+            const aTotal = a.score + a.routeScore * 2;
+            const bTotal = b.score + b.routeScore * 2;
+            return (bTotal / Math.max(b.cost, 1)) - (aTotal / Math.max(a.cost, 1));
+          });
+
+          const newBest = newCandidates[0];
+          const newBestScore = newBest.score + newBest.routeScore * 2;
+
+          if (newBestScore >= skipThreshold && newBest.routeScore >= -500) {
+            console.log(`[AI 트랙] 대체 목표로 유효한 건설 후보 발견: (${newBest.coord.col},${newBest.coord.row}) 총점=${newBestScore.toFixed(1)}`);
+            // 재귀 대신 found flag 처리 또는 직접 리턴
+            // 여기서는 코드를 간결하게 하기 위해 직접 리턴 구조로 변경이 어려우므로 best 변수를 덮어쓰기는 위험.
+            // 별도 로직으로 처리.
+
+            // 현금 확인
+            if (player.cash >= newBest.cost) { // 단순화
+              const typeInfo = newBest.isComplexTrack ? ` [${newBest.trackType}]` : '';
+              console.log(`[AI 트랙] ${player.name}: 건설 (대체목표) (${newBest.coord.col},${newBest.coord.row}) edges=[${newBest.edges}] $${newBest.cost}${typeInfo} 총점=${newBestScore.toFixed(1)} [의도: ${newBest.intention}]`);
+              if (newBest.isComplexTrack && newBest.trackType) {
+                return { action: 'buildComplex', coord: newBest.coord, edges: newBest.edges, trackType: newBest.trackType };
+              }
+              return { action: 'build', coord: newBest.coord, edges: newBest.edges };
+            }
+          }
+        }
+      }
+    }
+
+    console.log(`[AI 트랙] 건설 건너뜀 (대체 목표도 없거나 점수 미달)`);
     return { action: 'skip' };
   }
 
@@ -237,7 +342,7 @@ function findBuildCandidates(
           let routeScore = 0;
           let intention = '';
           if (targetRoute) {
-            const result = evaluateTrackForRoute(neighbor.coord, targetRoute, board, playerId, edges);
+            const result = evaluateTrackForRoute(targetRoute, board, neighbor.coord, edges, playerId);
             routeScore = result.score;
             intention = result.intention;
           }
@@ -261,45 +366,72 @@ function findBuildCandidates(
     const connectionPoints: HexCoord[] = [];
 
     if (targetRoute) {
-      const sourceCity = board.cities.find(c => c.id === targetRoute.from);
-      if (sourceCity) {
-        // 출발 도시와 연결된 모든 헥스(도시/트랙) 찾기
-        const connectedSet = findAllConnectedHexes(sourceCity.coord, board, playerId);
-        const connectedHexes = Array.from(connectedSet);
-
-        // 연결된 헥스 중 '트랙'들만 연결점으로 추가 (확장의 시작점)
-        for (const coord of connectedHexes) {
-          const isTrack = board.trackTiles.some(t => hexCoordsEqual(t.coord, coord) && t.owner === playerId);
-          if (isTrack) {
-            connectionPoints.push(coord);
-          }
-        }
-
-        // 만약 출발 도시와 연결된 내 트랙이 하나도 없다면, 도시 자체가 유일한 시작점
-        if (connectionPoints.length === 0) {
-          console.log(`[AI 트랙] 출발 도시 ${targetRoute.from}와 연결된 트랙 없음 - 도시에서 시작`);
-          connectionPoints.push(sourceCity.coord);
-        } else {
-          console.log(`[AI 트랙] 출발 도시 ${targetRoute.from}와 연결된 망에서 확장 (후보지 ${connectionPoints.length}개)`);
-        }
-      }
-    } else {
-      // 목적지가 없는 일반 건설 시에만 기존처럼 모든 트랙을 후보로 사용
+      // [Relaxed Logic] 마중 나오기(Pincer Move) 및 양방향 건설 허용
+      // 출발 도시 망에 국한되지 않고, 소유한 모든 트랙에서 확장을 고려하여
+      // 경로가 막혔을 때 우회하거나 반대편에서 연결할 수 있도록 함.
       for (const track of board.trackTiles) {
         if (track.owner === playerId) {
-          connectionPoints.push(track.coord);
+          if (!connectionPoints.some(p => hexCoordsEqual(p, track.coord))) {
+            connectionPoints.push(track.coord);
+          }
         }
       }
+
+      // 출발 도시 자체도 시작점으로 추가 (트랙이 끊겨있을 수도 있으므로)
+      const fromCity = board.cities.find(c => c.id === targetRoute.from);
+      if (fromCity && !connectionPoints.some(p => hexCoordsEqual(p, fromCity.coord))) {
+        // 단, 이미 해당 도시에 내 트랙이 있거나 도시 자체가 꽉 찼는지 등은 getBuildableNeighbors에서 처리됨
+        connectionPoints.push(fromCity.coord);
+      }
+
+      console.log(`[AI 트랙] 목표(${targetRoute.from}) 달성을 위해 모든 보유 트랙에서 확장 후보 탐색 (유연한 건설)`);
+    } else {
+      // [Relaxed Logic] 목표가 없는 경우(일반 확장 모드)
+      // 기존에는 '순차 건설 강제'가 없었으나, 혹시 모를 제약을 확실히 제거.
+      // 소유한 모든 트랙의 끝에서 확장 가능하도록 허용.
+      for (const track of board.trackTiles) {
+        if (track.owner === playerId) {
+          if (!connectionPoints.some(p => hexCoordsEqual(p, track.coord))) {
+            connectionPoints.push(track.coord);
+          }
+        }
+      }
+      // 또한 모든 도시에서도 시작 가능하게 해야 할까? 
+      // 아니오, '후속 트랙'이므로 기존 망에서 확장하는 것이 기본.
+      // 단, 망이 여러 개로 갈라져 있을 수 있으므로 모든 트랙을 고려하는 것이 맞음.
+      console.log(`[AI 트랙] 일반 확장 모드: 소유한 모든 트랙(${connectionPoints.length}개)에서 확장 후보 탐색`);
+
+      // [Bugfix] 트랙이 도시에 연결되어 끝난 경우, 해당 도시からも 확장이 가능해야 함
+      const connectedCityIds = getConnectedCities(state, playerId);
+      for (const cityId of connectedCityIds) {
+        const city = board.cities.find(c => c.id === cityId);
+        if (city && !connectionPoints.some(p => hexCoordsEqual(p, city.coord))) {
+          connectionPoints.push(city.coord);
+        }
+      }
+      console.log(`[AI 트랙] 일반 확장 모드: 연결된 도시(${connectedCityIds.length}개) 포함 총 ${connectionPoints.length}개 기점 탐색`);
     }
 
     for (const point of connectionPoints) {
       if (!isValidConnectionPoint(point, board, playerId)) continue;
 
-      const neighbors = getBuildableNeighbors(point, board, playerId);
-
+      const allowRedirect = state.phaseState.builtTracksThisTurn === 0;
+      const neighbors = getBuildableNeighbors(point, board, playerId, allowRedirect);
       for (const neighbor of neighbors) {
         const existingTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor.coord));
-        if (existingTrack) continue;
+        // 이미 다른 사람의 트랙이 있거나, 내 트랙인데 'simple'이 아니면 스킵
+        if (existingTrack && (existingTrack.owner !== playerId || existingTrack.trackType !== 'simple')) {
+          continue;
+        }
+
+        // 내 'simple' 트랙인 경우 방향 전환(Redirect) 옵션으로 고려
+        // (연속 건설 방해 방지를 위해, 이번 턴의 첫 번째 건설일 때만 리다이렉트 허용)
+        if (existingTrack && existingTrack.owner === playerId) {
+          // 내 'simple' 트랙인 경우 방향 전환(Redirect) 옵션으로 고려
+        }
+        const isRedirect = existingTrack &&
+          existingTrack.owner === playerId &&
+          state.phaseState.builtTracksThisTurn === 0;
 
         const exitDirs = getExitDirections(neighbor.coord, neighbor.targetEdge, board);
 
@@ -308,14 +440,18 @@ function findBuildCandidates(
 
           if (!validateTrackConnection(neighbor.coord, edges, board, playerId)) continue;
 
-          const cost = getTerrainCost(neighbor.coord, board);
+          // 내 기존 트랙과 엣지가 완전히 같으면 중복이므로 스킵
+          if (isRedirect && existingTrack.edges[0] === edges[0] && existingTrack.edges[1] === edges[1]) continue;
+
+          // 비용 계산: 방향 전환은 교체 비용 적용
+          const cost = isRedirect ? TRACK_REPLACE_COSTS.default : getTerrainCost(neighbor.coord, board);
           const score = evaluateTrackPosition(state, neighbor.coord, playerId);
 
           // 전략 경로 점수 계산 (엣지 방향 포함)
           let routeScore = 0;
           let intention = '';
           if (targetRoute) {
-            const result = evaluateTrackForRoute(neighbor.coord, targetRoute, board, playerId, edges);
+            const result = evaluateTrackForRoute(targetRoute, board, neighbor.coord, edges, playerId);
             routeScore = result.score;
             intention = result.intention;
           }
@@ -326,13 +462,16 @@ function findBuildCandidates(
               c.edges[0] === edges[0] && c.edges[1] === edges[1]
           );
           if (!isDuplicate) {
+            // 리다이렉트(방향 전환)인 경우 인지 가능한 의도 표시
+            const finalRouteScore = routeScore;
+
             candidates.push({
               coord: neighbor.coord,
               edges,
               score,
               cost,
-              routeScore,
-              intention,
+              routeScore: finalRouteScore,
+              intention: isRedirect ? `기존 선로 방향 전환($${cost}) - ${intention}` : intention,
             });
           }
         }
@@ -427,7 +566,7 @@ function findBuildCandidates(
 
                           const cost = getTerrainCost(nextHex, board);
                           const score = evaluateTrackPosition(state, nextHex, playerId);
-                          const { score: routeScore, intention } = evaluateTrackForRoute(nextHex, targetRoute, board, playerId, edges);
+                          const { score: routeScore, intention } = evaluateTrackForRoute(targetRoute, board, nextHex, edges, playerId);
 
                           // 대체 경로 보너스
                           const alternativePathBonus = 100;
@@ -498,7 +637,7 @@ function findBuildCandidates(
 
               const cost = getTerrainCost(neighbor.coord, board);
               const score = evaluateTrackPosition(state, neighbor.coord, playerId);
-              const { score: routeScore, intention } = evaluateTrackForRoute(neighbor.coord, targetRoute, board, playerId, edges);
+              const { score: routeScore, intention } = evaluateTrackForRoute(targetRoute, board, neighbor.coord, edges, playerId);
 
               // 동적 임계값으로 경로와 무관한 후보 제외
               const minScore = calculateMinFallbackScore(state, playerId, connectedCities);
@@ -600,7 +739,7 @@ function findComplexTrackCandidates(
       let routeScore = 0;
       let intention = '일반 네트워크 확장';
       if (targetRoute) {
-        const result = evaluateTrackForRoute(track.coord, targetRoute, board, playerId, newEdges);
+        const result = evaluateTrackForRoute(targetRoute, board, track.coord, newEdges, playerId);
         routeScore = result.score;
         intention = result.intention;
       }
@@ -821,14 +960,15 @@ export function calculateMinFallbackScore(
  */
 export function findNetworkExpansionTarget(
   state: GameState,
-  playerId: PlayerId
+  playerId: PlayerId,
+  excludeCityIds: string[] = []
 ): DeliveryRoute | null {
   const connectedCities = getConnectedCities(state, playerId);
   const { board } = state;
 
-  // 연결 안 된 도시 찾기
+  // 연결 안 된 도시 찾기 (제외 목록 필터링)
   const unconnectedCities = board.cities.filter(
-    c => !connectedCities.includes(c.id)
+    c => !connectedCities.includes(c.id) && !excludeCityIds.includes(c.id)
   );
 
   if (unconnectedCities.length === 0) return null;

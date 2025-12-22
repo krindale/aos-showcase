@@ -1,6 +1,6 @@
 import { GameState, PlayerId, HexCoord, CubeColor, BoardState, GAME_CONSTANTS } from '@/types/game';
 import { DeliveryOpportunity, DeliveryRoute, AIStrategy } from './types';
-import { getNeighborHex, hexCoordsEqual, hexDistance, getConnectedNeighbors } from '@/utils/hexGrid';
+import { getNeighborHex, hexCoordsEqual, hexDistance, getConnectedNeighbors, hexToKey } from '@/utils/hexGrid';
 
 // 경로 캐시 (출발지-목적지 → 경로)
 const pathCache: Map<string, HexCoord[]> = new Map();
@@ -205,6 +205,141 @@ export function findDestinationCities(
  *
  * 각 도시의 각 물품에 대해 가능한 목적지와 거리 계산
  */
+/**
+ * 경로의 예상 링크 수 계산 (Multi-link 고려)
+ * 1. 기존 트랙을 통한 연결성 확인 (BFS)
+ * 2. 미연결 구간은 거리 기반 휴리스틱 적용
+ */
+function estimateRouteLinkCount(
+  from: HexCoord,
+  to: HexCoord,
+  board: BoardState
+): number {
+  // 1. 기존 트랙을 통한 최단 링크 수 탐색 (BFS)
+  // (트랙이 연결된 경우, 실제 링크 수(거치는 도시/마을 수)를 반환)
+
+  // 큐: [좌표, 현재 링크 수]
+  interface BFSNode {
+    coord: HexCoord;
+    links: number;
+  }
+
+  const queue: BFSNode[] = [{ coord: from, links: 0 }];
+  const visited = new Set<string>();
+  visited.add(hexToKey(from));
+
+  // 최대 탐색 깊이 (무한 루프 방지 및 성능 제한)
+  // 트랙이 없는 곳은 탐색하지 않으므로 트랙 수만큼만 돔.
+
+  // 트랙 연결성을 빠르게 확인하기 위해 단순화된 BFS 사용
+  // getConnectedNeighbors는 트랙이 있어야만 이웃을 반환하므로,
+  // 트랙이 끊긴 구간은 건너뛰지 못함. 
+  // 따라서 "완성된 경로"가 있는 경우에만 유효한 값을 반환.
+
+  const trackPathFound = ((): number | null => {
+    const localQueue = [...queue];
+    const localVisited = new Set(visited);
+
+    // BFS on Grid
+    while (localQueue.length > 0) {
+      const { coord, links } = localQueue.shift()!;
+
+      // 목적지 도착
+      if (hexCoordsEqual(coord, to)) {
+        return links;
+      }
+
+      // 이웃 탐색 (소유자 무관 - null 전달)
+      const neighbors = getConnectedNeighbors(coord, board, null);
+
+      for (const neighbor of neighbors) {
+        const key = hexToKey(neighbor);
+        if (localVisited.has(key)) continue;
+        localVisited.add(key);
+
+        // 도시나 마을을 지나면 링크 수 증가
+        // (출발지 제외)
+        const isStop = board.cities.some(c => hexCoordsEqual(c.coord, neighbor)) ||
+          board.towns.some(t => hexCoordsEqual(t.coord, neighbor));
+
+        const nextLinks = isStop ? links + 1 : links;
+
+        // 가지치기: 너무 먼 경로는 포기 (최대 10 링크?)
+        if (nextLinks > 10) continue;
+
+        localQueue.push({ coord: neighbor, links: nextLinks });
+      }
+    }
+    return null;
+  })();
+
+  if (trackPathFound !== null) {
+    return trackPathFound;
+  }
+
+  // 2. 트랙이 없거나 끊긴 경우: 그래프 기반 휴리스틱
+  // 도시/마을을 노드로 하고, "건설 가능한 거리"를 엣지로 하는 그래프 탐색
+
+  const nodes = [...board.cities, ...board.towns];
+  const targetNode = nodes.find(n => hexCoordsEqual(n.coord, to));
+  if (!targetNode) return Math.max(1, Math.round(hexDistance(from, to) / 3)); // should not happen
+
+  // Dijkstra on Cities/Towns
+  interface GraphNode {
+    id: string; // 좌표 키
+    coord: HexCoord;
+    cost: number; // 링크 수
+  }
+
+  const pq: GraphNode[] = [{ id: hexToKey(from), coord: from, cost: 0 }];
+  const costMap = new Map<string, number>();
+  costMap.set(hexToKey(from), 0);
+
+  while (pq.length > 0) {
+    pq.sort((a, b) => a.cost - b.cost);
+    const textNode = pq.shift()!;
+    const u = textNode;
+
+    if (hexCoordsEqual(u.coord, to)) return u.cost;
+
+    for (const v of nodes) {
+      const vKey = hexToKey(v.coord);
+      if (vKey === u.id) continue;
+
+      // 엣지 가중치 계산
+      // 1) 이미 트랙으로 연결됨 (소유자 무관) -> Cost 1 (확인 비용이 비쌀 수 있으므로 생략하거나, 위에서 실패했으므로 부분 연결만 체크?)
+      //    여기서는 "잠재 연결" 위주로 봄.
+      // 2) 거리가 가까움 -> Cost 1
+
+      const dist = hexDistance(u.coord, v.coord);
+
+      // 임계값: 3헥스 이내면 1링크로 건설 가능하다고 가정
+      // 4헥스 이상이면 중간에 다른 타운이 필요하거나 2링크로 침?
+      // 일단 단순하게 3.5 이하로 설정
+      let weight = Infinity;
+
+      if (dist <= 3) {
+        weight = 1;
+      } else {
+        // 거리가 멀면 링크 수가 늘어남 (대략 3헥스당 1링크)
+        weight = Math.ceil(dist / 3);
+      }
+
+      // 더 정확한 추정을 위해:
+      // 만약 두 도시 사이에 "이미 완성된 링크"가 있다면 weight = 1 (확인 로직 필요하나 복잡하므로 생략)
+
+      const newCost = u.cost + weight;
+      if (newCost < (costMap.get(vKey) || Infinity)) {
+        costMap.set(vKey, newCost);
+        pq.push({ id: vKey, coord: v.coord, cost: newCost });
+      }
+    }
+  }
+
+  // Fallback (unreachable in graph?)
+  return Math.max(1, Math.round(hexDistance(from, to) / 3));
+}
+
 export function analyzeDeliveryOpportunities(
   state: GameState
 ): DeliveryOpportunity[] {
@@ -221,7 +356,8 @@ export function analyzeDeliveryOpportunities(
         // 같은 도시는 제외 (자기 자신으로 배달 불가)
         if (dest.cityId === city.id) continue;
 
-        const distance = hexDistance(city.coord, dest.coord);
+        // [수정] 단순 헥스 거리가 아닌, 예상 '링크 수'를 계산
+        const linkCount = estimateRouteLinkCount(city.coord, dest.coord, board);
 
         opportunities.push({
           sourceCityId: city.id,
@@ -230,7 +366,7 @@ export function analyzeDeliveryOpportunities(
           cubeIndex,
           targetCityId: dest.cityId,
           targetCoord: dest.coord,
-          distance,
+          distance: linkCount, // 이제 distance 속성은 '링크 수'를 의미함
         });
       }
     });
@@ -368,6 +504,11 @@ export function isRouteBlockedByOpponent(
     const distToSource = hexDistance(track.coord, sourceCity.coord);
     const distToTarget = hexDistance(track.coord, targetCity.coord);
 
+    // 이 경로 상에 내 트랙이 실제로 있는지 확인 (최적 경로 기반)
+    const hasOwnTrackForThisRoute = playerTracks.some(t => {
+      // analyzer.ts의 isOnOptimalPath 또는 findOptimalPath를 활용하여 체크
+      return isOnOptimalPath(t.coord, sourceCity.coord, targetCity.coord, state.board);
+    });
     // 상대 트랙이 경로 중간에 있고
     if (distToSource <= 2 && distToTarget <= 2) {
       // AI 트랙이 그 근처에 없으면 차단
@@ -676,16 +817,16 @@ export function getEdgeBetweenHexes(from: HexCoord, to: HexCoord): number {
  *
  * @param trackCoord 트랙 위치
  * @param edges 트랙의 연결 엣지 [entry, exit] (옵션)
- * @param route 목표 배달 경로
- * @param board 보드 상태
  * @param playerId 플레이어 ID (옵션)
+ * @param lastBuiltCoord 이번 턴에 마지막으로 건설된 트랙의 좌표 (연속성 평가용)
  */
 export function evaluateTrackForRoute(
-  trackCoord: HexCoord,
   route: DeliveryRoute,
   board: BoardState,
+  trackCoord: HexCoord,
+  edges?: [number, number],
   playerId?: PlayerId,
-  edges?: [number, number]
+  lastBuiltCoord?: HexCoord
 ): { score: number; intention: string } {
   const sourceCity = board.cities.find(c => c.id === route.from);
   const targetCity = board.cities.find(c => c.id === route.to);
@@ -721,35 +862,39 @@ export function evaluateTrackForRoute(
   }
 
   if (isOnPath) {
-    score += 150;  // 최적 경로상에 있음 (기존 100 -> 150 상향하여 음수 방지)
+    score += 150;  // 최적 경로상에 있음
 
     if (playerId) {
-      // [Refinement] 모든 연결된 끝단(Frontier) 찾기
-      // 이제 단순히 출발지/목적지 연결성뿐만 아니라, 망의 모든 끝단에서 확장을 고려함
-      let minConnectedIdx = Infinity;
       let maxConnectedIdx = -1;
 
       connectedPositions.forEach(idx => {
-        if (idx < minConnectedIdx) minConnectedIdx = idx;
         if (idx > maxConnectedIdx) maxConnectedIdx = idx;
       });
 
-      // 다음으로 건설해야 할 위치 가중치
-      // 1. 순방향 확장 (출발지 망 -> 목적지 방향)
-      // [Strict Sequential] 무조건 출발지 망에서 한 칸씩 차례대로 뻗어나가도록 유도
+      // 1. 순방향 확장 (출발지 망 -> 목적지 방향) 오직 순차 건설만 허용
       if (maxConnectedIdx !== -1 && positionOnPath === maxConnectedIdx + 1) {
-        score += 150; // 순방향 확장에 매우 높은 우선순위 (이전 80 -> 150)
+        score += 400; // 보너스 강화 (250 -> 400)
         intention = '출발지로부터 순차적 확장';
       }
 
-      // [Pincer Move 제거] 2. 역방향 확장 (목적지 망 -> 출발지 방향) 보너스 삭제
-      // 이제 목적지에서 마중 나오는 건설을 하지 않음 (사용자 요청)
+      // [Isolation Check] 현재 건설하려는 트랙이 내 네트워크와 떨어져 있는지 확인
+      // 이제 도시에 붙어있더라도 출발지 망과 연결되지 않은 '섬' 건설은 페널티 부여
+      if (maxConnectedIdx !== -1 && positionOnPath > maxConnectedIdx + 1) {
+        score -= 500; // 페널티 강화 (200 -> 500) 파편화 방지
+        intention = '네트워크 고립 건설 경고';
+      }
 
-      // 3. 미래 경로상에 미리 건설하는 경우 (연속성을 위해 보너스 낮춤)
+      // 2. 미래 경로 상에 미리 건설하는 경우 (순차 건설 유도를 위해 점수 낮춤)
       if (maxConnectedIdx !== -1 && positionOnPath > maxConnectedIdx + 1) {
         const distToFrontier = positionOnPath - maxConnectedIdx;
-        score += Math.max(0, 5 - distToFrontier * 2); // 미래 칸 미리 선점 보너스 대폭 축소
+        score += Math.max(0, 5 - distToFrontier * 2);
         if (!intention) intention = '미래 경로 예비 확보';
+      }
+
+      // 3. 연속성 보너스 (이번 턴에 방금 지은 트랙 바로 옆에 짓는 경우)
+      if (lastBuiltCoord && hexDistance(trackCoord, lastBuiltCoord) === 1) {
+        score += 1500; // 매우 강력한 보너스로 한 턴 내 파편화 방지
+        intention = '번호 연속 건설(연속성 보장)';
       }
     }
 
@@ -788,11 +933,11 @@ export function evaluateTrackForRoute(
       const edgeMatchesNext = edgeTowardsNext >= 0 && (edge0 === edgeTowardsNext || edge1 === edgeTowardsNext);
 
       if (edgeTowardsNext >= 0 && !edgeMatchesNext) {
-        // 다음 칸으로 가야 할 놈이 엉뚱한 데를 보고 있으면 강력 페널티
-        score -= 500;
+        // 다음 칸으로 가야 할 놈이 엉뚱한 데를 보고 있으면 페널티 (완화)
+        score -= 200;
         intention = '목적지 방향 불일치 페널티';
       } else if (!edgeMatchesPrev && !edgeMatchesNext) {
-        score -= 300;  // 경로와 무관한 방향
+        score -= 100;  // 경로와 무관한 방향
       }
 
       // 이미 연결된 도시에 인접한 경우, 해당 방향으로 더 짓지 않도록 감점
@@ -806,32 +951,42 @@ export function evaluateTrackForRoute(
   } else {
     // 2. 최적 경로에 없으면 페널티 (평행 건설 방지)
     let minDistToPath = Infinity;
-    for (const pathCoord of optimalPath) {
-      const dist = hexDistance(trackCoord, pathCoord);
-      minDistToPath = Math.min(minDistToPath, dist);
+    let closestPathIdx = -1;
+    for (let i = 0; i < optimalPath.length; i++) {
+      const dist = hexDistance(trackCoord, optimalPath[i]);
+      if (dist < minDistToPath) {
+        minDistToPath = dist;
+        closestPathIdx = i;
+      }
     }
 
-    // 최적 경로 옆(Adjacent)이라도 보너스 대신 소폭 감점하여 직진 유도
-    if (minDistToPath === 1) {
-      score -= 50;  // 기존 보너스(+50/+20)에서 감점(-50)으로 전환하여 평행 건설 억제
+    // [핵심 해결] 역행 건설 방지: 
+    // 1. 최적 경로 상에 없으면서 
+    // 2. 건설하려는 칸에서 목적지까지의 거리가 출발지에서 목적지까지의 거리보다 멀어지거나
+    // 3. 최적 경로와 너무 동떨어진 경우 강력 페널티
+    const distToTarget = hexDistance(trackCoord, targetCity.coord);
+    const sourceToTargetDist = hexDistance(sourceCity.coord, targetCity.coord);
+
+    if (distToTarget > sourceToTargetDist) {
+      score -= 1000; // 역행 페널티 강화
+      intention = '역행 건설 금지 (목적지 반대 방향)';
+    } else if (minDistToPath >= 2) {
+      score -= 500; // 경로 이탈 페널티 강화
+      intention = '심각한 최적 경로 이탈';
+    } else if (minDistToPath === 1) {
+      score -= 80;  // 평행 건설 억제 강화
       intention = '최적 경로 이탈 (평행 건설 경고)';
     } else {
-      score -= 200; // 경로에서 멀어질수록 큰 감점
+      score -= 200;
     }
   }
 
-  // [핵심 추가] 목적지 거리 감소 확인 (Distance Strict)
-  // 이전 위치(frontier)를 알 수 없으므로, 현재 트랙의 양 끝점 중 하나라도 
-  // 기존 도시/트랙들보다 목적지에 더 가까워지지 않는다면 페널티
+  // 목적지 접근성 확인 (단순 보너스 형태로 전환)
   const currentDistToTarget = hexDistance(trackCoord, targetCity.coord);
+  const sourceToTargetDist = hexDistance(sourceCity.coord, targetCity.coord);
 
-  // 만약 최적 경로상에 있고, 목적지와의 거리가 전혀 줄어들지 않는다면 (즉, 옆으로 새는 경우)
-  if (currentDistToTarget >= hexDistance(sourceCity.coord, targetCity.coord)) {
-    // 출발지 근처가 아닌데 거리가 줄지 않으면 진행 의사 없음으로 판단
-    if (hexDistance(trackCoord, sourceCity.coord) > 1) {
-      score -= 300;
-      intention = '목적지 접근 정체 페널티';
-    }
+  if (currentDistToTarget < sourceToTargetDist) {
+    score += 30; // 목적지에 가까워지면 보너스
   }
 
   // 3. 변수 선정 및 도시 인접성 확인
@@ -854,11 +1009,11 @@ export function evaluateTrackForRoute(
       const connectsToSource = (e0 === edgeToSource || e1 === edgeToSource);
 
       if (!connectsToSource) {
-        // 도시 바로 옆인데 도시를 안 바라보면 아주 강력한 페널티 (비껴가기 방지)
-        score -= 1000;
-        intention = '도시 비껴가기 페널티';
+        // [수정] 도시 비껴가기는 절대 금지 (규칙상 오류로 비춰짐)
+        score -= 2000;
+        intention = '도시 비껴가기 금지';
       } else {
-        score += 200; // 출발지 연결 성공 보너스
+        score += 300; // 보너스 상향
         intention = '출발 도시 연결';
       }
     }
@@ -869,11 +1024,10 @@ export function evaluateTrackForRoute(
       const connectsToTarget = (e0 === edgeToTarget || e1 === edgeToTarget);
 
       if (!connectsToTarget) {
-        // [Critical] 목적지 바로 옆인데 연결 안 하면 결정적 페널티
+        // [Critical] 목적지 비껴가기 차단
         score -= 2000;
-        intention = '목적지 비껴가기 (결정적 실패)';
+        intention = '목적지 비껴가기 금지';
       } else {
-        // 드디어 골인! 압도적인 보너스로 연결 유도
         score += 500;
         intention = '목적 도시 연결 완성';
       }
@@ -898,16 +1052,22 @@ export function evaluateTrackForRoute(
   }
 
   // 6. 전체 경로가 이미 완성되었는지 확인 (중복 건설 방지)
-  // [Refinement] 플레이어가 해당 경로에 자신의 트랙을 하나도 놓지 않았을 때만 타사 선로 여부 체크
-  if (board && playerId) {
-    const hasAnyOwnTrackOnPath = playerTracks.some(t =>
-      optimalPath.some(pathCoord => hexCoordsEqual(t.coord, pathCoord))
-    );
+  if (board) {
+    // [핵심 요청] 중복 연결 페널티 신설 (이미 망이 연결된 경우)
+    const isAlreadyLinked = isRouteCompleteForBoard(board, route);
+    if (isAlreadyLinked) {
+      score -= 2000;
+      intention = '이미 연결된 경로 (중복 건설 방지)';
+    }
 
-    if (!hasAnyOwnTrackOnPath) {
-      const isComplete = isRouteCompleteForBoard(board, route);
-      if (isComplete) {
-        return { score: -2000, intention: '타인에 의해 이미 완성된 경로' };
+    if (playerId) {
+      const hasAnyOwnTrackOnPath = playerTracks.some(t =>
+        optimalPath.some(pathCoord => hexCoordsEqual(t.coord, pathCoord))
+      );
+
+      if (!hasAnyOwnTrackOnPath && isAlreadyLinked) {
+        // 타인 완공이라도 페널티를 대폭 낮추어 건설 시도를 막지 않음 (기존 로직 유지하되 점수 조정)
+        score = Math.min(score, -100);
       }
     }
   }
@@ -1006,7 +1166,8 @@ export function analyzeOpponentTracks(
 
   // 로그 출력
   if (opponentTracks.length > 0) {
-    console.log(`[상대 분석] ${state.players[opponentId]?.name}:`);
+    const oppName = state.players[opponentId]?.name || '상대';
+    console.log(`[상대 분석] ${oppName}: `);
     console.log(`  - 트랙 수: ${opponentTracks.length}`);
     console.log(`  - 연결된 도시: ${connectedCities.join(', ') || '없음'}`);
     console.log(`  - 목표 추정 도시: ${targetCities.join(', ') || '없음'}`);
@@ -1061,7 +1222,7 @@ export function getConnectedCities(
   const playerTracks = board.trackTiles.filter(t => t.owner === playerId);
 
   if (playerTracks.length === 0) {
-    return board.cities.map(c => c.id);  // 트랙 없으면 모든 도시
+    return []; // 트랙 없으면 연결된 도시 없음 (수정: 모든 도시 -> 빈 배열)
   }
 
   const connectedCities: string[] = [];
@@ -1138,7 +1299,7 @@ export function getStrategyAdjustments(
     for (const cityId of opponentAnalysis.connectedCities) {
       if (scenario.routes.includes(cityId)) {
         adjustment -= 10;  // 상대가 이미 점령한 도시 (기존 -25 → -10)
-        console.log(`[전략 조정] ${scenario.name}: ${cityId} 상대 점령 -10점`);
+        console.log(`[전략 조정] ${scenario.name}: ${cityId} 상대 점령 - 10점`);
       }
     }
 
@@ -1146,7 +1307,7 @@ export function getStrategyAdjustments(
     for (const cityId of opponentAnalysis.targetCities) {
       if (scenario.routes.includes(cityId)) {
         adjustment -= 5;  // 상대가 향하는 도시 (기존 -15 → -5)
-        console.log(`[전략 조정] ${scenario.name}: ${cityId} 상대 목표 -5점`);
+        console.log(`[전략 조정] ${scenario.name}: ${cityId} 상대 목표 - 5점`);
       }
     }
 
@@ -1178,7 +1339,7 @@ export function isRouteCompleteForBoard(board: BoardState, route: DeliveryRoute)
   // BFS로 실제 연결 여부 확인 (모든 플레이어의 트랙 고려)
   const visited = new Set<string>();
   const queue: HexCoord[] = [sourceCity.coord];
-  visited.add(`${sourceCity.coord.col},${sourceCity.coord.row}`);
+  visited.add(`${sourceCity.coord.col},${sourceCity.coord.row} `);
 
   while (queue.length > 0) {
     const current = queue.shift()!;
@@ -1188,7 +1349,7 @@ export function isRouteCompleteForBoard(board: BoardState, route: DeliveryRoute)
     // (hexGrid.ts의 getConnectedNeighbors가 그렇게 동작하도록 구현되어 있는지 확인 필요)
     const neighbors = getConnectedNeighbors(current, board, undefined, visited);
     for (const neighbor of neighbors) {
-      const key = `${neighbor.col},${neighbor.row}`;
+      const key = `${neighbor.col},${neighbor.row} `;
       if (!visited.has(key)) {
         visited.add(key);
         queue.push(neighbor);
@@ -1200,8 +1361,43 @@ export function isRouteCompleteForBoard(board: BoardState, route: DeliveryRoute)
 }
 
 /**
- * 게임 상태를 기준으로 경로 완성 여부 확인
+ * 보드 상태를 기준으로 특정 플레이어의 경로 완성 여부 확인
  */
-export function isRouteComplete(state: GameState, route: DeliveryRoute): boolean {
-  return isRouteCompleteForBoard(state.board, route);
+export function isRouteComplete(state: GameState, route: DeliveryRoute, playerId?: PlayerId): boolean {
+  const { board } = state;
+  const sourceCity = board.cities.find(c => c.id === route.from);
+  const targetCity = board.cities.find(c => c.id === route.to);
+  if (!sourceCity || !targetCity) return false;
+
+  // BFS로 실제 연결 여부 확인
+  // hexGrid.ts의 getConnectedNeighbors가 이제 소유자별 연결을 엄격히 체크하므로,
+  // playerId를 넘겨주면 해당 플레이어의 독자적인 완성을 확인할 수 있음.
+  const visited = new Set<string>();
+  const queue: HexCoord[] = [sourceCity.coord];
+  visited.add(`${sourceCity.coord.col},${sourceCity.coord.row} `);
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (hexCoordsEqual(current, targetCity.coord)) {
+      console.log(`[isRouteComplete 디버그] ${route.from}→${route.to} 연결 찾음!`);
+      return true;
+    }
+
+    // 만약 playerId가 없으면 '모든 누군가에 의해 완성된 링크'를 찾아야 함
+    const targetPlayerId = playerId === undefined ? undefined : (playerId || null);
+    const neighbors = getConnectedNeighbors(current, board, targetPlayerId, visited);
+
+    console.log(`[isRouteComplete 디버그] ${current.col},${current.row} 이웃: ${neighbors.length} 개`);
+
+    for (const neighbor of neighbors) {
+      const key = `${neighbor.col},${neighbor.row} `;
+      if (!visited.has(key)) {
+        visited.add(key);
+        queue.push(neighbor);
+      }
+    }
+  }
+
+  console.log(`[isRouteComplete 디버그] ${route.from}→${route.to} 연결 실패`);
+  return false;
 }

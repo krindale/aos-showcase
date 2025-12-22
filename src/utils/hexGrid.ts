@@ -256,6 +256,29 @@ export function areHexesAdjacent(a: HexCoord, b: HexCoord): boolean {
 }
 
 /**
+ * 두 헥스 간 거리 계산 (Axial 좌표 기반)
+ * 
+ * Odd-r offset 좌표를 axial로 변환 후 거리 계산
+ */
+export function hexDistance(a: HexCoord, b: HexCoord): number {
+  // Odd-r offset → Axial 변환
+  const ax = a.col - Math.floor(a.row / 2);
+  const az = a.row;
+  const ay = -ax - az;
+
+  const bx = b.col - Math.floor(b.row / 2);
+  const bz = b.row;
+  const by = -bx - bz;
+
+  // Axial 거리 = max(|dx|, |dy|, |dz|)
+  return Math.max(
+    Math.abs(ax - bx),
+    Math.abs(ay - by),
+    Math.abs(az - bz)
+  );
+}
+
+/**
  * 두 헥스 사이의 연결 엣지 찾기
  * A 헥스에서 B 헥스로 연결되는 엣지 번호 반환
  */
@@ -470,11 +493,14 @@ export function getExitDirections(
  * 주의: 물품 이동 시 모든 플레이어의 완성된 철도 링크를 사용할 수 있음
  * (해당 링크 소유자가 수입을 받음)
  */
-function getConnectedNeighbors(
+/**
+ * 특정 지점에서 연결된 인접 헥스들 찾기
+ */
+export function getConnectedNeighbors(
   currentCoord: HexCoord,
   board: BoardState,
-  playerId: PlayerId, // 자기 소유 트랙만 사용
-  visitedKey: Set<string>
+  playerId?: PlayerId | null,
+  visitedKey: Set<string> = new Set()
 ): HexCoord[] {
   const neighbors: HexCoord[] = [];
 
@@ -497,32 +523,54 @@ function getConnectedNeighbors(
         continue;
       }
 
-      // 이웃에 자기 소유 트랙이 있고, 해당 트랙이 현재 도시 방향으로 연결되어 있는지 확인
-      const neighborTrack = board.trackTiles.find(
-        t => hexCoordsEqual(t.coord, neighbor) && t.owner === playerId // 자기 소유 트랙만
-      );
-      if (neighborTrack) {
+      // 이웃에 트랙이 있고, 해당 트랙이 현재 도시 방향으로 연결되어 있는지 확인
+      let neighborTracks = board.trackTiles.filter(t => hexCoordsEqual(t.coord, neighbor));
+      if (playerId) {
+        neighborTracks = neighborTracks.filter(t => t.owner === playerId);
+      }
+
+      for (const t of neighborTracks) {
         const entryEdge = getOppositeEdge(edge);
-        console.log(`  edge ${edge}: 이웃 (${neighbor.col}, ${neighbor.row})에 트랙 발견, 트랙 edges: [${neighborTrack.edges}], 필요한 entryEdge: ${entryEdge}`);
-        // 트랙이 도시 방향 엣지를 가지고 있는지 확인
-        if (neighborTrack.edges.includes(entryEdge)) {
-          console.log(`    → 연결됨! 이웃 추가`);
+        console.log(`  edge ${edge}: 이웃 (${neighbor.col}, ${neighbor.row})에 트랙 발견, 유형: ${t.trackType}, edges: [${t.edges}], secondaryEdges: [${t.secondaryEdges || '없음'}], 필요한 entryEdge: ${entryEdge}`);
+
+        // 1. 기본 경로 확인
+        if (t.edges.includes(entryEdge)) {
+          console.log(`    → 기본 경로 연결됨! 이웃 추가`);
           neighbors.push(neighbor);
-        } else {
-          console.log(`    → 트랙이 도시 방향을 향하지 않음`);
+          break; // 한 쪽이라도 연결되면 이웃으로 인정
         }
-      } else {
-        console.log(`  edge ${edge}: 이웃 (${neighbor.col}, ${neighbor.row})에 완성된 트랙 없음`);
+
+        // 2. 복합 트랙의 보조 경로 확인
+        if (t.secondaryEdges && t.secondaryEdges.includes(entryEdge)) {
+          console.log(`    → 보조 경로(복합) 연결됨! 이웃 추가`);
+          neighbors.push(neighbor);
+          break;
+        }
       }
     }
-  } else if (currentTrack && currentTrack.owner === playerId) {
-    // 자기 소유 트랙에서: 트랙의 양 끝 방향으로 이동 가능
-    console.log(`[트랙에서 탐색] 트랙 edges: [${currentTrack.edges}]`);
-    for (const edge of currentTrack.edges) {
+  } else if (currentTrack) {
+    // 트랙에서: 트랙의 모든 경로(기본+보조) 확인
+    let currentCoordTracks = board.trackTiles.filter(t => hexCoordsEqual(t.coord, currentCoord));
+    if (playerId) {
+      currentCoordTracks = currentCoordTracks.filter(t => t.owner === playerId);
+    }
+
+    // 현재 헥스에 있는 모든 가능한 출구 방향 수집 (기본 + 보조)
+    const allOutgoingEdges = new Set<number>();
+    currentCoordTracks.forEach(t => {
+      t.edges.forEach(e => allOutgoingEdges.add(e));
+      if (t.secondaryEdges) {
+        t.secondaryEdges.forEach(e => allOutgoingEdges.add(e));
+      }
+    });
+
+    const outgoingEdgesArray = Array.from(allOutgoingEdges);
+    console.log(`[트랙에서 탐색] 전체 사용 가능 edges: [${outgoingEdgesArray}]`);
+
+    for (const edge of outgoingEdgesArray) {
       const neighbor = getNeighborHex(currentCoord, edge);
       const neighborKey = hexToKey(neighbor);
       if (visitedKey.has(neighborKey)) {
-        console.log(`  edge ${edge}: 이미 방문함`);
         continue;
       }
 
@@ -534,16 +582,19 @@ function getConnectedNeighbors(
         continue;
       }
 
-      // 이웃에 자기 소유 트랙이 있고, 연결되어 있는지 확인
-      const neighborTrack = board.trackTiles.find(
-        t => hexCoordsEqual(t.coord, neighbor) && t.owner === playerId // 자기 소유 트랙만
-      );
-      if (neighborTrack) {
+      // 이웃에 트랙이 있고, 연결되어 있는지 확인
+      let neighborTracks = board.trackTiles.filter(t => hexCoordsEqual(t.coord, neighbor));
+      if (playerId) {
+        neighborTracks = neighborTracks.filter(t => t.owner === playerId);
+      }
+      for (const t of neighborTracks) {
         const entryEdge = getOppositeEdge(edge);
-        console.log(`  edge ${edge}: 이웃 (${neighbor.col}, ${neighbor.row})에 트랙, edges: [${neighborTrack.edges}], 필요한 entryEdge: ${entryEdge}`);
-        if (neighborTrack.edges.includes(entryEdge)) {
+        console.log(`  edge ${edge}: 이웃 (${neighbor.col}, ${neighbor.row}) 트랙 확인, 유형: ${t.trackType}, edges: [${t.edges}], secondaryEdges: [${t.secondaryEdges || '없음'}], 필요한 entryEdge: ${entryEdge}`);
+
+        if (t.edges.includes(entryEdge) || (t.secondaryEdges && t.secondaryEdges.includes(entryEdge))) {
           console.log(`    → 연결됨! 이웃 추가`);
           neighbors.push(neighbor);
+          break;
         }
       }
     }
@@ -553,6 +604,39 @@ function getConnectedNeighbors(
 
   console.log(`[getConnectedNeighbors] 결과: ${neighbors.length}개 이웃 발견`);
   return neighbors;
+}
+
+/**
+ * 특정 지점에서 시작하여 연결된 모든 헥스(도시/트랙) 찾기 (BFS)
+ */
+export function findAllConnectedHexes(
+  start: HexCoord,
+  board: BoardState,
+  playerId: PlayerId
+): Set<HexCoord> {
+  const visited = new Set<string>();
+  const connected = new Set<HexCoord>();
+  const queue: HexCoord[] = [start];
+
+  const startKey = hexToKey(start);
+  visited.add(startKey);
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    connected.add(current);
+
+    //getConnectedNeighbors를 사용하여 현재 플레이어 망으로 연결된 이웃 탐색
+    const neighbors = getConnectedNeighbors(current, board, playerId, visited);
+    for (const neighbor of neighbors) {
+      const key = hexToKey(neighbor);
+      if (!visited.has(key)) {
+        visited.add(key);
+        queue.push(neighbor);
+      }
+    }
+  }
+
+  return connected;
 }
 
 /**

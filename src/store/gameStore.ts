@@ -1388,18 +1388,34 @@ export const useGameStore = create<GameStore>((set, get) => ({
         return city;
       });
 
-      // 경로의 트랙 소유자에게 수입 추가 (동적 플레이어 지원)
+      // 경로에서 완성된 링크 소유자 확인 및 수입 계산
       const incomeChanges: Partial<Record<PlayerId, number>> = {};
       state.activePlayers.forEach(p => { incomeChanges[p] = 0; });
 
-      for (let i = 0; i < path.length - 1; i++) {
-        const track = state.board.trackTiles.find(
-          (t) =>
-            (t.coord.col === path[i].col && t.coord.row === path[i].row) ||
-            (t.coord.col === path[i + 1].col && t.coord.row === path[i + 1].row)
-        );
-        if (track?.owner) {
-          incomeChanges[track.owner] = (incomeChanges[track.owner] || 0) + 1;
+      let currentLinkOwner: PlayerId | null = null;
+      let inLink = false;
+
+      for (let i = 0; i < path.length; i++) {
+        const coord = path[i];
+        const isCity = state.board.cities.some(c => hexCoordsEqual(c.coord, coord));
+        const isTown = state.board.towns.some(t => hexCoordsEqual(t.coord, coord));
+
+        if (isCity || isTown) {
+          if (inLink && currentLinkOwner) {
+            // 도시/마을에 도착했으므로 이전 링크 완료, 소유자 수입 +1
+            incomeChanges[currentLinkOwner] = (incomeChanges[currentLinkOwner] || 0) + 1;
+          }
+          // 새 링크 시작
+          inLink = true;
+          currentLinkOwner = null;
+        } else {
+          // 트랙 구간: 소유자 확인 (한 링크는 한 소유자만 가짐)
+          if (inLink && !currentLinkOwner) {
+            const track = state.board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
+            if (track?.owner) {
+              currentLinkOwner = track.owner;
+            }
+          }
         }
       }
 
@@ -1936,9 +1952,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const updatedPlayerMoves = alreadyCompleted
           ? state.phaseState.playerMoves
           : {
-              ...state.phaseState.playerMoves,
-              [state.currentPlayer]: true,
-            };
+            ...state.phaseState.playerMoves,
+            [state.currentPlayer]: true,
+          };
         const allPlayersBuilt = allPlayersMoved(updatedPlayerMoves, activePlayers);
 
         console.log(`[buildTrack nextPhase] playerMoves 후:`, JSON.stringify(updatedPlayerMoves));
@@ -1984,9 +2000,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const updatedPlayerMoves = alreadyCompleted
           ? state.phaseState.playerMoves
           : {
-              ...state.phaseState.playerMoves,
-              [state.currentPlayer]: true,
-            };
+            ...state.phaseState.playerMoves,
+            [state.currentPlayer]: true,
+          };
         const allMoved = allPlayersMoved(updatedPlayerMoves, activePlayers);
 
         if (allMoved) {

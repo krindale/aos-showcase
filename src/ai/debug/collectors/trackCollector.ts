@@ -10,9 +10,8 @@ import { DeliveryRoute } from '../../strategy/types';
 import {
   findOptimalPath,
   getEdgeBetweenHexes,
-  hexDistance,
 } from '../../strategy/analyzer';
-import { hexCoordsEqual } from '@/utils/hexGrid';
+import { hexCoordsEqual, hexDistance } from '@/utils/hexGrid';
 
 /**
  * 트랙 평가 상세 수집

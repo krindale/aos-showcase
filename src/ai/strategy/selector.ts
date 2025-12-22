@@ -11,8 +11,9 @@ import {
   getConnectedCities,
   breakRouteIntoSegments,
   getRouteProgress,
-  hexDistance,
+  isRouteComplete,
 } from './analyzer';
+import { hexDistance } from '@/utils/hexGrid';
 import { getCurrentRoute, setCurrentRoute, clearCurrentRoutes } from './state';
 
 /**
@@ -28,19 +29,48 @@ export function getNextTargetRoute(
   if (!player) return null;
 
   // 1. 현재 물품 배치 기반 모든 배달 기회 분석
-  const opportunities = analyzeDeliveryOpportunities(state);
+  const allOpportunities = analyzeDeliveryOpportunities(state);
+
+  // 1.1 이미 완벽히 연결된 경로는 제외 (타사 선로 포함)
+  const opportunities = allOpportunities.filter(opp => {
+    const route: DeliveryRoute = { from: opp.sourceCityId, to: opp.targetCityId, priority: 1 };
+    return !isRouteComplete(state, route);
+  });
 
   if (opportunities.length === 0) {
-    console.log(`[AI 경로] ${player.name}: 배달 가능한 화물 없음`);
+    if (allOpportunities.length > 0) {
+      console.log(`[AI 경로] ${player.name}: 모든 배달 기회가 이미 연결되어 있음`);
+    } else {
+      console.log(`[AI 경로] ${player.name}: 배달 가능한 화물 없음`);
+    }
     return findNetworkExpansionTarget(state, playerId);
   }
 
-  // 2. 거리순 정렬 (가까운 것 우선)
-  opportunities.sort((a, b) => a.distance - b.distance);
-
-  // 3. 연결된 도시 확인
+  // 2. 연결된 도시 확인
   const connectedCities = getConnectedCities(state, playerId);
   const playerTracks = state.board.trackTiles.filter(t => t.owner === playerId);
+
+  // 3. 가치 기반 정렬 (수입 vs 거리 vs 연결성)
+  opportunities.sort((a, b) => {
+    // 3.1 수입 잠재력 (현재 엔진 레벨에서 얻을 수 있는 최대 수입)
+    const aIncome = Math.min(a.distance, player.engineLevel);
+    const bIncome = Math.min(b.distance, player.engineLevel);
+
+    // 3.2 연결성 보너스 (이미 우리 네트워크에 있는 도시에서 시작하면 매우 유리)
+    // [Refinement] 사용자의 '링크 길이 극대화' 요구를 반영하여 보너스 강화
+    const aConnectedBonus = connectedCities.includes(a.sourceCityId) ? 100 : 0;
+    const bConnectedBonus = connectedCities.includes(b.sourceCityId) ? 100 : 0;
+
+    // 3.3 거리 페널티 (건설 비용 고려)
+    // [Refinement] 너무 먼 경로는 피하되, 연결된 도시에서의 확장은 페널티 상쇄
+    const aDistPenalty = a.distance * 3; // 5 -> 3 완화 (연결성 우선)
+    const bDistPenalty = b.distance * 3;
+
+    const aScore = (aIncome * 30) + aConnectedBonus - aDistPenalty;
+    const bScore = (bIncome * 30) + bConnectedBonus - bDistPenalty;
+
+    return bScore - aScore;
+  });
 
   // 4. 엔진 레벨 + 2턴 내 도달 가능한 경로 필터
   const reachableOpportunities = opportunities.filter(opp => {

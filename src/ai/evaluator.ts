@@ -1,12 +1,5 @@
-/**
- * 게임 상태 평가 함수
- *
- * AI가 게임 상태를 평가하여 점수를 계산합니다.
- * 높은 점수 = 좋은 상태
- */
-
 import { GameState, PlayerId, HexCoord, BoardState } from '@/types/game';
-import { hexCoordsEqual } from '@/utils/hexGrid';
+import { hexCoordsEqual, hexDistance } from '@/utils/hexGrid';
 
 /**
  * 플레이어의 현재 상태를 점수로 평가
@@ -60,15 +53,14 @@ export function evaluateTrackPosition(
 
   // 1. 도시와의 인접성 (도시에 가까울수록 좋음)
   const adjacentToCities = board.cities.filter(city => {
-    const dist = Math.abs(city.coord.col - coord.col) + Math.abs(city.coord.row - coord.row);
-    return dist <= 2;
+    return hexDistance(city.coord, coord) <= 2;
   });
   score += adjacentToCities.length * 3;
 
   // 2. 물품이 있는 도시와의 연결 가능성
   const citiesWithGoods = board.cities.filter(c => c.cubes.length > 0);
   for (const city of citiesWithGoods) {
-    const dist = Math.abs(city.coord.col - coord.col) + Math.abs(city.coord.row - coord.row);
+    const dist = hexDistance(city.coord, coord);
     if (dist <= 3) {
       score += 2;
     }
@@ -77,7 +69,7 @@ export function evaluateTrackPosition(
   // 3. 기존 트랙과의 연결성
   const ownTracks = board.trackTiles.filter(t => t.owner === playerId);
   for (const track of ownTracks) {
-    const dist = Math.abs(track.coord.col - coord.col) + Math.abs(track.coord.row - coord.row);
+    const dist = hexDistance(track.coord, coord);
     if (dist === 1) {
       score += 2; // 직접 연결 가능
     }

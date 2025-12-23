@@ -344,7 +344,14 @@ function collectBuildCandidates(
 
       let routeScore = 0;
       if (targetRoute) {
-        routeScore = evaluateTrackForRoute(neighbor.coord, targetRoute, board, playerId, edges);
+        const result = evaluateTrackForRoute(
+          { from: targetRoute.from, to: targetRoute.to, priority: targetRoute.priority },
+          board,
+          neighbor.coord,
+          edges,
+          playerId
+        );
+        routeScore = result.score;
       }
 
       const totalScore = baseScore + routeScore * 2;
@@ -353,7 +360,7 @@ function collectBuildCandidates(
       // 중복 제거
       const isDuplicate = candidates.some(
         c => hexCoordsEqual(c.coord, neighbor.coord) &&
-             c.edges[0] === edges[0] && c.edges[1] === edges[1]
+          c.edges[0] === edges[0] && c.edges[1] === edges[1]
       );
 
       if (!isDuplicate) {

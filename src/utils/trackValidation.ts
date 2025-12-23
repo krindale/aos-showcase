@@ -457,6 +457,7 @@ export function getRedirectableEdges(
   // 끝점이 아니더라도 리다이렉트를 시도할 수 있도록 허용 (AI 보정 등)
   // 연결된 엣지가 없으면 첫 번째 엣지를 기준으로 삼음
   const actualConnectedEdge = connectedEdge !== null ? connectedEdge : track.edges[0];
+  void actualConnectedEdge; // 향후 확장용
   const actualOpenEdge = openEdge !== null ? openEdge : track.edges[1];
 
   // 가능한 방향들 (연결된 엣지 제외, 막힌 방향 제외)

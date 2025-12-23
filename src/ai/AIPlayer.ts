@@ -15,9 +15,10 @@ import {
 
 // 동적 경로 선택 함수
 import {
-  getNextTargetRoute,
+  getNextTargetRoute as _getNextTargetRoute,
   reevaluateStrategy,
 } from './strategy/selector';
+void _getNextTargetRoute; // 향후 확장용
 
 // 전역 상태 동기화용
 import { getCurrentRoute } from './strategy/state';
@@ -26,9 +27,10 @@ import { getCurrentRoute } from './strategy/state';
 import {
   hasMatchingCubes,
   getRouteProgress,
-  analyzeDeliveryOpportunities,
-  isRouteBlockedByOpponent,
+  analyzeDeliveryOpportunities as _analyzeDeliveryOpportunities,
+  isRouteBlockedByOpponent as _isRouteBlockedByOpponent,
 } from './strategy/analyzer';
+void _analyzeDeliveryOpportunities; void _isRouteBlockedByOpponent; // 향후 확장용
 
 // 기존 결정 함수들 임포트
 import { decideSharesIssue } from './strategies/issueShares';

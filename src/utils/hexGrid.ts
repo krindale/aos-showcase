@@ -624,7 +624,7 @@ export function getConnectedNeighbors(
       }
 
       // 이웃에 트랙이 있고, 연결되어 있는지 확인
-      let neighborTracks = board.trackTiles.filter(t => hexCoordsEqual(t.coord, neighbor));
+      const neighborTracks = board.trackTiles.filter(t => hexCoordsEqual(t.coord, neighbor));
 
       // [중요: 링크 규칙] 트랙 간의 연결은 소유자가 같아야 함
       const currentEdgeOwners = outgoingEdgesAndOwners.get(edge) || new Set<PlayerId>();

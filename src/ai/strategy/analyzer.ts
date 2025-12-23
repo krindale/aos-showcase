@@ -506,16 +506,16 @@ export function isRouteBlockedByOpponent(
 
     // 이 경로 상에 내 트랙이 실제로 있는지 확인 (최적 경로 기반)
     const hasOwnTrackForThisRoute = playerTracks.some(t => {
-      // analyzer.ts의 isOnOptimalPath 또는 findOptimalPath를 활용하여 체크
       return isOnOptimalPath(t.coord, sourceCity.coord, targetCity.coord, state.board);
     });
+
     // 상대 트랙이 경로 중간에 있고
     if (distToSource <= 2 && distToTarget <= 2) {
-      // AI 트랙이 그 근처에 없으면 차단
+      // 내 트랙이 경로 상에 없고, AI 트랙이 그 근처에도 없으면 차단
       const aiNearby = playerTracks.some(
         pt => hexDistance(pt.coord, track.coord) <= 1
       );
-      if (!aiNearby) return true;
+      if (!aiNearby && !hasOwnTrackForThisRoute) return true;
     }
   }
 
@@ -951,12 +951,10 @@ export function evaluateTrackForRoute(
   } else {
     // 2. 최적 경로에 없으면 페널티 (평행 건설 방지)
     let minDistToPath = Infinity;
-    let closestPathIdx = -1;
     for (let i = 0; i < optimalPath.length; i++) {
       const dist = hexDistance(trackCoord, optimalPath[i]);
       if (dist < minDistToPath) {
         minDistToPath = dist;
-        closestPathIdx = i;
       }
     }
 
@@ -1339,7 +1337,7 @@ export function isRouteCompleteForBoard(board: BoardState, route: DeliveryRoute)
   // BFS로 실제 연결 여부 확인 (모든 플레이어의 트랙 고려)
   const visited = new Set<string>();
   const queue: HexCoord[] = [sourceCity.coord];
-  visited.add(`${sourceCity.coord.col},${sourceCity.coord.row} `);
+  visited.add(`${sourceCity.coord.col},${sourceCity.coord.row}`);
 
   while (queue.length > 0) {
     const current = queue.shift()!;
@@ -1349,7 +1347,7 @@ export function isRouteCompleteForBoard(board: BoardState, route: DeliveryRoute)
     // (hexGrid.ts의 getConnectedNeighbors가 그렇게 동작하도록 구현되어 있는지 확인 필요)
     const neighbors = getConnectedNeighbors(current, board, undefined, visited);
     for (const neighbor of neighbors) {
-      const key = `${neighbor.col},${neighbor.row} `;
+      const key = `${neighbor.col},${neighbor.row}`;
       if (!visited.has(key)) {
         visited.add(key);
         queue.push(neighbor);
@@ -1374,7 +1372,7 @@ export function isRouteComplete(state: GameState, route: DeliveryRoute, playerId
   // playerId를 넘겨주면 해당 플레이어의 독자적인 완성을 확인할 수 있음.
   const visited = new Set<string>();
   const queue: HexCoord[] = [sourceCity.coord];
-  visited.add(`${sourceCity.coord.col},${sourceCity.coord.row} `);
+  visited.add(`${sourceCity.coord.col},${sourceCity.coord.row}`);
 
   while (queue.length > 0) {
     const current = queue.shift()!;
@@ -1390,7 +1388,7 @@ export function isRouteComplete(state: GameState, route: DeliveryRoute, playerId
     console.log(`[isRouteComplete 디버그] ${current.col},${current.row} 이웃: ${neighbors.length} 개`);
 
     for (const neighbor of neighbors) {
-      const key = `${neighbor.col},${neighbor.row} `;
+      const key = `${neighbor.col},${neighbor.row}`;
       if (!visited.has(key)) {
         visited.add(key);
         queue.push(neighbor);

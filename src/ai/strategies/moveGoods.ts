@@ -4,7 +4,7 @@
  * AI가 선택한 전략에 따라 어떤 물품을 어디로 이동할지 결정합니다.
  */
 
-import { GameState, PlayerId, HexCoord, CubeColor, City, GAME_CONSTANTS } from '@/types/game';
+import { GameState, PlayerId, HexCoord, CubeColor, City } from '@/types/game';
 import { evaluateMoveValue } from '../evaluator';
 import { findReachableDestinations, findLongestPath, hexCoordsEqual } from '@/utils/hexGrid';
 import { getSelectedStrategy } from '../strategy/state';
@@ -132,8 +132,10 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
   }
 
   // 이동 가능한 후보가 없으면 엔진 업그레이드 고려
+  // AI는 최대 레벨 3까지만 업그레이드 (비용 효율성)
+  const AI_MAX_ENGINE_LEVEL = 3;
   if (candidates.length === 0) {
-    if (player.engineLevel < GAME_CONSTANTS.MAX_ENGINE) {
+    if (player.engineLevel < AI_MAX_ENGINE_LEVEL) {
       console.log(`[AI 물품] ${player.name}: 엔진 업그레이드 (${player.engineLevel} → ${player.engineLevel + 1})`);
       return { action: 'upgradeEngine' };
     }

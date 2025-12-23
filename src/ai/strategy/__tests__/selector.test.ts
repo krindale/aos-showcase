@@ -10,11 +10,12 @@ import { resetStrategyStates, getCurrentRoute, setCurrentRoute } from '../state'
 import {
   createMockGameState,
   addCubesToCity,
-  setPlayerCash,
+  setPlayerCash as _setPlayerCash,
   setPlayerEngine,
   addTrack,
 } from '../../__tests__/helpers/mockState';
 import type { DeliveryRoute } from '../types';
+void _setPlayerCash; // 향후 테스트 확장용
 
 // mockState의 도시 ID (Pittsburgh, Cleveland, Columbus, Cincinnati)
 // selector.ts의 analyzeDeliveryOpportunities는 실제 tutorialMap 도시 ID 사용

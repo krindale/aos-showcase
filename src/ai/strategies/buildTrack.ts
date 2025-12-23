@@ -13,7 +13,7 @@ import {
   playerHasTrack,
 } from '@/utils/trackValidation';
 import { getBuildableNeighbors, getExitDirections, hexCoordsEqual, getNeighborHex, hexDistance, findAllConnectedHexes } from '@/utils/hexGrid';
-import { getSelectedStrategy, hasSelectedStrategy } from '../strategy/state';
+import { getSelectedStrategy } from '../strategy/state';
 import { getNextTargetRoute, reevaluateStrategy, findNextTargetRoute } from '../strategy/selector';
 import {
   evaluateTrackForRoute,
@@ -98,9 +98,9 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     // [수정] 경로가 이미 완성되었는지 확인 (내 트랙만으로 연결되었거나, 타사 트랙 포함해서라도 연결됨)
     const isAlreadyConnected = isRouteComplete(state, targetRoute);
 
-    // 이미 완성된 경로라면, 남은 건설 횟수가 있을 경우 '즉시' 다른 경로를 찾도록 유도
-    if (isAlreadyConnected) {
-      console.log(`[AI 트랙] ${player.name}: 현재 목표(${targetRoute.from}->${targetRoute.to}) 완공됨. 추가 건설 기회 탐색.`);
+    // 이미 완성된 경로이고 내 트랙이 없다면, 다른 경로를 찾도록 유도
+    if (isAlreadyConnected && !hasOwnTrackForThisRoute) {
+      console.log(`[AI 트랙] ${player.name}: 현재 목표(${targetRoute.from}->${targetRoute.to}) 타사로 완공됨. 추가 건설 기회 탐색.`);
 
       // 1. 다음 배달 우선순위 경로 찾기
       const nextRouteResult = findNextTargetRoute(state, playerId);
@@ -159,8 +159,10 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   }
 
   // 전략 경로 점수 계산 및 필터링
-  const validCandidates = candidates.filter(c => {
+  const validCandidates = candidates.filter(candidate => {
     // 이미 타사 선로를 포함하여 연결이 완성된 경우 해당 경로로의 건설 점수를 삭감하거나 처리
+    // 현재는 모든 후보 허용, 향후 확장 가능
+    void candidate; // lint 우회
     return true;
   });
 

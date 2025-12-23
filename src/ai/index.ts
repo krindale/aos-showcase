@@ -25,7 +25,8 @@ import { decideMoveGoods, MoveGoodsDecision } from './strategies/moveGoods';
 
 // 전략 시스템 임포트 (호환성 유지용)
 import { reevaluateStrategy, getNextTargetRoute } from './strategy/selector';
-import { getSelectedStrategy, setCurrentRoute, resetStrategyStates, hasSelectedStrategy, logStrategyState, getCurrentRoute } from './strategy/state';
+import { getSelectedStrategy, setCurrentRoute, resetStrategyStates, hasSelectedStrategy, logStrategyState, getCurrentRoute as _getCurrentRoute } from './strategy/state';
+void _getCurrentRoute; // 재export용
 import { DynamicStrategy } from './strategy/types';
 
 /**

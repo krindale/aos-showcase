@@ -616,6 +616,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         case 'buildTrack': {
           const { decision: buildDecision } = decision;
           if (buildDecision.action === 'build') {
+            const beforeState = get();
+            const buildNum = beforeState.phaseState.builtTracksThisTurn + 1;
+            console.log(`[AI 트랙 건설] Turn ${beforeState.currentTurn}, ${player.name}: ${buildNum}/${beforeState.phaseState.maxTracksThisTurn}번째 트랙 (${buildDecision.coord.col},${buildDecision.coord.row}) edges=[${buildDecision.edges}]`);
             store.buildTrack(buildDecision.coord, buildDecision.edges);
 
             // 트랙 건설 후 상태 확인
@@ -630,6 +633,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
             }
           } else if (buildDecision.action === 'buildComplex') {
             // 복합 트랙 건설 (교차 또는 공존)
+            const beforeState = get();
+            const buildNum = beforeState.phaseState.builtTracksThisTurn + 1;
+            console.log(`[AI 트랙 건설] Turn ${beforeState.currentTurn}, ${player.name}: ${buildNum}/${beforeState.phaseState.maxTracksThisTurn}번째 복합트랙(${buildDecision.trackType}) (${buildDecision.coord.col},${buildDecision.coord.row}) edges=[${buildDecision.edges}]`);
             store.buildComplexTrack(buildDecision.coord, buildDecision.edges, buildDecision.trackType);
 
             // 트랙 건설 후 상태 확인

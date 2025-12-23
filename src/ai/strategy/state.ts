@@ -71,6 +71,7 @@ export function setSelectedStrategy(
   strategy: { targetRoutes: DeliveryRoute[] },
   _turn: number
 ): void {
+  void _turn; // 호환성 유지용
   if (strategy.targetRoutes.length > 0) {
     currentTargetRoutes.set(playerId, strategy.targetRoutes[0]);
   }

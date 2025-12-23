@@ -255,7 +255,7 @@ function findNetworkExpansionTarget(
   }
 
   // 가장 가까운 연결된 도시 찾기
-  let nearestConnected = board.cities.find(c => connectedCities.includes(c.id));
+  const nearestConnected = board.cities.find(c => connectedCities.includes(c.id));
   if (nearestConnected) {
     const route: DeliveryRoute = {
       from: nearestConnected.id,
@@ -356,6 +356,7 @@ export function adjustRoutePriorities(
   _strategy: { targetRoutes: DeliveryRoute[] }
 ): void {
   // 동적 전략에서는 매번 새로 계산하므로 조정 불필요
+  void _state; void _playerId; void _strategy;
 }
 
 /**

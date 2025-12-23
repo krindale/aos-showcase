@@ -159,6 +159,12 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     }
   }
 
+  // 일반 단순 트랙과 복합 트랙 분류
+  const simpleCandidates = candidates.filter(c => !c.isComplexTrack);
+  const complexCandidates = candidates.filter(c => c.isComplexTrack);
+
+  debugLog.verbose(`[트랙 건설 디버그] 후보 분류: 일반=${simpleCandidates.length}개, 복합=${complexCandidates.length}개`);
+
   // 전략 경로 점수 계산 및 필터링
   const validCandidates = candidates.filter(candidate => {
     // 이미 타사 선로를 포함하여 연결이 완성된 경우 해당 경로로의 건설 점수를 삭감하거나 처리
@@ -200,9 +206,14 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   const bestTotalScore = best.score + best.routeScore * 2;
 
   // [Refinement] 점수가 조금 낮더라도 (예: -40점 Trap) 완주를 위해 임계값 완화
-  // 최적 경로상에 있거나 내 트랙 근처라면 끈기 있게 건설함
-  const skipThreshold = -100;
-  if (bestTotalScore < skipThreshold || best.routeScore < -500) {
+  // 일반 후보가 없고 복합 트랙만 있을 때는 더욱 완화
+  const hasSimpleOptions = simpleCandidates.length > 0;
+  const skipThreshold = hasSimpleOptions ? -100 : -2000; // 복합 트랙만 있으면 훨씬 관대하게
+  const routeThreshold = hasSimpleOptions ? -500 : -1500;
+
+  debugLog.verbose(`[트랙 건설 디버그] 최선 후보 총점=${bestTotalScore.toFixed(1)}, 임계값=${skipThreshold}, 일반옵션=${hasSimpleOptions}`);
+
+  if (bestTotalScore < skipThreshold || best.routeScore < routeThreshold) {
     debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 점수 낮음 (총점=${bestTotalScore.toFixed(1)}, 경로점수=${best.routeScore.toFixed(1)})`);
 
     // 점수가 낮다는 것은 현재 targetRoute로는 갈 곳이 없다는 뜻일 수 있음.
@@ -386,7 +397,16 @@ function findBuildCandidates(
         connectionPoints.push(fromCity.coord);
       }
 
-      debugLog.trackBuilding(`[Phase IV: 트랙 건설] 목표(${targetRoute.from}) 달성을 위해 모든 보유 트랙에서 확장 후보 탐색`);
+      // [핵심 추가] 연결된 모든 도시도 기점으로 추가 (트랙 끝이 막혔을 때 도시에서 새 방향으로 확장)
+      const connectedCityIds = getConnectedCities(state, playerId);
+      for (const cityId of connectedCityIds) {
+        const city = board.cities.find(c => c.id === cityId);
+        if (city && !connectionPoints.some(p => hexCoordsEqual(p, city.coord))) {
+          connectionPoints.push(city.coord);
+        }
+      }
+
+      debugLog.trackBuilding(`[Phase IV: 트랙 건설] 목표(${targetRoute.from}) 달성을 위해 모든 보유 트랙에서 확장 후보 탐색 (기점 ${connectionPoints.length}개)`);
     } else {
       // [Relaxed Logic] 목표가 없는 경우(일반 확장 모드)
       // 기존에는 '순차 건설 강제'가 없었으나, 혹시 모를 제약을 확실히 제거.
@@ -419,6 +439,9 @@ function findBuildCandidates(
 
       const allowRedirect = state.phaseState.builtTracksThisTurn === 0;
       const neighbors = getBuildableNeighbors(point, board, playerId, allowRedirect);
+
+      debugLog.verbose(`[트랙 건설 디버그] 기점 (${point.col},${point.row}): 이웃 ${neighbors.length}개 발견 (allowRedirect=${allowRedirect})`);
+
       for (const neighbor of neighbors) {
         const existingTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor.coord));
         // 이미 다른 사람의 트랙이 있거나, 내 트랙인데 'simple'이 아니면 스킵

@@ -735,7 +735,8 @@ function findAllPaths(
     current: HexCoord,
     path: HexCoord[],
     visited: Set<string>,
-    linkCount: number
+    linkCount: number,
+    entryEdge?: number  // 현재 노드에 진입한 엣지 (복합 트랙 경로 분리용)
   ) {
     // 목적지 도착
     if (hexCoordsEqual(current, end) && linkCount > 0) {
@@ -743,7 +744,8 @@ function findAllPaths(
       return;
     }
 
-    const neighbors = getConnectedNeighbors(current, board, playerId, visited);
+    // entryEdge를 전달하여 복합 트랙에서 올바른 경로만 사용
+    const neighbors = getConnectedNeighbors(current, board, playerId, visited, entryEdge);
 
     for (const neighbor of neighbors) {
       // 링크 카운트: "완성된 철도 링크" = 도시/마을 사이의 연결 (중간 트랙 수 무관)
@@ -757,11 +759,16 @@ function findAllPaths(
         continue;
       }
 
+      // 다음 노드의 entryEdge 계산
+      const edgeFromCurrent = getConnectingEdge(current, neighbor);
+      const neighborEntryEdge = edgeFromCurrent !== null ? getOppositeEdge(edgeFromCurrent) : undefined;
+
       const neighborKey = hexToKey(neighbor);
       visited.add(neighborKey);
       path.push(neighbor);
 
-      dfs(neighbor, path, visited, newLinkCount);
+      // entryEdge를 전달하여 복합 트랙 경로 유지
+      dfs(neighbor, path, visited, newLinkCount, neighborEntryEdge);
 
       path.pop();
       visited.delete(neighborKey);
@@ -770,7 +777,7 @@ function findAllPaths(
 
   const startKey = hexToKey(start);
   const visited = new Set<string>([startKey]);
-  dfs(start, [start], visited, 0);
+  dfs(start, [start], visited, 0, undefined);  // 도시에서 시작이므로 entryEdge = undefined
 
   return allPaths;
 }

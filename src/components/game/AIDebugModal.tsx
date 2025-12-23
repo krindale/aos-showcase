@@ -8,11 +8,12 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Activity, Target, Route, Hammer, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { X, Activity, Target, Route, Hammer, ChevronDown, ChevronUp, RefreshCw, Settings } from 'lucide-react';
 import { useGameStore } from '@/store/gameStore';
 import { getAIReport } from '@/ai/debug';
 import type { AIDebugReport, ScenarioScore, TargetRouteAnalysis } from '@/ai/debug';
 import type { PlayerId } from '@/types/game';
+import { getDebugConfig, toggleDebugCategory, subscribeDebugConfig, type DebugConfig } from '@/utils/debugConfig';
 
 interface AIDebugModalProps {
   isOpen: boolean;
@@ -20,7 +21,7 @@ interface AIDebugModalProps {
   playerId: PlayerId;
 }
 
-type TabType = 'strategy' | 'phase' | 'path' | 'track';
+type TabType = 'strategy' | 'phase' | 'path' | 'track' | 'logs';
 
 export default function AIDebugModal({ isOpen, onClose, playerId }: AIDebugModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('strategy');
@@ -57,6 +58,7 @@ export default function AIDebugModal({ isOpen, onClose, playerId }: AIDebugModal
     { id: 'phase', label: 'Phase', icon: <Target size={16} /> },
     { id: 'path', label: '경로', icon: <Route size={16} /> },
     { id: 'track', label: '트랙', icon: <Hammer size={16} /> },
+    { id: 'logs', label: '로그', icon: <Settings size={16} /> },
   ];
 
   return (
@@ -109,11 +111,10 @@ export default function AIDebugModal({ isOpen, onClose, playerId }: AIDebugModal
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
-                  activeTab === tab.id
-                    ? 'text-accent border-b-2 border-accent bg-accent/10'
-                    : 'text-foreground-secondary hover:text-foreground hover:bg-accent/5'
-                }`}
+                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${activeTab === tab.id
+                  ? 'text-accent border-b-2 border-accent bg-accent/10'
+                  : 'text-foreground-secondary hover:text-foreground hover:bg-accent/5'
+                  }`}
               >
                 {tab.icon}
                 {tab.label}
@@ -139,6 +140,7 @@ export default function AIDebugModal({ isOpen, onClose, playerId }: AIDebugModal
                 {activeTab === 'phase' && <PhaseTab report={report} />}
                 {activeTab === 'path' && <PathTab report={report} />}
                 {activeTab === 'track' && <TrackTab report={report} />}
+                {activeTab === 'logs' && <LogsTab />}
               </>
             )}
           </div>
@@ -634,6 +636,117 @@ function TrackTab({ report }: { report: AIDebugReport }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// 로그 설정 탭
+function LogsTab() {
+  const [config, setConfig] = useState<DebugConfig>(getDebugConfig());
+
+  useEffect(() => {
+    const unsubscribe = subscribeDebugConfig((newConfig) => {
+      setConfig({ ...newConfig });
+    });
+    return unsubscribe;
+  }, []);
+
+  const logCategories = [
+    {
+      key: 'preparation' as keyof DebugConfig,
+      label: '준비 단계',
+      description: '주식 발행, 경매, 행동 선택',
+    },
+    {
+      key: 'trackBuilding' as keyof DebugConfig,
+      label: '트랙 건설',
+      description: '트랙 건설, 복합 트랙',
+    },
+    {
+      key: 'goodsMovement' as keyof DebugConfig,
+      label: '물품 운송',
+      description: '물품 이동, 경로 탐색',
+    },
+    {
+      key: 'turnEnd' as keyof DebugConfig,
+      label: '정산/턴 종료',
+      description: '수입 수집, 비용 지불, 수입 감소',
+    },
+    {
+      key: 'verbose' as keyof DebugConfig,
+      label: '상세 로그',
+      description: '경로 탐색, 연결 확인, 이웃 탐색 등',
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-background-tertiary rounded-lg p-4">
+        <h3 className="text-accent font-bold mb-3">콘솔 로그 설정</h3>
+        <p className="text-sm text-foreground-secondary mb-4">
+          브라우저 개발자 도구 콘솔에 출력되는 로그를 카테고리별로 on/off 합니다.
+        </p>
+
+        <div className="space-y-3">
+          {logCategories.map((category) => (
+            <div
+              key={category.key}
+              className="flex items-center justify-between p-3 bg-background/50 rounded-lg"
+            >
+              <div>
+                <p className="font-medium text-foreground">{category.label}</p>
+                <p className="text-xs text-foreground-muted">{category.description}</p>
+              </div>
+              <button
+                onClick={() => toggleDebugCategory(category.key)}
+                className={`relative w-12 h-6 rounded-full transition-colors ${config[category.key]
+                  ? 'bg-accent'
+                  : 'bg-foreground-muted/30'
+                  }`}
+              >
+                <span
+                  className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${config[category.key] ? 'left-7' : 'left-1'
+                    }`}
+                />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-accent/20">
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                logCategories.forEach(c => {
+                  if (!config[c.key]) toggleDebugCategory(c.key);
+                });
+              }}
+              className="px-3 py-1.5 text-sm bg-accent/20 text-accent rounded-lg hover:bg-accent/30 transition-colors"
+            >
+              모두 켜기
+            </button>
+            <button
+              onClick={() => {
+                logCategories.forEach(c => {
+                  if (config[c.key]) toggleDebugCategory(c.key);
+                });
+              }}
+              className="px-3 py-1.5 text-sm bg-foreground-muted/20 text-foreground-secondary rounded-lg hover:bg-foreground-muted/30 transition-colors"
+            >
+              모두 끄기
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-background-tertiary rounded-lg p-4">
+        <h4 className="text-sm font-bold text-foreground-secondary mb-2">콘솔 명령어</h4>
+        <div className="text-xs text-foreground-muted space-y-1 font-mono bg-background/50 p-3 rounded-lg">
+          <p>showDebugConfig()  // 현재 설정 확인</p>
+          <p>setDebug(&quot;trackBuilding&quot;, true)  // 개별 설정</p>
+          <p>setAllDebug(true)  // 전체 켜기/끄기</p>
+        </div>
+      </div>
     </div>
   );
 }

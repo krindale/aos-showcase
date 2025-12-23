@@ -55,6 +55,7 @@ import {
   findFirstMovePlayer,
   isLastPlayer,
 } from '@/utils/gameLogic';
+import { debugLog } from '@/utils/debugConfig';
 
 /**
  * AI 플레이어 설정
@@ -1235,6 +1236,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const newBuiltCount = state.phaseState.builtTracksThisTurn + 1;
 
+    // 상세 건설 로그
+    debugLog.trackBuilding(`[buildTrack 성공] ${player.name} (${currentPlayer}): Turn ${state.currentTurn}, ` +
+      `(${coord.col},${coord.row}) edges=[${edges[0]},${edges[1]}], ` +
+      `${newBuiltCount}/${state.phaseState.maxTracksThisTurn}번째, ` +
+      `비용=$${cost}, 지형=${terrain}, 행동=${player.selectedAction || 'none'}`);
+
     set({
       board: {
         ...state.board,
@@ -1352,6 +1359,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
     );
 
     const newBuiltCount = state.phaseState.builtTracksThisTurn + 1;
+
+    // 상세 복합 트랙 건설 로그
+    debugLog.trackBuilding(`[buildComplexTrack 성공] ${player.name} (${currentPlayer}): Turn ${state.currentTurn}, ` +
+      `(${coord.col},${coord.row}) newEdges=[${newEdges[0]},${newEdges[1]}], ` +
+      `타입=${trackType}, 기존edges=[${existingTrack.edges[0]},${existingTrack.edges[1]}], ` +
+      `${newBuiltCount}/${state.phaseState.maxTracksThisTurn}번째, ` +
+      `비용=$${cost}, 행동=${player.selectedAction || 'none'}`);
 
     set({
       board: {

@@ -258,12 +258,17 @@ AI는 **객체 지향 아키텍처**로 설계되어 있으며, 각 AI 플레이
 
 고정된 시나리오 대신, AI는 보드 위의 물품 배치를 분석하여 가장 가치 있는 배달 경로를 실시간으로 선택합니다.
 
-1. **상태 분석 (`analyzer.ts`)**: A* 알고리즘을 사용하여 목표 도시까지의 최적 경로와 건설 비용을 계산합니다.
+1. **상태 분석 (`analyzer.ts`)**: A* 알고리즘을 사용하여 목표 도시까지의 최적 경로와 건설 비용을 계산합니다. 복합 트랙(crossing/coexist)의 독립 경로를 올바르게 처리하기 위해 `entryEdge`를 추적합니다.
 2. **전략 선택 (`selector.ts`)**: 배달 가능성, 기대 수입, 상대방의 방해 요소를 고려하여 목표 경로(Target Route)를 설정합니다.
 3. **Phase별 지능형 결정**:
    - `issueShares`: 전략 실행에 필요한 비용과 예상 수입을 비교하여 주식 발행량을 최적화합니다.
-   - `buildTrack`: 목표 경로를 완성하기 위해 방향(Edge) 보너스와 페널티가 포함된 상세 평가 로직을 사용합니다.
+   - `buildTrack`: 목표 경로를 완성하기 위해 방향(Edge) 보너스와 페널티가 포함된 상세 평가 로직을 사용합니다. **타사 트랙으로 이미 완성된 경로 감지 및 대체 경로 자동 탐색**을 지원합니다.
    - `moveGoods`: 자신의 트랙 사용을 극대화하면서 가장 높은 수입을 주는 배달을 선택합니다.
+
+#### 트랙 건설 고급 기능
+
+- **네트워크 확장 모드**: 배달 가능한 화물이 없을 때 가장 가까운 미연결 도시로 자동 확장 (`findNetworkExpansionTarget`)
+- **복합 트랙 평가**: 상대 트랙 위에 crossing/coexist 트랙 건설 시 유리한 경우 보너스 부여
 
 #### AI 디버깅 시스템
 
@@ -275,6 +280,25 @@ debugAI(state, "player2");       // 특정 플레이어의 모든 결정 분석
 getAIReport();                   // 현재 게임 상태에 대한 종합 AI 리포트
 debugStrategy("player2");       // 현재 전략 및 경로 분석 상세
 debugPaths("player2");          // 최적 경로 탐색 결과 시각화
+```
+
+#### 로그 카테고리별 On/Off 토글
+
+`window.DEBUG_CONFIG` 또는 헬퍼 함수를 통해 로그 출력을 제어할 수 있습니다.
+
+| 카테고리 | 설명 | 기본값 |
+| :--- | :--- | :---: |
+| `preparation` | issueShares, auction, selectActions | OFF |
+| `trackBuilding` | 트랙 건설 결정 및 후보 평가 | ON |
+| `goodsMovement` | 물품 운송 결정 | OFF |
+| `turnEnd` | 정산/수입감소/턴 종료 | OFF |
+| `verbose` | 경로 탐색, 연결 확인 등 상세 로그 | OFF |
+
+```javascript
+// 콘솔 헬퍼 함수
+showDebugConfig();                   // 현재 설정 상태 확인
+setDebug("trackBuilding", true);     // 특정 카테고리 on/off
+setAllDebug(true);                   // 모든 로그 on/off
 ```
 
 #### AI 트랙 건설 로직 (상세)

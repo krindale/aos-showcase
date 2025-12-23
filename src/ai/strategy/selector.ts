@@ -15,6 +15,7 @@ import {
 } from './analyzer';
 import { hexDistance } from '@/utils/hexGrid';
 import { getCurrentRoute, setCurrentRoute, clearCurrentRoutes } from './state';
+import { debugLog } from '@/utils/debugConfig';
 
 /**
  * 게임 시작 시 또는 턴 시작 시 최적 경로 탐색
@@ -39,9 +40,9 @@ export function getNextTargetRoute(
 
   if (opportunities.length === 0) {
     if (allOpportunities.length > 0) {
-      console.log(`[AI 경로] ${player.name}: 모든 배달 기회가 이미 연결되어 있음`);
+      debugLog.trackBuilding(`[AI 경로] ${player.name}: 모든 배달 기회가 이미 연결되어 있음`);
     } else {
-      console.log(`[AI 경로] ${player.name}: 배달 가능한 화물 없음`);
+      debugLog.trackBuilding(`[AI 경로] ${player.name}: 배달 가능한 화물 없음`);
     }
     return findNetworkExpansionTarget(state, playerId);
   }
@@ -116,7 +117,7 @@ export function getNextTargetRoute(
   });
 
   if (reachableOpportunities.length === 0) {
-    console.log(`[AI 경로] ${player.name}: 엔진 레벨(${player.engineLevel}) 내 도달 가능 경로 없음`);
+    debugLog.trackBuilding(`[AI 경로] ${player.name}: 엔진 레벨(${player.engineLevel}) 내 도달 가능 경로 없음`);
     // 가장 가까운 기회 선택 (엔진 업그레이드 필요)
     const best = opportunities[0];
     const route: DeliveryRoute = {
@@ -124,7 +125,7 @@ export function getNextTargetRoute(
       to: best.targetCityId,
       priority: 1,
     };
-    console.log(`[AI 경로] ${player.name}: ${best.sourceCityId}→${best.targetCityId} (${best.cubeColor} 화물, 거리 ${best.distance}, 엔진 업그레이드 필요)`);
+    debugLog.trackBuilding(`[AI 경로] ${player.name}: ${best.sourceCityId}→${best.targetCityId} (${best.cubeColor} 화물, 거리 ${best.distance}, 엔진 업그레이드 필요)`);
     setCurrentRoute(playerId, route);
     return route;
   }
@@ -145,14 +146,14 @@ export function getNextTargetRoute(
         for (const segment of segments) {
           const segmentProgress = getRouteProgress(state, playerId, segment);
           if (segmentProgress < 1.0 && connectedCities.includes(segment.from)) {
-            console.log(`[AI 경로] ${player.name}: ${segment.from}→${segment.to} (${opp.cubeColor} 화물, 세그먼트)`);
+            debugLog.trackBuilding(`[AI 경로] ${player.name}: ${segment.from}→${segment.to} (${opp.cubeColor} 화물, 세그먼트)`);
             setCurrentRoute(playerId, segment);
             return segment;
           }
         }
       }
 
-      console.log(`[AI 경로] ${player.name}: ${opp.sourceCityId}→${opp.targetCityId} (${opp.cubeColor} 화물, 거리 ${opp.distance})`);
+      debugLog.trackBuilding(`[AI 경로] ${player.name}: ${opp.sourceCityId}→${opp.targetCityId} (${opp.cubeColor} 화물, 거리 ${opp.distance})`);
       setCurrentRoute(playerId, route);
       return route;
     }
@@ -172,7 +173,7 @@ export function getNextTargetRoute(
   if (segments.length > 1) {
     // 첫 트랙이면 첫 번째 세그먼트 반환
     if (playerTracks.length === 0) {
-      console.log(`[AI 경로] ${player.name}: ${segments[0].from}→${segments[0].to} (${best.cubeColor} 화물, 첫 세그먼트)`);
+      debugLog.trackBuilding(`[AI 경로] ${player.name}: ${segments[0].from}→${segments[0].to} (${best.cubeColor} 화물, 첫 세그먼트)`);
       setCurrentRoute(playerId, segments[0]);
       return segments[0];
     }
@@ -181,14 +182,14 @@ export function getNextTargetRoute(
     for (const segment of segments) {
       const segmentProgress = getRouteProgress(state, playerId, segment);
       if (segmentProgress < 1.0) {
-        console.log(`[AI 경로] ${player.name}: ${segment.from}→${segment.to} (${best.cubeColor} 화물, 미완성 세그먼트)`);
+        debugLog.trackBuilding(`[AI 경로] ${player.name}: ${segment.from}→${segment.to} (${best.cubeColor} 화물, 미완성 세그먼트)`);
         setCurrentRoute(playerId, segment);
         return segment;
       }
     }
   }
 
-  console.log(`[AI 경로] ${player.name}: ${best.sourceCityId}→${best.targetCityId} (${best.cubeColor} 화물, 거리 ${best.distance})`);
+  debugLog.trackBuilding(`[AI 경로] ${player.name}: ${best.sourceCityId}→${best.targetCityId} (${best.cubeColor} 화물, 거리 ${best.distance})`);
   setCurrentRoute(playerId, route);
   return route;
 }
@@ -214,7 +215,7 @@ function findNetworkExpansionTarget(
   );
 
   if (unconnectedCities.length === 0) {
-    console.log(`[AI 경로] ${player.name}: 모든 도시 연결됨, 네트워크 확장 불필요`);
+    debugLog.trackBuilding(`[AI 경로] ${player.name}: 모든 도시 연결됨, 네트워크 확장 불필요`);
     return null;
   }
 
@@ -235,7 +236,7 @@ function findNetworkExpansionTarget(
       to: nearestCity.id,
       priority: 2,
     };
-    console.log(`[AI 경로] ${player.name}: 네트워크 확장 ${route.from}→${route.to}`);
+    debugLog.trackBuilding(`[AI 경로] ${player.name}: 네트워크 확장 ${route.from}→${route.to}`);
     setCurrentRoute(playerId, route);
     return route;
   }
@@ -262,7 +263,7 @@ function findNetworkExpansionTarget(
       to: nearestCity.id,
       priority: 2,
     };
-    console.log(`[AI 경로] ${player.name}: 네트워크 확장 ${route.from}→${route.to}`);
+    debugLog.trackBuilding(`[AI 경로] ${player.name}: 네트워크 확장 ${route.from}→${route.to}`);
     setCurrentRoute(playerId, route);
     return route;
   }
@@ -292,7 +293,7 @@ export function reevaluateStrategy(
   // 현재 경로가 완성되었으면 새 경로 탐색
   const progress = getRouteProgress(state, playerId, currentRoute);
   if (progress >= 1.0) {
-    console.log(`[AI 경로] ${player.name}: 경로 ${currentRoute.from}→${currentRoute.to} 완성됨, 새 경로 탐색`);
+    debugLog.trackBuilding(`[AI 경로] ${player.name}: 경로 ${currentRoute.from}→${currentRoute.to} 완성됨, 새 경로 탐색`);
     getNextTargetRoute(state, playerId);
     return;
   }
@@ -304,13 +305,13 @@ export function reevaluateStrategy(
   );
 
   if (!hasMatchingCargo) {
-    console.log(`[AI 경로] ${player.name}: 경로 ${currentRoute.from}→${currentRoute.to}에 화물 없음, 새 경로 탐색`);
+    debugLog.trackBuilding(`[AI 경로] ${player.name}: 경로 ${currentRoute.from}→${currentRoute.to}에 화물 없음, 새 경로 탐색`);
     getNextTargetRoute(state, playerId);
     return;
   }
 
   // 현재 경로 유지
-  console.log(`[AI 경로] ${player.name}: 현재 경로 ${currentRoute.from}→${currentRoute.to} 유지 (진행도: ${(progress * 100).toFixed(0)}%)`);
+  debugLog.trackBuilding(`[AI 경로] ${player.name}: 현재 경로 ${currentRoute.from}→${currentRoute.to} 유지 (진행도: ${(progress * 100).toFixed(0)}%)`);
 }
 
 /**

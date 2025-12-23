@@ -1,4 +1,5 @@
 // 헥스 그리드 유틸리티 함수
+import { debugLog } from '@/utils/debugConfig';
 // GameBoardPreview.tsx에서 추출
 
 import { HexCoord, BoardState, PlayerId, CityColor, City } from '@/types/game';
@@ -536,12 +537,15 @@ export function getExitDirections(
  */
 /**
  * 특정 지점에서 연결된 인접 헥스들 찾기
+ * 
+ * @param entryEdge 현재 헥스에 들어온 엣지 (복합 트랙에서 같은 경로만 따라가기 위해 필요)
  */
 export function getConnectedNeighbors(
   currentCoord: HexCoord,
   board: BoardState,
   playerId?: PlayerId | null,
-  visitedKey: Set<string> = new Set()
+  visitedKey: Set<string> = new Set(),
+  entryEdge?: number  // 어느 방향에서 들어왔는지 (복합 트랙 처리용)
 ): HexCoord[] {
   const neighbors: HexCoord[] = [];
 
@@ -568,42 +572,68 @@ export function getConnectedNeighbors(
       }
 
       for (const t of neighborTracks) {
-        const entryEdge = getOppositeEdge(edge);
+        const neighborEntryEdge = getOppositeEdge(edge);
 
         // 1. 기본 경로 확인
-        if (t.edges.includes(entryEdge)) {
+        if (t.edges.includes(neighborEntryEdge)) {
           neighbors.push(neighbor);
           break; // 한 쪽이라도 연결되면 이웃으로 인정
         }
 
         // 2. 복합 트랙의 보조 경로 확인
-        if (t.secondaryEdges && t.secondaryEdges.includes(entryEdge)) {
+        if (t.secondaryEdges && t.secondaryEdges.includes(neighborEntryEdge)) {
           neighbors.push(neighbor);
           break;
         }
       }
     }
   } else if (currentTrack) {
-    // 트랙에서: 트랙의 모든 경로(기본+보조) 확인
+    // 트랙에서: 트랙의 경로를 따라 이동
+    // [핵심 수정] 복합 트랙에서는 같은 경로(edges 또는 secondaryEdges) 내에서만 이동 가능
+
     let currentCoordTracks = board.trackTiles.filter(t => hexCoordsEqual(t.coord, currentCoord));
     if (playerId) {
-      currentCoordTracks = currentCoordTracks.filter(t => t.owner === playerId);
+      currentCoordTracks = currentCoordTracks.filter(t => t.owner === playerId || t.secondaryOwner === playerId);
     }
 
-    // 현재 헥스에 있는 모든 가능한 출구 방향과 해당 소유자 수집
+    // 사용 가능한 출구 엣지와 해당 소유자 수집
+    // [핵심] entryEdge가 주어지면, 해당 엣지가 속한 경로의 다른 엣지만 출구로 사용
     const outgoingEdgesAndOwners = new Map<number, Set<PlayerId>>();
+
     currentCoordTracks.forEach(t => {
+      // 기본 경로 (edges) 처리
       if (t.owner) {
-        t.edges.forEach(e => {
-          if (!outgoingEdgesAndOwners.has(e)) outgoingEdgesAndOwners.set(e, new Set());
-          outgoingEdgesAndOwners.get(e)!.add(t.owner!);
-        });
-      }
-      if (t.secondaryEdges && t.secondaryOwner) {
-        t.secondaryEdges.forEach(e => {
-          if (!outgoingEdgesAndOwners.has(e)) outgoingEdgesAndOwners.set(e, new Set());
-          outgoingEdgesAndOwners.get(e)!.add(t.secondaryOwner!);
-        });
+        const isEntryInPrimary = entryEdge !== undefined && t.edges.includes(entryEdge);
+        const isEntryInSecondary = entryEdge !== undefined && t.secondaryEdges?.includes(entryEdge);
+
+        // entryEdge가 없거나, entryEdge가 primary 경로에 있으면 primary 출구 사용 가능
+        if (entryEdge === undefined || isEntryInPrimary) {
+          // primary 경로가 playerId와 일치하는지 확인
+          if (!playerId || t.owner === playerId) {
+            t.edges.forEach(e => {
+              // entryEdge와 다른 엣지만 출구로 사용 (들어온 방향으로 되돌아가지 않음)
+              if (e !== entryEdge) {
+                if (!outgoingEdgesAndOwners.has(e)) outgoingEdgesAndOwners.set(e, new Set());
+                outgoingEdgesAndOwners.get(e)!.add(t.owner!);
+              }
+            });
+          }
+        }
+
+        // entryEdge가 없거나, entryEdge가 secondary 경로에 있으면 secondary 출구 사용 가능
+        if (t.secondaryEdges && t.secondaryOwner) {
+          if (entryEdge === undefined || isEntryInSecondary) {
+            // secondary 경로가 playerId와 일치하는지 확인
+            if (!playerId || t.secondaryOwner === playerId) {
+              t.secondaryEdges.forEach(e => {
+                if (e !== entryEdge) {
+                  if (!outgoingEdgesAndOwners.has(e)) outgoingEdgesAndOwners.set(e, new Set());
+                  outgoingEdgesAndOwners.get(e)!.add(t.secondaryOwner!);
+                }
+              });
+            }
+          }
+        }
       }
     });
 
@@ -630,27 +660,28 @@ export function getConnectedNeighbors(
       const currentEdgeOwners = outgoingEdgesAndOwners.get(edge) || new Set<PlayerId>();
 
       for (const t of neighborTracks) {
-        const entryEdge = getOppositeEdge(edge);
+        const neighborEntryEdge = getOppositeEdge(edge);
 
         // 1. 소유권 확인: 현재 헥스의 해당 엣지를 나가는 소유자 중 하나가 이웃 트랙의 해당 엣지 소유자와 같아야 함
-        const isBasicMatch = t.edges.includes(entryEdge) && t.owner && currentEdgeOwners.has(t.owner);
-        const isSecondaryMatch = t.secondaryEdges && t.secondaryEdges.includes(entryEdge) && t.secondaryOwner && currentEdgeOwners.has(t.secondaryOwner);
+        // [핵심] 이웃 트랙에서도 entryEdge가 속한 경로의 소유자와 일치해야 함
+        const isBasicMatch = t.edges.includes(neighborEntryEdge) && t.owner && currentEdgeOwners.has(t.owner);
+        const isSecondaryMatch = t.secondaryEdges && t.secondaryEdges.includes(neighborEntryEdge) && t.secondaryOwner && currentEdgeOwners.has(t.secondaryOwner);
 
         // 2. 만약 특정 플레이어의 망을 탐색 중이라면(playerId 존재), 해당 플레이어 소유여야 함
         const matchesRequest = !playerId || t.owner === playerId || t.secondaryOwner === playerId;
 
         if ((isBasicMatch || isSecondaryMatch) && matchesRequest) {
-          console.log(`  edge ${edge}: 이웃 (${neighbor.col}, ${neighbor.row}) 트랙 확인, 소유자 매칭 성공! 필요한 entryEdge: ${entryEdge}`);
+          debugLog.verbose(`  edge ${edge}: 이웃 (${neighbor.col}, ${neighbor.row}) 트랙 확인, 소유자 매칭 성공! 필요한 entryEdge: ${neighborEntryEdge}`);
           neighbors.push(neighbor);
           break;
         }
       }
     }
   } else {
-    console.log(`[탐색 불가] 도시도 아니고 완성된 트랙도 아님`);
+    debugLog.verbose(`[탐색 불가] 도시도 아니고 완성된 트랙도 아님`);
   }
 
-  console.log(`[getConnectedNeighbors] 결과: ${neighbors.length}개 이웃 발견`);
+  debugLog.verbose(`[getConnectedNeighbors] 결과: ${neighbors.length}개 이웃 발견`);
   return neighbors;
 }
 

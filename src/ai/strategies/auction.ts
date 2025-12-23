@@ -5,6 +5,7 @@
  */
 
 import { GameState, PlayerId } from '@/types/game';
+import { debugLog } from '@/utils/debugConfig';
 
 export type AuctionDecision =
   | { action: 'bid'; amount: number }
@@ -34,7 +35,7 @@ export function decideAuctionBid(state: GameState, playerId: PlayerId): AuctionD
   if (!auction) {
     // 현금이 충분하면 $1로 시작
     if (player.cash >= 1) {
-      console.log(`[AI 경매] ${player.name}: 경매 시작 $1`);
+      debugLog.preparation(`[Phase II: 경매] ${player.name}: 경매 시작 $1`);
       return { action: 'bid', amount: 1 };
     }
     return { action: 'pass' };
@@ -43,7 +44,7 @@ export function decideAuctionBid(state: GameState, playerId: PlayerId): AuctionD
   // 경매 완료 조건 체크 - 혼자 남았으면 경매 완료
   const activePlayers = state.playerOrder.filter(p => !auction.passedPlayers.includes(p));
   if (activePlayers.length <= 1) {
-    console.log(`[AI 경매] ${player.name}: 경매 완료 대기 (혼자 남음)`);
+    debugLog.preparation(`[Phase II: 경매] ${player.name}: 경매 완료 대기 (혼자 남음)`);
     // 'complete' 액션으로 executeAITurn에서 resolveAuction 호출하도록 함
     return { action: 'complete' } as AuctionDecision;
   }
@@ -57,20 +58,20 @@ export function decideAuctionBid(state: GameState, playerId: PlayerId): AuctionD
   if (player.selectedAction === 'turnOrder' && !player.turnOrderPassUsed) {
     // 현재 입찰이 높으면 스킵
     if (currentBid >= maxBid * 0.5) {
-      console.log(`[AI 경매] ${player.name}: Turn Order 스킵 사용`);
+      debugLog.preparation(`[Phase II: 경매] ${player.name}: Turn Order 스킵 사용`);
       return { action: 'skip' };
     }
   }
 
   // 현재 입찰보다 높게 입찰할 수 없으면 포기
   if (currentBid >= maxBid) {
-    console.log(`[AI 경매] ${player.name}: 포기 (현재 $${currentBid} >= 최대 $${maxBid})`);
+    debugLog.preparation(`[Phase II: 경매] ${player.name}: 포기 (현재 $${currentBid} >= 최대 $${maxBid})`);
     return { action: 'pass' };
   }
 
   // 입찰 금액 결정 (현재 입찰 + 1)
   const bidAmount = currentBid + 1;
 
-  console.log(`[AI 경매] ${player.name}: 입찰 $${bidAmount}`);
+  debugLog.preparation(`[Phase II: 경매] ${player.name}: 입찰 $${bidAmount}`);
   return { action: 'bid', amount: bidAmount };
 }

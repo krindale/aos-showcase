@@ -1,6 +1,7 @@
 import { GameState, PlayerId, HexCoord, CubeColor, BoardState, GAME_CONSTANTS } from '@/types/game';
+import { debugLog } from '@/utils/debugConfig';
 import { DeliveryOpportunity, DeliveryRoute, AIStrategy } from './types';
-import { getNeighborHex, hexCoordsEqual, hexDistance, getConnectedNeighbors, hexToKey } from '@/utils/hexGrid';
+import { getNeighborHex, hexCoordsEqual, hexDistance, getConnectedNeighbors, hexToKey, getConnectingEdge, getOppositeEdge } from '@/utils/hexGrid';
 
 // 경로 캐시 (출발지-목적지 → 경로)
 const pathCache: Map<string, HexCoord[]> = new Map();
@@ -450,13 +451,18 @@ export function getRouteProgress(
   if (totalDistance === 0) return 1;
 
   // 실제 연결 여부 확인 - 완성되면 1.0 반환
-  if (isRouteComplete(state, route)) {
-    console.log(`[AI 경로] ${route.from}→${route.to} 경로 완성됨!`);
+  // [핵심 수정] 
+  // - 첫 트랙 건설 시 (내 트랙이 0개): 누구든 완성한 경로는 피함
+  // - 이후 건설 시: 자신의 트랙으로만 완성 여부 확인
+  const playerTracks = board.trackTiles.filter(t => t.owner === playerId);
+  const checkPlayerId = playerTracks.length === 0 ? undefined : playerId;
+
+  if (isRouteComplete(state, route, checkPlayerId)) {
+    debugLog.verbose(`[AI 경로] ${route.from}→${route.to} 경로 완성됨!`);
     return 1.0;
   }
 
-  // 플레이어 트랙 중 경로에 있는 것 찾기
-  const playerTracks = board.trackTiles.filter(t => t.owner === playerId);
+  // 플레이어 트랙 중 경로에 있는 것 찾기 (위에서 이미 선언됨)
 
   if (playerTracks.length === 0) return 0;
 
@@ -788,7 +794,7 @@ export function findBestEdgeToCity(
   // 단, path에 출발지가 포함되어 있으므로 실제 건설할 트랙 수는 path.length
   const canComplete = best.distance <= remainingTracks + 1;
 
-  console.log(`[AI 트랙] 최적 엣지 선택: edge ${best.edge}, 거리=${best.distance}, 완성가능=${canComplete}`);
+  debugLog.verbose(`[AI 트랙] 최적 엣지 선택: edge ${best.edge}, 거리=${best.distance}, 완성가능=${canComplete}`);
 
   return {
     path: best.path,
@@ -1026,8 +1032,29 @@ export function evaluateTrackForRoute(
         score -= 2000;
         intention = '목적지 비껴가기 금지';
       } else {
-        score += 500;
-        intention = '목적 도시 연결 완성';
+        // [핵심 수정] 목적지 연결 완성 보너스는 출발지에서 연결되어 있을 때만
+        // 즉, 최적 경로 상에서 이 위치 바로 앞까지 내 트랙이 있어야 함
+        let maxConnectedIdx = -1;
+        connectedPositions.forEach(idx => {
+          if (idx > maxConnectedIdx) maxConnectedIdx = idx;
+        });
+
+        // 이 트랙이 경로의 마지막 위치이고, 바로 앞까지 연결되어 있는 경우에만 보너스
+        const isLastOnPath = positionOnPath === optimalPath.length - 1;
+        const isConnectedToSource = maxConnectedIdx >= positionOnPath - 1;
+
+        if (isOnPath && isLastOnPath && isConnectedToSource) {
+          score += 500;
+          intention = '목적 도시 연결 완성';
+        } else if (isOnPath && isLastOnPath) {
+          // 경로 마지막이지만 연결 안 됨 - 낮은 보너스
+          score += 50;
+          intention = '목적 도시 인접 (미연결)';
+        } else {
+          // 경로 상에 없거나 마지막이 아닌 경우
+          score += 30;
+          intention = '목적 도시 인접';
+        }
       }
     }
 
@@ -1162,14 +1189,14 @@ export function analyzeOpponentTracks(
     }
   });
 
-  // 로그 출력
-  if (opponentTracks.length > 0) {
-    const oppName = state.players[opponentId]?.name || '상대';
-    console.log(`[상대 분석] ${oppName}: `);
-    console.log(`  - 트랙 수: ${opponentTracks.length}`);
-    console.log(`  - 연결된 도시: ${connectedCities.join(', ') || '없음'}`);
-    console.log(`  - 목표 추정 도시: ${targetCities.join(', ') || '없음'}`);
-  }
+  // 로그 출력 (verbose 모드에서만)
+  // if (opponentTracks.length > 0) {
+  //   const oppName = state.players[opponentId]?.name || '상대';
+  //   debugLog.verbose(`[상대 분석] ${oppName}: `);
+  //   debugLog.verbose(`  - 트랙 수: ${opponentTracks.length}`);
+  //   debugLog.verbose(`  - 연결된 도시: ${connectedCities.join(', ') || '없음'}`);
+  //   debugLog.verbose(`  - 목표 추정 도시: ${targetCities.join(', ') || '없음'}`);
+  // }
 
   return {
     targetCities,
@@ -1297,7 +1324,7 @@ export function getStrategyAdjustments(
     for (const cityId of opponentAnalysis.connectedCities) {
       if (scenario.routes.includes(cityId)) {
         adjustment -= 10;  // 상대가 이미 점령한 도시 (기존 -25 → -10)
-        console.log(`[전략 조정] ${scenario.name}: ${cityId} 상대 점령 - 10점`);
+        debugLog.verbose(`[전략 조정] ${scenario.name}: ${cityId} 상대 점령 - 10점`);
       }
     }
 
@@ -1305,7 +1332,7 @@ export function getStrategyAdjustments(
     for (const cityId of opponentAnalysis.targetCities) {
       if (scenario.routes.includes(cityId)) {
         adjustment -= 5;  // 상대가 향하는 도시 (기존 -15 → -5)
-        console.log(`[전략 조정] ${scenario.name}: ${cityId} 상대 목표 - 5점`);
+        debugLog.verbose(`[전략 조정] ${scenario.name}: ${cityId} 상대 목표 - 5점`);
       }
     }
 
@@ -1368,34 +1395,43 @@ export function isRouteComplete(state: GameState, route: DeliveryRoute, playerId
   if (!sourceCity || !targetCity) return false;
 
   // BFS로 실제 연결 여부 확인
-  // hexGrid.ts의 getConnectedNeighbors가 이제 소유자별 연결을 엄격히 체크하므로,
-  // playerId를 넘겨주면 해당 플레이어의 독자적인 완성을 확인할 수 있음.
+  // [수정] 각 노드에 진입 엣지 정보를 추적하여 복합 트랙의 독립 경로 처리
+  interface BFSNode {
+    coord: HexCoord;
+    entryEdge?: number;  // 이 노드에 들어온 엣지 (도시에서 출발하면 undefined)
+  }
+
   const visited = new Set<string>();
-  const queue: HexCoord[] = [sourceCity.coord];
+  const queue: BFSNode[] = [{ coord: sourceCity.coord, entryEdge: undefined }];
   visited.add(`${sourceCity.coord.col},${sourceCity.coord.row}`);
 
   while (queue.length > 0) {
-    const current = queue.shift()!;
+    const { coord: current, entryEdge } = queue.shift()!;
+
     if (hexCoordsEqual(current, targetCity.coord)) {
-      console.log(`[isRouteComplete 디버그] ${route.from}→${route.to} 연결 찾음!`);
+      debugLog.verbose(`[isRouteComplete 디버그] ${route.from}→${route.to} 연결 찾음!`);
       return true;
     }
 
     // 만약 playerId가 없으면 '모든 누군가에 의해 완성된 링크'를 찾아야 함
     const targetPlayerId = playerId === undefined ? undefined : (playerId || null);
-    const neighbors = getConnectedNeighbors(current, board, targetPlayerId, visited);
+    const neighbors = getConnectedNeighbors(current, board, targetPlayerId, visited, entryEdge);
 
-    console.log(`[isRouteComplete 디버그] ${current.col},${current.row} 이웃: ${neighbors.length} 개`);
+    debugLog.verbose(`[isRouteComplete 디버그] ${current.col},${current.row} 이웃: ${neighbors.length} 개`);
 
     for (const neighbor of neighbors) {
       const key = `${neighbor.col},${neighbor.row}`;
       if (!visited.has(key)) {
         visited.add(key);
-        queue.push(neighbor);
+        // 다음 노드의 entryEdge: current에서 neighbor로 이동할 때 neighbor가 받는 진입 엣지
+        // current에서 neighbor 방향의 엣지를 찾고, 그 반대편이 neighbor의 진입 엣지
+        const edgeFromCurrent = getConnectingEdge(current, neighbor);
+        const neighborEntryEdge = edgeFromCurrent !== null ? getOppositeEdge(edgeFromCurrent) : undefined;
+        queue.push({ coord: neighbor, entryEdge: neighborEntryEdge });
       }
     }
   }
 
-  console.log(`[isRouteComplete 디버그] ${route.from}→${route.to} 연결 실패`);
+  debugLog.verbose(`[isRouteComplete 디버그] ${route.from}→${route.to} 연결 실패`);
   return false;
 }

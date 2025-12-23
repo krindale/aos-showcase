@@ -9,6 +9,7 @@ import { evaluateMoveValue } from '../evaluator';
 import { findReachableDestinations, findLongestPath, hexCoordsEqual } from '@/utils/hexGrid';
 import { getSelectedStrategy } from '../strategy/state';
 import { getNextTargetRoute } from '../strategy/selector';
+import { debugLog } from '@/utils/debugConfig';
 
 export type MoveGoodsDecision =
   | { action: 'move'; sourceCityId: string; cubeIndex: number; destinationCoord: HexCoord; cubeColor: CubeColor }
@@ -47,7 +48,7 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
 
   // 이미 이동했는지 확인
   if (state.phaseState.playerMoves[playerId]) {
-    console.log(`[AI 물품] ${player.name}: 이번 라운드 이동 완료`);
+    debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 이번 라운드 이동 완료`);
     return { action: 'skip' };
   }
 
@@ -136,10 +137,10 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
   const AI_MAX_ENGINE_LEVEL = 3;
   if (candidates.length === 0) {
     if (player.engineLevel < AI_MAX_ENGINE_LEVEL) {
-      console.log(`[AI 물품] ${player.name}: 엔진 업그레이드 (${player.engineLevel} → ${player.engineLevel + 1})`);
+      debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 엔진 업그레이드 (${player.engineLevel} → ${player.engineLevel + 1})`);
       return { action: 'upgradeEngine' };
     }
-    console.log(`[AI 물품] ${player.name}: 이동 불가, 스킵`);
+    debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 이동 불가, 스킵`);
     return { action: 'skip' };
   }
 
@@ -154,7 +155,7 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
   const totalScore = best.score + best.routeScore;
   const routeInfo = targetRoute ? `${targetRoute.from}→${targetRoute.to}` : '없음';
 
-  console.log(`[AI 물품] ${player.name}: ${best.cubeColor} 물품 이동 (${best.sourceCityId} → ${best.destinationCityId}), ${best.linksCount} 링크, 총점=${totalScore.toFixed(1)} (전략=${strategyName}, 경로=${routeInfo})`);
+  debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: ${best.cubeColor} 물품 이동 (${best.sourceCityId} → ${best.destinationCityId}), ${best.linksCount} 링크, 총점=${totalScore.toFixed(1)} (전략=${strategyName}, 경로=${routeInfo})`);
 
   return {
     action: 'move',

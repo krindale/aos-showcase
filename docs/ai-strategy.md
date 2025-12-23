@@ -96,13 +96,25 @@ AI는 이번 턴에 **최소 1개 이상의 화물 배달**이 가능하도록 �
 | **Optimal Path** | +100 | A* 최적 경로상에 위치 |
 | **Next Position** | +50 | 현재 망 끝에서 바로 이어지는 위치 |
 | **Correct Edge** | +80 | 엣지 방향이 목표 도시를 향함 |
+| **Continuity** | +120 | 이번 턴에 지은 마지막 트랙과 연속 |
+| **Complex Track Bonus** | +30 | 상대 트랙 위에 crossing/coexist 건설 |
 | **Wrong Direction**| -50 | 경로와 무관한 방향의 엣지 |
 | **Trap/Loop** | -500 | 막다른 길 또는 무의미한 루프 형성 |
 
-### 4.2 네트워크 확장 모드 (Expansion Mode)
-배달 가능한 화물이 없을 경우, AI는 **네트워크 확장(Network Expansion)** 모드로 전환됩니다.
-- 아직 연결되지 않은 가장 가까운 도시를 타겟으로 자동 설정합니다.
-- `priority: 2`를 부여하여 화물 배달 대비 낮은 우선순위로 관리합니다.
+### 4.2 복합 트랙 연결 로직 (Complex Track Connection)
+
+복합 트랙(crossing/coexist)에서 독립된 두 경로를 올바르게 처리하기 위해 **진입 엣지(entryEdge)** 를 추적합니다:
+
+- BFS/A* 탐색 시 각 노드에 `entryEdge`를 저장
+- 복합 트랙에서는 `entryEdge`에 연결된 경로만 유효한 통과 경로로 인정
+- 이를 통해 "다리를 통과하지 않는" 잘못된 연결을 방지
+
+### 4.3 네트워크 확장 모드 (Expansion Mode)
+
+배달 가능한 화물이 없거나 목표 경로가 타사 트랙으로 완성된 경우:
+
+1. **대체 경로 탐색**: 현재 목표를 제외한 다른 배달 목표 탐색
+2. **네트워크 확장 전환**: 대체 목표가 없으면 가장 가까운 미연결 도시를 타겟으로 설정
 
 ---
 
@@ -128,9 +140,29 @@ AI는 이번 턴에 **최소 1개 이상의 화물 배달**이 가능하도록 �
 
 실시간 분석을 위해 브라우저 콘솔 인터페이스를 제공합니다.
 
+### 6.1 분석 명령어
+
 | 명령어 | 용도 | 출력 데이터 |
 | :--- | :--- | :--- |
 | `debugAI(state, pid)` | 종합 분석 | 전략, 페이즈 결정, 경로 정보 전체 |
 | `getAIReport()` | 매크로 리포트 | 모든 플레이어의 전략적 상태 요약 |
 | `debugStrategy(pid)` | 전략 심층 분석 | DeliveryOpportunity 점수 리스트 |
 | `debugPaths(pid)` | 경로 가시화 | A* 탐색 결과 헥스 좌표 배열 |
+
+### 6.2 로그 카테고리 토글
+
+`window.DEBUG_CONFIG` 또는 헬퍼 함수로 카테고리별 로그를 제어합니다.
+
+| 카테고리 | 설명 | 기본값 |
+| :--- | :--- | :---: |
+| `preparation` | issueShares, auction, selectActions | OFF |
+| `trackBuilding` | 트랙 건설 결정 및 후보 평가 | ON |
+| `goodsMovement` | 물품 운송 결정 | OFF |
+| `turnEnd` | 정산/수입감소/턴 종료 | OFF |
+| `verbose` | 경로 탐색, 연결 확인 등 상세 로그 | OFF |
+
+```javascript
+showDebugConfig();                   // 현재 설정 상태 확인
+setDebug("trackBuilding", true);     // 특정 카테고리 on/off
+setAllDebug(true);                   // 모든 로그 on/off
+```

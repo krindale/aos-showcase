@@ -8,6 +8,7 @@ import { GameState, PlayerId, SpecialAction } from '@/types/game';
 import { countPlayerTracks } from '../evaluator';
 import { getCurrentRoute, hasSelectedStrategy } from '../strategy/state';
 import { reevaluateStrategy } from '../strategy/selector';
+import { debugLog } from '@/utils/debugConfig';
 
 /**
  * 사용 가능한 행동 목록 반환
@@ -58,7 +59,7 @@ export function decideAction(state: GameState, playerId: PlayerId): SpecialActio
 
   // 경로 없으면 재평가
   if (!hasSelectedStrategy(playerId)) {
-    console.log(`[AI 행동] ${player.name}: 경로 없음 - 초기화 및 평가 중...`);
+    debugLog.preparation(`[Phase III: 행동 선택] ${player.name}: 경로 없음 - 초기화 및 평가 중...`);
   }
   // 항상 재평가하여 상대 트랙/물품 상황 반영
   reevaluateStrategy(state, playerId);
@@ -70,20 +71,20 @@ export function decideAction(state: GameState, playerId: PlayerId): SpecialActio
   // 동적 전략: 기본 엔진 레벨 요구치 2 (1링크 배달 위해)
   const minEngineLevel = 2;
   if (player.engineLevel < minEngineLevel && available.includes('locomotive')) {
-    console.log(`[AI 행동] ${player.name}: locomotive (경로=${routeStr}, 엔진 ${player.engineLevel} < ${minEngineLevel})`);
+    debugLog.preparation(`[Phase III: 행동 선택] ${player.name}: locomotive (경로=${routeStr}, 엔진 ${player.engineLevel} < ${minEngineLevel})`);
     return 'locomotive';
   }
 
   // 트랙이 적으면 engineer 우선
   const trackCount = countPlayerTracks(state.board, playerId);
   if (trackCount < 3 && available.includes('engineer') && player.cash >= 6) {
-    console.log(`[AI 행동] ${player.name}: engineer (트랙 ${trackCount}개, 4개 건설 가능)`);
+    debugLog.preparation(`[Phase III: 행동 선택] ${player.name}: engineer (트랙 ${trackCount}개, 4개 건설 가능)`);
     return 'engineer';
   }
 
   // 첫 번째 트랙 건설 전이면 firstBuild 우선
   if (trackCount === 0 && available.includes('firstBuild')) {
-    console.log(`[AI 행동] ${player.name}: firstBuild (첫 트랙 건설)`);
+    debugLog.preparation(`[Phase III: 행동 선택] ${player.name}: firstBuild (첫 트랙 건설)`);
     return 'firstBuild';
   }
 
@@ -108,7 +109,7 @@ export function decideAction(state: GameState, playerId: PlayerId): SpecialActio
         continue;  // 현금 부족하면 스킵
       }
 
-      console.log(`[AI 행동] ${player.name}: ${action} (경로=${routeStr}, 기본 우선순위)`);
+      debugLog.preparation(`[Phase III: 행동 선택] ${player.name}: ${action} (경로=${routeStr}, 기본 우선순위)`);
       return action;
     }
   }

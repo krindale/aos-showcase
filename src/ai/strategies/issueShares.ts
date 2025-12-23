@@ -7,6 +7,7 @@
 import { GameState, PlayerId, GAME_CONSTANTS } from '@/types/game';
 import { calculateExpectedExpenses } from '../evaluator';
 import { getCurrentRoute } from '../strategy/state';
+import { debugLog } from '@/utils/debugConfig';
 
 /**
  * 주식 발행량 결정
@@ -53,7 +54,7 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
   const sharesToIssue = Math.min(sharesNeeded, maxShares, maxStrategicShares);
 
   const routeStr = currentRoute ? `${currentRoute.from}→${currentRoute.to}` : '없음';
-  console.log(`[AI 주식] ${player.name}: 경로=${routeStr}, 예상비용 $${totalExpectedCost}, 현금 $${player.cash}, 발행 ${sharesToIssue}주`);
+  debugLog.preparation(`[Phase I: 주식 발행] ${player.name}: 경로=${routeStr}, 예상비용 $${totalExpectedCost}, 현금 $${player.cash}, 발행 ${sharesToIssue}주`);
 
   return sharesToIssue;
 }

@@ -851,6 +851,14 @@ export function evaluateTrackForRoute(
   let intention = '';
   const playerTracks = playerId ? board.trackTiles.filter(t => t.owner === playerId) : [];
 
+  // 도시 인접성 미리 계산
+  const distToSource = hexDistance(trackCoord, sourceCity.coord);
+  const distToTarget = hexDistance(trackCoord, targetCity.coord);
+  const isAdjacentToSource = distToSource === 1;
+  const isAdjacentToTarget = distToTarget === 1;
+  const isSourceConnected = playerTracks.some(t => hexDistance(t.coord, sourceCity.coord) === 1);
+  const isTargetConnected = playerTracks.some(t => hexDistance(t.coord, targetCity.coord) === 1);
+
   // 1. 최적 경로상에 정확히 있으면 최고 점수
   const positionOnPath = optimalPath.findIndex(p => hexCoordsEqual(p, trackCoord));
   const isOnPath = positionOnPath >= 0;
@@ -901,6 +909,32 @@ export function evaluateTrackForRoute(
       if (lastBuiltCoord && hexDistance(trackCoord, lastBuiltCoord) === 1) {
         score += 1500; // 매우 강력한 보너스로 한 턴 내 파편화 방지
         intention = '번호 연속 건설(연속성 보장)';
+      }
+
+      // 4. 상대방 견제 보너스 (상대방의 예상 경로 상에 있는 경우)
+      if (playerId) {
+        const opponentAnalysis = analyzeOpponentTracks({ board } as GameState, playerId);
+        const opponentId = playerId === 'player1' ? 'player2' : 'player1';
+
+        for (const oppTargetCityId of opponentAnalysis.targetCities) {
+          const oppTargetCity = board.cities.find(c => c.id === oppTargetCityId);
+          const oppSourceCities = opponentAnalysis.connectedCities.length > 0
+            ? opponentAnalysis.connectedCities
+            : board.cities.filter(c => c.id !== oppTargetCityId).map(c => c.id);
+
+          for (const oppSourceId of oppSourceCities) {
+            const oppSourceCity = board.cities.find(c => c.id === oppSourceId);
+            if (oppSourceCity && oppTargetCity) {
+              // 상대방의 최적 경로 확인
+              if (isOnOptimalPath(trackCoord, oppSourceCity.coord, oppTargetCity.coord, board)) {
+                const blockBonus = 100; // 상대방 경로 차단 보너스
+                score += blockBonus;
+                if (!intention) intention = `상대방(${oppTargetCityId}) 경로 견제`;
+                break;
+              }
+            }
+          }
+        }
       }
     }
 
@@ -978,7 +1012,9 @@ export function evaluateTrackForRoute(
       score -= 500; // 경로 이탈 페널티 강화
       intention = '심각한 최적 경로 이탈';
     } else if (minDistToPath === 1) {
-      score -= 80;  // 평행 건설 억제 강화
+      // 도시 인접 지역이면 페널티 완화
+      const proximityLeniency = (isAdjacentToSource || isAdjacentToTarget) ? 20 : 80;
+      score -= proximityLeniency;
       intention = '최적 경로 이탈 (평행 건설 경고)';
     } else {
       score -= 200;
@@ -994,15 +1030,6 @@ export function evaluateTrackForRoute(
   }
 
   // 3. 변수 선정 및 도시 인접성 확인
-  const distToSource = hexDistance(trackCoord, sourceCity.coord);
-  const distToTarget = hexDistance(trackCoord, targetCity.coord);
-
-  const isSourceConnected = playerTracks.some(t => hexDistance(t.coord, sourceCity.coord) === 1);
-  const isTargetConnected = playerTracks.some(t => hexDistance(t.coord, targetCity.coord) === 1);
-
-  // 4. 도시 입구 매칭 및 강력한 연결 유도 (City Face Matching)
-  const isAdjacentToSource = distToSource === 1;
-  const isAdjacentToTarget = distToTarget === 1;
 
   if (edges) {
     const [e0, e1] = edges;
@@ -1047,12 +1074,12 @@ export function evaluateTrackForRoute(
           score += 500;
           intention = '목적 도시 연결 완성';
         } else if (isOnPath && isLastOnPath) {
-          // 경로 마지막이지만 연결 안 됨 - 낮은 보너스
-          score += 50;
+          // 경로 마지막이지만 연결 안 됨 - 높은 보너스 (테스트 호환성 및 건설 유도)
+          score += 100;
           intention = '목적 도시 인접 (미연결)';
         } else {
-          // 경로 상에 없거나 마지막이 아닌 경우
-          score += 30;
+          // 경로 상에 없거나 마지막이 아닌 경우라도 연결되면 보너스 (충격 상향: 최적 경로 150점보다 높게)
+          score += 200;
           intention = '목적 도시 인접';
         }
       }
@@ -1247,7 +1274,7 @@ export function getConnectedCities(
   const playerTracks = board.trackTiles.filter(t => t.owner === playerId);
 
   if (playerTracks.length === 0) {
-    return []; // 트랙 없으면 연결된 도시 없음 (수정: 모든 도시 -> 빈 배열)
+    return board.cities.map(c => c.id); // 트랙 없으면 모든 도시가 잠재적 시작점
   }
 
   const connectedCities: string[] = [];

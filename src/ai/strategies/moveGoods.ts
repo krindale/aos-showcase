@@ -25,6 +25,7 @@ interface MoveCandidate {
   path: HexCoord[];
   score: number;
   linksCount: number;
+  ownTrackCount: number; // 자신의 트랙이 포함된 링크 수
   routeScore: number;  // 전략 경로 점수
 }
 
@@ -87,25 +88,29 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
 
         if (!path || path.length < 2) continue;
 
-        // 링크 수 계산 (경로 길이 - 1이 대략적인 링크 수)
-        const linksCount = calculateLinksInPath(path, board, playerId);
+        // 링크 수 및 내 트랙 수 계산
+        const linksCount = countTotalLinksInPath(path, board);
+        const ownTrackCount = countOwnLinksInPath(path, board, playerId);
 
         // 자신의 트랙 사용 여부
-        const usesOwnTracks = linksCount > 0;
+        const usesOwnTracks = ownTrackCount > 0;
 
-        // 기본 점수 계산
+        // 기본 점수 계산 (전체 링크 수 기반 수익 평가)
         const score = evaluateMoveValue(linksCount, usesOwnTracks);
+
+        // [추가] 내 트랙 점유율 보너스 (동일 수익일 때 내 트랙 더 많이 쓰기)
+        const trackDensityBonus = ownTrackCount * 2;
 
         // 전략 경로 점수 계산
         let routeScore = 0;
         if (strategy && targetRoute) {
           // 전략 경로와 정확히 일치하면 점수 추가
           if (city.id === targetRoute.from && destCity.id === targetRoute.to) {
-            routeScore = 12;  // 기존 30 -> 12로 하향 (수익이 2링크 이상 더 높으면 수익 우선)
+            routeScore = 12;
           }
           // 출발지 또는 목적지만 일치하면
           else if (city.id === targetRoute.from || destCity.id === targetRoute.to) {
-            routeScore = 6;   // 기존 15 -> 6으로 하향
+            routeScore = 6;
           }
           // 전략의 모든 targetRoutes와 비교
           else if (strategy.targetRoutes.some(r =>
@@ -113,7 +118,7 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
             (r.from === city.id) ||
             (r.to === destCity.id)
           )) {
-            routeScore = 4;   // 기존 10 -> 4로 하향
+            routeScore = 4;
           }
         }
 
@@ -124,8 +129,9 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
           destinationCoord: destCity.coord,
           destinationCityId: destCity.id,
           path,
-          score,
+          score: score + trackDensityBonus,
           linksCount,
+          ownTrackCount,
           routeScore,
         });
       }
@@ -133,7 +139,6 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
   }
 
   // 이동 가능한 후보가 없으면 엔진 업그레이드 고려
-  // AI는 최대 레벨 3까지만 업그레이드 (비용 효율성)
   const AI_MAX_ENGINE_LEVEL = 3;
   if (candidates.length === 0) {
     if (player.engineLevel < AI_MAX_ENGINE_LEVEL) {
@@ -144,7 +149,7 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
     return { action: 'skip' };
   }
 
-  // 총점 (기본 점수 + 경로 점수) 기준으로 정렬
+  // 총점 기준으로 정렬
   candidates.sort((a, b) => {
     const aTotalScore = a.score + a.routeScore;
     const bTotalScore = b.score + b.routeScore;
@@ -155,7 +160,7 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
   const totalScore = best.score + best.routeScore;
   const routeInfo = targetRoute ? `${targetRoute.from}→${targetRoute.to}` : '없음';
 
-  debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: ${best.cubeColor} 물품 이동 (${best.sourceCityId} → ${best.destinationCityId}), ${best.linksCount} 링크, 총점=${totalScore.toFixed(1)} (전략=${strategyName}, 경로=${routeInfo})`);
+  debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: ${best.cubeColor} 물품 이동 (${best.sourceCityId} → ${best.destinationCityId}), 링크=${best.linksCount}(내쪽=${best.ownTrackCount}), 총점=${totalScore.toFixed(1)}`);
 
   return {
     action: 'move',
@@ -167,36 +172,49 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
 }
 
 /**
- * 경로에서 플레이어 소유 링크 수 계산
+ * 경로에서 전체 링크 수 계산 (도시/마을 → 도시/마을 사이의 구간 수)
  */
-function calculateLinksInPath(
+function countTotalLinksInPath(path: HexCoord[], board: { cities: City[]; towns: { coord: HexCoord }[] }): number {
+  let links = 0;
+  for (let i = 1; i < path.length; i++) {
+    const coord = path[i];
+    if (board.cities.some(c => hexCoordsEqual(c.coord, coord)) ||
+      board.towns.some(t => hexCoordsEqual(t.coord, coord))) {
+      links++;
+    }
+  }
+  return links;
+}
+
+/**
+ * 경로에서 플레이어 소유 트랙이 포함된 링크 수 계산
+ */
+function countOwnLinksInPath(
   path: HexCoord[],
   board: { trackTiles: { coord: HexCoord; owner: PlayerId | null }[]; cities: City[]; towns: { coord: HexCoord }[] },
   playerId: PlayerId
 ): number {
-  let linkCount = 0;
-  const { cities, towns, trackTiles } = board;
-
-  // 링크별로 계산 (도시/마을 → 다음 도시/마을 = 1 링크)
-  let linkStartIndex = 0;
+  let ownLinks = 0;
+  let currentLinkHasOwnTrack = false;
 
   for (let i = 1; i < path.length; i++) {
     const coord = path[i];
-    const isCity = cities.some(c => hexCoordsEqual(c.coord, coord));
-    const isTown = towns.some(t => hexCoordsEqual(t.coord, coord));
+    const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
 
-    if (isCity || isTown) {
-      // 이 링크 구간의 트랙 소유자 확인
-      for (let j = linkStartIndex + 1; j < i; j++) {
-        const track = trackTiles.find(t => hexCoordsEqual(t.coord, path[j]));
-        if (track?.owner === playerId) {
-          linkCount++;
-          break; // 링크당 한 번만
-        }
+    if (track?.owner === playerId) {
+      currentLinkHasOwnTrack = true;
+    }
+
+    const isStop = board.cities.some(c => hexCoordsEqual(c.coord, coord)) ||
+      board.towns.some(t => hexCoordsEqual(t.coord, coord));
+
+    if (isStop) {
+      if (currentLinkHasOwnTrack) {
+        ownLinks++;
       }
-      linkStartIndex = i;
+      currentLinkHasOwnTrack = false;
     }
   }
 
-  return linkCount;
+  return ownLinks;
 }

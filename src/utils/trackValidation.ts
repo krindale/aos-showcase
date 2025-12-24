@@ -25,11 +25,13 @@ export function isValidConnectionPoint(
   const isCity = board.cities.some(c => hexCoordsEqual(c.coord, coord));
   if (isCity) return true;
 
-  // 플레이어의 기존 트랙이 있는 경우
-  const playerTrack = board.trackTiles.find(
-    t => hexCoordsEqual(t.coord, coord) && t.owner === currentPlayer
+  // 플레이어의 기존 트랙이 있는 경우 (기본 경로 또는 보조 경로)
+  const trackAtCoord = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
+  const hasPlayerTrack = trackAtCoord && (
+    trackAtCoord.owner === currentPlayer ||
+    trackAtCoord.secondaryOwner === currentPlayer
   );
-  if (playerTrack) return true;
+  if (hasPlayerTrack) return true;
 
   return false;
 }
@@ -73,13 +75,20 @@ export function validateTrackConnection(
 
     // 플레이어의 기존 트랙에 연결되는 경우
     const oppositeEdge = getOppositeEdge(edge);
+    // 이웃 헥스의 모든 트랙 검색 (소유권 필터 없이)
     const neighborTrack = board.trackTiles.find(
-      t => hexCoordsEqual(t.coord, neighbor) && t.owner === currentPlayer
+      t => hexCoordsEqual(t.coord, neighbor)
     );
 
     if (neighborTrack) {
-      // 이웃 트랙의 엣지가 연결되는지 확인
-      if (neighborTrack.edges.includes(oppositeEdge)) {
+      // 1. 기본 경로(edges)가 내 소유이고 해당 엣지를 포함하는지 확인
+      if (neighborTrack.owner === currentPlayer && neighborTrack.edges.includes(oppositeEdge)) {
+        return true;
+      }
+
+      // 2. 보조 경로(secondaryEdges)가 내 소유이고 해당 엣지를 포함하는지 확인 (복합 트랙)
+      if (neighborTrack.secondaryOwner === currentPlayer &&
+          neighborTrack.secondaryEdges?.includes(oppositeEdge)) {
         return true;
       }
     }
@@ -121,9 +130,8 @@ export function getOpenEdges(
   board: BoardState,
   currentPlayer: PlayerId
 ): number[] {
-  const track = board.trackTiles.find(
-    t => hexCoordsEqual(t.coord, coord) && t.owner === currentPlayer
-  );
+  // 소유권 필터 없이 해당 좌표의 트랙 검색
+  const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
 
   if (!track) {
     // 도시인 경우 모든 엣지가 열려있음
@@ -134,9 +142,20 @@ export function getOpenEdges(
     return [];
   }
 
-  // 현재는 단순 트랙만 지원 (양쪽 엣지만 열림)
-  // 복합 트랙 지원 시 확장 필요
-  return track.edges;
+  // 플레이어 소유 경로의 엣지만 반환 (복합 트랙 지원)
+  const openEdges: number[] = [];
+
+  // 기본 경로가 내 소유이면 해당 엣지 추가
+  if (track.owner === currentPlayer) {
+    openEdges.push(...track.edges);
+  }
+
+  // 보조 경로가 내 소유이면 해당 엣지 추가
+  if (track.secondaryOwner === currentPlayer && track.secondaryEdges) {
+    openEdges.push(...track.secondaryEdges);
+  }
+
+  return openEdges;
 }
 
 

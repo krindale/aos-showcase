@@ -96,8 +96,8 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
       return isOnOptimalPath(t.coord, sourceCity.coord, targetCity.coord, state.board);
     });
 
-    // [수정] 경로가 이미 완성되었는지 확인 (내 트랙만으로 연결되었거나, 타사 트랙 포함해서라도 연결됨)
-    const isAlreadyConnected = isRouteComplete(state, targetRoute);
+    // [수정] 경로가 이미 완성되었는지 확인 (내 트랙만으로 연결되었는지 확인)
+    const isAlreadyConnected = isRouteComplete(state, targetRoute, playerId);
 
     // 이미 완성된 경로이고 내 트랙이 없다면, 다른 경로를 찾도록 유도
     if (isAlreadyConnected && !hasOwnTrackForThisRoute) {
@@ -105,7 +105,7 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
 
       // 1. 다음 배달 우선순위 경로 찾기
       const nextRouteResult = findNextTargetRoute(state, playerId);
-      if (nextRouteResult.route && !isRouteComplete(state, nextRouteResult.route)) {
+      if (nextRouteResult.route && !isRouteComplete(state, nextRouteResult.route, playerId)) {
         debugLog.trackBuilding(`[Phase IV: 트랙 건설] 새로운 목표 전환: ${nextRouteResult.route.from}->${nextRouteResult.route.to}`);
         targetRoute = nextRouteResult.route;
       } else {
@@ -117,8 +117,8 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
         }
       }
 
-      // 여전히 목표가 없고, 이미 연결된 상태라면 스킵할 수밖에 없음 -> 일반 확장 모드로 전환
-      if (isRouteComplete(state, targetRoute!)) {
+      // 여전히 목표가 없고, 이미 내 트랙만으로 연결된 상태라면 스킵할 수밖에 없음 -> 일반 확장 모드로 전환
+      if (isRouteComplete(state, targetRoute!, playerId)) {
         debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 목표(${targetRoute!.from}->${targetRoute!.to}) 이미 완성됨. 대체 목표 없음 -> 일반 확장 모드 전환.`);
         targetRoute = null;
       }

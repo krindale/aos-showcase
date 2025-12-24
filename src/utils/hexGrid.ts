@@ -434,9 +434,13 @@ export function getBuildableNeighbors(
   // sourceCoord가 도시인지 확인
   const isCity = board.cities.some(c => hexCoordsEqual(c.coord, sourceCoord));
 
-  // sourceCoord에 플레이어 트랙이 있는지 확인
-  const playerTrack = board.trackTiles.find(
-    t => hexCoordsEqual(t.coord, sourceCoord) && t.owner === currentPlayer
+  // sourceCoord에 트랙이 있는지 확인 (소유권 필터 없이)
+  const trackAtSource = board.trackTiles.find(t => hexCoordsEqual(t.coord, sourceCoord));
+
+  // 플레이어 소유 여부 확인 (기본 경로 또는 보조 경로)
+  const isPlayerOwned = trackAtSource && (
+    trackAtSource.owner === currentPlayer ||
+    trackAtSource.secondaryOwner === currentPlayer
   );
 
   // 연결 가능한 엣지 목록 결정
@@ -445,9 +449,19 @@ export function getBuildableNeighbors(
   if (isCity) {
     // 도시: 모든 6개 엣지에서 연결 가능
     availableEdges = [0, 1, 2, 3, 4, 5];
-  } else if (playerTrack) {
-    // 플레이어 트랙: 트랙의 양 끝 엣지에서만 연결 가능
-    availableEdges = [...playerTrack.edges];
+  } else if (isPlayerOwned && trackAtSource) {
+    // 플레이어 트랙: 플레이어 소유 경로의 엣지에서만 연결 가능 (복합 트랙 지원)
+    availableEdges = [];
+
+    // 기본 경로가 내 소유이면 해당 엣지 추가
+    if (trackAtSource.owner === currentPlayer) {
+      availableEdges.push(...trackAtSource.edges);
+    }
+
+    // 보조 경로가 내 소유이면 해당 엣지 추가
+    if (trackAtSource.secondaryOwner === currentPlayer && trackAtSource.secondaryEdges) {
+      availableEdges.push(...trackAtSource.secondaryEdges);
+    }
   } else {
     // 유효하지 않은 연결점
     return [];

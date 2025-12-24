@@ -14,7 +14,7 @@ import {
 } from '@/utils/trackValidation';
 import { getBuildableNeighbors, getExitDirections, hexCoordsEqual, getNeighborHex, hexDistance, findAllConnectedHexes } from '@/utils/hexGrid';
 import { getSelectedStrategy } from '../strategy/state';
-import { getNextTargetRoute, reevaluateStrategy, findNextTargetRoute } from '../strategy/selector';
+import { getNextTargetRoute, reevaluateStrategy, findNextTargetRoute, getTopPriorityRoutes } from '../strategy/selector';
 import {
   evaluateTrackForRoute,
   getIntermediateCities,
@@ -217,20 +217,119 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 점수 낮음 (총점=${bestTotalScore.toFixed(1)}, 경로점수=${best.routeScore.toFixed(1)})`);
 
     // 점수가 낮다는 것은 현재 targetRoute로는 갈 곳이 없다는 뜻일 수 있음.
-    // 따라서 여기서도 대체 목표 탐색을 시도해야 함.
+    // 3단계 대체 경로 탐색:
+    // 1단계: 연결된 도시에서 같은 목적지로 시도 (P→O 막힘 → C→O 시도)
+    // 2단계: 다음 우선순위 경로로 시도 (getTopPriorityRoutes)
+    // 3단계: 네트워크 확장 목표로 시도
+
     if (targetRoute) {
-      debugLog.trackBuilding(`[Phase IV: 트랙 건설] 현재 목표(${targetRoute.from}->${targetRoute.to})로는 적절한 후보가 없음. 대체 목표 탐색.`);
+      debugLog.trackBuilding(`[Phase IV: 트랙 건설] 현재 목표(${targetRoute.from}->${targetRoute.to})로는 적절한 후보가 없음. 대체 경로 탐색.`);
+
+      // ===== 1단계: 연결된 도시에서 같은 목적지로 시도 =====
+      const connectedCities = getConnectedCities(state, playerId);
+      let foundAlternative = false;
+
+      for (const cityId of connectedCities) {
+        if (cityId === targetRoute.from) continue; // 원래 출발지는 스킵
+
+        const altRoute: DeliveryRoute = { from: cityId, to: targetRoute.to, priority: targetRoute.priority };
+
+        // 이미 완성된 경로는 스킵
+        if (isRouteComplete(state, altRoute, playerId)) continue;
+
+        const altCandidates = findBuildCandidates(state, playerId, altRoute);
+        if (altCandidates.length === 0) continue;
+
+        // 점수 재계산
+        const playerTracks = state.board.trackTiles.filter(t => t.owner === playerId);
+        const lastBuiltTrack = state.phaseState.builtTracksThisTurn > 0 ? playerTracks[playerTracks.length - 1] : null;
+
+        altCandidates.forEach(c => {
+          const result = evaluateTrackForRoute(altRoute, state.board, c.coord, c.edges, playerId);
+          c.routeScore = result.score;
+          c.intention = result.intention;
+          if (lastBuiltTrack) {
+            const continuityScore = evaluateTrackForRoute(altRoute, state.board, c.coord, c.edges, playerId, lastBuiltTrack.coord).score;
+            c.routeScore = Math.max(c.routeScore, continuityScore);
+          }
+        });
+
+        altCandidates.sort((a, b) => {
+          const aTotal = a.score + a.routeScore * 2;
+          const bTotal = b.score + b.routeScore * 2;
+          return (bTotal / Math.max(b.cost, 1)) - (aTotal / Math.max(a.cost, 1));
+        });
+
+        const altBest = altCandidates[0];
+        const altBestScore = altBest.score + altBest.routeScore * 2;
+
+        if (altBestScore >= skipThreshold && altBest.routeScore >= routeThreshold && player.cash >= altBest.cost) {
+          debugLog.trackBuilding(`[Phase IV: 트랙 건설] 1단계 성공: 연결된 도시 경유 ${cityId}->${targetRoute.to}`);
+          const typeInfo = altBest.isComplexTrack ? ` [${altBest.trackType}]` : '';
+          debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 (연결된 도시 경유) (${altBest.coord.col},${altBest.coord.row}) edges=[${altBest.edges}] $${altBest.cost}${typeInfo} 총점=${altBestScore.toFixed(1)} [의도: ${altBest.intention}]`);
+          if (altBest.isComplexTrack && altBest.trackType) {
+            return { action: 'buildComplex', coord: altBest.coord, edges: altBest.edges, trackType: altBest.trackType };
+          }
+          return { action: 'build', coord: altBest.coord, edges: altBest.edges };
+        }
+      }
+
+      // ===== 2단계: 다음 우선순위 경로로 시도 =====
+      if (!foundAlternative) {
+        const topRoutes = getTopPriorityRoutes(state, playerId, 5);
+        debugLog.trackBuilding(`[Phase IV: 트랙 건설] 2단계: 상위 ${topRoutes.length}개 우선순위 경로 탐색`);
+
+        for (const route of topRoutes) {
+          // 현재 실패한 경로와 동일하면 스킵
+          if (route.from === targetRoute.from && route.to === targetRoute.to) continue;
+
+          const routeCandidates = findBuildCandidates(state, playerId, route);
+          if (routeCandidates.length === 0) continue;
+
+          // 점수 재계산
+          const playerTracks = state.board.trackTiles.filter(t => t.owner === playerId);
+          const lastBuiltTrack = state.phaseState.builtTracksThisTurn > 0 ? playerTracks[playerTracks.length - 1] : null;
+
+          routeCandidates.forEach(c => {
+            const result = evaluateTrackForRoute(route, state.board, c.coord, c.edges, playerId);
+            c.routeScore = result.score;
+            c.intention = result.intention;
+            if (lastBuiltTrack) {
+              const continuityScore = evaluateTrackForRoute(route, state.board, c.coord, c.edges, playerId, lastBuiltTrack.coord).score;
+              c.routeScore = Math.max(c.routeScore, continuityScore);
+            }
+          });
+
+          routeCandidates.sort((a, b) => {
+            const aTotal = a.score + a.routeScore * 2;
+            const bTotal = b.score + b.routeScore * 2;
+            return (bTotal / Math.max(b.cost, 1)) - (aTotal / Math.max(a.cost, 1));
+          });
+
+          const routeBest = routeCandidates[0];
+          const routeBestScore = routeBest.score + routeBest.routeScore * 2;
+
+          if (routeBestScore >= skipThreshold && routeBest.routeScore >= routeThreshold && player.cash >= routeBest.cost) {
+            debugLog.trackBuilding(`[Phase IV: 트랙 건설] 2단계 성공: 다음 우선순위 경로 ${route.from}->${route.to}`);
+            const typeInfo = routeBest.isComplexTrack ? ` [${routeBest.trackType}]` : '';
+            debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 (다음 우선순위) (${routeBest.coord.col},${routeBest.coord.row}) edges=[${routeBest.edges}] $${routeBest.cost}${typeInfo} 총점=${routeBestScore.toFixed(1)} [의도: ${routeBest.intention}]`);
+            if (routeBest.isComplexTrack && routeBest.trackType) {
+              return { action: 'buildComplex', coord: routeBest.coord, edges: routeBest.edges, trackType: routeBest.trackType };
+            }
+            return { action: 'build', coord: routeBest.coord, edges: routeBest.edges };
+          }
+        }
+      }
+
+      // ===== 3단계: 네트워크 확장 목표로 시도 =====
       const excludeCities = [targetRoute.to];
       const altTarget = findNetworkExpansionTarget(state, playerId, excludeCities);
 
       if (altTarget) {
-        debugLog.trackBuilding(`[Phase IV: 트랙 건설] 대체 목표 전환 및 재평가: ${altTarget.from}->${altTarget.to}`);
-        // 재귀 호출 대신, 여기서 간단히 재계산 (복잡도 방지 위해 1회만 수행)
-        // 1. 새 목표로 후보 다시 찾기
+        debugLog.trackBuilding(`[Phase IV: 트랙 건설] 3단계: 네트워크 확장 목표 ${altTarget.from}->${altTarget.to}`);
         const newCandidates = findBuildCandidates(state, playerId, altTarget);
 
         if (newCandidates.length > 0) {
-          // 2. 점수 재계산
           const playerTracks = state.board.trackTiles.filter(t => t.owner === playerId);
           const lastBuiltTrack = state.phaseState.builtTracksThisTurn > 0 ? playerTracks[playerTracks.length - 1] : null;
 
@@ -238,7 +337,6 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
             const result = evaluateTrackForRoute(altTarget, state.board, c.coord, c.edges, playerId);
             c.routeScore = result.score;
             c.intention = result.intention;
-            // 연속성 보너스
             if (lastBuiltTrack) {
               const continuityScore = evaluateTrackForRoute(altTarget, state.board, c.coord, c.edges, playerId, lastBuiltTrack.coord).score;
               c.routeScore = Math.max(c.routeScore, continuityScore);
@@ -254,27 +352,20 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
           const newBest = newCandidates[0];
           const newBestScore = newBest.score + newBest.routeScore * 2;
 
-          if (newBestScore >= skipThreshold && newBest.routeScore >= -500) {
-            debugLog.trackBuilding(`[Phase IV: 트랙 건설] 대체 목표로 유효한 건설 후보 발견: (${newBest.coord.col},${newBest.coord.row}) 총점=${newBestScore.toFixed(1)}`);
-            // 재귀 대신 found flag 처리 또는 직접 리턴
-            // 여기서는 코드를 간결하게 하기 위해 직접 리턴 구조로 변경이 어려우므로 best 변수를 덮어쓰기는 위험.
-            // 별도 로직으로 처리.
-
-            // 현금 확인
-            if (player.cash >= newBest.cost) { // 단순화
-              const typeInfo = newBest.isComplexTrack ? ` [${newBest.trackType}]` : '';
-              debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 (대체목표) (${newBest.coord.col},${newBest.coord.row}) edges=[${newBest.edges}] $${newBest.cost}${typeInfo} 총점=${newBestScore.toFixed(1)} [의도: ${newBest.intention}]`);
-              if (newBest.isComplexTrack && newBest.trackType) {
-                return { action: 'buildComplex', coord: newBest.coord, edges: newBest.edges, trackType: newBest.trackType };
-              }
-              return { action: 'build', coord: newBest.coord, edges: newBest.edges };
+          if (newBestScore >= skipThreshold && newBest.routeScore >= -500 && player.cash >= newBest.cost) {
+            debugLog.trackBuilding(`[Phase IV: 트랙 건설] 3단계 성공: 네트워크 확장`);
+            const typeInfo = newBest.isComplexTrack ? ` [${newBest.trackType}]` : '';
+            debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 (네트워크 확장) (${newBest.coord.col},${newBest.coord.row}) edges=[${newBest.edges}] $${newBest.cost}${typeInfo} 총점=${newBestScore.toFixed(1)} [의도: ${newBest.intention}]`);
+            if (newBest.isComplexTrack && newBest.trackType) {
+              return { action: 'buildComplex', coord: newBest.coord, edges: newBest.edges, trackType: newBest.trackType };
             }
+            return { action: 'build', coord: newBest.coord, edges: newBest.edges };
           }
         }
       }
     }
 
-    debugLog.trackBuilding(`[Phase IV: 트랙 건설] 건설 건너뜀 (대체 목표도 없거나 점수 미달)`);
+    debugLog.trackBuilding(`[Phase IV: 트랙 건설] 건설 건너뜀 (모든 대체 경로 탐색 실패)`);
     return { action: 'skip' };
   }
 

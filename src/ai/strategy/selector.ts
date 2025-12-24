@@ -366,3 +366,46 @@ export function adjustRoutePriorities(
 export function resetStrategyState(): void {
   clearCurrentRoutes();
 }
+
+/**
+ * 상위 N개 우선순위 경로 반환
+ *
+ * 경로 실패 시 대체 경로 탐색에 사용
+ */
+export function getTopPriorityRoutes(
+  state: GameState,
+  playerId: PlayerId,
+  count: number = 5
+): DeliveryRoute[] {
+  const player = state.players[playerId];
+  if (!player) return [];
+
+  const allOpportunities = analyzeDeliveryOpportunities(state);
+  const connectedCities = getConnectedCities(state, playerId);
+
+  // 점수 계산 후 정렬
+  const scored = allOpportunities.map(opp => {
+    const route: DeliveryRoute = { from: opp.sourceCityId, to: opp.targetCityId, priority: 1 };
+
+    // 이미 완성된 경로는 제외
+    if (isRouteComplete(state, route, playerId)) {
+      return { route, score: -Infinity };
+    }
+
+    // 점수 계산 (getNextTargetRoute와 동일한 로직)
+    const income = Math.min(opp.distance, player.engineLevel) * 50;
+    const engineBonus = (opp.distance === player.engineLevel || opp.distance === player.engineLevel + 1) ? 500 : 0;
+    const futureIncome = opp.distance > player.engineLevel ? (opp.distance - player.engineLevel) * 20 : 0;
+    const connectedBonus = connectedCities.includes(opp.sourceCityId) ? 150 : 0;
+    const distPenalty = opp.distance * 5;
+
+    const score = income + engineBonus + futureIncome + connectedBonus - distPenalty;
+    return { route, score };
+  });
+
+  return scored
+    .filter(s => s.score > -Infinity)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, count)
+    .map(s => s.route);
+}

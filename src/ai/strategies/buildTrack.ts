@@ -227,7 +227,6 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
 
       // ===== 1단계: 연결된 도시에서 같은 목적지로 시도 =====
       const connectedCities = getConnectedCities(state, playerId);
-      let foundAlternative = false;
 
       for (const cityId of connectedCities) {
         if (cityId === targetRoute.from) continue; // 원래 출발지는 스킵
@@ -275,7 +274,7 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
       }
 
       // ===== 2단계: 다음 우선순위 경로로 시도 =====
-      if (!foundAlternative) {
+      {
         const topRoutes = getTopPriorityRoutes(state, playerId, 5);
         debugLog.trackBuilding(`[Phase IV: 트랙 건설] 2단계: 상위 ${topRoutes.length}개 우선순위 경로 탐색`);
 

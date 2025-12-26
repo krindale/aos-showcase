@@ -673,6 +673,11 @@ function LogsTab() {
       description: '수입 수집, 비용 지불, 수입 감소',
     },
     {
+      key: 'aiEvaluation' as keyof DebugConfig,
+      label: 'AI 평가',
+      description: '트랙 점수 계산, 전략 평가',
+    },
+    {
       key: 'verbose' as keyof DebugConfig,
       label: '상세 로그',
       description: '경로 탐색, 연결 확인, 이웃 탐색 등',

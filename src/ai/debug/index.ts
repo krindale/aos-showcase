@@ -77,5 +77,9 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       '%c사용법: debugAI(useGameStore.getState(), "player2")',
       'color: #a0a0a0;'
     );
+    console.log(
+      '%c로그 설정: showDebugConfig() / setDebug("aiEvaluation", true|false)',
+      'color: #a0a0a0;'
+    );
   });
 }

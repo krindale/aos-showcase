@@ -863,6 +863,8 @@ export function evaluateTrackForRoute(
   const positionOnPath = optimalPath.findIndex(p => hexCoordsEqual(p, trackCoord));
   const isOnPath = positionOnPath >= 0;
 
+  debugLog.aiEvaluation(`(${trackCoord.col},${trackCoord.row}) 경로: ${route.from}→${route.to}, 최적경로길이=${optimalPath.length}, 경로상위치=${positionOnPath}, isOnPath=${isOnPath}`);
+
   // 플레이어 트랙과 연결된 경로 위치들 찾기
   const connectedPositions = new Set<number>();
   for (let i = 0; i < optimalPath.length; i++) {
@@ -877,6 +879,7 @@ export function evaluateTrackForRoute(
 
   if (isOnPath) {
     score += 150;  // 최적 경로상에 있음
+    debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 최적 경로상 위치 +150 → 누적 ${score}`);
 
     if (playerId) {
       let maxConnectedIdx = -1;
@@ -889,6 +892,7 @@ export function evaluateTrackForRoute(
       if (maxConnectedIdx !== -1 && positionOnPath === maxConnectedIdx + 1) {
         score += 400; // 보너스 강화 (250 -> 400)
         intention = '출발지로부터 순차적 확장';
+        debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 순차 확장 보너스 +400 → 누적 ${score}`);
       }
 
       // [Isolation Check] 현재 건설하려는 트랙이 내 네트워크와 떨어져 있는지 확인
@@ -896,6 +900,7 @@ export function evaluateTrackForRoute(
       if (maxConnectedIdx !== -1 && positionOnPath > maxConnectedIdx + 1) {
         score -= 500; // 페널티 강화 (200 -> 500) 파편화 방지
         intention = '네트워크 고립 건설 경고';
+        debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 네트워크 고립 페널티 -500 → 누적 ${score}`);
       }
 
       // 2. 미래 경로 상에 미리 건설하는 경우 (순차 건설 유도를 위해 점수 낮춤)
@@ -909,12 +914,12 @@ export function evaluateTrackForRoute(
       if (lastBuiltCoord && hexDistance(trackCoord, lastBuiltCoord) === 1) {
         score += 1500; // 매우 강력한 보너스로 한 턴 내 파편화 방지
         intention = '번호 연속 건설(연속성 보장)';
+        debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 연속 건설 보너스 +1500 → 누적 ${score}`);
       }
 
       // 4. 상대방 견제 보너스 (상대방의 예상 경로 상에 있는 경우)
       if (playerId) {
         const opponentAnalysis = analyzeOpponentTracks({ board } as GameState, playerId);
-        const opponentId = playerId === 'player1' ? 'player2' : 'player1';
 
         for (const oppTargetCityId of opponentAnalysis.targetCities) {
           const oppTargetCity = board.cities.find(c => c.id === oppTargetCityId);
@@ -930,6 +935,7 @@ export function evaluateTrackForRoute(
                 const blockBonus = 100; // 상대방 경로 차단 보너스
                 score += blockBonus;
                 if (!intention) intention = `상대방(${oppTargetCityId}) 경로 견제`;
+                debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 상대 견제 보너스 +100 → 누적 ${score}`);
                 break;
               }
             }
@@ -960,11 +966,13 @@ export function evaluateTrackForRoute(
       // 출구 엣지가 다음 경로 위치를 향하면 강력한 보너스 (Frontier Matching 강화)
       if (edgeTowardsNext >= 0 && (edge0 === edgeTowardsNext || edge1 === edgeTowardsNext)) {
         score += 120;  // 다음 경로 방향으로 연결됨!
+        debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 다음 방향 연결 +120 → 누적 ${score}`);
       }
 
       // 입구 엣지가 이전 경로 위치에서 오면 보너스
       if (edgeTowardsPrev >= 0 && (edge0 === edgeTowardsPrev || edge1 === edgeTowardsPrev)) {
         score += 60;  // 이전 경로에서 연결됨
+        debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 이전 방향 연결 +60 → 누적 ${score}`);
       }
 
       // [CRITICAL FIX] 두 엣지가 모두 활용되지 않는 경우 페널티 강화
@@ -976,8 +984,10 @@ export function evaluateTrackForRoute(
         // 다음 칸으로 가야 할 놈이 엉뚱한 데를 보고 있으면 페널티 (완화)
         score -= 200;
         intention = '목적지 방향 불일치 페널티';
+        debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 목적지 방향 불일치 -200 → 누적 ${score}`);
       } else if (!edgeMatchesPrev && !edgeMatchesNext) {
         score -= 100;  // 경로와 무관한 방향
+        debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 경로 무관 방향 -100 → 누적 ${score}`);
       }
 
       // 이미 연결된 도시에 인접한 경우, 해당 방향으로 더 짓지 않도록 감점
@@ -1008,9 +1018,11 @@ export function evaluateTrackForRoute(
     if (distToTarget > sourceToTargetDist) {
       score -= 1000; // 역행 페널티 강화
       intention = '역행 건설 금지 (목적지 반대 방향)';
+      debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 역행 건설 페널티 -1000 → 누적 ${score}`);
     } else if (minDistToPath >= 2) {
       score -= 500; // 경로 이탈 페널티 강화
       intention = '심각한 최적 경로 이탈';
+      debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 경로 이탈 페널티 -500 → 누적 ${score}`);
     } else if (minDistToPath === 1) {
       // 도시 인접 지역이면 페널티 완화
       const proximityLeniency = (isAdjacentToSource || isAdjacentToTarget) ? 20 : 80;
@@ -1043,9 +1055,11 @@ export function evaluateTrackForRoute(
         // [수정] 도시 비껴가기는 절대 금지 (규칙상 오류로 비춰짐)
         score -= 2000;
         intention = '도시 비껴가기 금지';
+        debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 출발 도시 비껴가기 -2000 → 누적 ${score}`);
       } else {
         score += 300; // 보너스 상향
         intention = '출발 도시 연결';
+        debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 출발 도시 연결 +300 → 누적 ${score}`);
       }
     }
 
@@ -1058,6 +1072,7 @@ export function evaluateTrackForRoute(
         // [Critical] 목적지 비껴가기 차단
         score -= 2000;
         intention = '목적지 비껴가기 금지';
+        debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 목적지 비껴가기 -2000 → 누적 ${score}`);
       } else {
         // [핵심 수정] 목적지 연결 완성 보너스는 출발지에서 연결되어 있을 때만
         // 즉, 최적 경로 상에서 이 위치 바로 앞까지 내 트랙이 있어야 함
@@ -1092,10 +1107,13 @@ export function evaluateTrackForRoute(
 
     if (normalizedDiff === 1) {
       score -= 20; // 급격한 회전 페널티 (50 -> 20 약화)
+      debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 급회전 페널티 -20 → 누적 ${score}`);
     } else if (normalizedDiff === 0) {
       score -= 500; // U턴 절대 금지 (유지)
+      debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): U턴 페널티 -500 → 누적 ${score}`);
     } else if (normalizedDiff === 3) {
       score += 10; // 직선 구간 보너스 (30 -> 10 약화: 최단 경로가 더 중요)
+      debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 직선 보너스 +10 → 누적 ${score}`);
     }
   } else {
     // edges가 없는 경우의 기본 근접성 점수 (보수적으로 유지)
@@ -1110,6 +1128,7 @@ export function evaluateTrackForRoute(
     if (isAlreadyLinked) {
       score -= 2000;
       intention = '이미 연결된 경로 (중복 건설 방지)';
+      debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 이미 연결된 경로 -2000 → 누적 ${score}`);
     }
 
     if (playerId) {
@@ -1128,6 +1147,9 @@ export function evaluateTrackForRoute(
     if (isOnPath) intention = '최적 경로상 타일 배치';
     else intention = '경로 인접 타일 배치(우회/보조)';
   }
+
+  // 최종 점수 로그
+  debugLog.aiEvaluation(`[최종] (${trackCoord.col},${trackCoord.row}): 점수=${score}, 의도="${intention}"`);
 
   return { score, intention };
 }

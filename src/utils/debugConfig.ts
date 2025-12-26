@@ -14,15 +14,18 @@ export interface DebugConfig {
     turnEnd: boolean;
     // 로우레벨/상세 디버그 로그 (경로 탐색, 연결 확인, isRouteComplete 등)
     verbose: boolean;
+    // AI 평가 로그 (트랙 점수 계산, 전략 평가 등)
+    aiEvaluation: boolean;
 }
 
-// 기본 설정: 모두 꺼짐 (필요한 것만 켜서 사용)
+// 기본 설정: 필요한 것만 켜서 사용
 const defaultConfig: DebugConfig = {
     preparation: false,
     trackBuilding: true,  // 현재 디버깅 중이므로 기본 활성화
     goodsMovement: false,
     turnEnd: false,
-    verbose: false,  // 기본적으로 꺼짐 (매우 빈번한 로그)
+    verbose: false,       // 저수준 로그는 기본 비활성화
+    aiEvaluation: true,   // AI 평가 로그 기본 활성화
 };
 
 // 전역 설정 객체
@@ -45,7 +48,8 @@ if (typeof window !== 'undefined') {
         console.log(`  goodsMovement (물품 운송): ${debugConfig.goodsMovement ? 'ON' : 'OFF'}`);
         console.log(`  turnEnd (정산/턴 종료): ${debugConfig.turnEnd ? 'ON' : 'OFF'}`);
         console.log(`  verbose (상세/경로 탐색): ${debugConfig.verbose ? 'ON' : 'OFF'}`);
-        console.log('\n사용법: setDebug("trackBuilding", true) 또는 setDebug("trackBuilding", false)');
+        console.log(`  aiEvaluation (AI 평가): ${debugConfig.aiEvaluation ? 'ON' : 'OFF'}`);
+        console.log('\n사용법: setDebug("trackBuilding", true) 또는 setDebug("aiEvaluation", false)');
     };
 
     // 모든 로그 켜기/끄기
@@ -55,35 +59,41 @@ if (typeof window !== 'undefined') {
         debugConfig.goodsMovement = enabled;
         debugConfig.turnEnd = enabled;
         debugConfig.verbose = enabled;
+        debugConfig.aiEvaluation = enabled;
         console.log(`[DEBUG] 모든 로그: ${enabled ? 'ON' : 'OFF'}`);
     };
 }
 
-// 카테고리별 로그 함수
+// 카테고리별 로그 함수 (prefix 포함)
 export const debugLog = {
     preparation: (message: string, ...args: unknown[]) => {
         if (debugConfig.preparation) {
-            console.log(message, ...args);
+            console.log(`[준비] ${message}`, ...args);
         }
     },
     trackBuilding: (message: string, ...args: unknown[]) => {
         if (debugConfig.trackBuilding) {
-            console.log(message, ...args);
+            console.log(`[트랙] ${message}`, ...args);
         }
     },
     goodsMovement: (message: string, ...args: unknown[]) => {
         if (debugConfig.goodsMovement) {
-            console.log(message, ...args);
+            console.log(`[운송] ${message}`, ...args);
         }
     },
     turnEnd: (message: string, ...args: unknown[]) => {
         if (debugConfig.turnEnd) {
-            console.log(message, ...args);
+            console.log(`[정산] ${message}`, ...args);
         }
     },
     verbose: (message: string, ...args: unknown[]) => {
         if (debugConfig.verbose) {
-            console.log(message, ...args);
+            console.log(`[상세] ${message}`, ...args);
+        }
+    },
+    aiEvaluation: (message: string, ...args: unknown[]) => {
+        if (debugConfig.aiEvaluation) {
+            console.log(`[AI평가] ${message}`, ...args);
         }
     },
 };

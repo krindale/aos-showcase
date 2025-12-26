@@ -56,7 +56,8 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
   // 전략 및 목표 경로 가져오기
   const strategy = getSelectedStrategy(playerId);
   const targetRoute = getNextTargetRoute(state, playerId);
-  const strategyName = strategy?.nameKo ?? '없음';
+  // strategyName은 디버그용으로 필요시 활성화
+  void strategy; // lint 경고 방지
 
   const { board } = state;
   const candidates: MoveCandidate[] = [];
@@ -158,7 +159,6 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
 
   const best = candidates[0];
   const totalScore = best.score + best.routeScore;
-  const routeInfo = targetRoute ? `${targetRoute.from}→${targetRoute.to}` : '없음';
 
   debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: ${best.cubeColor} 물품 이동 (${best.sourceCityId} → ${best.destinationCityId}), 링크=${best.linksCount}(내쪽=${best.ownTrackCount}), 총점=${totalScore.toFixed(1)}`);
 

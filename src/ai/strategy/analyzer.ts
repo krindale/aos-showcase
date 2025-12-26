@@ -1122,23 +1122,25 @@ export function evaluateTrackForRoute(
   }
 
   // 6. 전체 경로가 이미 완성되었는지 확인 (중복 건설 방지)
-  if (board) {
-    // [핵심 요청] 중복 연결 페널티 신설 (이미 망이 연결된 경우)
+  if (board && playerId) {
+    const hasAnyOwnTrack = board.trackTiles.some(t => t.owner === playerId);
     const isAlreadyLinked = isRouteCompleteForBoard(board, route);
+
     if (isAlreadyLinked) {
-      score -= 2000;
-      intention = '이미 연결된 경로 (중복 건설 방지)';
-      debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 이미 연결된 경로 -2000 → 누적 ${score}`);
-    }
-
-    if (playerId) {
-      const hasAnyOwnTrackOnPath = playerTracks.some(t =>
-        optimalPath.some(pathCoord => hexCoordsEqual(t.coord, pathCoord))
-      );
-
-      if (!hasAnyOwnTrackOnPath && isAlreadyLinked) {
-        // 타인 완공이라도 페널티를 대폭 낮추어 건설 시도를 막지 않음 (기존 로직 유지하되 점수 조정)
-        score = Math.min(score, -100);
+      if (!hasAnyOwnTrack) {
+        // 첫 건설 차례: 타인/본인 완성 루트에도 페널티 (다른 경로 찾도록 유도)
+        score -= 2000;
+        intention = '이미 연결된 경로 (첫 건설 - 다른 경로 필요)';
+        debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 이미 연결된 경로(첫 건설) -2000 → 누적 ${score}`);
+      } else {
+        // 이미 트랙이 있는 경우: 본인이 완성했는지만 확인
+        const isCompletedByMe = isRouteCompleteForBoard(board, route, playerId);
+        if (isCompletedByMe) {
+          score -= 2000;
+          intention = '이미 연결된 경로 (중복 건설 방지)';
+          debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 본인 완성 경로 -2000 → 누적 ${score}`);
+        }
+        // 타인 완성 루트는 페널티 없음 (확장 허용)
       }
     }
   }
@@ -1403,14 +1405,15 @@ export function getStrategyAdjustments(
  * 해당 경로가 (어떤 플레이어에 의해서든) 이미 연결되어 있는지 확인
  */
 /**
- * 보드 상태를 기준으로 경로 완성 여부 확인 (어떤 플레이어에 의해서든)
+ * 보드 상태를 기준으로 경로 완성 여부 확인
+ * @param playerId 지정 시 해당 플레이어 트랙으로만 완성 여부 확인, 미지정 시 모든 플레이어 트랙 고려
  */
-export function isRouteCompleteForBoard(board: BoardState, route: DeliveryRoute): boolean {
+export function isRouteCompleteForBoard(board: BoardState, route: DeliveryRoute, playerId?: PlayerId): boolean {
   const sourceCity = board.cities.find(c => c.id === route.from);
   const targetCity = board.cities.find(c => c.id === route.to);
   if (!sourceCity || !targetCity) return false;
 
-  // BFS로 실제 연결 여부 확인 (모든 플레이어의 트랙 고려)
+  // BFS로 실제 연결 여부 확인
   const visited = new Set<string>();
   const queue: HexCoord[] = [sourceCity.coord];
   visited.add(`${sourceCity.coord.col},${sourceCity.coord.row}`);
@@ -1419,9 +1422,8 @@ export function isRouteCompleteForBoard(board: BoardState, route: DeliveryRoute)
     const current = queue.shift()!;
     if (hexCoordsEqual(current, targetCity.coord)) return true;
 
-    // getConnectedNeighbors를 사용할 때 playerId를 넘기지 않거나 undefined를 주면 모든 소유주 트랙을 고려한다고 가정
-    // (hexGrid.ts의 getConnectedNeighbors가 그렇게 동작하도록 구현되어 있는지 확인 필요)
-    const neighbors = getConnectedNeighbors(current, board, undefined, visited);
+    // playerId가 undefined면 모든 플레이어 트랙 고려, 있으면 해당 플레이어만
+    const neighbors = getConnectedNeighbors(current, board, playerId, visited);
     for (const neighbor of neighbors) {
       const key = `${neighbor.col},${neighbor.row}`;
       if (!visited.has(key)) {

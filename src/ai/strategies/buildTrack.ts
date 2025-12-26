@@ -480,15 +480,16 @@ function findBuildCandidates(
         }
       }
 
-      // 출발 도시 자체도 시작점으로 추가 (트랙이 끊겨있을 수도 있으므로)
-      const fromCity = board.cities.find(c => c.id === targetRoute.from);
-      if (fromCity && !connectionPoints.some(p => hexCoordsEqual(p, fromCity.coord))) {
-        // 단, 이미 해당 도시에 내 트랙이 있거나 도시 자체가 꽉 찼는지 등은 getBuildableNeighbors에서 처리됨
-        connectionPoints.push(fromCity.coord);
-      }
-
       // [핵심 추가] 연결된 모든 도시도 기점으로 추가 (트랙 끝이 막혔을 때 도시에서 새 방향으로 확장)
       const connectedCityIds = getConnectedCities(state, playerId);
+
+      // 출발 도시 자체도 시작점으로 추가 (단, 기존 네트워크와 연결된 경우에만)
+      // 이렇게 해야 대체 경로 선택 시 분리된 위치에 건설하는 것을 방지
+      const fromCity = board.cities.find(c => c.id === targetRoute.from);
+      if (fromCity && connectedCityIds.includes(targetRoute.from) &&
+          !connectionPoints.some(p => hexCoordsEqual(p, fromCity.coord))) {
+        connectionPoints.push(fromCity.coord);
+      }
       for (const cityId of connectedCityIds) {
         const city = board.cities.find(c => c.id === cityId);
         if (city && !connectionPoints.some(p => hexCoordsEqual(p, city.coord))) {

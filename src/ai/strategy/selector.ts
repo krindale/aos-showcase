@@ -52,15 +52,33 @@ export function getNextTargetRoute(
   const playerTracks = state.board.trackTiles.filter(t => t.owner === playerId);
 
   // 3. 가치 기반 정렬 (수입 vs 거리 vs 연결성)
+  const isFirstTurn = state.currentTurn === 1;
+
   opportunities.sort((a, b) => {
+    // 3.0 첫 턴 즉시 배달 가능 보너스 (최우선 순위)
+    // 첫 턴에는 수입 확보가 생존에 필수적이므로 즉시 배달 가능한 경로에 압도적 보너스
+    const aCanDeliverNow = a.distance <= player.engineLevel;
+    const bCanDeliverNow = b.distance <= player.engineLevel;
+    const aFirstTurnBonus = (isFirstTurn && aCanDeliverNow) ? 3000 : 0;
+    const bFirstTurnBonus = (isFirstTurn && bCanDeliverNow) ? 3000 : 0;
+
     // 3.1 수입 잠재력
     // [링크 길이 가중치] 현재 엔진 레벨을 넘어서는 경로도 미래 가치로 인정하여 가산점 부여
     const aIncome = Math.min(a.distance, player.engineLevel) * 50;
     const bIncome = Math.min(b.distance, player.engineLevel) * 50;
 
-    // [핵심 요청] 엔진 레벨 혹은 엔진 레벨+1의 루트가 최우선 순위
-    const aEngineMatchingBonus = (a.distance === player.engineLevel || a.distance === player.engineLevel + 1) ? 500 : 0;
-    const bEngineMatchingBonus = (b.distance === player.engineLevel || b.distance === player.engineLevel + 1) ? 500 : 0;
+    // [핵심 요청] 엔진 레벨 혹은 엔진 레벨+1의 루트가 우선 (단, 첫 턴 제외)
+    // 첫 턴에는 엔진+1 보너스를 비활성화하여 즉시 배달 가능 경로 선호
+    let aEngineMatchingBonus = 0;
+    let bEngineMatchingBonus = 0;
+    if (!isFirstTurn) {
+      aEngineMatchingBonus = (a.distance === player.engineLevel || a.distance === player.engineLevel + 1) ? 500 : 0;
+      bEngineMatchingBonus = (b.distance === player.engineLevel || b.distance === player.engineLevel + 1) ? 500 : 0;
+    } else {
+      // 첫 턴에는 현재 엔진 레벨과 정확히 일치하는 경로에만 보너스
+      aEngineMatchingBonus = (a.distance === player.engineLevel) ? 500 : 0;
+      bEngineMatchingBonus = (b.distance === player.engineLevel) ? 500 : 0;
+    }
 
     // 엔진 레벨을 초과하는 '미래 수입'에 대한 보너스 (엔진 업그레이드 유도)
     const aFutureIncome = a.distance > player.engineLevel ? (a.distance - player.engineLevel) * 20 : 0;
@@ -103,17 +121,21 @@ export function getNextTargetRoute(
     const aProgressPenalty = aOpponentMaxProgress > 0.7 ? -1500 : (aOpponentMaxProgress > 0.3 ? -500 : 0);
     const bProgressPenalty = bOpponentMaxProgress > 0.7 ? -1500 : (bOpponentMaxProgress > 0.3 ? -500 : 0);
 
-    const aScore = aIncome + aEngineMatchingBonus + aFutureIncome + aConnectedBonus - aDistPenalty + aDuplicationPenalty + aCompetitorPenalty + aProgressPenalty;
-    const bScore = bIncome + bEngineMatchingBonus + bFutureIncome + bConnectedBonus - bDistPenalty + bDuplicationPenalty + bCompetitorPenalty + bProgressPenalty;
+    const aScore = aFirstTurnBonus + aIncome + aEngineMatchingBonus + aFutureIncome + aConnectedBonus - aDistPenalty + aDuplicationPenalty + aCompetitorPenalty + aProgressPenalty;
+    const bScore = bFirstTurnBonus + bIncome + bEngineMatchingBonus + bFutureIncome + bConnectedBonus - bDistPenalty + bDuplicationPenalty + bCompetitorPenalty + bProgressPenalty;
 
     return bScore - aScore;
   });
 
-  // 4. 엔진 레벨 + 3턴 내 도달 가능한 경로 필터 (기존 +2 -> +3으로 확장)
+  // 4. 도달 가능 경로 필터
+  // 첫 턴: 엔진 레벨 +1까지만 허용 (다음 턴 배달 가능 범위)
+  // 이후: 엔진 레벨 +3까지 허용 (장기 계획)
+  const maxDistance = isFirstTurn
+    ? player.engineLevel + 1
+    : player.engineLevel + 3;
+
   const reachableOpportunities = opportunities.filter(opp => {
-    // 현재 엔진 레벨로 배달 가능하거나, 3턴 안에 가능한 경로
-    // (엔진 업그레이드 및 장거리 선점 고려)
-    return opp.distance <= player.engineLevel + 3;
+    return opp.distance <= maxDistance;
   });
 
   if (reachableOpportunities.length === 0) {
@@ -384,6 +406,8 @@ export function getTopPriorityRoutes(
   const connectedCities = getConnectedCities(state, playerId);
 
   // 점수 계산 후 정렬
+  const isFirstTurn = state.currentTurn === 1;
+
   const scored = allOpportunities.map(opp => {
     const route: DeliveryRoute = { from: opp.sourceCityId, to: opp.targetCityId, priority: 1 };
 
@@ -393,13 +417,25 @@ export function getTopPriorityRoutes(
     }
 
     // 점수 계산 (getNextTargetRoute와 동일한 로직)
+    // 첫 턴 즉시 배달 가능 보너스
+    const canDeliverNow = opp.distance <= player.engineLevel;
+    const firstTurnBonus = (isFirstTurn && canDeliverNow) ? 3000 : 0;
+
     const income = Math.min(opp.distance, player.engineLevel) * 50;
-    const engineBonus = (opp.distance === player.engineLevel || opp.distance === player.engineLevel + 1) ? 500 : 0;
+
+    // 엔진 매칭 보너스 (첫 턴에는 엔진+1 비활성화)
+    let engineBonus = 0;
+    if (!isFirstTurn) {
+      engineBonus = (opp.distance === player.engineLevel || opp.distance === player.engineLevel + 1) ? 500 : 0;
+    } else {
+      engineBonus = (opp.distance === player.engineLevel) ? 500 : 0;
+    }
+
     const futureIncome = opp.distance > player.engineLevel ? (opp.distance - player.engineLevel) * 20 : 0;
     const connectedBonus = connectedCities.includes(opp.sourceCityId) ? 150 : 0;
     const distPenalty = opp.distance * 5;
 
-    const score = income + engineBonus + futureIncome + connectedBonus - distPenalty;
+    const score = firstTurnBonus + income + engineBonus + futureIncome + connectedBonus - distPenalty;
     return { route, score };
   });
 

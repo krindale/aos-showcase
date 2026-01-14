@@ -3,7 +3,7 @@ import "./globals.css";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { ServiceWorkerRegistration } from "./service-worker-registration";
-import { OfflineIndicator } from "@/components/OfflineIndicator";
+import OfflineIndicator from "@/components/OfflineIndicator";
 
 export const metadata: Metadata = {
   title: "Age of Steam | 철도왕의 시대",

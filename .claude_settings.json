@@ -1,0 +1,34 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true
+  },
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Read(./**)",
+      "Write(./**)",
+      "Edit(./**)",
+      "Glob(./**)",
+      "Grep(./**)",
+      "Read(/Users/dalelee/Desktop/aos-showcase/.auto-claude/worktrees/tasks/003-pwa/**)",
+      "Write(/Users/dalelee/Desktop/aos-showcase/.auto-claude/worktrees/tasks/003-pwa/**)",
+      "Edit(/Users/dalelee/Desktop/aos-showcase/.auto-claude/worktrees/tasks/003-pwa/**)",
+      "Glob(/Users/dalelee/Desktop/aos-showcase/.auto-claude/worktrees/tasks/003-pwa/**)",
+      "Grep(/Users/dalelee/Desktop/aos-showcase/.auto-claude/worktrees/tasks/003-pwa/**)",
+      "Read(/Users/dalelee/Desktop/aos-showcase/.auto-claude/worktrees/tasks/003-pwa/.auto-claude/specs/003-pwa/**)",
+      "Write(/Users/dalelee/Desktop/aos-showcase/.auto-claude/worktrees/tasks/003-pwa/.auto-claude/specs/003-pwa/**)",
+      "Edit(/Users/dalelee/Desktop/aos-showcase/.auto-claude/worktrees/tasks/003-pwa/.auto-claude/specs/003-pwa/**)",
+      "Read(/Users/dalelee/Desktop/aos-showcase/.auto-claude/**)",
+      "Write(/Users/dalelee/Desktop/aos-showcase/.auto-claude/**)",
+      "Edit(/Users/dalelee/Desktop/aos-showcase/.auto-claude/**)",
+      "Glob(/Users/dalelee/Desktop/aos-showcase/.auto-claude/**)",
+      "Grep(/Users/dalelee/Desktop/aos-showcase/.auto-claude/**)",
+      "Bash(*)",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "mcp__context7__resolve-library-id(*)",
+      "mcp__context7__get-library-docs(*)"
+    ]
+  }
+}

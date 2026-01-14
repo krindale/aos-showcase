@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
+import { ServiceWorkerRegistration } from "./service-worker-registration";
 
 export const metadata: Metadata = {
   title: "Age of Steam | 철도왕의 시대",
@@ -30,6 +31,8 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-title" content="Age of Steam" />
       </head>
       <body className="antialiased min-h-screen flex flex-col">
+        {/* Register serviceWorker for PWA support */}
+        <ServiceWorkerRegistration />
         <Navigation />
         <main className="flex-1">
           {children}

@@ -5,12 +5,15 @@ import Footer from "@/components/Footer";
 import { ServiceWorkerRegistration } from "./service-worker-registration";
 import OfflineIndicator from "@/components/OfflineIndicator";
 
+// Use basePath for production (GitHub Pages) deployment
+const basePath = process.env.NODE_ENV === 'production' ? '/aos-showcase' : '';
+
 export const metadata: Metadata = {
   title: "Age of Steam | 철도왕의 시대",
   description: "19세기 철도 산업의 황금기를 배경으로 한 전략 보드게임. 트랙을 건설하고, 물품을 운송하며, 철도왕이 되어보세요.",
   keywords: ["Age of Steam", "보드게임", "철도", "전략", "Martin Wallace"],
   authors: [{ name: "Age of Steam Showcase" }],
-  manifest: "/manifest.json",
+  manifest: `${basePath}/manifest.json`,
   openGraph: {
     title: "Age of Steam | 철도왕의 시대",
     description: "19세기 철도 산업의 황금기를 배경으로 한 전략 보드게임",

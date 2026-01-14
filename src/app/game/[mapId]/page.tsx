@@ -8,11 +8,12 @@ export function generateStaticParams() {
 }
 
 interface GamePageProps {
-  params: {
+  params: Promise<{
     mapId: string;
-  };
+  }>;
 }
 
-export default function GamePage({ params }: GamePageProps) {
-  return <GamePageClient mapId={params.mapId} />;
+export default async function GamePage({ params }: GamePageProps) {
+  const { mapId } = await params;
+  return <GamePageClient mapId={mapId} />;
 }

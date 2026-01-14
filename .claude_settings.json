@@ -1,0 +1,34 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true
+  },
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Read(./**)",
+      "Write(./**)",
+      "Edit(./**)",
+      "Glob(./**)",
+      "Grep(./**)",
+      "Read(/Users/dalelee/Desktop/aos-showcase/.auto-claude/worktrees/tasks/004-eslint-config-next-command-injection/**)",
+      "Write(/Users/dalelee/Desktop/aos-showcase/.auto-claude/worktrees/tasks/004-eslint-config-next-command-injection/**)",
+      "Edit(/Users/dalelee/Desktop/aos-showcase/.auto-claude/worktrees/tasks/004-eslint-config-next-command-injection/**)",
+      "Glob(/Users/dalelee/Desktop/aos-showcase/.auto-claude/worktrees/tasks/004-eslint-config-next-command-injection/**)",
+      "Grep(/Users/dalelee/Desktop/aos-showcase/.auto-claude/worktrees/tasks/004-eslint-config-next-command-injection/**)",
+      "Read(/Users/dalelee/Desktop/aos-showcase/.auto-claude/worktrees/tasks/004-eslint-config-next-command-injection/.auto-claude/specs/004-eslint-config-next-command-injection/**)",
+      "Write(/Users/dalelee/Desktop/aos-showcase/.auto-claude/worktrees/tasks/004-eslint-config-next-command-injection/.auto-claude/specs/004-eslint-config-next-command-injection/**)",
+      "Edit(/Users/dalelee/Desktop/aos-showcase/.auto-claude/worktrees/tasks/004-eslint-config-next-command-injection/.auto-claude/specs/004-eslint-config-next-command-injection/**)",
+      "Read(/Users/dalelee/Desktop/aos-showcase/.auto-claude/**)",
+      "Write(/Users/dalelee/Desktop/aos-showcase/.auto-claude/**)",
+      "Edit(/Users/dalelee/Desktop/aos-showcase/.auto-claude/**)",
+      "Glob(/Users/dalelee/Desktop/aos-showcase/.auto-claude/**)",
+      "Grep(/Users/dalelee/Desktop/aos-showcase/.auto-claude/**)",
+      "Bash(*)",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "mcp__context7__resolve-library-id(*)",
+      "mcp__context7__get-library-docs(*)"
+    ]
+  }
+}

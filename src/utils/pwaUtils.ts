@@ -298,3 +298,68 @@ export async function getServiceWorkerStatus(): Promise<ServiceWorkerStatus> {
 
   return status;
 }
+
+/**
+ * 온라인/오프라인 상태 변경 콜백 타입
+ */
+export type NetworkStatusCallback = (isOnline: boolean) => void;
+
+/**
+ * 현재 온라인 상태 확인
+ * @returns 온라인이면 true, 오프라인이면 false
+ */
+export function isOnline(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+    return true; // SSR 환경에서는 기본값으로 온라인으로 간주
+  }
+  return navigator.onLine;
+}
+
+/**
+ * 온라인/오프라인 이벤트 리스너 등록
+ * @param callback 상태 변경 시 호출될 콜백 함수
+ * @returns 리스너 제거 함수
+ */
+export function addNetworkStatusListener(
+  callback: NetworkStatusCallback
+): (() => void) | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const onlineHandler = () => {
+    console.log('[PWA] Network status: online');
+    callback(true);
+  };
+
+  const offlineHandler = () => {
+    console.log('[PWA] Network status: offline');
+    callback(false);
+  };
+
+  window.addEventListener('online', onlineHandler);
+  window.addEventListener('offline', offlineHandler);
+
+  // 리스너 제거 함수 반환
+  return () => {
+    window.removeEventListener('online', onlineHandler);
+    window.removeEventListener('offline', offlineHandler);
+  };
+}
+
+/**
+ * 온라인/오프라인 이벤트 리스너 제거
+ * @param onlineHandler 온라인 이벤트 핸들러
+ * @param offlineHandler 오프라인 이벤트 핸들러
+ */
+export function removeNetworkStatusListener(
+  onlineHandler: () => void,
+  offlineHandler: () => void
+): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.removeEventListener('online', onlineHandler);
+  window.removeEventListener('offline', offlineHandler);
+}

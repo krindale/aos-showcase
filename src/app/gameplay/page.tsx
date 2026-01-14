@@ -74,7 +74,7 @@ const turnCategories = [
         step: 4,
         title: '트랙 건설',
         titleEn: 'Build Track',
-        description: '최대 3개의 트랙 타일을 건설합니다. 지형에 따라 비용이 달라집니다.',
+        description: '최대 3개의 트랙 타일을 건설합니다. 지형에 따라 비용이 달라집니다. 또한 이 단계에서 1회에 한해 엔진 업그레이드가 가능합니다.',
         icon: Train,
         color: 'accent',
       },

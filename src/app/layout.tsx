@@ -3,6 +3,7 @@ import "./globals.css";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
 import { ServiceWorkerRegistration } from "./service-worker-registration";
+import { OfflineIndicator } from "@/components/OfflineIndicator";
 
 export const metadata: Metadata = {
   title: "Age of Steam | 철도왕의 시대",
@@ -33,6 +34,7 @@ export default function RootLayout({
       <body className="antialiased min-h-screen flex flex-col">
         {/* Register serviceWorker for PWA support */}
         <ServiceWorkerRegistration />
+        <OfflineIndicator />
         <Navigation />
         <main className="flex-1">
           {children}

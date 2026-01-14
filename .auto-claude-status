@@ -1,0 +1,25 @@
+{
+  "active": true,
+  "spec": "001-1",
+  "state": "building",
+  "subtasks": {
+    "completed": 1,
+    "total": 3,
+    "in_progress": 1,
+    "failed": 0
+  },
+  "phase": {
+    "current": "\ud2b8\ub799 \uac74\uc124 \uc5d4\uc9c4 \uc5c5\uadf8\ub808\uc774\ub4dc UI \uad6c\ud604",
+    "id": null,
+    "total": 2
+  },
+  "workers": {
+    "active": 0,
+    "max": 1
+  },
+  "session": {
+    "number": 2,
+    "started_at": "2026-01-14T09:39:30.880174"
+  },
+  "last_update": "2026-01-14T09:40:41.218568"
+}

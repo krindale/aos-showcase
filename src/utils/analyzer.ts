@@ -140,6 +140,8 @@ interface AStarNode {
 
 /**
  * Creates a unique key for a hex coordinate
+ * @param coord Hex coordinate to convert to string key
+ * @returns String key in format "col,row"
  */
 function coordKey(coord: HexCoord): string {
   return `${coord.col},${coord.row}`;
@@ -147,6 +149,9 @@ function coordKey(coord: HexCoord): string {
 
 /**
  * Compares two hex coordinates for equality
+ * @param a First hex coordinate
+ * @param b Second hex coordinate
+ * @returns True if coordinates are equal, false otherwise
  */
 function coordEquals(a: HexCoord, b: HexCoord): boolean {
   return a.col === b.col && a.row === b.row;

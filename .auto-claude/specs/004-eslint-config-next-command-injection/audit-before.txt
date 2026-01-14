@@ -1,0 +1,35 @@
+{
+  "name": "glob",
+  "severity": "high",
+  "isDirect": false,
+  "via": [
+    {
+      "source": 1109842,
+      "name": "glob",
+      "dependency": "glob",
+      "title": "glob CLI: Command injection via -c/--cmd executes matches with shell:true",
+      "url": "https://github.com/advisories/GHSA-5j98-mcp5-4vw2",
+      "severity": "high",
+      "cwe": [
+        "CWE-78"
+      ],
+      "cvss": {
+        "score": 7.5,
+        "vectorString": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "range": ">=10.2.0 <10.5.0"
+    }
+  ],
+  "effects": [
+    "@next/eslint-plugin-next"
+  ],
+  "range": "10.2.0 - 10.4.5",
+  "nodes": [
+    "node_modules/glob"
+  ],
+  "fixAvailable": {
+    "name": "eslint-config-next",
+    "version": "16.1.1",
+    "isSemVerMajor": true
+  }
+}

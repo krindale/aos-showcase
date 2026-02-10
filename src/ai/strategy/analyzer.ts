@@ -863,7 +863,25 @@ export function evaluateTrackForRoute(
   const positionOnPath = optimalPath.findIndex(p => hexCoordsEqual(p, trackCoord));
   const isOnPath = positionOnPath >= 0;
 
-  debugLog.aiEvaluation(`(${trackCoord.col},${trackCoord.row}) 경로: ${route.from}→${route.to}, 최적경로길이=${optimalPath.length}, 경로상위치=${positionOnPath}, isOnPath=${isOnPath}`);
+  // 근접 경로 판정: A* 경로에서 1칸 이내면 "대체 경로"로 인정
+  let nearestPathIndex = -1;
+  let minDistToOptimalPath = Infinity;
+  if (!isOnPath) {
+    for (let i = 0; i < optimalPath.length; i++) {
+      const dist = hexDistance(trackCoord, optimalPath[i]);
+      if (dist < minDistToOptimalPath) {
+        minDistToOptimalPath = dist;
+        nearestPathIndex = i;
+      }
+    }
+  }
+  const isNearPath = !isOnPath && minDistToOptimalPath === 1;
+  const isOnOrNearPath = isOnPath || isNearPath;
+
+  // 순차 확장 등에 사용할 유효 경로 위치
+  const effectivePosition = isOnPath ? positionOnPath : nearestPathIndex;
+
+  debugLog.aiEvaluation(`(${trackCoord.col},${trackCoord.row}) 경로: ${route.from}→${route.to}, 최적경로길이=${optimalPath.length}, 경로상위치=${positionOnPath}, isOnPath=${isOnPath}, isNearPath=${isNearPath}`);
 
   // 플레이어 트랙과 연결된 경로 위치들 찾기
   const connectedPositions = new Set<number>();
@@ -877,9 +895,11 @@ export function evaluateTrackForRoute(
     }
   }
 
-  if (isOnPath) {
-    score += 150;  // 최적 경로상에 있음
-    debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 최적 경로상 위치 +150 → 누적 ${score}`);
+  if (isOnOrNearPath) {
+    // 정확히 경로상이면 +150, 1칸 근접이면 +80
+    const pathBonus = isOnPath ? 150 : 80;
+    score += pathBonus;
+    debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): ${isOnPath ? '최적 경로상' : '근접 경로(1칸)'} +${pathBonus} → 누적 ${score}`);
 
     if (playerId) {
       let maxConnectedIdx = -1;
@@ -889,33 +909,31 @@ export function evaluateTrackForRoute(
       });
 
       // 1. 순방향 확장 (출발지 망 -> 목적지 방향) 오직 순차 건설만 허용
-      if (maxConnectedIdx !== -1 && positionOnPath === maxConnectedIdx + 1) {
-        score += 500; // 순차 확장은 최우선 (400 -> 500)
+      // 근접 경로도 순차 확장으로 인정 (effectivePosition 사용)
+      if (maxConnectedIdx !== -1 && effectivePosition === maxConnectedIdx + 1) {
+        score += 500; // 순차 확장은 최우선
         intention = '출발지로부터 순차적 확장';
         debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 순차 확장 보너스 +500 → 누적 ${score}`);
       }
 
       // [Isolation Check] 현재 건설하려는 트랙이 내 네트워크와 떨어져 있는지 확인
-      // 이제 도시에 붙어있더라도 출발지 망과 연결되지 않은 '섬' 건설은 페널티 부여
-      if (maxConnectedIdx !== -1 && positionOnPath > maxConnectedIdx + 1) {
-        score -= 500; // 페널티 강화 (200 -> 500) 파편화 방지
+      if (maxConnectedIdx !== -1 && effectivePosition > maxConnectedIdx + 1) {
+        score -= 500; // 파편화 방지
         intention = '네트워크 고립 건설 경고';
         debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 네트워크 고립 페널티 -500 → 누적 ${score}`);
       }
 
       // 2. 미래 경로 상에 미리 건설하는 경우 (순차 건설 유도를 위해 점수 낮춤)
-      if (maxConnectedIdx !== -1 && positionOnPath > maxConnectedIdx + 1) {
-        const distToFrontier = positionOnPath - maxConnectedIdx;
+      if (maxConnectedIdx !== -1 && effectivePosition > maxConnectedIdx + 1) {
+        const distToFrontier = effectivePosition - maxConnectedIdx;
         score += Math.max(0, 5 - distToFrontier * 2);
         if (!intention) intention = '미래 경로 예비 확보';
       }
 
       // 3. 연속성 보너스 (이번 턴에 방금 지은 트랙 바로 옆에 짓는 경우)
-      // 조건부: 경로상이면 +400 추가, 방향 올바르면 +200 추가 (기본 +300)
       if (lastBuiltCoord && hexDistance(trackCoord, lastBuiltCoord) === 1) {
         let continuityBonus = 300; // 기본 연속성 보너스
-        if (isOnPath) continuityBonus += 400; // 경로상이면 추가
-        // 방향 올바름은 edges 평가에서 별도 처리되므로 여기서는 기본만
+        if (isOnOrNearPath) continuityBonus += 400; // 경로상/근접이면 추가
         score += continuityBonus;
         intention = '번호 연속 건설(연속성 보장)';
         debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 연속 건설 보너스 +${continuityBonus} → 누적 ${score}`);
@@ -950,9 +968,9 @@ export function evaluateTrackForRoute(
 
     // 2. 엣지 방향 평가 (edges가 제공된 경우)
     if (edges) {
-      // 이전/다음 경로 위치 확인
-      const prevPathCoord = positionOnPath > 0 ? optimalPath[positionOnPath - 1] : null;
-      const nextPathCoord = positionOnPath < optimalPath.length - 1 ? optimalPath[positionOnPath + 1] : null;
+      // 이전/다음 경로 위치 확인 (근접 경로는 effectivePosition 기준)
+      const prevPathCoord = effectivePosition > 0 ? optimalPath[effectivePosition - 1] : null;
+      const nextPathCoord = effectivePosition < optimalPath.length - 1 ? optimalPath[effectivePosition + 1] : null;
 
       // 엣지가 이전/다음 경로를 향하는지 확인
       let edgeTowardsPrev = -1;
@@ -995,43 +1013,26 @@ export function evaluateTrackForRoute(
       }
 
       // 이미 연결된 도시에 인접한 경우, 해당 방향으로 더 짓지 않도록 감점
-      if (edgeMatchesPrev && positionOnPath === 1 && connectedPositions.has(0)) {
-        score -= 100; // 감점 강화 (80 -> 100)
+      if (edgeMatchesPrev && effectivePosition === 1 && connectedPositions.has(0)) {
+        score -= 100;
       }
-      if (edgeMatchesNext && positionOnPath === optimalPath.length - 2 && connectedPositions.has(optimalPath.length - 1)) {
-        score -= 100; // 감점 강화 (80 -> 100)
+      if (edgeMatchesNext && effectivePosition === optimalPath.length - 2 && connectedPositions.has(optimalPath.length - 1)) {
+        score -= 100;
       }
     }
   } else {
-    // 2. 최적 경로에 없으면 페널티 (평행 건설 방지)
-    let minDistToPath = Infinity;
-    for (let i = 0; i < optimalPath.length; i++) {
-      const dist = hexDistance(trackCoord, optimalPath[i]);
-      if (dist < minDistToPath) {
-        minDistToPath = dist;
-      }
-    }
+    // 2. 최적 경로에서 2칸 이상 벗어나면 페널티 (minDistToPath === 1은 isNearPath로 위에서 처리됨)
+    const distToTargetFromTrack = hexDistance(trackCoord, targetCity.coord);
+    const sourceToTargetDist2 = hexDistance(sourceCity.coord, targetCity.coord);
 
-    // [핵심 해결] 역행 건설 방지: 
-    // 1. 최적 경로 상에 없으면서 
-    // 2. 건설하려는 칸에서 목적지까지의 거리가 출발지에서 목적지까지의 거리보다 멀어지거나
-    // 3. 최적 경로와 너무 동떨어진 경우 강력 페널티
-    const distToTarget = hexDistance(trackCoord, targetCity.coord);
-    const sourceToTargetDist = hexDistance(sourceCity.coord, targetCity.coord);
-
-    if (distToTarget > sourceToTargetDist) {
-      score -= 1000; // 역행 페널티 강화
+    if (distToTargetFromTrack > sourceToTargetDist2) {
+      score -= 1000; // 역행 페널티
       intention = '역행 건설 금지 (목적지 반대 방향)';
       debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 역행 건설 페널티 -1000 → 누적 ${score}`);
-    } else if (minDistToPath >= 2) {
-      score -= 500; // 경로 이탈 페널티 강화
+    } else if (minDistToOptimalPath >= 2) {
+      score -= 500; // 경로 이탈 페널티
       intention = '심각한 최적 경로 이탈';
       debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 경로 이탈 페널티 -500 → 누적 ${score}`);
-    } else if (minDistToPath === 1) {
-      // 도시 인접 지역이면 페널티 완화
-      const proximityLeniency = (isAdjacentToSource || isAdjacentToTarget) ? 20 : 80;
-      score -= proximityLeniency;
-      intention = '최적 경로 이탈 (평행 건설 경고)';
     } else {
       score -= 200;
     }
@@ -1086,18 +1087,16 @@ export function evaluateTrackForRoute(
         });
 
         // 이 트랙이 경로의 마지막 위치이고, 바로 앞까지 연결되어 있는 경우에만 보너스
-        const isLastOnPath = positionOnPath === optimalPath.length - 1;
-        const isConnectedToSource = maxConnectedIdx >= positionOnPath - 1;
+        const isLastOnPath = effectivePosition === optimalPath.length - 1;
+        const isConnectedToSource = maxConnectedIdx >= effectivePosition - 1;
 
-        if (isOnPath && isLastOnPath && isConnectedToSource) {
+        if (isOnOrNearPath && isLastOnPath && isConnectedToSource) {
           score += 500;
           intention = '목적 도시 연결 완성';
-        } else if (isOnPath && isLastOnPath) {
-          // 경로 마지막이지만 연결 안 됨 - 높은 보너스 (테스트 호환성 및 건설 유도)
+        } else if (isOnOrNearPath && isLastOnPath) {
           score += 100;
           intention = '목적 도시 인접 (미연결)';
         } else {
-          // 경로 상에 없거나 마지막이 아닌 경우라도 연결되면 보너스 (충격 상향: 최적 경로 150점보다 높게)
           score += 200;
           intention = '목적 도시 인접';
         }
@@ -1150,7 +1149,7 @@ export function evaluateTrackForRoute(
   }
 
   if (!intention) {
-    if (isOnPath) intention = '최적 경로상 타일 배치';
+    if (isOnOrNearPath) intention = '최적 경로상 타일 배치';
     else intention = '경로 인접 타일 배치(우회/보조)';
   }
 

@@ -11,6 +11,7 @@ export interface DeliveryRoute {
   from: string;       // 출발 도시 ID
   to: string;         // 목적지 도시 ID
   priority: number;   // 우선순위 (1 = 최우선, 3 = 후순위)
+  overallTo?: string; // 전체 경로의 최종 목적지 (세그먼트 분해 시 원래 목적지 보존)
 }
 
 /**

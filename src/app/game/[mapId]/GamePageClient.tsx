@@ -293,6 +293,18 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
               게임 종료!
             </h1>
 
+            {/* 파산 플레이어 표시 */}
+            {activePlayers.some(pid => players[pid]?.eliminated) && (
+              <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+                <p className="text-sm text-red-400">
+                  {activePlayers
+                    .filter(pid => players[pid]?.eliminated)
+                    .map(pid => players[pid]?.name)
+                    .join(', ')} 파산으로 탈락!
+                </p>
+              </div>
+            )}
+
             <div className="space-y-3 my-6 max-h-[400px] overflow-y-auto">
               {playerScores.map(({ playerId, player, trackScore, totalScore }, rank) => {
                 const isWinner = totalScore === highestScore;

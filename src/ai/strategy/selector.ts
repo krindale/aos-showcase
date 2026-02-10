@@ -168,7 +168,8 @@ export function getNextTargetRoute(
         for (const segment of segments) {
           const segmentProgress = getRouteProgress(state, playerId, segment);
           if (segmentProgress < 1.0 && connectedCities.includes(segment.from)) {
-            debugLog.trackBuilding(`[AI 경로] ${player.name}: ${segment.from}→${segment.to} (${opp.cubeColor} 화물, 세그먼트)`);
+            segment.overallTo = route.to; // 전체 경로의 최종 목적지 보존
+            debugLog.trackBuilding(`[AI 경로] ${player.name}: ${segment.from}→${segment.to} (${opp.cubeColor} 화물, 세그먼트, 최종→${route.to})`);
             setCurrentRoute(playerId, segment);
             return segment;
           }
@@ -195,7 +196,8 @@ export function getNextTargetRoute(
   if (segments.length > 1) {
     // 첫 트랙이면 첫 번째 세그먼트 반환
     if (playerTracks.length === 0) {
-      debugLog.trackBuilding(`[AI 경로] ${player.name}: ${segments[0].from}→${segments[0].to} (${best.cubeColor} 화물, 첫 세그먼트)`);
+      segments[0].overallTo = route.to; // 전체 경로의 최종 목적지 보존
+      debugLog.trackBuilding(`[AI 경로] ${player.name}: ${segments[0].from}→${segments[0].to} (${best.cubeColor} 화물, 첫 세그먼트, 최종→${route.to})`);
       setCurrentRoute(playerId, segments[0]);
       return segments[0];
     }
@@ -204,7 +206,8 @@ export function getNextTargetRoute(
     for (const segment of segments) {
       const segmentProgress = getRouteProgress(state, playerId, segment);
       if (segmentProgress < 1.0) {
-        debugLog.trackBuilding(`[AI 경로] ${player.name}: ${segment.from}→${segment.to} (${best.cubeColor} 화물, 미완성 세그먼트)`);
+        segment.overallTo = route.to; // 전체 경로의 최종 목적지 보존
+        debugLog.trackBuilding(`[AI 경로] ${player.name}: ${segment.from}→${segment.to} (${best.cubeColor} 화물, 미완성 세그먼트, 최종→${route.to})`);
         setCurrentRoute(playerId, segment);
         return segment;
       }
@@ -321,13 +324,16 @@ export function reevaluateStrategy(
   }
 
   // 현재 경로에 화물이 없어졌으면 새 경로 탐색
+  // 세그먼트인 경우 전체 경로의 최종 목적지도 확인
   const opportunities = analyzeDeliveryOpportunities(state);
+  const finalTo = currentRoute.overallTo || currentRoute.to;
   const hasMatchingCargo = opportunities.some(
-    opp => opp.sourceCityId === currentRoute.from && opp.targetCityId === currentRoute.to
+    opp => opp.sourceCityId === currentRoute.from &&
+      (opp.targetCityId === currentRoute.to || opp.targetCityId === finalTo)
   );
 
   if (!hasMatchingCargo) {
-    debugLog.trackBuilding(`[AI 경로] ${player.name}: 경로 ${currentRoute.from}→${currentRoute.to}에 화물 없음, 새 경로 탐색`);
+    debugLog.trackBuilding(`[AI 경로] ${player.name}: 경로 ${currentRoute.from}→${currentRoute.to} (최종→${finalTo})에 화물 없음, 새 경로 탐색`);
     getNextTargetRoute(state, playerId);
     return;
   }

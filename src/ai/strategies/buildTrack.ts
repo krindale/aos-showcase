@@ -13,7 +13,7 @@ import {
   playerHasTrack,
 } from '@/utils/trackValidation';
 import { getBuildableNeighbors, getExitDirections, hexCoordsEqual, getNeighborHex, hexDistance, findAllConnectedHexes } from '@/utils/hexGrid';
-import { getSelectedStrategy, setCurrentRoute, getCurrentRoute } from '../strategy/state';
+import { getSelectedStrategy, getCurrentRoute } from '../strategy/state';
 import { getNextTargetRoute, findNextTargetRoute, getTopPriorityRoutes } from '../strategy/selector';
 import {
   evaluateTrackForRoute,
@@ -81,14 +81,55 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     targetRoute = getCurrentRoute(playerId);
     debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 연속 건설 - 기존 경로 유지 (${targetRoute?.from}→${targetRoute?.to})`);
   } else {
-    // 첫 건설: 경로 캐시 초기화 후 새로 평가
+    // 첫 건설: 이전 턴의 경로가 유효하면 계속 사용 (턴 간 경로 안정성)
     clearPathCache();
-    const routeResult = findNextTargetRoute(state, playerId);
-    targetRoute = routeResult.route;
 
-    // 재평가 필요시에만 getNextTargetRoute 호출 (전략 변경 포함)
-    if (!targetRoute && routeResult.needsStrategyReeval) {
-      targetRoute = getNextTargetRoute(state, playerId);
+    const previousRoute = getCurrentRoute(playerId);
+    let reusesPreviousRoute = false;
+
+    if (previousRoute) {
+      // 이전 경로가 유효한지 확인:
+      // 1. 아직 완성되지 않았는지
+      // 2. 출발 도시에 해당 화물이 있는지 (세그먼트인 경우 전체 경로의 최종 목적지도 확인)
+      // 3. 플레이어가 이 경로 관련 트랙을 가지고 있는지
+      const isComplete = isRouteComplete(state, previousRoute, playerId);
+      const sourceCity = state.board.cities.find(c => c.id === previousRoute.from);
+      const targetCity = state.board.cities.find(c => c.id === previousRoute.to);
+
+      // 세그먼트인 경우 전체 경로의 최종 목적지도 화물 확인 대상에 포함
+      const finalDestId = previousRoute.overallTo || previousRoute.to;
+      const finalDestCity = state.board.cities.find(c => c.id === finalDestId);
+      const hasMatchingCargo = sourceCity && (
+        (targetCity && sourceCity.cubes.some(cube => cube === targetCity.color)) ||
+        (finalDestCity && finalDestId !== previousRoute.to && sourceCity.cubes.some(cube => cube === finalDestCity.color))
+      );
+
+      const playerTracks = state.board.trackTiles.filter(t => t.owner === playerId);
+      const hasRelatedTracks = playerTracks.length === 0 || (sourceCity && targetCity && playerTracks.some(t => {
+        const distToSource = hexDistance(t.coord, sourceCity.coord);
+        const distToTarget = hexDistance(t.coord, targetCity.coord);
+        const totalDist = hexDistance(sourceCity.coord, targetCity.coord);
+        return (distToSource + distToTarget) <= totalDist + 2;
+      }));
+
+      debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 이전 경로 검증 (${previousRoute.from}→${previousRoute.to}, 최종→${finalDestId}) - 완성=${isComplete}, 화물=${!!hasMatchingCargo}, 트랙=${!!hasRelatedTracks}`);
+
+      if (!isComplete && hasMatchingCargo && hasRelatedTracks) {
+        targetRoute = previousRoute;
+        reusesPreviousRoute = true;
+        debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 이전 경로 유지 (${previousRoute.from}→${previousRoute.to}) - 화물 있고 미완성`);
+      }
+    }
+
+    if (!reusesPreviousRoute) {
+      // 이전 경로가 무효하면 새로 탐색
+      const routeResult = findNextTargetRoute(state, playerId);
+      targetRoute = routeResult.route;
+
+      // 재평가 필요시에만 getNextTargetRoute 호출 (전략 변경 포함)
+      if (!targetRoute && routeResult.needsStrategyReeval) {
+        targetRoute = getNextTargetRoute(state, playerId);
+      }
     }
   }
 
@@ -224,6 +265,13 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   if (bestTotalScore < skipThreshold || best.routeScore < routeThreshold) {
     debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 점수 낮음 (총점=${bestTotalScore.toFixed(1)}, 경로점수=${best.routeScore.toFixed(1)})`);
 
+    // [핵심 수정] 이번 턴에 이미 건설한 트랙이 있으면, 3단계 fallback으로 경로를 바꾸지 않고 스킵
+    // 동일 턴 내 경로 변경은 트랙이 산발적으로 건설되는 핵심 원인
+    if (state.phaseState.builtTracksThisTurn > 0) {
+      debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 연속 건설 중 점수 낮음 → 경로 변경 없이 스킵 (턴 내 안정성 유지)`);
+      return { action: 'skip' };
+    }
+
     // 점수가 낮다는 것은 현재 targetRoute로는 갈 곳이 없다는 뜻일 수 있음.
     // 3단계 대체 경로 탐색:
     // 1단계: 연결된 도시에서 같은 목적지로 시도 (P→O 막힘 → C→O 시도)
@@ -269,7 +317,7 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
 
         if (altBestScore >= skipThreshold && altBest.routeScore >= routeThreshold && player.cash >= altBest.cost) {
           debugLog.trackBuilding(`[Phase IV: 트랙 건설] 1단계 성공: 연결된 도시 경유 ${cityId}->${targetRoute.to}`);
-          setCurrentRoute(playerId, altRoute); // 대체 경로를 전역 상태에 반영
+          // 전역 경로는 변경하지 않음 (일시적 우회 건설, 다음 턴에 원래 경로 유지)
           const typeInfo = altBest.isComplexTrack ? ` [${altBest.trackType}]` : '';
           debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 (연결된 도시 경유) (${altBest.coord.col},${altBest.coord.row}) edges=[${altBest.edges}] $${altBest.cost}${typeInfo} 총점=${altBestScore.toFixed(1)} [의도: ${altBest.intention}]`);
           if (altBest.isComplexTrack && altBest.trackType) {
@@ -313,7 +361,7 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
 
           if (routeBestScore >= skipThreshold && routeBest.routeScore >= routeThreshold && player.cash >= routeBest.cost) {
             debugLog.trackBuilding(`[Phase IV: 트랙 건설] 2단계 성공: 다음 우선순위 경로 ${route.from}->${route.to}`);
-            setCurrentRoute(playerId, route); // 대체 경로를 전역 상태에 반영
+            // 전역 경로는 변경하지 않음 (일시적 우회 건설)
             const typeInfo = routeBest.isComplexTrack ? ` [${routeBest.trackType}]` : '';
             debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 (다음 우선순위) (${routeBest.coord.col},${routeBest.coord.row}) edges=[${routeBest.edges}] $${routeBest.cost}${typeInfo} 총점=${routeBestScore.toFixed(1)} [의도: ${routeBest.intention}]`);
             if (routeBest.isComplexTrack && routeBest.trackType) {
@@ -355,7 +403,7 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
 
           if (newBestScore >= skipThreshold && newBest.routeScore >= -500 && player.cash >= newBest.cost) {
             debugLog.trackBuilding(`[Phase IV: 트랙 건설] 3단계 성공: 네트워크 확장`);
-            setCurrentRoute(playerId, altTarget); // 확장 목표를 전역 상태에 반영
+            // 전역 경로는 변경하지 않음 (일시적 확장 건설)
             const typeInfo = newBest.isComplexTrack ? ` [${newBest.trackType}]` : '';
             debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 (네트워크 확장) (${newBest.coord.col},${newBest.coord.row}) edges=[${newBest.edges}] $${newBest.cost}${typeInfo} 총점=${newBestScore.toFixed(1)} [의도: ${newBest.intention}]`);
             if (newBest.isComplexTrack && newBest.trackType) {

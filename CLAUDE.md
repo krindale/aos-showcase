@@ -73,61 +73,109 @@ colors: {
 
 ```
 src/
-├── app/
-│   ├── page.tsx           # 랜딩 페이지 (/, HeroSection + GameBoardPreview + FeatureCards)
-│   ├── layout.tsx         # 루트 레이아웃 (Navigation + Footer 포함)
-│   ├── globals.css        # 글로벌 스타일, 유틸리티 클래스
+├── app/                        # Next.js App Router 페이지
+│   ├── page.tsx                # 랜딩 페이지 (/, HeroSection + GameBoardPreview + FeatureCards)
+│   ├── layout.tsx              # 루트 레이아웃 (Navigation + Footer 포함)
+│   ├── globals.css             # 글로벌 스타일, 유틸리티 클래스
 │   ├── game/
-│   │   └── [mapId]/       # 동적 라우트 (tutorial, rust-belt 등)
-│   │       └── page.tsx   # 플레이어블 게임 페이지
+│   │   └── [mapId]/            # 동적 라우트 (tutorial, rust-belt 등)
+│   │       ├── page.tsx        # 서버 컴포넌트 (SSG)
+│   │       └── GamePageClient.tsx  # 게임 클라이언트 컴포넌트
 │   ├── gameplay/
-│   │   └── page.tsx       # 게임플레이 페이지 (턴 시퀀스, 트랙 건설)
+│   │   └── page.tsx            # 게임플레이 페이지 (턴 시퀀스, 트랙 건설)
 │   ├── actions/
-│   │   └── page.tsx       # 특수 행동 페이지 (7개 3D 플립 카드)
+│   │   └── page.tsx            # 특수 행동 페이지 (7개 3D 플립 카드)
 │   ├── maps/
-│   │   └── page.tsx       # 맵 갤러리 (7개 맵 슬라이더: Rust Belt, Korea, Western US 등)
+│   │   └── page.tsx            # 맵 갤러리 (7개 맵 슬라이더)
 │   └── calculator/
-│       └── page.tsx       # 계산기 (트랙 비용, 승점, 수입 시뮬레이터)
-├── ai/                    # AI 엔진 시스템 (객체 지향 아키텍처)
-│   ├── index.ts           # AI 메인 엔트리포인트 (bridge)
-│   ├── AIPlayer.ts        # 독립적인 AI 플레이어 클래스
-│   ├── AIPlayerManager.ts # AI 인스턴스 관리 싱글톤
-│   ├── evaluator.ts       # 게임 상태 평가 엔진
-│   ├── debug/             # AI 디버깅 및 분석 도구
-│   │   ├── index.ts       # 디버거 엔트리포인트 (window.debugAI 노출)
-│   │   ├── AIDebugger.ts  # 메인 디버거 로직
-│   │   ├── collectors/    # 데이터 수집기
-│   │   └── formatters/    # 데이터 포맷터
-│   ├── strategies/        # 하위 수준 결정 로직
-│   │   ├── issueShares.ts, auction.ts, selectAction.ts, buildTrack.ts, moveGoods.ts
-│   └── strategy/          # 고수준 전략 분석 및 경로 탐색
-│       ├── types.ts, scenarios.ts, analyzer.ts, selector.ts, state.ts
-├── components/
-│   ├── Navigation.tsx     # 글래스모피즘 네비게이션 바
-│   ├── Footer.tsx         # 푸터 (링크, 소셜)
-│   ├── HeroSection.tsx    # 풀스크린 히어로 + 패럴랙스
-│   ├── GameBoardPreview.tsx # 헥스 그리드 인터랙티브 프리뷰
-│   ├── FeatureCards.tsx   # 피처 카드 + 숫자 카운트업
-│   └── game/              # 게임 UI 컴포넌트
-│       ├── GameBoard.tsx       # 헥스 그리드 게임보드
+│       └── page.tsx            # 계산기 (트랙 비용, 승점, 수입 시뮬레이터)
+│
+├── ai/                         # AI 엔진 시스템 (객체 지향 아키텍처)
+│   ├── index.ts                # AI 메인 엔트리포인트 (bridge)
+│   ├── AIPlayer.ts             # 개별 AI 플레이어 클래스 (decide → Phase별 분기)
+│   ├── AIPlayerManager.ts      # AI 인스턴스 관리 싱글톤
+│   ├── evaluator.ts            # 게임 상태 평가 (비용 계산, 트랙 카운트 등)
+│   │
+│   ├── strategy/               # 고수준 전략 분석 및 경로 탐색
+│   │   ├── types.ts            # DeliveryRoute, DeliveryOpportunity 타입
+│   │   ├── scenarios.ts        # 시나리오 정의
+│   │   ├── analyzer.ts         # A* 경로 탐색, evaluateTrackForRoute, getConnectedCities
+│   │   ├── selector.ts         # 화물 기반 동적 전략 선택 (getNextTargetRoute)
+│   │   ├── state.ts            # 전략 상태 관리 (currentTargetRoutes Map)
+│   │   └── __tests__/          # 전략 단위 테스트
+│   │       ├── analyzer.test.ts
+│   │       └── selector.test.ts
+│   │
+│   ├── strategies/             # 하위 수준 Phase별 결정 로직
+│   │   ├── issueShares.ts      # Phase I: 주식 발행 (파산 방지 포함)
+│   │   ├── auction.ts          # Phase II: 경매 입찰
+│   │   ├── selectAction.ts     # Phase III: 행동 선택 (7가지)
+│   │   ├── buildTrack.ts       # Phase IV: 트랙 건설 (3단계 대체 경로 탐색)
+│   │   ├── moveGoods.ts        # Phase V: 물품 이동
+│   │   └── __tests__/
+│   │       └── buildTrack.test.ts
+│   │
+│   ├── debug/                  # AI 디버깅 및 분석 도구
+│   │   ├── index.ts            # 디버거 엔트리포인트 (window.debugAI 노출)
+│   │   ├── AIDebugger.ts       # 메인 디버거 로직
+│   │   ├── types.ts            # 디버그 타입 정의
+│   │   ├── collectors/         # 데이터 수집기
+│   │   │   ├── pathCollector.ts
+│   │   │   ├── phaseCollectors.ts
+│   │   │   ├── strategyCollector.ts
+│   │   │   └── trackCollector.ts
+│   │   └── formatters/
+│   │       └── consoleFormatter.ts
+│   │
+│   └── __tests__/              # AI 통합 테스트
+│       ├── trackBuildSimulation.test.ts  # 턴 간 트랙 건설 시뮬레이션
+│       └── helpers/
+│           └── mockState.ts    # 테스트용 Mock 데이터 헬퍼
+│
+├── components/                 # UI 컴포넌트
+│   ├── Navigation.tsx          # 글래스모피즘 네비게이션 바
+│   ├── Footer.tsx              # 푸터 (링크, 소셜)
+│   ├── HeroSection.tsx         # 풀스크린 히어로 + 패럴랙스
+│   ├── GameBoardPreview.tsx    # 헥스 그리드 인터랙티브 프리뷰
+│   ├── FeatureCards.tsx        # 피처 카드 + 숫자 카운트업
+│   └── game/                   # 게임 UI 컴포넌트 (14개)
+│       ├── GameBoard.tsx       # 헥스 그리드 게임보드 (SVG)
 │       ├── PlayerPanel.tsx     # 플레이어 정보 패널 (AI 표시 포함)
 │       ├── PhasePanel.tsx      # 현재 단계 표시 (AI 생각 중 상태)
-│       ├── ActionPanel.tsx     # 행동 선택 UI
 │       ├── AuctionPanel.tsx    # 경매 UI
-│       ├── BuildTrackPanel.tsx # 트랙 건설 UI
-│       └── MoveGoodsPanel.tsx  # 물품 이동 UI
-├── store/
-│   └── gameStore.ts       # Zustand 게임 상태 관리 (AI 턴 실행 포함)
+│       ├── UrbanizationPanel.tsx   # 도시화 UI
+│       ├── ProductionPanel.tsx     # 생산 UI
+│       ├── GoodsGrowthPanel.tsx    # 물품 성장 UI
+│       ├── GoodsDisplayPanel.tsx   # 물품 디스플레이 UI
+│       ├── ComplexTrackPanel.tsx   # 복합 트랙 선택 UI
+│       ├── RedirectTrackPanel.tsx  # 트랙 방향 전환 UI
+│       ├── TurnTrack.tsx       # 턴 트랙 UI
+│       ├── DiceRoller.tsx      # 주사위 굴리기 UI
+│       ├── DebugPanel.tsx      # 디버그 패널 UI
+│       └── AIDebugModal.tsx    # AI 디버그 모달
+│
+├── store/                      # 상태 관리
+│   ├── gameStore.ts            # Zustand 게임 상태 관리 (AI 턴 실행 포함)
+│   └── __tests__/
+│       └── payExpenses.test.ts # 비용 지불/파산 로직 테스트
+│
 ├── types/
-│   └── game.ts            # 프로젝트 전역 타입 정의
-└── utils/                 # 핵심 비즈니스 로직 유틸리티
-    ├── gameLogic.ts       # 게임 엔진 규칙
-    ├── hexGrid.ts         # 헥스 그리드 기하학 및 좌표 계산
-    ├── trackValidation.ts # 트랙 건설 및 연결성 검증
-    └── tutorialMap.ts     # 맵 데이터 정의
+│   └── game.ts                 # 전역 타입 (PlayerId, GamePhase, BoardState 등)
+│
+└── utils/                      # 핵심 비즈니스 로직 유틸리티
+    ├── gameLogic.ts            # 게임 엔진 규칙 (수입 계산, 물품 이동)
+    ├── hexGrid.ts              # 헥스 그리드 기하학 (Axial/Offset, A*, BFS)
+    ├── trackValidation.ts      # 트랙 건설 및 연결성 검증
+    ├── tutorialMap.ts          # 튜토리얼 맵 데이터 정의
+    ├── debugConfig.ts          # 디버그 설정 유틸리티 (로그 카테고리 토글)
+    └── testHelpers.ts          # 단위 테스트 헬퍼 함수
+
 tests/
-├── game-phases.spec.ts    # Playwright E2E 통합 테스트
-└── ai/                    # AI 전략 및 유틸리티 단위 테스트
+└── game-phases.spec.ts         # Playwright E2E 통합 테스트 (55개)
+
+docs/
+├── ai-strategy.md              # AI 전략 알고리즘 심층 가이드
+└── presentation-script.md      # 프레젠테이션 스크립트
 ```
 
 ## 주요 컴포넌트
@@ -267,8 +315,12 @@ AI는 **객체 지향 아키텍처**로 설계되어 있으며, 각 AI 플레이
 
 #### 트랙 건설 고급 기능
 
+- **턴 내 경로 안정성**: 첫 건설 시 경로 평가, 이후 건설은 기존 경로 유지 (`getCurrentRoute`)
+- **lastBuiltCoords 추적**: `PhaseState.lastBuiltCoords`로 이번 턴 건설 좌표를 정확히 추적
+- **3단계 대체 경로 탐색**: 목표 경로가 막히면 (1)연결 도시 경유 → (2)다음 우선순위 경로 → (3)네트워크 확장
 - **네트워크 확장 모드**: 배달 가능한 화물이 없을 때 가장 가까운 미연결 도시로 자동 확장 (`findNetworkExpansionTarget`)
 - **복합 트랙 평가**: 상대 트랙 위에 crossing/coexist 트랙 건설 시 유리한 경우 보너스 부여
+- **파산 방지**: 초반 턴(1-2) 최소 1주 발행 보장, 엔진 업그레이드 시 완성된 링크 존재 여부 확인
 
 #### AI 디버깅 시스템
 
@@ -306,14 +358,20 @@ setAllDebug(true);                   // 모든 로그 on/off
 - 자세한 의사결정 수치와 A* 가중치는 @./docs/ai-strategy.md 를 참고하세요.
 
 ```typescript
-// buildTrack.ts
-function evaluateTrackForRoute(coord, route, board, playerId, edges) {
-  // 1. 최적 경로상 위치 점수 (+100)
-  // 2. 다음 건설 위치 보너스 (+50)
-  // 3. 출구 엣지가 목표 방향이면 보너스 (+80)
-  // ... (상세 가이드 참조)
-}
+// analyzer.ts - evaluateTrackForRoute 점수 체계
+// 1. 최적 경로상 위치: +150
+// 2. 순차 확장 (출발지 망에서 다음 칸): +500
+// 3. 연속 건설 (이번 턴 마지막 트랙 옆): +300 기본, +400 경로상 추가
+// 4. 다음 방향 연결: +120, 이전 방향 연결: +60
+// 5. 출발 도시 연결: +300
+// 6. 네트워크 고립: -500, 방향 불일치: -350, 역행: -1000
+// ... (상세 가이드: docs/ai-strategy.md)
 ```
+
+#### 알려진 이슈 (미해결)
+
+- **턴 간 경로 지속성 없음**: 매 턴 `findNextTargetRoute`로 경로를 새로 평가하여, 물품 성장 후 경로가 바뀔 수 있음. 이전 턴 미완성 트랙이 소유권을 잃을 위험.
+- **턴 내 대체 경로 탐색 시 경로 변경**: 3단계 fallback에서 `setCurrentRoute`가 호출되어 같은 턴 내에서도 경로가 바뀔 수 있음.
 
 ## 빌드 & 배포
 
@@ -329,14 +387,29 @@ npm run build
 ```
 
 ### 테스트 실행
-게임 테스트는 `/test-game` 슬래시 커맨드를 사용합니다.
+
+**단위 테스트 (Vitest)**
+```bash
+npm run test:unit                    # 모든 단위 테스트 실행
+npx vitest run src/ai/__tests__/     # AI 테스트만 실행
+npx vitest run src/store/__tests__/  # Store 테스트만 실행
+```
+
+**E2E 테스트 (Playwright)**
 ```bash
 # Claude Code에서 테스트 실행:
 /test-game
 ```
 
 테스트 파일:
-- `tests/game-phases.spec.ts` - 게임 단계별 기본 테스트 (55개)
+- `tests/game-phases.spec.ts` - Playwright E2E 통합 테스트 (55개)
+- `src/ai/__tests__/trackBuildSimulation.test.ts` - AI 트랙 건설 시뮬레이션
+- `src/ai/strategy/__tests__/analyzer.test.ts` - A* 경로 탐색 테스트
+- `src/ai/strategy/__tests__/selector.test.ts` - 전략 선택 테스트
+- `src/ai/strategies/__tests__/buildTrack.test.ts` - 트랙 건설 전략 테스트
+- `src/store/__tests__/payExpenses.test.ts` - 비용 지불/파산 테스트
+- `src/ai/__tests__/helpers/mockState.ts` - AI 테스트용 Mock 헬퍼
+- `src/utils/testHelpers.ts` - 공용 테스트 헬퍼
 
 ### GitHub Pages 배포
 - `.github/workflows/deploy.yml` 자동 배포 설정됨

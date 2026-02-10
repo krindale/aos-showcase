@@ -51,8 +51,10 @@ export function decideAuctionBid(state: GameState, playerId: PlayerId): AuctionD
 
   const currentBid = auction.highestBid;
 
-  // 최대 입찰 가능 금액 (현금의 30%)
-  const maxBid = Math.floor(player.cash * 0.3);
+  // 최대 입찰 가능 금액 (현금이 적으면 보수적으로)
+  // 트랙 건설비($6~8) + 운영비($3~4)를 확보해야 하므로 현금이 적을 때 입찰 억제
+  const bidRatio = player.cash < 15 ? 0.15 : 0.3;
+  const maxBid = Math.max(1, Math.floor(player.cash * bidRatio));
 
   // Turn Order 행동을 선택했고 아직 패스를 사용하지 않았으면 패스 사용
   if (player.selectedAction === 'turnOrder' && !player.turnOrderPassUsed) {

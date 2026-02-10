@@ -13,8 +13,8 @@ import {
   playerHasTrack,
 } from '@/utils/trackValidation';
 import { getBuildableNeighbors, getExitDirections, hexCoordsEqual, getNeighborHex, hexDistance, findAllConnectedHexes } from '@/utils/hexGrid';
-import { getSelectedStrategy } from '../strategy/state';
-import { getNextTargetRoute, reevaluateStrategy, findNextTargetRoute, getTopPriorityRoutes } from '../strategy/selector';
+import { getSelectedStrategy, setCurrentRoute, getCurrentRoute } from '../strategy/state';
+import { getNextTargetRoute, findNextTargetRoute, getTopPriorityRoutes } from '../strategy/selector';
 import {
   evaluateTrackForRoute,
   getIntermediateCities,
@@ -23,6 +23,7 @@ import {
   findBestEdgeToCity,
   isRouteComplete,
   isOnOptimalPath,
+  clearPathCache,
 } from '../strategy/analyzer';
 import type { DeliveryRoute } from '../strategy/types';
 import { debugLog } from '@/utils/debugConfig';
@@ -72,16 +73,23 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     return { action: 'skip' };
   }
 
-  // 현금이 충분한지 및 전략 업데이트
-  reevaluateStrategy(state, playerId);
+  // [핵심 수정] 이번 턴에 이미 건설한 트랙이 있으면, 기존 경로를 재사용 (방향 안정성)
+  let targetRoute: DeliveryRoute | null = null;
 
-  // 전략 재평가 (순수 함수)
-  const routeResult = findNextTargetRoute(state, playerId);
-  let targetRoute = routeResult.route;
+  if (state.phaseState.builtTracksThisTurn > 0) {
+    // 연속 건설: 기존 경로 유지 (매번 재평가하면 방향이 바뀌는 문제 방지)
+    targetRoute = getCurrentRoute(playerId);
+    debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 연속 건설 - 기존 경로 유지 (${targetRoute?.from}→${targetRoute?.to})`);
+  } else {
+    // 첫 건설: 경로 캐시 초기화 후 새로 평가
+    clearPathCache();
+    const routeResult = findNextTargetRoute(state, playerId);
+    targetRoute = routeResult.route;
 
-  // 재평가 필요시에만 getNextTargetRoute 호출 (전략 변경 포함)
-  if (!targetRoute && routeResult.needsStrategyReeval) {
-    targetRoute = getNextTargetRoute(state, playerId);
+    // 재평가 필요시에만 getNextTargetRoute 호출 (전략 변경 포함)
+    if (!targetRoute && routeResult.needsStrategyReeval) {
+      targetRoute = getNextTargetRoute(state, playerId);
+    }
   }
 
   // [핵심 추가] 이미 배달이 가능한 상태인지 확인 (타사 선로 포함)
@@ -178,17 +186,17 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     return { action: 'skip' };
   }
 
-  // [핵심 추가] 이번 턴에 이미 지은 트랙이 있다면, 그 트랙에서 이어가는 것에 강력 가중치
-  const playerTracks = state.board.trackTiles.filter(t => t.owner === playerId);
-  const lastBuiltTrack = state.phaseState.builtTracksThisTurn > 0
-    ? playerTracks[playerTracks.length - 1] // 가장 최근 추가된 트랙
+  // [핵심 수정] 이번 턴에 이미 지은 트랙이 있다면, phaseState.lastBuiltCoords에서 정확히 추적
+  const lastBuiltCoords = state.phaseState.lastBuiltCoords;
+  const lastBuiltCoord = lastBuiltCoords.length > 0
+    ? lastBuiltCoords[lastBuiltCoords.length - 1]
     : null;
 
   // 총점 (기본 점수 + 경로 점수 × 2) 기준으로 정렬
   validCandidates.forEach(c => {
     // analyzer에 lastBuiltCoord 전달하여 연속성 보너스 적용
-    if (targetRoute && lastBuiltTrack) {
-      const continuityScore = evaluateTrackForRoute(targetRoute, state.board, c.coord, c.edges, playerId, lastBuiltTrack.coord).score;
+    if (targetRoute && lastBuiltCoord) {
+      const continuityScore = evaluateTrackForRoute(targetRoute, state.board, c.coord, c.edges, playerId, lastBuiltCoord).score;
       c.routeScore = Math.max(c.routeScore, continuityScore);
     }
   });
@@ -239,16 +247,13 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
         const altCandidates = findBuildCandidates(state, playerId, altRoute);
         if (altCandidates.length === 0) continue;
 
-        // 점수 재계산
-        const playerTracks = state.board.trackTiles.filter(t => t.owner === playerId);
-        const lastBuiltTrack = state.phaseState.builtTracksThisTurn > 0 ? playerTracks[playerTracks.length - 1] : null;
-
+        // 점수 재계산 (lastBuiltCoord는 상위 스코프에서 가져옴)
         altCandidates.forEach(c => {
           const result = evaluateTrackForRoute(altRoute, state.board, c.coord, c.edges, playerId);
           c.routeScore = result.score;
           c.intention = result.intention;
-          if (lastBuiltTrack) {
-            const continuityScore = evaluateTrackForRoute(altRoute, state.board, c.coord, c.edges, playerId, lastBuiltTrack.coord).score;
+          if (lastBuiltCoord) {
+            const continuityScore = evaluateTrackForRoute(altRoute, state.board, c.coord, c.edges, playerId, lastBuiltCoord).score;
             c.routeScore = Math.max(c.routeScore, continuityScore);
           }
         });
@@ -264,6 +269,7 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
 
         if (altBestScore >= skipThreshold && altBest.routeScore >= routeThreshold && player.cash >= altBest.cost) {
           debugLog.trackBuilding(`[Phase IV: 트랙 건설] 1단계 성공: 연결된 도시 경유 ${cityId}->${targetRoute.to}`);
+          setCurrentRoute(playerId, altRoute); // 대체 경로를 전역 상태에 반영
           const typeInfo = altBest.isComplexTrack ? ` [${altBest.trackType}]` : '';
           debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 (연결된 도시 경유) (${altBest.coord.col},${altBest.coord.row}) edges=[${altBest.edges}] $${altBest.cost}${typeInfo} 총점=${altBestScore.toFixed(1)} [의도: ${altBest.intention}]`);
           if (altBest.isComplexTrack && altBest.trackType) {
@@ -285,16 +291,13 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
           const routeCandidates = findBuildCandidates(state, playerId, route);
           if (routeCandidates.length === 0) continue;
 
-          // 점수 재계산
-          const playerTracks = state.board.trackTiles.filter(t => t.owner === playerId);
-          const lastBuiltTrack = state.phaseState.builtTracksThisTurn > 0 ? playerTracks[playerTracks.length - 1] : null;
-
+          // 점수 재계산 (lastBuiltCoord는 상위 스코프에서 가져옴)
           routeCandidates.forEach(c => {
             const result = evaluateTrackForRoute(route, state.board, c.coord, c.edges, playerId);
             c.routeScore = result.score;
             c.intention = result.intention;
-            if (lastBuiltTrack) {
-              const continuityScore = evaluateTrackForRoute(route, state.board, c.coord, c.edges, playerId, lastBuiltTrack.coord).score;
+            if (lastBuiltCoord) {
+              const continuityScore = evaluateTrackForRoute(route, state.board, c.coord, c.edges, playerId, lastBuiltCoord).score;
               c.routeScore = Math.max(c.routeScore, continuityScore);
             }
           });
@@ -310,6 +313,7 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
 
           if (routeBestScore >= skipThreshold && routeBest.routeScore >= routeThreshold && player.cash >= routeBest.cost) {
             debugLog.trackBuilding(`[Phase IV: 트랙 건설] 2단계 성공: 다음 우선순위 경로 ${route.from}->${route.to}`);
+            setCurrentRoute(playerId, route); // 대체 경로를 전역 상태에 반영
             const typeInfo = routeBest.isComplexTrack ? ` [${routeBest.trackType}]` : '';
             debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 (다음 우선순위) (${routeBest.coord.col},${routeBest.coord.row}) edges=[${routeBest.edges}] $${routeBest.cost}${typeInfo} 총점=${routeBestScore.toFixed(1)} [의도: ${routeBest.intention}]`);
             if (routeBest.isComplexTrack && routeBest.trackType) {
@@ -329,15 +333,13 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
         const newCandidates = findBuildCandidates(state, playerId, altTarget);
 
         if (newCandidates.length > 0) {
-          const playerTracks = state.board.trackTiles.filter(t => t.owner === playerId);
-          const lastBuiltTrack = state.phaseState.builtTracksThisTurn > 0 ? playerTracks[playerTracks.length - 1] : null;
-
+          // lastBuiltCoord는 상위 스코프에서 가져옴
           newCandidates.forEach(c => {
             const result = evaluateTrackForRoute(altTarget, state.board, c.coord, c.edges, playerId);
             c.routeScore = result.score;
             c.intention = result.intention;
-            if (lastBuiltTrack) {
-              const continuityScore = evaluateTrackForRoute(altTarget, state.board, c.coord, c.edges, playerId, lastBuiltTrack.coord).score;
+            if (lastBuiltCoord) {
+              const continuityScore = evaluateTrackForRoute(altTarget, state.board, c.coord, c.edges, playerId, lastBuiltCoord).score;
               c.routeScore = Math.max(c.routeScore, continuityScore);
             }
           });
@@ -353,6 +355,7 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
 
           if (newBestScore >= skipThreshold && newBest.routeScore >= -500 && player.cash >= newBest.cost) {
             debugLog.trackBuilding(`[Phase IV: 트랙 건설] 3단계 성공: 네트워크 확장`);
+            setCurrentRoute(playerId, altTarget); // 확장 목표를 전역 상태에 반영
             const typeInfo = newBest.isComplexTrack ? ` [${newBest.trackType}]` : '';
             debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 (네트워크 확장) (${newBest.coord.col},${newBest.coord.row}) edges=[${newBest.edges}] $${newBest.cost}${typeInfo} 총점=${newBestScore.toFixed(1)} [의도: ${newBest.intention}]`);
             if (newBest.isComplexTrack && newBest.trackType) {

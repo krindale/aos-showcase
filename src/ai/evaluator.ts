@@ -117,6 +117,24 @@ export function calculateExpectedExpenses(state: GameState, playerId: PlayerId):
 }
 
 /**
+ * 추가 주식 발행 후 예상 비용 계산
+ *
+ * 주식 발행 시 미래 턴의 비용 부담을 미리 산정하여 파산 위험을 방지
+ */
+export function calculateExpectedExpensesAfterIssue(
+  state: GameState,
+  playerId: PlayerId,
+  additionalShares: number
+): number {
+  const player = state.players[playerId];
+  if (!player) return 0;
+
+  const futureShares = player.issuedShares + additionalShares;
+  const futureEngine = player.engineLevel; // 엔진 레벨은 변하지 않음 (보수적 추정)
+  return futureShares + futureEngine;
+}
+
+/**
  * 현금 부족 여부 판단
  */
 export function willBeShortOnCash(

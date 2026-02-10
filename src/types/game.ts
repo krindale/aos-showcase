@@ -161,6 +161,7 @@ export interface PhaseState {
   // Build Track 단계
   builtTracksThisTurn: number;
   maxTracksThisTurn: number;  // 3 또는 4 (Engineer)
+  lastBuiltCoords: HexCoord[];  // 이번 턴에 건설한 트랙 좌표 순서
 
   // Move Goods 단계
   moveGoodsRound: 1 | 2;

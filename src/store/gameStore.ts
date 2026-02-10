@@ -156,6 +156,7 @@ export function createInitialGameState(
     phaseState: {
       builtTracksThisTurn: 0,
       maxTracksThisTurn: GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
+      lastBuiltCoords: [],
       moveGoodsRound: 1,
       playerMoves: playerMoves as Record<PlayerId, boolean>,
       productionUsed: false,
@@ -1257,6 +1258,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       phaseState: {
         ...state.phaseState,
         builtTracksThisTurn: newBuiltCount,
+        lastBuiltCoords: [...state.phaseState.lastBuiltCoords, coord],
       },
       logs: [
         ...state.logs,
@@ -1382,6 +1384,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       phaseState: {
         ...state.phaseState,
         builtTracksThisTurn: newBuiltCount,
+        lastBuiltCoords: [...state.phaseState.lastBuiltCoords, coord],
       },
       logs: [
         ...state.logs,
@@ -1698,6 +1701,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           board: newBoard,
           logs: newLogs,
           currentPhase: 'gameOver' as GamePhase,
+          winner: winner || null,
         };
       }
 
@@ -1956,6 +1960,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             phaseState: {
               ...state.phaseState,
               builtTracksThisTurn: 0,
+              lastBuiltCoords: [],
               // 첫 번째로 건설할 플레이어의 Engineer 효과 확인
               maxTracksThisTurn: state.players[firstBuilder].selectedAction === 'engineer'
                 ? GAME_CONSTANTS.ENGINEER_TRACK_LIMIT
@@ -2025,6 +2030,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           phaseState: {
             ...state.phaseState,
             builtTracksThisTurn: 0,
+            lastBuiltCoords: [],
             maxTracksThisTurn: state.players[nextPlayer].selectedAction === 'engineer'
               ? GAME_CONSTANTS.ENGINEER_TRACK_LIMIT
               : GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
@@ -2098,6 +2104,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           phaseState: {
             builtTracksThisTurn: 0,
             maxTracksThisTurn: GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
+            lastBuiltCoords: [],
             moveGoodsRound: 1,
             playerMoves: createPlayerMoves(activePlayers),
             productionUsed: false,
@@ -2149,6 +2156,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       phaseState: {
         builtTracksThisTurn: 0,
         maxTracksThisTurn: GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
+        lastBuiltCoords: [],
         moveGoodsRound: 1,
         playerMoves: createPlayerMoves(prevState.activePlayers),
         productionUsed: false,
@@ -2582,6 +2590,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       phaseState: {
         ...state.phaseState,
         builtTracksThisTurn: state.phaseState.builtTracksThisTurn + 1,
+        lastBuiltCoords: [...state.phaseState.lastBuiltCoords, coord],
       },
       ui: {
         ...state.ui,

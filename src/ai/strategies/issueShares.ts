@@ -5,7 +5,7 @@
  */
 
 import { GameState, PlayerId, GAME_CONSTANTS } from '@/types/game';
-import { calculateExpectedExpenses } from '../evaluator';
+import { calculateExpectedExpenses, calculateExpectedExpensesAfterIssue } from '../evaluator';
 import { getCurrentRoute } from '../strategy/state';
 import { debugLog } from '@/utils/debugConfig';
 import { hexDistance } from '@/utils/hexGrid';
@@ -75,11 +75,31 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
   const maxPossibleShares = GAME_CONSTANTS.MAX_SHARES - player.issuedShares;
 
   // 이번 턴에 한꺼번에 너무 많이 발행하는 것은 위험 (감점 때문)
-  // 하지만 돈이 없으면 아무것도 못하므로 필요량만큼은 발행하되, 무의미한 과발행은 방지
-  const maxStrategicShares = 3;
+  // 턴 1은 1주, 턴 2 이후 2주로 제한 (파산 방지)
+  const maxStrategicShares = state.currentTurn <= 1 ? 1 : 2;
 
   // 필요한 만큼만 발행
-  const sharesToIssue = Math.min(sharesNeeded, maxPossibleShares, maxStrategicShares);
+  let sharesToIssue = Math.min(sharesNeeded, maxPossibleShares, maxStrategicShares);
+
+  // 파산 방지 검사: 발행 후 비용이 수입을 초과하면 발행량 감소
+  // 단, 초반 턴(1-2)에는 투자가 필수이므로 최소 1주는 보장
+  // (턴 1 수입은 항상 0이므로, 검사를 그대로 적용하면 발행 자체가 차단됨)
+  const minimumGuaranteed = state.currentTurn <= 2 ? 1 : 0;
+  while (sharesToIssue > minimumGuaranteed) {
+    const futureExpenses = calculateExpectedExpensesAfterIssue(state, playerId, sharesToIssue);
+    const futureIncome = player.income;
+
+    // 초반에는 수입이 0이므로 여유폭을 넉넉히 잡음
+    const safetyMargin = state.currentTurn <= 2 ? 5 : 2;
+    if (futureExpenses > futureIncome + safetyMargin) {
+      sharesToIssue--;
+      debugLog.preparation(
+        `[Phase I: 주식 발행] ${player.name}: 파산 위험! 비용 $${futureExpenses} > 수입 $${futureIncome}+${safetyMargin} - 발행량 감소`
+      );
+    } else {
+      break;
+    }
+  }
 
   const routeStr = currentRoute ? `${currentRoute.from}→${currentRoute.to}` : '없음';
   debugLog.preparation(

@@ -62,6 +62,10 @@ export class AIPlayer {
   // === 분석 캐시 ===
   private _pathCache: Map<string, HexCoord[]> = new Map();
 
+  // === 재평가 중복 방지 ===
+  private _lastEvaluatedTurn: number = -1;
+  private _lastEvaluatedPhase: string = '';
+
   constructor(playerId: PlayerId, name: string) {
     this.playerId = playerId;
     this.name = name;
@@ -99,8 +103,10 @@ export class AIPlayer {
 
     const phase = state.currentPhase;
 
-    // 턴 시작 시 전략 재평가
+    // 턴 시작 시 전략 재평가 (issueShares에서만 강제)
     if (phase === 'issueShares') {
+      this._lastEvaluatedTurn = state.currentTurn;
+      this._lastEvaluatedPhase = phase;
       this.updateRoute(state);
     }
 
@@ -117,15 +123,19 @@ export class AIPlayer {
       }
 
       case 'selectActions': {
-        // selectAction에서도 전략 재평가 (다른 AI 행동 이후)
-        this.updateRoute(state);
+        // 경로가 없을 때만 재평가 (과다 호출 방지)
+        if (!this._currentRoute) {
+          this.updateRoute(state);
+        }
         const action = decideAction(state, this.playerId);
         return { type: 'selectAction', action };
       }
 
       case 'buildTrack': {
-        // buildTrack에서도 전략 재평가 (다른 AI 건설 이후)
-        this.updateRoute(state);
+        // 경로가 없을 때만 재평가 (과다 호출 방지)
+        if (!this._currentRoute) {
+          this.updateRoute(state);
+        }
         const decision = decideBuildTrack(state, this.playerId);
         return { type: 'buildTrack', decision };
       }

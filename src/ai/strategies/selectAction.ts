@@ -8,6 +8,7 @@ import { GameState, PlayerId, SpecialAction } from '@/types/game';
 import { countPlayerTracks } from '../evaluator';
 import { getCurrentRoute, hasSelectedStrategy } from '../strategy/state';
 import { reevaluateStrategy } from '../strategy/selector';
+import { getConnectedCities } from '../strategy/analyzer';
 import { debugLog } from '@/utils/debugConfig';
 
 /**
@@ -57,21 +58,25 @@ export function decideAction(state: GameState, playerId: PlayerId): SpecialActio
     return 'turnOrder';
   }
 
-  // 경로 없으면 재평가
+  // 경로 없으면 재평가 (과다 호출 방지)
   if (!hasSelectedStrategy(playerId)) {
     debugLog.preparation(`[Phase III: 행동 선택] ${player.name}: 경로 없음 - 초기화 및 평가 중...`);
+    reevaluateStrategy(state, playerId);
   }
-  // 항상 재평가하여 상대 트랙/물품 상황 반영
-  reevaluateStrategy(state, playerId);
 
   // 현재 목표 경로 가져오기
   const currentRoute = getCurrentRoute(playerId);
   const routeStr = currentRoute ? `${currentRoute.from}→${currentRoute.to}` : '없음';
 
-  // 동적 전략: 기본 엔진 레벨 요구치 2 (1링크 배달 위해)
-  const minEngineLevel = 2;
+  // 완성된 링크 확인 (도시 2개 이상 연결)
+  const connectedCities = getConnectedCities(state, playerId);
+  const hasCompletedLinks = connectedCities.length >= 2;
+
+  // 동적 전략: 엔진 업그레이드는 완성된 링크가 있을 때만
+  // 링크 없으면 트랙 건설이 우선 (엔진 올려도 쓸 곳이 없음)
+  const minEngineLevel = (state.currentTurn <= 1 || !hasCompletedLinks) ? 1 : 2;
   if (player.engineLevel < minEngineLevel && available.includes('locomotive')) {
-    debugLog.preparation(`[Phase III: 행동 선택] ${player.name}: locomotive (경로=${routeStr}, 엔진 ${player.engineLevel} < ${minEngineLevel})`);
+    debugLog.preparation(`[Phase III: 행동 선택] ${player.name}: locomotive (경로=${routeStr}, 엔진 ${player.engineLevel} < ${minEngineLevel}, 연결도시=${connectedCities.length})`);
     return 'locomotive';
   }
 
@@ -102,8 +107,8 @@ export function decideAction(state: GameState, playerId: PlayerId): SpecialActio
   for (const action of fallbackPriority) {
     if (available.includes(action)) {
       // 추가 조건 검사
-      if (action === 'locomotive' && player.engineLevel >= 3) {
-        continue;  // 엔진 충분하면 스킵
+      if (action === 'locomotive' && (player.engineLevel >= 2 || !hasCompletedLinks)) {
+        continue;  // 엔진 충분하거나 완성된 링크 없으면 스킵
       }
       if (action === 'engineer' && player.cash < 6) {
         continue;  // 현금 부족하면 스킵

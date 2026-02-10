@@ -9,6 +9,7 @@ import { evaluateMoveValue } from '../evaluator';
 import { findReachableDestinations, findLongestPath, hexCoordsEqual } from '@/utils/hexGrid';
 import { getSelectedStrategy } from '../strategy/state';
 import { getNextTargetRoute } from '../strategy/selector';
+import { getConnectedCities } from '../strategy/analyzer';
 import { debugLog } from '@/utils/debugConfig';
 
 export type MoveGoodsDecision =
@@ -142,11 +143,15 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
   // 이동 가능한 후보가 없으면 엔진 업그레이드 고려
   const AI_MAX_ENGINE_LEVEL = 3;
   if (candidates.length === 0) {
-    if (player.engineLevel < AI_MAX_ENGINE_LEVEL) {
-      debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 엔진 업그레이드 (${player.engineLevel} → ${player.engineLevel + 1})`);
+    // 완성된 링크(2개 이상 도시 연결)가 있을 때만 엔진 업그레이드
+    const connectedCities = getConnectedCities(state, playerId);
+    const hasCompletedLinks = connectedCities.length >= 2;
+
+    if (player.engineLevel < AI_MAX_ENGINE_LEVEL && hasCompletedLinks) {
+      debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 엔진 업그레이드 (${player.engineLevel} → ${player.engineLevel + 1}), 연결 도시=${connectedCities.length}개`);
       return { action: 'upgradeEngine' };
     }
-    debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 이동 불가, 스킵`);
+    debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 이동 불가, 스킵 (연결 도시=${connectedCities.length}개, 엔진=${player.engineLevel})`);
     return { action: 'skip' };
   }
 

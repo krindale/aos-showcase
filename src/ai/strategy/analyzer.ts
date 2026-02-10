@@ -890,9 +890,9 @@ export function evaluateTrackForRoute(
 
       // 1. 순방향 확장 (출발지 망 -> 목적지 방향) 오직 순차 건설만 허용
       if (maxConnectedIdx !== -1 && positionOnPath === maxConnectedIdx + 1) {
-        score += 400; // 보너스 강화 (250 -> 400)
+        score += 500; // 순차 확장은 최우선 (400 -> 500)
         intention = '출발지로부터 순차적 확장';
-        debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 순차 확장 보너스 +400 → 누적 ${score}`);
+        debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 순차 확장 보너스 +500 → 누적 ${score}`);
       }
 
       // [Isolation Check] 현재 건설하려는 트랙이 내 네트워크와 떨어져 있는지 확인
@@ -911,10 +911,14 @@ export function evaluateTrackForRoute(
       }
 
       // 3. 연속성 보너스 (이번 턴에 방금 지은 트랙 바로 옆에 짓는 경우)
+      // 조건부: 경로상이면 +400 추가, 방향 올바르면 +200 추가 (기본 +300)
       if (lastBuiltCoord && hexDistance(trackCoord, lastBuiltCoord) === 1) {
-        score += 1500; // 매우 강력한 보너스로 한 턴 내 파편화 방지
+        let continuityBonus = 300; // 기본 연속성 보너스
+        if (isOnPath) continuityBonus += 400; // 경로상이면 추가
+        // 방향 올바름은 edges 평가에서 별도 처리되므로 여기서는 기본만
+        score += continuityBonus;
         intention = '번호 연속 건설(연속성 보장)';
-        debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 연속 건설 보너스 +1500 → 누적 ${score}`);
+        debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 연속 건설 보너스 +${continuityBonus} → 누적 ${score}`);
       }
 
       // 4. 상대방 견제 보너스 (상대방의 예상 경로 상에 있는 경우)
@@ -981,10 +985,10 @@ export function evaluateTrackForRoute(
       const edgeMatchesNext = edgeTowardsNext >= 0 && (edge0 === edgeTowardsNext || edge1 === edgeTowardsNext);
 
       if (edgeTowardsNext >= 0 && !edgeMatchesNext) {
-        // 다음 칸으로 가야 할 놈이 엉뚱한 데를 보고 있으면 페널티 (완화)
-        score -= 200;
+        // 다음 칸으로 가야 할 놈이 엉뚱한 데를 보고 있으면 페널티 (강화)
+        score -= 350;
         intention = '목적지 방향 불일치 페널티';
-        debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 목적지 방향 불일치 -200 → 누적 ${score}`);
+        debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 목적지 방향 불일치 -350 → 누적 ${score}`);
       } else if (!edgeMatchesPrev && !edgeMatchesNext) {
         score -= 100;  // 경로와 무관한 방향
         debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 경로 무관 방향 -100 → 누적 ${score}`);
@@ -1298,7 +1302,7 @@ export function getConnectedCities(
   const playerTracks = board.trackTiles.filter(t => t.owner === playerId);
 
   if (playerTracks.length === 0) {
-    return board.cities.map(c => c.id); // 트랙 없으면 모든 도시가 잠재적 시작점
+    return []; // 트랙 없으면 연결된 도시 없음 (모든 도시 반환하면 연결성 보너스가 무의미)
   }
 
   const connectedCities: string[] = [];

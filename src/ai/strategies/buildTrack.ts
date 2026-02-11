@@ -5,7 +5,7 @@
  */
 
 import { GameState, PlayerId, HexCoord, GAME_CONSTANTS, TRACK_REPLACE_COSTS } from '@/types/game';
-import { evaluateTrackPosition } from '../evaluator';
+import { evaluateTrackPosition, calculateMinCashReserve } from '../evaluator';
 import {
   isValidConnectionPoint,
   validateFirstTrackRule,
@@ -74,6 +74,8 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 현금 부족 ($${player.cash})`);
     return { action: 'skip' };
   }
+
+  // 마지막 턴: 현금 예비금 공식이 자연스럽게 건설을 제한 (별도 하드리밋 불필요)
 
   // [핵심 수정] 이번 턴에 이미 건설한 트랙이 있으면, 기존 경로를 재사용 (방향 안정성)
   let targetRoute: DeliveryRoute | null = null;
@@ -353,7 +355,8 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
         const altBest = altCandidates[0];
         const altBestScore = altBest.score + altBest.routeScore * 2;
 
-        if (altBestScore >= skipThreshold && altBest.routeScore >= routeThreshold && player.cash >= altBest.cost) {
+        const stage1Reserve = calculateMinCashReserve(state, playerId);
+        if (altBestScore >= skipThreshold && altBest.routeScore >= routeThreshold && player.cash >= altBest.cost + stage1Reserve) {
           debugLog.trackBuilding(`[Phase IV: 트랙 건설] 1단계 성공: 연결된 도시 경유 ${cityId}->${targetRoute.to}`);
           // 전역 경로는 변경하지 않음 (일시적 우회 건설, 다음 턴에 원래 경로 유지)
           const typeInfo = altBest.isComplexTrack ? ` [${altBest.trackType}]` : '';
@@ -404,7 +407,8 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
           const routeBest = routeCandidates[0];
           const routeBestScore = routeBest.score + routeBest.routeScore * 2;
 
-          if (routeBestScore >= skipThreshold && routeBest.routeScore >= routeThreshold && player.cash >= routeBest.cost) {
+          const stage2Reserve = calculateMinCashReserve(state, playerId);
+          if (routeBestScore >= skipThreshold && routeBest.routeScore >= routeThreshold && player.cash >= routeBest.cost + stage2Reserve) {
             debugLog.trackBuilding(`[Phase IV: 트랙 건설] 2단계 성공: 다음 우선순위 경로 ${route.from}->${route.to}`);
             // 전역 경로는 변경하지 않음 (일시적 우회 건설)
             const typeInfo = routeBest.isComplexTrack ? ` [${routeBest.trackType}]` : '';
@@ -447,7 +451,8 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
           const newBest = newCandidates[0];
           const newBestScore = newBest.score + newBest.routeScore * 2;
 
-          if (newBestScore >= skipThreshold && newBest.routeScore >= -500 && player.cash >= newBest.cost) {
+          const stage3Reserve = calculateMinCashReserve(state, playerId);
+          if (newBestScore >= skipThreshold && newBest.routeScore >= -500 && player.cash >= newBest.cost + stage3Reserve) {
             debugLog.trackBuilding(`[Phase IV: 트랙 건설] 3단계 성공: 네트워크 확장`);
             // 전역 경로는 변경하지 않음 (일시적 확장 건설)
             const typeInfo = newBest.isComplexTrack ? ` [${newBest.trackType}]` : '';
@@ -466,10 +471,11 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     return { action: 'skip' };
   }
 
-  // 현금이 충분한지 최종 확인
-  if (player.cash < best.cost) {
+  // 현금이 충분한지 최종 확인 (예비금 포함)
+  const minReserve = calculateMinCashReserve(state, playerId);
+  if (player.cash < best.cost + minReserve) {
     // 더 저렴한 옵션 찾기
-    const affordable = validCandidates.filter(c => c.cost <= player.cash);
+    const affordable = validCandidates.filter(c => c.cost + minReserve <= player.cash);
     if (affordable.length === 0) {
       debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 현금 부족 (최선 $${best.cost}, 보유 $${player.cash})`);
       return { action: 'skip' };
@@ -1452,10 +1458,11 @@ function tryDirectPathBuild(
       }
     }
 
-    // 7. 비용 확인
+    // 7. 비용 확인 (예비금 포함)
     const cost = getTerrainCost(nextCoord, board);
-    if (player.cash < cost) {
-      debugLog.trackBuilding(`[직접 경로] 현금 부족 ($${player.cash} < $${cost})`);
+    const directPathMinReserve = calculateMinCashReserve(state, playerId);
+    if (player.cash < cost + directPathMinReserve) {
+      debugLog.trackBuilding(`[직접 경로] 현금 부족 ($${player.cash} < $${cost} + 예비금 $${directPathMinReserve})`);
       return null;
     }
 

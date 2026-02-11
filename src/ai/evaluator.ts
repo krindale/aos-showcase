@@ -153,3 +153,57 @@ export function willBeShortOnCash(
 
   return player.cash - additionalSpending + expectedIncome < expectedExpenses;
 }
+
+/**
+ * Pay Expenses에서 현금 부족으로 수입 감소를 방지하기 위한 최소 현금 예비금 계산
+ *
+ * 흐름: Build Track → Move Goods → Collect Income (cash += income) → Pay Expenses (cash -= expenses)
+ * 따라서 수입감소 방지: cash_after_build + income >= expenses
+ * 예비금 = max(0, expenses - income)
+ *
+ * @param state 게임 상태
+ * @param playerId AI 플레이어 ID
+ * @returns 최소 현금 예비금 (0 이상)
+ */
+export function calculateMinCashReserve(state: GameState, playerId: PlayerId): number {
+  const player = state.players[playerId];
+  if (!player) return 0;
+
+  const expenses = player.issuedShares + player.engineLevel;
+  const expectedIncome = Math.max(0, player.income);
+
+  // 수입 감소 = -3 VP (영구). 어떤 경우에도 허용하지 않음.
+  if (expectedIncome >= expenses) return 0;
+
+  return expenses - expectedIncome;
+}
+
+/**
+ * 주식 발행의 VP 비용 계산
+ * 주식 1주 = -3 VP (영구)
+ */
+export function calculateShareVPCost(additionalShares: number): number {
+  return additionalShares * 3;
+}
+
+/**
+ * 엔진 업그레이드의 VP 비용-이익 계산
+ * 비용: 남은 턴 × $1 추가 유지비 (간접적 주식 발행 유발)
+ * 이익: 더 긴 배달 가능 → 수입 증가 가능성
+ */
+export function estimateEngineUpgradeVPValue(
+  state: GameState,
+  playerId: PlayerId
+): number {
+  const player = state.players[playerId];
+  if (!player) return -100;
+
+  const remainingTurns = state.maxTurns - state.currentTurn;
+  const additionalExpenseCost = remainingTurns; // $1/턴 추가 비용
+  // 비용이 현금을 줄여 주식 발행 유발 가능성
+  const potentialShareCost = Math.ceil(additionalExpenseCost / 5) * 3;
+  // 배달 거리 +1 = 수입 +1 가능 = +3 VP × 남은 턴
+  const potentialIncomeGain = remainingTurns * 3;
+
+  return potentialIncomeGain - potentialShareCost;
+}

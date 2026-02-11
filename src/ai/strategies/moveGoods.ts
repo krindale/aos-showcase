@@ -157,18 +157,66 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
     }
   }
 
+  // 선제적 엔진 업그레이드: 1링크만 가능할 때 엔진 올려 2링크 해금
+  if (candidates.length > 0 && player.engineLevel < 3) {
+    const bestCurrentLinks = Math.max(...candidates.map(c => c.linksCount));
+    if (bestCurrentLinks <= 1) {
+      // 엔진+1로 2링크 이상 배달 가능한지 확인
+      let hasLongerDelivery = false;
+      for (const city of board.cities) {
+        if (hasLongerDelivery) break;
+        for (let ci = 0; ci < city.cubes.length; ci++) {
+          const cubeColor = city.cubes[ci];
+          const reachable = findReachableDestinations(
+            city.coord, board, playerId, player.engineLevel + 1, cubeColor
+          );
+          for (const destCity of reachable) {
+            const path = findLongestPath(city.coord, destCity.coord, board, playerId, player.engineLevel + 1, cubeColor);
+            if (path && path.length >= 2) {
+              const links = countTotalLinksInPath(path, board);
+              if (links >= 2) { hasLongerDelivery = true; break; }
+            }
+          }
+          if (hasLongerDelivery) break;
+        }
+      }
+      if (hasLongerDelivery) {
+        const connectedCities = getConnectedCities(state, playerId);
+        const hasCompletedLinks = connectedCities.length >= 2;
+        const remainingTurns = state.maxTurns - state.currentTurn;
+        if (hasCompletedLinks && remainingTurns >= 1) {
+          const futureExpenses = player.issuedShares + (player.engineLevel + 1);
+          if (futureExpenses <= Math.max(0, player.income) + remainingTurns) {
+            debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 선제적 엔진 업그레이드 (${player.engineLevel}→${player.engineLevel + 1}), 2링크 배달 해금`);
+            return { action: 'upgradeEngine' };
+          }
+        }
+      }
+    }
+  }
+
   // 이동 가능한 후보가 없으면 엔진 업그레이드 고려
-  const AI_MAX_ENGINE_LEVEL = 3;
   if (candidates.length === 0) {
-    // 완성된 링크(2개 이상 도시 연결)가 있을 때만 엔진 업그레이드
+    // 엔진 업그레이드 조건:
+    // 1. 엔진 3 미만 허용 (tutorial max)
+    // 2. 완성된 링크 있어야 (배달 가능 상태)
+    // 3. 마지막 턴 아닐 때 (업그레이드 비용 회수 불가)
+    // 4. 비용 감당 가능 (futureExpenses <= income + 여유분)
+    //    남은 턴이 많을수록 관대하게 (투자 회수 기간)
     const connectedCities = getConnectedCities(state, playerId);
     const hasCompletedLinks = connectedCities.length >= 2;
-
-    if (player.engineLevel < AI_MAX_ENGINE_LEVEL && hasCompletedLinks) {
-      debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 엔진 업그레이드 (${player.engineLevel} → ${player.engineLevel + 1}), 연결 도시=${connectedCities.length}개`);
-      return { action: 'upgradeEngine' };
+    const remainingTurns = state.maxTurns - state.currentTurn;
+    if (player.engineLevel < 3 &&
+        hasCompletedLinks &&
+        remainingTurns >= 2) {
+      const futureExpenses = player.issuedShares + (player.engineLevel + 1);
+      const safetyMargin = remainingTurns; // 남은 턴이 많을수록 관대
+      if (futureExpenses <= Math.max(0, player.income) + safetyMargin) {
+        debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 배달 불가 → 엔진 업그레이드 (${player.engineLevel}→${player.engineLevel + 1}), 비용=${futureExpenses} ≤ 수입=${player.income}+${safetyMargin}`);
+        return { action: 'upgradeEngine' };
+      }
     }
-    debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 이동 불가, 스킵 (연결 도시=${connectedCities.length}개, 엔진=${player.engineLevel})`);
+    debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 이동 불가, 스킵 (엔진=${player.engineLevel})`);
     return { action: 'skip' };
   }
 

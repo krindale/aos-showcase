@@ -4,8 +4,8 @@
  * 정적 시나리오 대신 실제 화물 배치를 기반으로 최적 배달 경로를 동적으로 선택
  */
 
-import { GameState, PlayerId } from '@/types/game';
-import { DeliveryRoute } from './types';
+import { GameState, PlayerId, PlayerState, HexCoord } from '@/types/game';
+import { DeliveryRoute, DeliveryOpportunity } from './types';
 import {
   analyzeDeliveryOpportunities,
   getConnectedCities,
@@ -16,6 +16,98 @@ import {
 import { hexDistance } from '@/utils/hexGrid';
 import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, clearCurrentRoutes } from './state';
 import { debugLog } from '@/utils/debugConfig';
+
+/**
+ * VP 최적 경로 점수 계산
+ *
+ * VP = income × 3 + completedLinkTracks - shares × 3
+ * → 빨리 짓고(buildEfficiency) 빨리 배달(deliveryValue)하는 경로가 최고점
+ */
+function scoreOpportunity(
+  opp: DeliveryOpportunity,
+  state: GameState,
+  playerId: PlayerId,
+  player: PlayerState,
+  connectedCities: string[],
+  playerTracks: { coord: HexCoord; owner: PlayerId | null }[],
+): number {
+  // 1. 배달 수입 가치 (엔진 실현 가능성 반영)
+  //    즉시 배달 가능 = distance × 300 (income +distance → VP +distance×3)
+  //    1턴 업그레이드 후 = distance × 150 (할인)
+  //    그 이상 = distance × 50
+  let deliveryValue: number;
+  if (opp.distance <= player.engineLevel) {
+    deliveryValue = opp.distance * 300;
+  } else if (opp.distance <= player.engineLevel + 1) {
+    deliveryValue = opp.distance * 150;
+  } else {
+    deliveryValue = opp.distance * 50;
+  }
+
+  // 2. 건설 효율성 (빨리 완성 = 빨리 VP 확보)
+  //    남은 건설량이 적을수록 높은 점수
+  const hDist = hexDistance(opp.sourceCoord, opp.targetCoord);
+  const ownTracksNear = playerTracks.filter(t => {
+    if (!t.owner || t.owner !== playerId) return false;
+    const dSrc = hexDistance(t.coord, opp.sourceCoord);
+    const dTgt = hexDistance(t.coord, opp.targetCoord);
+    return dSrc + dTgt <= hDist + 1;
+  }).length;
+  const remainingTracks = Math.max(0, hDist - ownTracksNear);
+  // 0 remaining = 600, 1 = 450, 2 = 300, 3 = 150, 4+ = 0
+  const buildEfficiency = Math.max(0, 600 - remainingTracks * 150);
+
+  // 3. 네트워크 연결 보너스 (기존 철도에서 확장)
+  const connectedBonus = connectedCities.includes(opp.sourceCityId) ? 300 : 0;
+
+  // 4. 경로 진행도 보너스 (투자 보호)
+  const route: DeliveryRoute = { from: opp.sourceCityId, to: opp.targetCityId, priority: 1 };
+  const progress = getRouteProgress(state, playerId, route);
+  const progressBonus = progress * 500;
+
+  // 5. 엔진 실현 가능성 (남은 턴 내 업그레이드 불가 → 페널티)
+  const remainingTurns = state.maxTurns - state.currentTurn;
+  const engineGap = Math.max(0, opp.distance - player.engineLevel);
+  const engineFeasible = engineGap <= remainingTurns ? 0 : -500;
+
+  // === 페널티 (기존 유지) ===
+
+  // 6. 완공 여부 페널티 (중복 건설 배제)
+  const isAlreadyLinked = isRouteComplete(state, route);
+  const duplicationPenalty = isAlreadyLinked ? -1000 : 0;
+  const competitorPenalty = (isAlreadyLinked && !connectedCities.includes(opp.sourceCityId)) ? -2000 : 0;
+
+  // 7. 경쟁자 진행도
+  const opponents = state.activePlayers.filter(id => id !== playerId);
+  let opponentMaxProgress = 0;
+  for (const oppId of opponents) {
+    const progFwd = getRouteProgress(state, oppId, route);
+    const progRev = getRouteProgress(state, oppId, { from: opp.targetCityId, to: opp.sourceCityId, priority: 1 });
+    opponentMaxProgress = Math.max(opponentMaxProgress, progFwd, progRev);
+  }
+  const opponentProgressPenalty = opponentMaxProgress > 0.7 ? -1500 : (opponentMaxProgress > 0.3 ? -500 : 0);
+
+  // 8. 상대 목표 경로 충돌
+  let opponentTargetPenalty = 0;
+  for (const oppId of opponents) {
+    const oppRoute = getCurrentRoute(oppId);
+    if (!oppRoute) continue;
+    const matchesOpp =
+      (oppRoute.from === opp.sourceCityId && oppRoute.to === opp.targetCityId) ||
+      (oppRoute.from === opp.targetCityId && oppRoute.to === opp.sourceCityId);
+    if (matchesOpp) { opponentTargetPenalty = -3500; break; }
+    if (opponentTargetPenalty === 0) {
+      const sharesEndpoint =
+        oppRoute.from === opp.sourceCityId || oppRoute.from === opp.targetCityId ||
+        oppRoute.to === opp.sourceCityId || oppRoute.to === opp.targetCityId;
+      if (sharesEndpoint) opponentTargetPenalty = -300;
+    }
+  }
+
+  return deliveryValue + buildEfficiency + connectedBonus + progressBonus
+    + engineFeasible + duplicationPenalty + competitorPenalty
+    + opponentProgressPenalty + opponentTargetPenalty;
+}
 
 /**
  * 게임 시작 시 또는 턴 시작 시 최적 경로 탐색
@@ -55,116 +147,8 @@ export function getNextTargetRoute(
   const isFirstTurn = state.currentTurn === 1;
 
   opportunities.sort((a, b) => {
-    // 3.0 첫 턴 즉시 배달 가능 보너스 (최우선 순위)
-    // 첫 턴에는 수입 확보가 생존에 필수적이므로 즉시 배달 가능한 경로에 압도적 보너스
-    const aCanDeliverNow = a.distance <= player.engineLevel;
-    const bCanDeliverNow = b.distance <= player.engineLevel;
-    const aFirstTurnBonus = (isFirstTurn && aCanDeliverNow) ? 3000 : 0;
-    const bFirstTurnBonus = (isFirstTurn && bCanDeliverNow) ? 3000 : 0;
-
-    // 3.1 수입 잠재력
-    // [링크 길이 가중치] 현재 엔진 레벨을 넘어서는 경로도 미래 가치로 인정하여 가산점 부여
-    const aIncome = Math.min(a.distance, player.engineLevel) * 50;
-    const bIncome = Math.min(b.distance, player.engineLevel) * 50;
-
-    // [핵심 요청] 엔진 레벨 혹은 엔진 레벨+1의 루트가 우선 (단, 첫 턴 제외)
-    // 첫 턴에는 엔진+1 보너스를 비활성화하여 즉시 배달 가능 경로 선호
-    let aEngineMatchingBonus = 0;
-    let bEngineMatchingBonus = 0;
-    if (!isFirstTurn) {
-      aEngineMatchingBonus = (a.distance === player.engineLevel || a.distance === player.engineLevel + 1) ? 500 : 0;
-      bEngineMatchingBonus = (b.distance === player.engineLevel || b.distance === player.engineLevel + 1) ? 500 : 0;
-    } else {
-      // 첫 턴에는 현재 엔진 레벨과 정확히 일치하는 경로에만 보너스
-      aEngineMatchingBonus = (a.distance === player.engineLevel) ? 500 : 0;
-      bEngineMatchingBonus = (b.distance === player.engineLevel) ? 500 : 0;
-    }
-
-    // 엔진 레벨을 초과하는 '미래 수입'에 대한 보너스 (엔진 업그레이드 유도)
-    const aFutureIncome = a.distance > player.engineLevel ? (a.distance - player.engineLevel) * 20 : 0;
-    const bFutureIncome = b.distance > player.engineLevel ? (b.distance - player.engineLevel) * 20 : 0;
-
-    // 3.2 연결성 보너스 (네트워크 확장 및 연속성)
-    const aConnectedBonus = connectedCities.includes(a.sourceCityId) ? 150 : 0;
-    const bConnectedBonus = connectedCities.includes(b.sourceCityId) ? 150 : 0;
-
-    // 3.3 거리 페널티
-    const aDistPenalty = a.distance * 5;
-    const bDistPenalty = b.distance * 5;
-
-    // 3.4 완공 여부 페널티 (중복 건설 배제)
-    // 타인이 이미 연결했거나, 이미 망이 존재하는 경우 강력한 페널티
-    const isAAlreadyLinked = isRouteComplete(state, { from: a.sourceCityId, to: a.targetCityId, priority: 1 });
-    const isBAlreadyLinked = isRouteComplete(state, { from: b.sourceCityId, to: b.targetCityId, priority: 1 });
-
-    const aDuplicationPenalty = isAAlreadyLinked ? -1000 : 0;
-    const bDuplicationPenalty = isBAlreadyLinked ? -1000 : 0;
-
-    // 타인 완공 페널티 (독자 노선 확보 유도)
-    const aCompetitorPenalty = (isAAlreadyLinked && !connectedCities.includes(a.sourceCityId)) ? -2000 : 0; // 강화됨
-    const bCompetitorPenalty = (isBAlreadyLinked && !connectedCities.includes(b.sourceCityId)) ? -2000 : 0;
-
-    // [New] 경쟁자 진행도 체크 (이미 누군가 짓고 있는 경로는 피함)
-    // 역방향(O→P)도 같은 링크로 인식하여 체크
-    let aOpponentMaxProgress = 0;
-    let bOpponentMaxProgress = 0;
-    const opponents = state.activePlayers.filter(id => id !== playerId);
-
-    for (const oppId of opponents) {
-      // 정방향 + 역방향 모두 체크
-      const progAFwd = getRouteProgress(state, oppId, { from: a.sourceCityId, to: a.targetCityId, priority: 1 });
-      const progARev = getRouteProgress(state, oppId, { from: a.targetCityId, to: a.sourceCityId, priority: 1 });
-      const progA = Math.max(progAFwd, progARev);
-      if (progA > aOpponentMaxProgress) aOpponentMaxProgress = progA;
-
-      const progBFwd = getRouteProgress(state, oppId, { from: b.sourceCityId, to: b.targetCityId, priority: 1 });
-      const progBRev = getRouteProgress(state, oppId, { from: b.targetCityId, to: b.sourceCityId, priority: 1 });
-      const progB = Math.max(progBFwd, progBRev);
-      if (progB > bOpponentMaxProgress) bOpponentMaxProgress = progB;
-    }
-
-    // 경쟁자가 30% 이상 진행했으면 페널티, 70% 이상이면 강력 페널티
-    const aProgressPenalty = aOpponentMaxProgress > 0.7 ? -1500 : (aOpponentMaxProgress > 0.3 ? -500 : 0);
-    const bProgressPenalty = bOpponentMaxProgress > 0.7 ? -1500 : (bOpponentMaxProgress > 0.3 ? -500 : 0);
-
-    // [New] 상대방 현재 목표 경로 확인 (같은 링크를 겨냥하면 강력 페널티)
-    let aOpponentTargetPenalty = 0;
-    let bOpponentTargetPenalty = 0;
-
-    for (const oppId of opponents) {
-      const oppRoute = getCurrentRoute(oppId);
-      if (!oppRoute) continue;
-
-      // 정방향 또는 역방향 일치 → 같은 링크를 경쟁 중
-      const aMatchesOpp =
-        (oppRoute.from === a.sourceCityId && oppRoute.to === a.targetCityId) ||
-        (oppRoute.from === a.targetCityId && oppRoute.to === a.sourceCityId);
-      const bMatchesOpp =
-        (oppRoute.from === b.sourceCityId && oppRoute.to === b.targetCityId) ||
-        (oppRoute.from === b.targetCityId && oppRoute.to === b.sourceCityId);
-
-      // 같은 링크 경쟁: 첫 턴 보너스(3000)를 상쇄할 수 있는 강력 페널티
-      if (aMatchesOpp) aOpponentTargetPenalty = -3500;
-      if (bMatchesOpp) bOpponentTargetPenalty = -3500;
-
-      // 종점 공유 (부분 겹침): 완전 겹침보다는 약한 페널티
-      if (!aMatchesOpp && aOpponentTargetPenalty === 0) {
-        const aSharesEndpoint =
-          oppRoute.from === a.sourceCityId || oppRoute.from === a.targetCityId ||
-          oppRoute.to === a.sourceCityId || oppRoute.to === a.targetCityId;
-        if (aSharesEndpoint) aOpponentTargetPenalty = -300;
-      }
-      if (!bMatchesOpp && bOpponentTargetPenalty === 0) {
-        const bSharesEndpoint =
-          oppRoute.from === b.sourceCityId || oppRoute.from === b.targetCityId ||
-          oppRoute.to === b.sourceCityId || oppRoute.to === b.targetCityId;
-        if (bSharesEndpoint) bOpponentTargetPenalty = -300;
-      }
-    }
-
-    const aScore = aFirstTurnBonus + aIncome + aEngineMatchingBonus + aFutureIncome + aConnectedBonus - aDistPenalty + aDuplicationPenalty + aCompetitorPenalty + aProgressPenalty + aOpponentTargetPenalty;
-    const bScore = bFirstTurnBonus + bIncome + bEngineMatchingBonus + bFutureIncome + bConnectedBonus - bDistPenalty + bDuplicationPenalty + bCompetitorPenalty + bProgressPenalty + bOpponentTargetPenalty;
-
+    const aScore = scoreOpportunity(a, state, playerId, player, connectedCities, playerTracks);
+    const bScore = scoreOpportunity(b, state, playerId, player, connectedCities, playerTracks);
     return bScore - aScore;
   });
 
@@ -464,34 +448,16 @@ export function getTopPriorityRoutes(
   // 점수 계산 후 정렬
   const isFirstTurn = state.currentTurn === 1;
 
+  const playerTracks = state.board.trackTiles.filter(t => t.owner === playerId);
+
   const scored = allOpportunities.map(opp => {
     const route: DeliveryRoute = { from: opp.sourceCityId, to: opp.targetCityId, priority: 1 };
 
-    // 이미 완성된 경로는 제외
     if (isRouteComplete(state, route, playerId)) {
       return { route, score: -Infinity };
     }
 
-    // 점수 계산 (getNextTargetRoute와 동일한 로직)
-    // 첫 턴 즉시 배달 가능 보너스
-    const canDeliverNow = opp.distance <= player.engineLevel;
-    const firstTurnBonus = (isFirstTurn && canDeliverNow) ? 3000 : 0;
-
-    const income = Math.min(opp.distance, player.engineLevel) * 50;
-
-    // 엔진 매칭 보너스 (첫 턴에는 엔진+1 비활성화)
-    let engineBonus = 0;
-    if (!isFirstTurn) {
-      engineBonus = (opp.distance === player.engineLevel || opp.distance === player.engineLevel + 1) ? 500 : 0;
-    } else {
-      engineBonus = (opp.distance === player.engineLevel) ? 500 : 0;
-    }
-
-    const futureIncome = opp.distance > player.engineLevel ? (opp.distance - player.engineLevel) * 20 : 0;
-    const connectedBonus = connectedCities.includes(opp.sourceCityId) ? 150 : 0;
-    const distPenalty = opp.distance * 5;
-
-    const score = firstTurnBonus + income + engineBonus + futureIncome + connectedBonus - distPenalty;
+    const score = scoreOpportunity(opp, state, playerId, player, connectedCities, playerTracks);
     return { route, score };
   });
 

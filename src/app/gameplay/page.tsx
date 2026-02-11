@@ -74,7 +74,7 @@ const turnCategories = [
         step: 4,
         title: '트랙 건설',
         titleEn: 'Build Track',
-        description: '최대 3개의 트랙 타일을 건설합니다. 지형에 따라 비용이 달라집니다.',
+        description: '최대 3개의 트랙 타일을 건설합니다. 지형에 따라 비용이 달라집니다. 또한 이 단계에서 1회에 한해 엔진 업그레이드가 가능합니다.',
         icon: Train,
         color: 'accent',
       },
@@ -1198,6 +1198,46 @@ export default function GameplayPage() {
                       <span className="text-foreground-secondary text-xs">노선 완료!</span>
                       <span className="text-steam-red font-bold text-sm">-$8</span>
                       <span className="text-foreground-muted text-[10px]">(평지+산+평지)</span>
+                    </motion.div>
+
+                    {/* 엔진 업그레이드 옵션 */}
+                    <motion.div
+                      initial={{ opacity: 0, y: 15 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 2.8 }}
+                      className="flex items-center gap-4 p-3 rounded-xl bg-steam-green/10 border border-steam-green/30"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Train className="w-5 h-5 text-steam-green" />
+                        <span className="text-foreground-secondary text-sm">엔진 업그레이드</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-foreground font-bold">Lv.1</span>
+                        <motion.span
+                          initial={{ opacity: 0, scale: 0.5 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{ delay: 3.2, type: 'spring' }}
+                          className="text-steam-green"
+                        >
+                          →
+                        </motion.span>
+                        <motion.span
+                          initial={{ opacity: 0, scale: 0.5 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{ delay: 3.5, type: 'spring' }}
+                          className="text-steam-green font-bold"
+                        >
+                          Lv.2
+                        </motion.span>
+                      </div>
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 3.8 }}
+                        className="text-[10px] text-foreground-muted ml-auto"
+                      >
+                        (1회/턴)
+                      </motion.div>
                     </motion.div>
                   </div>
                 )}

@@ -1,6 +1,7 @@
 // Zustand 게임 상태 관리
 
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import {
   GameState,
   PlayerId,
@@ -473,7 +474,9 @@ interface GameStore extends GameState {
 // ============================================================
 // 스토어 구현
 // ============================================================
-export const useGameStore = create<GameStore>((set, get) => ({
+export const useGameStore = create<GameStore>()(
+  persist(
+    (set, get) => ({
   // 초기 상태 (빈 게임) - AI 플레이어 포함
   ...createInitialGameState('tutorial', ['기차-하나', '컴퓨터-기차'], [TUTORIAL_GAME_CONFIG.defaultAI]),
 
@@ -3138,7 +3141,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
       ],
     }));
   },
-}));
+    }),
+    {
+      name: 'age-of-steam-game',
+    }
+  )
+);
 
 // 디버깅용: 전역에 스토어 노출
 if (typeof window !== 'undefined') {

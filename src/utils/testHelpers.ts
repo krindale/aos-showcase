@@ -183,6 +183,7 @@ export function createTestGameState(options: TestGameStateOptions = {}): GameSta
     phaseState: {
       builtTracksThisTurn: 0,
       maxTracksThisTurn: GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
+      lastBuiltCoords: [],
       moveGoodsRound: 1,
       playerMoves: playerMoves as Record<PlayerId, boolean>,
       productionUsed: false,

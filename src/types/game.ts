@@ -111,6 +111,7 @@ export interface PlayerState {
   selectedAction: SpecialAction | null;
   turnOrderPassUsed: boolean;  // Turn Order 패스 사용 여부
   eliminated: boolean;         // 파산으로 탈락 여부
+  isAI: boolean;               // AI 플레이어 여부
 }
 
 // === 게임 보드 상태 ===
@@ -160,6 +161,7 @@ export interface PhaseState {
   // Build Track 단계
   builtTracksThisTurn: number;
   maxTracksThisTurn: number;  // 3 또는 4 (Engineer)
+  lastBuiltCoords: HexCoord[];  // 이번 턴에 건설한 트랙 좌표 순서
 
   // Move Goods 단계
   moveGoodsRound: 1 | 2;
@@ -168,6 +170,38 @@ export interface PhaseState {
   // 기타 플래그
   productionUsed: boolean;
   locomotiveUsed: boolean;
+}
+
+// === AI 실행 동기화 ===
+
+/**
+ * AI 실행 큐 상태
+ * isAIThinking 대신 사용하여 레이스 컨디션 방지
+ */
+export interface AIExecutionQueue {
+  pending: boolean;        // AI 실행 중 여부
+  executionId: number;     // 현재 실행의 고유 ID (중복 방지)
+}
+
+/**
+ * AI 실행 컨텍스트
+ * setTimeout 콜백에서 사용할 캡처된 상태
+ */
+export interface CapturedAIContext {
+  currentPlayer: PlayerId;
+  currentPhase: GamePhase;
+  phaseState: PhaseState;
+  executionId: number;
+}
+
+/**
+ * 물품 이동 애니메이션 컨텍스트
+ * 애니메이션 완료 시 사용할 캡처된 상태
+ */
+export interface MovingCubeContext {
+  playerId: PlayerId;        // 이동을 수행한 플레이어
+  phase: GamePhase;          // 이동 시작 시 단계
+  moveRound: 1 | 2;          // 이동 라운드
 }
 
 // === UI 상태 ===
@@ -228,6 +262,7 @@ export interface UIState {
     color: CubeColor;
     path: HexCoord[];
     currentIndex: number;
+    context: MovingCubeContext;  // 캡처된 실행 컨텍스트
   } | null;
   reachableDestinations: HexCoord[];             // 이동 가능한 목적지 도시들
 }
@@ -368,7 +403,7 @@ export const GAME_CONSTANTS = {
   MAX_ENGINE: 6,
   MAX_SHARES: 15,
   MAX_INCOME: 50,
-  MIN_INCOME: -10,
+  MIN_INCOME: 0, // 수입이 0 미만이 되면 파산 (룰북 기준)
 
   // 비용
   SHARE_VALUE: 5,

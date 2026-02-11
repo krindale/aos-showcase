@@ -57,6 +57,7 @@ export default function PhasePanel() {
     players,
     activePlayers,
     phaseState,
+    aiExecution,
   } = useGameStore(
     useShallow((state) => ({
       currentPhase: state.currentPhase,
@@ -64,8 +65,12 @@ export default function PhasePanel() {
       players: state.players,
       activePlayers: state.activePlayers,
       phaseState: state.phaseState,
+      aiExecution: state.aiExecution,
     }))
   );
+
+  // AI 실행 중 여부 (버튼 비활성화에 사용)
+  const isAIExecuting = aiExecution.pending;
   const { nextPhase, selectAction, upgradeEngine } = useGameStore();
 
   const phaseInfo = PHASE_INFO[currentPhase];
@@ -116,7 +121,8 @@ export default function PhasePanel() {
             </p>
             <button
               onClick={handleNextPhase}
-              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2"
+              disabled={isAIExecuting}
+              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               다음 단계로
               <ChevronRight size={16} />
@@ -132,9 +138,17 @@ export default function PhasePanel() {
         {/* III. 행동 선택 */}
         {currentPhase === 'selectActions' && (
           <div className="space-y-3">
-            <p className="text-sm text-foreground-secondary mb-3">
-              <span className="text-accent font-medium">{currentPlayerData.name}</span>, 행동을 선택하세요:
-            </p>
+            {currentPlayerData.isAI ? (
+              <div className="text-center py-4">
+                <div className="animate-pulse text-accent font-medium">
+                  {currentPlayerData.name} (AI) 행동 선택 중...
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-foreground-secondary mb-3">
+                <span className="text-accent font-medium">{currentPlayerData.name}</span>, 행동을 선택하세요:
+              </p>
+            )}
             {/* 선택 현황 표시 */}
             <div className="p-2 rounded-lg bg-background/30 text-xs text-foreground-secondary">
               {players.player1.selectedAction ? (
@@ -149,52 +163,58 @@ export default function PhasePanel() {
                 <span>{players.player2.name}: 선택 대기</span>
               )}
             </div>
-            <div className="grid grid-cols-1 gap-2">
-              {ACTIONS.map((action) => {
-                const info = ACTION_INFO[action];
-                const taken = isActionTaken(action);
-                const isSelected = currentPlayerData.selectedAction === action;
+            {/* AI가 아닌 경우에만 행동 선택 버튼 표시 */}
+            {!currentPlayerData.isAI && (
+              <>
+                <div className="grid grid-cols-1 gap-2">
+                  {ACTIONS.map((action) => {
+                    const info = ACTION_INFO[action];
+                    const taken = isActionTaken(action);
+                    const isSelected = currentPlayerData.selectedAction === action;
 
-                return (
+                    return (
+                      <button
+                        key={action}
+                        onClick={() => handleSelectAction(action)}
+                        disabled={taken || currentPlayerData.selectedAction !== null}
+                        className={`p-3 rounded-lg text-left transition-all ${
+                          isSelected
+                            ? 'bg-accent/20 border border-accent'
+                            : taken
+                            ? 'bg-background/30 opacity-50 cursor-not-allowed'
+                            : currentPlayerData.selectedAction !== null
+                            ? 'bg-background/30 opacity-50 cursor-not-allowed'
+                            : 'bg-background/50 hover:bg-background/70 border border-transparent'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-sm text-foreground">
+                            {info.name}
+                          </span>
+                          {taken && !isSelected && (
+                            <span className="text-xs text-foreground-secondary">선택됨</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-foreground-secondary mt-1">
+                          {info.description}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+                {currentPlayerData.selectedAction && (
                   <button
-                    key={action}
-                    onClick={() => handleSelectAction(action)}
-                    disabled={taken || currentPlayerData.selectedAction !== null}
-                    className={`p-3 rounded-lg text-left transition-all ${
-                      isSelected
-                        ? 'bg-accent/20 border border-accent'
-                        : taken
-                        ? 'bg-background/30 opacity-50 cursor-not-allowed'
-                        : currentPlayerData.selectedAction !== null
-                        ? 'bg-background/30 opacity-50 cursor-not-allowed'
-                        : 'bg-background/50 hover:bg-background/70 border border-transparent'
-                    }`}
+                    onClick={handleNextPhase}
+                    disabled={isAIExecuting}
+                    className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 mt-4 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium text-sm text-foreground">
-                        {info.name}
-                      </span>
-                      {taken && !isSelected && (
-                        <span className="text-xs text-foreground-secondary">선택됨</span>
-                      )}
-                    </div>
-                    <p className="text-xs text-foreground-secondary mt-1">
-                      {info.description}
-                    </p>
+                    {players.player1.selectedAction && players.player2.selectedAction
+                      ? '트랙 건설 단계로'
+                      : `${currentPlayer === 'player1' ? players.player2.name : players.player1.name} 차례로`}
+                    <ChevronRight size={16} />
                   </button>
-                );
-              })}
-            </div>
-            {currentPlayerData.selectedAction && (
-              <button
-                onClick={handleNextPhase}
-                className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 mt-4"
-              >
-                {players.player1.selectedAction && players.player2.selectedAction
-                  ? '트랙 건설 단계로'
-                  : `${currentPlayer === 'player1' ? players.player2.name : players.player1.name} 차례로`}
-                <ChevronRight size={16} />
-              </button>
+                )}
+              </>
             )}
           </div>
         )}
@@ -235,7 +255,8 @@ export default function PhasePanel() {
             </div>
             <button
               onClick={handleNextPhase}
-              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2"
+              disabled={isAIExecuting}
+              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {(() => {
                 // 클릭 후 상태 예측
@@ -282,15 +303,16 @@ export default function PhasePanel() {
               )}
             </div>
             <button
-              onClick={upgradeEngine}
-              disabled={currentPlayerData.engineLevel >= GAME_CONSTANTS.MAX_ENGINE || phaseState.playerMoves[currentPlayer]}
-              className="w-full py-2 rounded-lg text-sm font-medium bg-background/50 hover:bg-background/70 text-foreground transition-colors disabled:opacity-50"
+              onClick={() => upgradeEngine()}
+              disabled={isAIExecuting || currentPlayerData.engineLevel >= GAME_CONSTANTS.MAX_ENGINE || phaseState.playerMoves[currentPlayer]}
+              className="w-full py-2 rounded-lg text-sm font-medium bg-background/50 hover:bg-background/70 text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               엔진 업그레이드 (+1 링크)
             </button>
             <button
               onClick={handleNextPhase}
-              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2"
+              disabled={isAIExecuting}
+              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {(() => {
                 // 클릭 후 상태 예측
@@ -311,17 +333,93 @@ export default function PhasePanel() {
           </div>
         )}
 
-        {/* VI-VIII. 자동 단계들 */}
-        {['collectIncome', 'payExpenses', 'incomeReduction', 'advanceTurn'].includes(
-          currentPhase
-        ) && (
+        {/* VI. 수입 수집 */}
+        {currentPhase === 'collectIncome' && (
+          <div className="space-y-3">
+            <p className="text-sm text-foreground-secondary">
+              각 플레이어가 수입 트랙 위치만큼 현금을 받습니다.
+            </p>
+            {activePlayers.map(pid => {
+              const p = players[pid];
+              if (!p || p.eliminated) return null;
+              return (
+                <div key={pid} className="p-2 rounded-lg bg-background/30 text-xs text-foreground-secondary flex justify-between">
+                  <span>{p.name}</span>
+                  <span>수입 {p.income} → +${Math.max(0, p.income)}</span>
+                </div>
+              );
+            })}
+            <button
+              onClick={handleNextPhase}
+              disabled={isAIExecuting}
+              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              진행
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        )}
+
+        {/* VII. 비용 지불 */}
+        {currentPhase === 'payExpenses' && (
+          <div className="space-y-3">
+            <p className="text-sm text-foreground-secondary">
+              주식 + 엔진 레벨만큼 비용을 지불합니다.
+            </p>
+            {activePlayers.map(pid => {
+              const p = players[pid];
+              if (!p || p.eliminated) return null;
+              const expense = p.issuedShares + p.engineLevel;
+              const canPay = p.cash >= expense;
+              const shortage = canPay ? 0 : expense - p.cash;
+              const newIncome = canPay ? p.income : p.income - shortage;
+              const willBankrupt = !canPay && newIncome < GAME_CONSTANTS.MIN_INCOME;
+              return (
+                <div
+                  key={pid}
+                  className={`p-2 rounded-lg text-xs ${
+                    willBankrupt ? 'bg-red-500/20 text-red-300' : 'bg-background/30 text-foreground-secondary'
+                  }`}
+                >
+                  <div className="flex justify-between">
+                    <span>{p.name}</span>
+                    <span>비용: ${expense} (주식 {p.issuedShares} + 엔진 {p.engineLevel})</span>
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span>현금: ${p.cash}</span>
+                    {canPay ? (
+                      <span className="text-green-400">→ ${p.cash - expense}</span>
+                    ) : (
+                      <span className="text-red-400">
+                        부족 ${shortage} → 수입 {p.income}→{newIncome}
+                        {willBankrupt && ' (파산!)'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            <button
+              onClick={handleNextPhase}
+              disabled={isAIExecuting}
+              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              진행
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        )}
+
+        {/* VIII, X. 기타 자동 단계들 */}
+        {['incomeReduction', 'advanceTurn'].includes(currentPhase) && (
           <div className="space-y-3">
             <p className="text-sm text-foreground-secondary">
               이 단계는 자동으로 처리됩니다.
             </p>
             <button
               onClick={handleNextPhase}
-              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2"
+              disabled={isAIExecuting}
+              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               진행
               <ChevronRight size={16} />

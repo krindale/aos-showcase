@@ -1,0 +1,503 @@
+/**
+ * AI 동적 경로 선택 로직
+ *
+ * 정적 시나리오 대신 실제 화물 배치를 기반으로 최적 배달 경로를 동적으로 선택
+ */
+
+import { GameState, PlayerId } from '@/types/game';
+import { DeliveryRoute } from './types';
+import {
+  analyzeDeliveryOpportunities,
+  getConnectedCities,
+  breakRouteIntoSegments,
+  getRouteProgress,
+  isRouteComplete,
+} from './analyzer';
+import { hexDistance } from '@/utils/hexGrid';
+import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, clearCurrentRoutes } from './state';
+import { debugLog } from '@/utils/debugConfig';
+
+/**
+ * 게임 시작 시 또는 턴 시작 시 최적 경로 탐색
+ *
+ * 정적 시나리오 대신 현재 화물 배치를 분석하여 최적 배달 경로 반환
+ */
+export function getNextTargetRoute(
+  state: GameState,
+  playerId: PlayerId
+): DeliveryRoute | null {
+  const player = state.players[playerId];
+  if (!player) return null;
+
+  // 1. 현재 물품 배치 기반 모든 배달 기회 분석
+  const allOpportunities = analyzeDeliveryOpportunities(state);
+
+  // 1.1 이미 완벽히 연결된 경로는 제외 (본인의 선로로 완성된 경우만 제외하도록 하여 미완성 경로 재건축 유도)
+  const opportunities = allOpportunities.filter(opp => {
+    const route: DeliveryRoute = { from: opp.sourceCityId, to: opp.targetCityId, priority: 1 };
+    return !isRouteComplete(state, route, playerId);
+  });
+
+  if (opportunities.length === 0) {
+    if (allOpportunities.length > 0) {
+      debugLog.trackBuilding(`[AI 경로] ${player.name}: 모든 배달 기회가 이미 연결되어 있음`);
+    } else {
+      debugLog.trackBuilding(`[AI 경로] ${player.name}: 배달 가능한 화물 없음`);
+    }
+    return findNetworkExpansionTarget(state, playerId);
+  }
+
+  // 2. 연결된 도시 확인
+  const connectedCities = getConnectedCities(state, playerId);
+  const playerTracks = state.board.trackTiles.filter(t => t.owner === playerId);
+
+  // 3. 가치 기반 정렬 (수입 vs 거리 vs 연결성)
+  const isFirstTurn = state.currentTurn === 1;
+
+  opportunities.sort((a, b) => {
+    // 3.0 첫 턴 즉시 배달 가능 보너스 (최우선 순위)
+    // 첫 턴에는 수입 확보가 생존에 필수적이므로 즉시 배달 가능한 경로에 압도적 보너스
+    const aCanDeliverNow = a.distance <= player.engineLevel;
+    const bCanDeliverNow = b.distance <= player.engineLevel;
+    const aFirstTurnBonus = (isFirstTurn && aCanDeliverNow) ? 3000 : 0;
+    const bFirstTurnBonus = (isFirstTurn && bCanDeliverNow) ? 3000 : 0;
+
+    // 3.1 수입 잠재력
+    // [링크 길이 가중치] 현재 엔진 레벨을 넘어서는 경로도 미래 가치로 인정하여 가산점 부여
+    const aIncome = Math.min(a.distance, player.engineLevel) * 50;
+    const bIncome = Math.min(b.distance, player.engineLevel) * 50;
+
+    // [핵심 요청] 엔진 레벨 혹은 엔진 레벨+1의 루트가 우선 (단, 첫 턴 제외)
+    // 첫 턴에는 엔진+1 보너스를 비활성화하여 즉시 배달 가능 경로 선호
+    let aEngineMatchingBonus = 0;
+    let bEngineMatchingBonus = 0;
+    if (!isFirstTurn) {
+      aEngineMatchingBonus = (a.distance === player.engineLevel || a.distance === player.engineLevel + 1) ? 500 : 0;
+      bEngineMatchingBonus = (b.distance === player.engineLevel || b.distance === player.engineLevel + 1) ? 500 : 0;
+    } else {
+      // 첫 턴에는 현재 엔진 레벨과 정확히 일치하는 경로에만 보너스
+      aEngineMatchingBonus = (a.distance === player.engineLevel) ? 500 : 0;
+      bEngineMatchingBonus = (b.distance === player.engineLevel) ? 500 : 0;
+    }
+
+    // 엔진 레벨을 초과하는 '미래 수입'에 대한 보너스 (엔진 업그레이드 유도)
+    const aFutureIncome = a.distance > player.engineLevel ? (a.distance - player.engineLevel) * 20 : 0;
+    const bFutureIncome = b.distance > player.engineLevel ? (b.distance - player.engineLevel) * 20 : 0;
+
+    // 3.2 연결성 보너스 (네트워크 확장 및 연속성)
+    const aConnectedBonus = connectedCities.includes(a.sourceCityId) ? 150 : 0;
+    const bConnectedBonus = connectedCities.includes(b.sourceCityId) ? 150 : 0;
+
+    // 3.3 거리 페널티
+    const aDistPenalty = a.distance * 5;
+    const bDistPenalty = b.distance * 5;
+
+    // 3.4 완공 여부 페널티 (중복 건설 배제)
+    // 타인이 이미 연결했거나, 이미 망이 존재하는 경우 강력한 페널티
+    const isAAlreadyLinked = isRouteComplete(state, { from: a.sourceCityId, to: a.targetCityId, priority: 1 });
+    const isBAlreadyLinked = isRouteComplete(state, { from: b.sourceCityId, to: b.targetCityId, priority: 1 });
+
+    const aDuplicationPenalty = isAAlreadyLinked ? -1000 : 0;
+    const bDuplicationPenalty = isBAlreadyLinked ? -1000 : 0;
+
+    // 타인 완공 페널티 (독자 노선 확보 유도)
+    const aCompetitorPenalty = (isAAlreadyLinked && !connectedCities.includes(a.sourceCityId)) ? -2000 : 0; // 강화됨
+    const bCompetitorPenalty = (isBAlreadyLinked && !connectedCities.includes(b.sourceCityId)) ? -2000 : 0;
+
+    // [New] 경쟁자 진행도 체크 (이미 누군가 짓고 있는 경로는 피함)
+    // 역방향(O→P)도 같은 링크로 인식하여 체크
+    let aOpponentMaxProgress = 0;
+    let bOpponentMaxProgress = 0;
+    const opponents = state.activePlayers.filter(id => id !== playerId);
+
+    for (const oppId of opponents) {
+      // 정방향 + 역방향 모두 체크
+      const progAFwd = getRouteProgress(state, oppId, { from: a.sourceCityId, to: a.targetCityId, priority: 1 });
+      const progARev = getRouteProgress(state, oppId, { from: a.targetCityId, to: a.sourceCityId, priority: 1 });
+      const progA = Math.max(progAFwd, progARev);
+      if (progA > aOpponentMaxProgress) aOpponentMaxProgress = progA;
+
+      const progBFwd = getRouteProgress(state, oppId, { from: b.sourceCityId, to: b.targetCityId, priority: 1 });
+      const progBRev = getRouteProgress(state, oppId, { from: b.targetCityId, to: b.sourceCityId, priority: 1 });
+      const progB = Math.max(progBFwd, progBRev);
+      if (progB > bOpponentMaxProgress) bOpponentMaxProgress = progB;
+    }
+
+    // 경쟁자가 30% 이상 진행했으면 페널티, 70% 이상이면 강력 페널티
+    const aProgressPenalty = aOpponentMaxProgress > 0.7 ? -1500 : (aOpponentMaxProgress > 0.3 ? -500 : 0);
+    const bProgressPenalty = bOpponentMaxProgress > 0.7 ? -1500 : (bOpponentMaxProgress > 0.3 ? -500 : 0);
+
+    // [New] 상대방 현재 목표 경로 확인 (같은 링크를 겨냥하면 강력 페널티)
+    let aOpponentTargetPenalty = 0;
+    let bOpponentTargetPenalty = 0;
+
+    for (const oppId of opponents) {
+      const oppRoute = getCurrentRoute(oppId);
+      if (!oppRoute) continue;
+
+      // 정방향 또는 역방향 일치 → 같은 링크를 경쟁 중
+      const aMatchesOpp =
+        (oppRoute.from === a.sourceCityId && oppRoute.to === a.targetCityId) ||
+        (oppRoute.from === a.targetCityId && oppRoute.to === a.sourceCityId);
+      const bMatchesOpp =
+        (oppRoute.from === b.sourceCityId && oppRoute.to === b.targetCityId) ||
+        (oppRoute.from === b.targetCityId && oppRoute.to === b.sourceCityId);
+
+      // 같은 링크 경쟁: 첫 턴 보너스(3000)를 상쇄할 수 있는 강력 페널티
+      if (aMatchesOpp) aOpponentTargetPenalty = -3500;
+      if (bMatchesOpp) bOpponentTargetPenalty = -3500;
+
+      // 종점 공유 (부분 겹침): 완전 겹침보다는 약한 페널티
+      if (!aMatchesOpp && aOpponentTargetPenalty === 0) {
+        const aSharesEndpoint =
+          oppRoute.from === a.sourceCityId || oppRoute.from === a.targetCityId ||
+          oppRoute.to === a.sourceCityId || oppRoute.to === a.targetCityId;
+        if (aSharesEndpoint) aOpponentTargetPenalty = -300;
+      }
+      if (!bMatchesOpp && bOpponentTargetPenalty === 0) {
+        const bSharesEndpoint =
+          oppRoute.from === b.sourceCityId || oppRoute.from === b.targetCityId ||
+          oppRoute.to === b.sourceCityId || oppRoute.to === b.targetCityId;
+        if (bSharesEndpoint) bOpponentTargetPenalty = -300;
+      }
+    }
+
+    const aScore = aFirstTurnBonus + aIncome + aEngineMatchingBonus + aFutureIncome + aConnectedBonus - aDistPenalty + aDuplicationPenalty + aCompetitorPenalty + aProgressPenalty + aOpponentTargetPenalty;
+    const bScore = bFirstTurnBonus + bIncome + bEngineMatchingBonus + bFutureIncome + bConnectedBonus - bDistPenalty + bDuplicationPenalty + bCompetitorPenalty + bProgressPenalty + bOpponentTargetPenalty;
+
+    return bScore - aScore;
+  });
+
+  // 4. 도달 가능 경로 필터
+  // 첫 턴: 엔진 레벨 +1까지만 허용 (다음 턴 배달 가능 범위)
+  // 이후: 엔진 레벨 +3까지 허용 (장기 계획)
+  const maxDistance = isFirstTurn
+    ? player.engineLevel + 1
+    : player.engineLevel + 3;
+
+  const reachableOpportunities = opportunities.filter(opp => {
+    return opp.distance <= maxDistance;
+  });
+
+  if (reachableOpportunities.length === 0) {
+    debugLog.trackBuilding(`[AI 경로] ${player.name}: 엔진 레벨(${player.engineLevel}) 내 도달 가능 경로 없음`);
+    // 가장 가까운 기회 선택 (엔진 업그레이드 필요)
+    const best = opportunities[0];
+    const route: DeliveryRoute = {
+      from: best.sourceCityId,
+      to: best.targetCityId,
+      priority: 1,
+    };
+    debugLog.trackBuilding(`[AI 경로] ${player.name}: ${best.sourceCityId}→${best.targetCityId} (${best.cubeColor} 화물, 거리 ${best.distance}, 엔진 업그레이드 필요)`);
+    setCurrentRoute(playerId, route);
+    return route;
+  }
+
+  // 5. 연결된 도시에서 시작하는 경로 우선
+  for (const opp of reachableOpportunities) {
+    if (connectedCities.includes(opp.sourceCityId)) {
+      const route: DeliveryRoute = {
+        from: opp.sourceCityId,
+        to: opp.targetCityId,
+        priority: 1,
+      };
+
+      // 다중 링크 경로인 경우 세그먼트로 분해
+      const segments = breakRouteIntoSegments(route, state.board);
+      if (segments.length > 1) {
+        // 정방향: 연결된 도시에서 시작하는 미완성 세그먼트
+        for (const segment of segments) {
+          const segmentProgress = getRouteProgress(state, playerId, segment);
+          if (segmentProgress < 1.0 && connectedCities.includes(segment.from)) {
+            segment.overallTo = route.to; // 전체 경로의 최종 목적지 보존
+            debugLog.trackBuilding(`[AI 경로] ${player.name}: ${segment.from}→${segment.to} (${opp.cubeColor} 화물, 세그먼트, 최종→${route.to})`);
+            setCurrentRoute(playerId, segment);
+            return segment;
+          }
+        }
+      }
+
+      debugLog.trackBuilding(`[AI 경로] ${player.name}: ${opp.sourceCityId}→${opp.targetCityId} (${opp.cubeColor} 화물, 거리 ${opp.distance})`);
+      setCurrentRoute(playerId, route);
+      return route;
+    }
+  }
+
+  // 6. 연결된 도시가 없는 경우 (첫 트랙 건설 또는 새 경로)
+  // 가장 가까운 경로 선택
+  const best = reachableOpportunities[0];
+  const route: DeliveryRoute = {
+    from: best.sourceCityId,
+    to: best.targetCityId,
+    priority: 1,
+  };
+
+  // 다중 링크 경로 분해
+  const segments = breakRouteIntoSegments(route, state.board);
+  if (segments.length > 1) {
+    // 첫 트랙이면 첫 번째 세그먼트 반환
+    if (playerTracks.length === 0) {
+      segments[0].overallTo = route.to; // 전체 경로의 최종 목적지 보존
+      debugLog.trackBuilding(`[AI 경로] ${player.name}: ${segments[0].from}→${segments[0].to} (${best.cubeColor} 화물, 첫 세그먼트, 최종→${route.to})`);
+      setCurrentRoute(playerId, segments[0]);
+      return segments[0];
+    }
+
+    // 미완성 세그먼트 중 첫 번째
+    for (const segment of segments) {
+      const segmentProgress = getRouteProgress(state, playerId, segment);
+      if (segmentProgress < 1.0) {
+        segment.overallTo = route.to; // 전체 경로의 최종 목적지 보존
+        debugLog.trackBuilding(`[AI 경로] ${player.name}: ${segment.from}→${segment.to} (${best.cubeColor} 화물, 미완성 세그먼트, 최종→${route.to})`);
+        setCurrentRoute(playerId, segment);
+        return segment;
+      }
+    }
+  }
+
+  debugLog.trackBuilding(`[AI 경로] ${player.name}: ${best.sourceCityId}→${best.targetCityId} (${best.cubeColor} 화물, 거리 ${best.distance})`);
+  setCurrentRoute(playerId, route);
+  return route;
+}
+
+/**
+ * 배달 기회가 없을 때 네트워크 확장 타겟 찾기
+ *
+ * 가장 가까운 도시를 향해 트랙 확장
+ */
+function findNetworkExpansionTarget(
+  state: GameState,
+  playerId: PlayerId
+): DeliveryRoute | null {
+  const { board } = state;
+  const player = state.players[playerId];
+  if (!player) return null;
+
+  const connectedCities = getConnectedCities(state, playerId);
+
+  // 연결되지 않은 도시 중 가장 가까운 것 선택
+  const unconnectedCities = board.cities.filter(
+    city => !connectedCities.includes(city.id)
+  );
+
+  if (unconnectedCities.length === 0) {
+    debugLog.trackBuilding(`[AI 경로] ${player.name}: 모든 도시 연결됨, 네트워크 확장 불필요`);
+    return null;
+  }
+
+  // 플레이어 트랙과 가장 가까운 미연결 도시 찾기
+  const playerTracks = board.trackTiles.filter(t => t.owner === playerId);
+
+  if (playerTracks.length === 0) {
+    // 첫 트랙: 아무 도시에서 시작
+    const firstCity = board.cities[0];
+    const nearestCity = unconnectedCities.reduce((nearest, city) => {
+      const dist = hexDistance(firstCity.coord, city.coord);
+      const nearestDist = hexDistance(firstCity.coord, nearest.coord);
+      return dist < nearestDist ? city : nearest;
+    }, unconnectedCities[0]);
+
+    const route: DeliveryRoute = {
+      from: firstCity.id,
+      to: nearestCity.id,
+      priority: 2,
+    };
+    debugLog.trackBuilding(`[AI 경로] ${player.name}: 네트워크 확장 ${route.from}→${route.to}`);
+    setCurrentRoute(playerId, route);
+    return route;
+  }
+
+  // 현재 트랙에서 가장 가까운 미연결 도시 찾기
+  let nearestCity = unconnectedCities[0];
+  let minDistance = Infinity;
+
+  for (const city of unconnectedCities) {
+    for (const track of playerTracks) {
+      const dist = hexDistance(track.coord, city.coord);
+      if (dist < minDistance) {
+        minDistance = dist;
+        nearestCity = city;
+      }
+    }
+  }
+
+  // 가장 가까운 연결된 도시 찾기
+  const nearestConnected = board.cities.find(c => connectedCities.includes(c.id));
+  if (nearestConnected) {
+    const route: DeliveryRoute = {
+      from: nearestConnected.id,
+      to: nearestCity.id,
+      priority: 2,
+    };
+    debugLog.trackBuilding(`[AI 경로] ${player.name}: 네트워크 확장 ${route.from}→${route.to}`);
+    setCurrentRoute(playerId, route);
+    return route;
+  }
+
+  return null;
+}
+
+/**
+ * 전략 재평가 (매 턴 호출)
+ *
+ * 단순화: 현재 경로가 아직 유효한지만 확인하고, 필요시 새 경로 탐색
+ */
+export function reevaluateStrategy(
+  state: GameState,
+  playerId: PlayerId
+): void {
+  const currentRoute = getCurrentRoute(playerId);
+  const player = state.players[playerId];
+  if (!player) return;
+
+  // 현재 경로가 없으면 새 경로 탐색
+  if (!currentRoute) {
+    getNextTargetRoute(state, playerId);
+    return;
+  }
+
+  // 현재 경로가 완성되었으면 새 경로 탐색
+  const progress = getRouteProgress(state, playerId, currentRoute);
+  if (progress >= 1.0) {
+    debugLog.trackBuilding(`[AI 경로] ${player.name}: 경로 ${currentRoute.from}→${currentRoute.to} 완성됨, 새 경로 탐색`);
+    getNextTargetRoute(state, playerId);
+    return;
+  }
+
+  // 현재 경로에 화물이 없어졌으면 새 경로 탐색
+  // 세그먼트인 경우 전체 경로의 최종 목적지도 확인
+  const opportunities = analyzeDeliveryOpportunities(state);
+  const finalTo = currentRoute.overallTo || currentRoute.to;
+  const hasMatchingCargo = opportunities.some(
+    opp => opp.sourceCityId === currentRoute.from &&
+      (opp.targetCityId === currentRoute.to || opp.targetCityId === finalTo)
+  );
+
+  if (!hasMatchingCargo) {
+    // 투자 이력이 2개 이상이면 경로 유지 (물품 성장 대기)
+    const routeState = getCurrentRouteState(playerId);
+    const investedCount = routeState?.investedTrackCount ?? 0;
+
+    if (investedCount >= 2) {
+      debugLog.trackBuilding(`[AI 경로] ${player.name}: 경로 ${currentRoute.from}→${currentRoute.to} (최종→${finalTo})에 화물 없지만 투자 이력(${investedCount})으로 유지`);
+      return; // 경로 유지
+    }
+
+    debugLog.trackBuilding(`[AI 경로] ${player.name}: 경로 ${currentRoute.from}→${currentRoute.to} (최종→${finalTo})에 화물 없음, 새 경로 탐색`);
+    getNextTargetRoute(state, playerId);
+    return;
+  }
+
+  // 현재 경로 유지
+  debugLog.trackBuilding(`[AI 경로] ${player.name}: 현재 경로 ${currentRoute.from}→${currentRoute.to} 유지 (진행도: ${(progress * 100).toFixed(0)}%)`);
+}
+
+/**
+ * 초기 전략 선택 (게임 시작 시) - 호환성 유지용
+ *
+ * @deprecated getNextTargetRoute 사용 권장
+ */
+export function selectInitialStrategy(
+  state: GameState,
+  playerId: PlayerId
+): { name: string; nameKo: string; targetRoutes: DeliveryRoute[] } {
+  const route = getNextTargetRoute(state, playerId);
+
+  return {
+    name: 'dynamic_cargo_based',
+    nameKo: '화물 기반 동적 전략',
+    targetRoutes: route ? [route] : [],
+  };
+}
+
+/**
+ * 순수 함수: 다음 목표 경로 탐색 (전략 변경 없음) - 호환성 유지용
+ */
+export function findNextTargetRoute(
+  state: GameState,
+  playerId: PlayerId
+): { route: DeliveryRoute | null; needsStrategyReeval: boolean; reason?: string } {
+  const route = getNextTargetRoute(state, playerId);
+
+  if (route) {
+    return { route, needsStrategyReeval: false };
+  }
+
+  return { route: null, needsStrategyReeval: true, reason: 'no_cargo_opportunities' };
+}
+
+/**
+ * 경로 우선순위 조정 - 호환성 유지용 (no-op)
+ */
+export function adjustRoutePriorities(
+  _state: GameState,
+  _playerId: PlayerId,
+  _strategy: { targetRoutes: DeliveryRoute[] }
+): void {
+  // 동적 전략에서는 매번 새로 계산하므로 조정 불필요
+  void _state; void _playerId; void _strategy;
+}
+
+/**
+ * 전략 상태 초기화
+ */
+export function resetStrategyState(): void {
+  clearCurrentRoutes();
+}
+
+/**
+ * 상위 N개 우선순위 경로 반환
+ *
+ * 경로 실패 시 대체 경로 탐색에 사용
+ */
+export function getTopPriorityRoutes(
+  state: GameState,
+  playerId: PlayerId,
+  count: number = 5
+): DeliveryRoute[] {
+  const player = state.players[playerId];
+  if (!player) return [];
+
+  const allOpportunities = analyzeDeliveryOpportunities(state);
+  const connectedCities = getConnectedCities(state, playerId);
+
+  // 점수 계산 후 정렬
+  const isFirstTurn = state.currentTurn === 1;
+
+  const scored = allOpportunities.map(opp => {
+    const route: DeliveryRoute = { from: opp.sourceCityId, to: opp.targetCityId, priority: 1 };
+
+    // 이미 완성된 경로는 제외
+    if (isRouteComplete(state, route, playerId)) {
+      return { route, score: -Infinity };
+    }
+
+    // 점수 계산 (getNextTargetRoute와 동일한 로직)
+    // 첫 턴 즉시 배달 가능 보너스
+    const canDeliverNow = opp.distance <= player.engineLevel;
+    const firstTurnBonus = (isFirstTurn && canDeliverNow) ? 3000 : 0;
+
+    const income = Math.min(opp.distance, player.engineLevel) * 50;
+
+    // 엔진 매칭 보너스 (첫 턴에는 엔진+1 비활성화)
+    let engineBonus = 0;
+    if (!isFirstTurn) {
+      engineBonus = (opp.distance === player.engineLevel || opp.distance === player.engineLevel + 1) ? 500 : 0;
+    } else {
+      engineBonus = (opp.distance === player.engineLevel) ? 500 : 0;
+    }
+
+    const futureIncome = opp.distance > player.engineLevel ? (opp.distance - player.engineLevel) * 20 : 0;
+    const connectedBonus = connectedCities.includes(opp.sourceCityId) ? 150 : 0;
+    const distPenalty = opp.distance * 5;
+
+    const score = firstTurnBonus + income + engineBonus + futureIncome + connectedBonus - distPenalty;
+    return { route, score };
+  });
+
+  return scored
+    .filter(s => s.score > -Infinity)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, count)
+    .map(s => s.route);
+}

@@ -18,7 +18,11 @@ import {
   PLAYER_ID_ORDER,
   PLAYER_COLOR_ORDER,
   TURNS_BY_PLAYER_COUNT,
+  AIExecutionQueue,
+  CapturedAIContext,
+  MovingCubeContext,
 } from '@/types/game';
+import { getAIDecision, AI_TURN_DELAY, isCurrentPlayerAI, aiPlayerManager } from '@/ai';
 import {
   createInitialBoardState,
   initializeGoodsDisplay,
@@ -51,11 +55,29 @@ import {
   findFirstMovePlayer,
   isLastPlayer,
 } from '@/utils/gameLogic';
+import { debugLog } from '@/utils/debugConfig';
+
+/**
+ * AI 플레이어 설정
+ */
+export interface AIPlayerConfig {
+  playerIndex: number;  // 0-based 인덱스
+  name: string;
+}
+
+/**
+ * 튜토리얼 게임 설정
+ */
+export const TUTORIAL_GAME_CONFIG = {
+  maxTurns: 3,  // 튜토리얼은 3턴
+  defaultAI: { playerIndex: 1, name: '컴퓨터-기차' } as AIPlayerConfig,
+};
 
 // 테스트에서 사용할 수 있도록 export
 export function createInitialGameState(
   mapId: string,
-  playerNames: string[]
+  playerNames: string[],
+  aiPlayers: AIPlayerConfig[] = []
 ): GameState {
   const boardState = createInitialBoardState();
   const goodsDisplay = initializeGoodsDisplay();
@@ -77,13 +99,18 @@ export function createInitialGameState(
   const playerCount = playerNames.length;
   const activePlayers = PLAYER_ID_ORDER.slice(0, playerCount);
 
+  // AI 플레이어 인덱스 세트 생성
+  const aiPlayerIndexes = new Set(aiPlayers.map(ai => ai.playerIndex));
+
   // 플레이어 객체 생성
   const players: Partial<Record<PlayerId, PlayerState>> = {};
   activePlayers.forEach((playerId, index) => {
+    const isAI = aiPlayerIndexes.has(index);
     players[playerId] = createInitialPlayerState(
       playerId,
       playerNames[index],
-      PLAYER_COLOR_ORDER[index]
+      PLAYER_COLOR_ORDER[index],
+      isAI
     );
   });
 
@@ -91,13 +118,16 @@ export function createInitialGameState(
   const playerMoves: Partial<Record<PlayerId, boolean>> = {};
   activePlayers.forEach(p => { playerMoves[p] = false; });
 
+  // 튜토리얼 맵은 3턴으로 제한
+  const maxTurns = mapId === 'tutorial' ? TUTORIAL_GAME_CONFIG.maxTurns : (TURNS_BY_PLAYER_COUNT[playerCount] || 6);
+
   return {
     // 메타 정보
     gameId: `game-${Date.now()}`,
     mapId,
     playerCount,
     activePlayers,
-    maxTurns: TURNS_BY_PLAYER_COUNT[playerCount] || 6,
+    maxTurns,
 
     // 턴 진행
     currentTurn: 1,
@@ -126,6 +156,7 @@ export function createInitialGameState(
     phaseState: {
       builtTracksThisTurn: 0,
       maxTracksThisTurn: GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
+      lastBuiltCoords: [],
       moveGoodsRound: 1,
       playerMoves: playerMoves as Record<PlayerId, boolean>,
       productionUsed: false,
@@ -172,14 +203,125 @@ export function createInitialGameState(
 }
 
 // ============================================================
+// AI 동기화 헬퍼 (레이스 컨디션 방지)
+// ============================================================
+
+/** AI 체크 debounce 타임아웃 ID */
+let aiCheckTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+/** AI 체크 debounce 딜레이 (ms) */
+const AI_CHECK_DEBOUNCE = 150;
+
+/**
+ * AI 실행 락 획득 시도
+ * @returns executionId if acquired, null if already locked
+ */
+const tryAcquireAILock = (get: () => GameStore, set: (partial: Partial<GameStore>) => void): number | null => {
+  const state = get();
+  if (state.aiExecution.pending) {
+    console.log('[AI Lock] 이미 실행 중 - 락 획득 실패');
+    return null;
+  }
+  const executionId = Date.now();
+  set({ aiExecution: { pending: true, executionId } });
+  console.log(`[AI Lock] 락 획득 성공 - executionId: ${executionId}`);
+  return executionId;
+};
+
+/**
+ * AI 실행 락 해제
+ * @param executionId 획득한 executionId
+ */
+const releaseAILock = (
+  executionId: number,
+  get: () => GameStore,
+  set: (partial: Partial<GameStore>) => void
+): void => {
+  const state = get();
+  if (state.aiExecution.executionId === executionId) {
+    set({ aiExecution: { pending: false, executionId: 0 } });
+    console.log(`[AI Lock] 락 해제 - executionId: ${executionId}`);
+  } else {
+    console.warn(`[AI Lock] 락 해제 실패 - executionId 불일치: ${executionId} vs ${state.aiExecution.executionId}`);
+  }
+};
+
+/**
+ * 실행 컨텍스트 유효성 검증
+ * @returns true if context is still valid
+ */
+const validateExecutionContext = (
+  context: CapturedAIContext,
+  get: () => GameStore
+): boolean => {
+  const currentState = get();
+  const isValid = (
+    currentState.currentPlayer === context.currentPlayer &&
+    currentState.currentPhase === context.currentPhase &&
+    currentState.aiExecution.executionId === context.executionId
+  );
+  if (!isValid) {
+    console.warn('[AI Context] 컨텍스트 유효성 검증 실패:', {
+      expected: { player: context.currentPlayer, phase: context.currentPhase, execId: context.executionId },
+      actual: { player: currentState.currentPlayer, phase: currentState.currentPhase, execId: currentState.aiExecution.executionId },
+    });
+  }
+  return isValid;
+};
+
+/** 플레이어 행동이 필요한 단계들 */
+const PLAYER_ACTION_PHASES: GamePhase[] = [
+  'issueShares',
+  'determinePlayerOrder',
+  'selectActions',
+  'buildTrack',
+  'moveGoods',
+];
+
+/**
+ * 중앙 집중식 AI 스케줄러 (debounce 적용)
+ * 모든 AI 트리거 포인트에서 이 함수를 호출하여 중복 실행 방지
+ */
+const scheduleAICheck = (get: () => GameStore): void => {
+  // 기존 타임아웃 취소 (debounce)
+  if (aiCheckTimeoutId) {
+    clearTimeout(aiCheckTimeoutId);
+  }
+
+  aiCheckTimeoutId = setTimeout(() => {
+    aiCheckTimeoutId = null;
+
+    const state = get();
+
+    // 조건 체크
+    const isPhaseMatch = PLAYER_ACTION_PHASES.includes(state.currentPhase);
+    const isAI = isCurrentPlayerAI(state);
+    const notPending = !state.aiExecution.pending;
+
+    console.log(`[AI 스케줄러] phase=${state.currentPhase}, player=${state.currentPlayer}, isAI=${isAI}, pending=${state.aiExecution.pending}`);
+
+    if (isPhaseMatch && isAI && notPending) {
+      console.log('[AI 스케줄러] 조건 충족 - AI 턴 실행');
+      state.executeAITurn();
+    }
+  }, AI_CHECK_DEBOUNCE);
+};
+
+// ============================================================
 // 스토어 인터페이스
 // ============================================================
 interface GameStore extends GameState {
   // --- 게임 라이프사이클 ---
   /** 게임 초기화 */
-  initGame: (mapId: string, playerNames: string[]) => void;
+  initGame: (mapId: string, playerNames: string[], aiPlayers?: AIPlayerConfig[]) => void;
   /** 게임 리셋 (플레이어 이름 유지) */
   resetGame: () => void;
+
+  // --- AI 관련 ---
+  /** AI 턴 실행 */
+  executeAITurn: () => void;
+  /** AI 실행 상태 (레이스 컨디션 방지) */
+  aiExecution: AIExecutionQueue;
 
   // --- 플레이어 순환 헬퍼 ---
   /** 다음 플레이어 ID 반환 */
@@ -227,7 +369,7 @@ interface GameStore extends GameState {
   /** 물품 이동 */
   moveGoods: (cubeColor: CubeColor, path: HexCoord[]) => void;
   /** 엔진 업그레이드 (물품 이동 대신) */
-  upgradeEngine: () => void;
+  upgradeEngine: (playerId?: PlayerId) => void;
 
   // --- Phase VI-VIII: 수입/비용 ---
   /** 수입 수집 */
@@ -332,23 +474,218 @@ interface GameStore extends GameState {
 // 스토어 구현
 // ============================================================
 export const useGameStore = create<GameStore>((set, get) => ({
-  // 초기 상태 (빈 게임)
-  ...createInitialGameState('tutorial', ['기차-하나', '기차-둘']),
+  // 초기 상태 (빈 게임) - AI 플레이어 포함
+  ...createInitialGameState('tutorial', ['기차-하나', '컴퓨터-기차'], [TUTORIAL_GAME_CONFIG.defaultAI]),
+
+  // AI 실행 상태 (레이스 컨디션 방지)
+  aiExecution: { pending: false, executionId: 0 },
 
   // ============================================================
   // 게임 라이프사이클
   // ============================================================
-  initGame: (mapId, playerNames) => {
-    set(createInitialGameState(mapId, playerNames));
+  initGame: (mapId, playerNames, aiPlayers = []) => {
+    // 기존 AI 인스턴스 정리
+    aiPlayerManager.clear();
+
+    // 새 게임 상태 설정
+    set({
+      ...createInitialGameState(mapId, playerNames, aiPlayers),
+      aiExecution: { pending: false, executionId: 0 },
+    });
+
+    // AI 플레이어 인스턴스 등록
+    const activePlayers = PLAYER_ID_ORDER.slice(0, playerNames.length);
+    for (const aiConfig of aiPlayers) {
+      const playerId = activePlayers[aiConfig.playerIndex];
+      if (playerId) {
+        aiPlayerManager.getOrCreate(playerId, aiConfig.name);
+      }
+    }
+
+    console.log(`[initGame] AI 플레이어 ${aiPlayerManager.count}명 등록됨`);
   },
 
   resetGame: () => {
     const state = get();
-    // 기존 플레이어 이름 유지하며 리셋
+    // 기존 플레이어 이름과 AI 설정 유지하며 리셋
     const playerNames = state.activePlayers.map(
       pid => state.players[pid]?.name || `플레이어 ${pid.slice(-1)}`
     );
-    set(createInitialGameState(state.mapId, playerNames));
+    // AI 플레이어 설정 복원
+    const aiPlayers: AIPlayerConfig[] = state.activePlayers
+      .map((pid, index) => ({ playerIndex: index, name: state.players[pid]?.name || '', isAI: state.players[pid]?.isAI }))
+      .filter(p => p.isAI)
+      .map(p => ({ playerIndex: p.playerIndex, name: p.name }));
+
+    // AI 인스턴스 상태 리셋 (인스턴스는 유지, 전략만 초기화)
+    aiPlayerManager.resetAll();
+
+    set({
+      ...createInitialGameState(state.mapId, playerNames, aiPlayers),
+      aiExecution: { pending: false, executionId: 0 },
+    });
+
+    console.log(`[resetGame] AI 플레이어 ${aiPlayerManager.count}명 리셋됨`);
+  },
+
+  // ============================================================
+  // AI 관련
+  // ============================================================
+  executeAITurn: () => {
+    const state = get();
+    const currentPlayer = state.currentPlayer;
+    const player = state.players[currentPlayer];
+
+    if (!player?.isAI) {
+      console.log('[AI] 현재 플레이어는 AI가 아닙니다.');
+      return;
+    }
+
+    // 락 획득 시도 (레이스 컨디션 방지)
+    const executionId = tryAcquireAILock(get, set);
+    if (!executionId) {
+      console.log('[AI] 이미 실행 중 - 락 획득 실패');
+      return;
+    }
+
+    // 컨텍스트 캡처 (setTimeout 내부에서 사용)
+    const capturedContext: CapturedAIContext = {
+      currentPlayer,
+      currentPhase: state.currentPhase,
+      phaseState: { ...state.phaseState },
+      executionId,
+    };
+
+    // moveGoods 단계에서 추가 디버그 로그
+    if (state.currentPhase === 'moveGoods') {
+      console.log(`[AI moveGoods] currentPlayer: ${currentPlayer}, playerOrder: [${state.playerOrder.join(', ')}]`);
+      console.log(`[AI moveGoods] selectedActions:`, Object.entries(state.players).map(([id, p]) => `${id}: ${p.selectedAction}`).join(', '));
+    }
+
+    // AI 결정 가져오기 (캡처된 상태 기반)
+    const decision = getAIDecision(state, currentPlayer);
+
+    console.log(`[AI] ${player.name} 결정:`, decision);
+
+    // 결정 실행 (약간의 딜레이 후)
+    setTimeout(() => {
+      // 컨텍스트 유효성 검증
+      if (!validateExecutionContext(capturedContext, get)) {
+        console.warn('[AI] 컨텍스트 불일치 - 실행 취소');
+        releaseAILock(executionId, get, set);
+        return;
+      }
+
+      const store = get();
+
+      switch (decision.type) {
+        case 'issueShares':
+          if (decision.amount > 0) {
+            store.issueShare(capturedContext.currentPlayer, decision.amount);
+          }
+          store.nextPhase();
+          break;
+
+        case 'auction': {
+          const { decision: auctionDecision } = decision;
+          if (auctionDecision.action === 'bid') {
+            store.placeBid(capturedContext.currentPlayer, auctionDecision.amount);
+          } else if (auctionDecision.action === 'pass') {
+            store.passBid(capturedContext.currentPlayer);
+          } else if (auctionDecision.action === 'skip') {
+            store.skipBid(capturedContext.currentPlayer);
+          } else if (auctionDecision.action === 'complete') {
+            // 경매 완료 - 혼자 남았을 때
+            console.log('[AI 경매] 경매 완료 처리');
+            store.resolveAuction();
+            store.nextPhase();
+            releaseAILock(executionId, get, set);
+            scheduleAICheck(get);
+            return;
+          }
+          // 경매: 락 해제 후 다음 AI 체크 스케줄링
+          // (passBid/placeBid 내 scheduleAICheck는 락이 아직 걸려있어 실행 안됨)
+          releaseAILock(executionId, get, set);
+          scheduleAICheck(get);
+          return;
+        }
+
+        case 'selectAction':
+          store.selectAction(capturedContext.currentPlayer, decision.action);
+          store.nextPhase();
+          break;
+
+        case 'buildTrack': {
+          const { decision: buildDecision } = decision;
+          if (buildDecision.action === 'build') {
+            const beforeState = get();
+            const buildNum = beforeState.phaseState.builtTracksThisTurn + 1;
+            console.log(`[AI 트랙 건설] Turn ${beforeState.currentTurn}, ${player.name}: ${buildNum}/${beforeState.phaseState.maxTracksThisTurn}번째 트랙 (${buildDecision.coord.col},${buildDecision.coord.row}) edges=[${buildDecision.edges}]`);
+            store.buildTrack(buildDecision.coord, buildDecision.edges);
+
+            // 트랙 건설 후 상태 확인
+            const afterBuildState = get();
+            const { builtTracksThisTurn, maxTracksThisTurn } = afterBuildState.phaseState;
+
+            // 아직 더 건설할 수 있으면 다시 AI 결정 실행 (스케줄러 사용)
+            if (builtTracksThisTurn < maxTracksThisTurn) {
+              releaseAILock(executionId, get, set);
+              scheduleAICheck(get);
+              return; // nextPhase 호출하지 않음
+            }
+          } else if (buildDecision.action === 'buildComplex') {
+            // 복합 트랙 건설 (교차 또는 공존)
+            const beforeState = get();
+            const buildNum = beforeState.phaseState.builtTracksThisTurn + 1;
+            console.log(`[AI 트랙 건설] Turn ${beforeState.currentTurn}, ${player.name}: ${buildNum}/${beforeState.phaseState.maxTracksThisTurn}번째 복합트랙(${buildDecision.trackType}) (${buildDecision.coord.col},${buildDecision.coord.row}) edges=[${buildDecision.edges}]`);
+            store.buildComplexTrack(buildDecision.coord, buildDecision.edges, buildDecision.trackType);
+
+            // 트랙 건설 후 상태 확인
+            const afterBuildState = get();
+            const { builtTracksThisTurn, maxTracksThisTurn } = afterBuildState.phaseState;
+
+            // 아직 더 건설할 수 있으면 다시 AI 결정 실행 (스케줄러 사용)
+            if (builtTracksThisTurn < maxTracksThisTurn) {
+              releaseAILock(executionId, get, set);
+              scheduleAICheck(get);
+              return; // nextPhase 호출하지 않음
+            }
+          }
+          // 더 이상 건설 불가하거나 skip이면 다음 플레이어로 전환
+          store.nextPhase();
+          break;
+        }
+
+        case 'moveGoods': {
+          const { decision: moveDecision } = decision;
+          if (moveDecision.action === 'move') {
+            // 큐브 선택 및 이동 (completeCubeMove에서 nextPhase 호출됨)
+            store.selectCube(moveDecision.sourceCityId, moveDecision.cubeIndex);
+            store.selectDestinationCity(moveDecision.destinationCoord);
+            // move 액션: 애니메이션이 완료될 때까지 락 유지
+            // completeCubeMove에서 releaseAILock 호출됨
+            return;
+          } else if (moveDecision.action === 'upgradeEngine') {
+            // 중요: captured currentPlayer를 사용 (레이스 컨디션 방지)
+            store.upgradeEngine(capturedContext.currentPlayer);
+            store.nextPhase();
+          } else {
+            // skip
+            store.nextPhase();
+          }
+          break;
+        }
+
+        case 'skip':
+        default:
+          store.nextPhase();
+          break;
+      }
+
+      // 락 해제 및 다음 AI 체크 스케줄링
+      releaseAILock(executionId, get, set);
+      scheduleAICheck(get);
+    }, AI_TURN_DELAY);
   },
 
   // ============================================================
@@ -415,7 +752,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
   placeBid: (playerId, amount) => {
     set((state) => {
       if (!state.auction) {
-        // 경매 시작
+        // 경매 시작 - 다음 입찰자 계산
+        const activePlayers = state.playerOrder;
+        const currentIndex = activePlayers.indexOf(playerId);
+        const nextIndex = (currentIndex + 1) % activePlayers.length;
+        const nextBidder = activePlayers[nextIndex];
+
         return {
           auction: {
             currentBidder: playerId,
@@ -425,6 +767,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             bids: { [playerId]: amount } as Record<PlayerId, number>,
             lastActedPlayer: playerId,
           },
+          currentPlayer: nextBidder,
         };
       }
 
@@ -433,6 +776,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
         console.warn(`[WARN] placeBid: 입찰 금액 부족 - playerId: ${playerId}, 입찰: $${amount}, 현재 최고: $${state.auction.highestBid}`);
         return state;
       }
+
+      // 다음 입찰자 계산 (패스한 플레이어 제외)
+      const activePlayers = state.playerOrder.filter(p => !state.auction!.passedPlayers.includes(p));
+      const currentIndex = activePlayers.indexOf(playerId);
+      const nextIndex = (currentIndex + 1) % activePlayers.length;
+      const nextBidder = activePlayers[nextIndex];
 
       return {
         auction: {
@@ -446,6 +795,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             [playerId]: amount,
           },
         },
+        currentPlayer: nextBidder,
         logs: [
           ...state.logs,
           {
@@ -458,16 +808,66 @@ export const useGameStore = create<GameStore>((set, get) => ({
         ],
       };
     });
+
+    // AI 턴 트리거 (중앙 집중식 스케줄러 사용)
+    scheduleAICheck(get);
   },
 
   passBid: (playerId) => {
     set((state) => {
+      // 첫 번째 플레이어가 입찰 없이 포기하는 경우 (auction이 null)
       if (!state.auction) {
-        console.warn(`[WARN] passBid: 경매 없음 - playerId: ${playerId}`);
-        return state;
+        console.log(`[passBid] 첫 번째 플레이어 포기 - playerId: ${playerId}`);
+        const newPassedPlayers = [playerId];
+        const activePlayers = state.playerOrder.filter(p => !newPassedPlayers.includes(p));
+
+        // 다음 입찰자 계산
+        let nextBidder: PlayerId;
+        if (activePlayers.length <= 1) {
+          // 경매 종료 (모두 포기 또는 1명 남음)
+          nextBidder = activePlayers[0] || state.playerOrder[0];
+        } else {
+          nextBidder = activePlayers[0];
+        }
+
+        return {
+          auction: {
+            currentBidder: nextBidder,
+            highestBid: 0,
+            highestBidder: null,
+            passedPlayers: newPassedPlayers,
+            bids: {} as Record<PlayerId, number>,
+            lastActedPlayer: playerId,
+          },
+          currentPlayer: nextBidder,
+          logs: [
+            ...state.logs,
+            {
+              turn: state.currentTurn,
+              phase: state.currentPhase,
+              player: playerId,
+              action: `입찰 포기 (첫 번째)`,
+              timestamp: Date.now(),
+            },
+          ],
+        };
       }
 
       const newPassedPlayers = [...state.auction.passedPlayers, playerId];
+
+      // 다음 입찰자 계산 (패스한 플레이어 제외)
+      const activePlayers = state.playerOrder.filter(p => !newPassedPlayers.includes(p));
+
+      // 남은 플레이어가 1명 이하면 경매 종료 상태
+      let nextBidder: PlayerId;
+      if (activePlayers.length <= 1) {
+        // 경매 종료 - 승자가 현재 플레이어가 됨
+        nextBidder = state.auction.highestBidder || state.playerOrder[0];
+      } else {
+        const currentIndex = activePlayers.indexOf(state.auction.lastActedPlayer || playerId);
+        const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % activePlayers.length;
+        nextBidder = activePlayers[nextIndex >= activePlayers.length ? 0 : nextIndex];
+      }
 
       return {
         auction: {
@@ -475,6 +875,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           passedPlayers: newPassedPlayers,
           lastActedPlayer: playerId,
         },
+        currentPlayer: nextBidder,
         logs: [
           ...state.logs,
           {
@@ -487,6 +888,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         ],
       };
     });
+
+    // AI 턴 트리거 (중앙 집중식 스케줄러 사용)
+    scheduleAICheck(get);
   },
 
   // Turn Order 패스: 탈락 없이 다음 입찰자로 넘어가기
@@ -497,11 +901,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
         return state;
       }
 
+      // 다음 입찰자 계산 (패스한 플레이어 제외)
+      const activePlayers = state.playerOrder.filter(p => !state.auction!.passedPlayers.includes(p));
+      const currentIndex = activePlayers.indexOf(playerId);
+      const nextIndex = (currentIndex + 1) % activePlayers.length;
+      const nextBidder = activePlayers[nextIndex];
+
       return {
         auction: {
           ...state.auction,
           lastActedPlayer: playerId,  // 마지막 행동자 업데이트 (passedPlayers에는 추가 안 함)
         },
+        currentPlayer: nextBidder,
         logs: [
           ...state.logs,
           {
@@ -514,6 +925,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         ],
       };
     });
+
+    // AI 턴 트리거 (중앙 집중식 스케줄러 사용)
+    scheduleAICheck(get);
   },
 
   resolveAuction: () => {
@@ -523,7 +937,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
         return state;
       }
 
-      const { highestBidder, highestBid, bids, passedPlayers } = state.auction;
+      const { highestBid, bids, passedPlayers } = state.auction;
+      let { highestBidder } = state.auction;
 
       // 비용 지불 및 순서 결정
       const newPlayers = { ...state.players };
@@ -537,6 +952,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
       // 포기 순서 복사 (원본 변경 방지)
       const passOrder = [...passedPlayers];
       const lastDropoutIndex = passOrder.length - 1;
+
+      // highestBidder가 없으면 (모두 포기하거나 입찰 없이 완료된 경우)
+      // 포기하지 않은 플레이어를 승자로 설정
+      if (!highestBidder) {
+        const activePlayers = state.activePlayers.filter(p => !passedPlayers.includes(p));
+        if (activePlayers.length > 0) {
+          highestBidder = activePlayers[0];
+          console.log(`[resolveAuction] 입찰 없이 완료 - 승자: ${highestBidder}`);
+        }
+      }
 
       // 최고 입찰자가 1번 (전액 지불)
       if (highestBidder) {
@@ -591,6 +1016,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
           newPlayerOrder.push(playerId);
         }
       }
+
+      console.log(`[resolveAuction] 새 playerOrder: [${newPlayerOrder.join(', ')}], 1번: ${newPlayerOrder[0]} (isAI: ${newPlayers[newPlayerOrder[0]]?.isAI})`);
 
       return {
         players: newPlayers,
@@ -647,11 +1074,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
       if (action === 'locomotive') {
         const currentPlayers = newState.players ?? state.players;
         if (player.engineLevel < GAME_CONSTANTS.MAX_ENGINE) {
+          const oldLevel = player.engineLevel;
+          const newLevel = oldLevel + 1;
+          console.log(`[Locomotive] ${player.name}: 엔진 즉시 업그레이드 ${oldLevel} → ${newLevel}`);
           newState.players = {
             ...currentPlayers,
             [playerId]: {
               ...currentPlayers[playerId],
-              engineLevel: player.engineLevel + 1,
+              engineLevel: newLevel,
             },
           };
           newState.phaseState = {
@@ -708,7 +1138,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     // 이미 트랙이 있는지 확인
     const existingTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
-    if (existingTrack) return false;
+    if (existingTrack) {
+      // 리다이렉트 가능 여부 확인
+      if (!canRedirectTrack(coord, board, currentPlayer)) {
+        return false;
+      }
+    }
 
     // 연결성 검증
     const hasExistingTrack = playerHasTrack(board, currentPlayer);
@@ -732,6 +1167,28 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const state = get();
 
     if (!state.canBuildTrack(coord, edges)) {
+      // 실패 원인 로깅 (디버깅용)
+      const { board } = state;
+      const playerForLog = state.players[state.currentPlayer];
+      const isCity = board.cities.some(c => hexCoordsEqual(c.coord, coord));
+      const hexTile = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
+      const existingTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
+      const hasExisting = playerHasTrack(board, state.currentPlayer);
+      const isConnected = hasExisting
+        ? validateTrackConnection(coord, edges, board, state.currentPlayer)
+        : validateFirstTrackRule(coord, edges, board);
+
+      console.error(`[buildTrack 실패] ${playerForLog?.name || state.currentPlayer}:`, {
+        coord: `(${coord.col},${coord.row})`,
+        edges,
+        isCity,
+        terrain: hexTile?.terrain || 'unknown',
+        existingTrack: existingTrack ? `owner=${existingTrack.owner}` : null,
+        hasExistingPlayerTrack: hasExisting,
+        isConnected,
+        builtThisTurn: state.phaseState.builtTracksThisTurn,
+        maxThisTurn: state.phaseState.maxTracksThisTurn,
+      });
       return false;
     }
 
@@ -741,9 +1198,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
     )?.terrain || 'plain';
 
     // 비용 계산
-    let cost = GAME_CONSTANTS.PLAIN_TRACK_COST;
-    if (terrain === 'river') cost = GAME_CONSTANTS.RIVER_TRACK_COST;
-    if (terrain === 'mountain') cost = GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
+    let cost = 0;
+    const existingTrack = state.board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
+
+    if (existingTrack) {
+      // 리다이렉트 비용 적용
+      cost = TRACK_REPLACE_COSTS.redirect;
+    } else {
+      // 일반 건설 비용 계산
+      cost = GAME_CONSTANTS.PLAIN_TRACK_COST;
+      if (terrain === 'river') cost = GAME_CONSTANTS.RIVER_TRACK_COST;
+      if (terrain === 'mountain') cost = GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
+    }
 
     const player = state.players[currentPlayer];
     if (!player) {
@@ -755,20 +1221,32 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return false;
     }
 
+    // 트랙 데이터 생성/수정
+    const trackId = existingTrack ? existingTrack.id : `track-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const newTrack: TrackTile = {
-      id: `track-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: trackId,
       coord,
       edges,
       owner: currentPlayer,
       trackType: 'simple',
     };
 
+    const newTrackTiles = existingTrack
+      ? state.board.trackTiles.map(t => hexCoordsEqual(t.coord, coord) ? newTrack : t)
+      : [...state.board.trackTiles, newTrack];
+
     const newBuiltCount = state.phaseState.builtTracksThisTurn + 1;
+
+    // 상세 건설 로그
+    debugLog.trackBuilding(`[buildTrack 성공] ${player.name} (${currentPlayer}): Turn ${state.currentTurn}, ` +
+      `(${coord.col},${coord.row}) edges=[${edges[0]},${edges[1]}], ` +
+      `${newBuiltCount}/${state.phaseState.maxTracksThisTurn}번째, ` +
+      `비용=$${cost}, 지형=${terrain}, 행동=${player.selectedAction || 'none'}`);
 
     set({
       board: {
         ...state.board,
-        trackTiles: [...state.board.trackTiles, newTrack],
+        trackTiles: newTrackTiles,
       },
       players: {
         ...state.players,
@@ -780,6 +1258,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       phaseState: {
         ...state.phaseState,
         builtTracksThisTurn: newBuiltCount,
+        lastBuiltCoords: [...state.phaseState.lastBuiltCoords, coord],
       },
       logs: [
         ...state.logs,
@@ -793,10 +1272,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       ],
     });
 
-    // 최대 트랙 수 건설 완료 시 자동으로 다음 플레이어로 전환
-    if (newBuiltCount >= state.phaseState.maxTracksThisTurn) {
-      setTimeout(() => get().nextPhase(), GAME_CONSTANTS.PHASE_TRANSITION_DELAY);
-    }
+    // 참고: nextPhase()는 호출자(UI 버튼 또는 AI)가 직접 호출함
+    // 여기서 자동 호출하면 중복 호출로 버그 발생
 
     return true;
   },
@@ -885,6 +1362,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const newBuiltCount = state.phaseState.builtTracksThisTurn + 1;
 
+    // 상세 복합 트랙 건설 로그
+    debugLog.trackBuilding(`[buildComplexTrack 성공] ${player.name} (${currentPlayer}): Turn ${state.currentTurn}, ` +
+      `(${coord.col},${coord.row}) newEdges=[${newEdges[0]},${newEdges[1]}], ` +
+      `타입=${trackType}, 기존edges=[${existingTrack.edges[0]},${existingTrack.edges[1]}], ` +
+      `${newBuiltCount}/${state.phaseState.maxTracksThisTurn}번째, ` +
+      `비용=$${cost}, 행동=${player.selectedAction || 'none'}`);
+
     set({
       board: {
         ...state.board,
@@ -900,6 +1384,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       phaseState: {
         ...state.phaseState,
         builtTracksThisTurn: newBuiltCount,
+        lastBuiltCoords: [...state.phaseState.lastBuiltCoords, coord],
       },
       logs: [
         ...state.logs,
@@ -913,10 +1398,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       ],
     });
 
-    // 최대 트랙 수 건설 완료 시 자동으로 다음 플레이어로 전환
-    if (newBuiltCount >= state.phaseState.maxTracksThisTurn) {
-      setTimeout(() => get().nextPhase(), GAME_CONSTANTS.PHASE_TRANSITION_DELAY);
-    }
+    // 참고: nextPhase()는 호출자(UI 버튼 또는 AI)가 직접 호출함
+    // 여기서 자동 호출하면 중복 호출로 버그 발생
 
     return true;
   },
@@ -948,18 +1431,34 @@ export const useGameStore = create<GameStore>((set, get) => ({
         return city;
       });
 
-      // 경로의 트랙 소유자에게 수입 추가 (동적 플레이어 지원)
+      // 경로에서 완성된 링크 소유자 확인 및 수입 계산
       const incomeChanges: Partial<Record<PlayerId, number>> = {};
       state.activePlayers.forEach(p => { incomeChanges[p] = 0; });
 
-      for (let i = 0; i < path.length - 1; i++) {
-        const track = state.board.trackTiles.find(
-          (t) =>
-            (t.coord.col === path[i].col && t.coord.row === path[i].row) ||
-            (t.coord.col === path[i + 1].col && t.coord.row === path[i + 1].row)
-        );
-        if (track?.owner) {
-          incomeChanges[track.owner] = (incomeChanges[track.owner] || 0) + 1;
+      let currentLinkOwner: PlayerId | null = null;
+      let inLink = false;
+
+      for (let i = 0; i < path.length; i++) {
+        const coord = path[i];
+        const isCity = state.board.cities.some(c => hexCoordsEqual(c.coord, coord));
+        const isTown = state.board.towns.some(t => hexCoordsEqual(t.coord, coord));
+
+        if (isCity || isTown) {
+          if (inLink && currentLinkOwner) {
+            // 도시/마을에 도착했으므로 이전 링크 완료, 소유자 수입 +1
+            incomeChanges[currentLinkOwner] = (incomeChanges[currentLinkOwner] || 0) + 1;
+          }
+          // 새 링크 시작
+          inLink = true;
+          currentLinkOwner = null;
+        } else {
+          // 트랙 구간: 소유자 확인 (한 링크는 한 소유자만 가짐)
+          if (inLink && !currentLinkOwner) {
+            const track = state.board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
+            if (track?.owner) {
+              currentLinkOwner = track.owner;
+            }
+          }
         }
       }
 
@@ -999,25 +1498,33 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  upgradeEngine: () => {
+  upgradeEngine: (targetPlayerId?: PlayerId) => {
     set((state) => {
-      const player = state.players[state.currentPlayer];
+      // targetPlayerId가 제공되면 사용, 아니면 currentPlayer 사용
+      const playerId = targetPlayerId || state.currentPlayer;
+      const player = state.players[playerId];
       if (!player) {
-        console.error(`[ERROR] upgradeEngine: 플레이어 없음 - currentPlayer: ${state.currentPlayer}`);
+        console.error(`[ERROR] upgradeEngine: 플레이어 없음 - playerId: ${playerId}`);
         return state;
       }
       if (player.engineLevel >= GAME_CONSTANTS.MAX_ENGINE) {
-        console.warn(`[WARN] upgradeEngine: 최대 레벨 도달 - playerId: ${state.currentPlayer}, engineLevel: ${player.engineLevel}`);
+        console.warn(`[WARN] upgradeEngine: 최대 레벨 도달 - playerId: ${playerId}, engineLevel: ${player.engineLevel}`);
+        return state;
+      }
+      // 이미 이동했으면 업그레이드 불가 (물품 이동 또는 업그레이드 중 택1)
+      if (state.phaseState.playerMoves[playerId]) {
+        console.warn(`[WARN] upgradeEngine: 이미 이동 완료 - playerId: ${playerId}`);
         return state;
       }
 
       const oldLevel = player.engineLevel;
       const newLevel = player.engineLevel + 1;
+      console.log(`[upgradeEngine] ${player.name}: 엔진 업그레이드 ${oldLevel} → ${newLevel}`);
 
       return {
         players: {
           ...state.players,
-          [state.currentPlayer]: {
+          [playerId]: {
             ...player,
             engineLevel: newLevel,
           },
@@ -1026,7 +1533,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           ...state.phaseState,
           playerMoves: {
             ...state.phaseState.playerMoves,
-            [state.currentPlayer]: true,
+            [playerId]: true,
           },
         },
         logs: [
@@ -1034,7 +1541,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           {
             turn: state.currentTurn,
             phase: state.currentPhase,
-            player: state.currentPlayer,
+            player: playerId,
             action: `엔진 업그레이드: ${oldLevel} → ${newLevel} 링크`,
             timestamp: Date.now(),
           },
@@ -1081,17 +1588,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const bankruptPlayers: PlayerId[] = [];
       const newLogs = [...state.logs];
 
+      console.log(`[payExpenses] 시작 - activePlayers: ${state.activePlayers.join(', ')}`);
+
       for (const playerId of state.activePlayers) {
         const player = newPlayers[playerId];
         if (!player) continue;
 
         // 이미 탈락한 플레이어는 건너뛰기
-        if (player.eliminated) continue;
+        if (player.eliminated) {
+          console.log(`[payExpenses] ${player.name}: 이미 탈락 - 스킵`);
+          continue;
+        }
 
         const expense = player.issuedShares + player.engineLevel;
+        console.log(`[payExpenses] ${player.name}: expense=${expense} (shares=${player.issuedShares} + engine=${player.engineLevel}), cash=${player.cash}, income=${player.income}`);
 
         if (player.cash >= expense) {
           // 현금으로 지불 가능
+          console.log(`[payExpenses] ${player.name}: 현금 지불 가능 - cash ${player.cash} → ${player.cash - expense}`);
           newPlayers[playerId] = {
             ...player,
             cash: player.cash - expense,
@@ -1101,9 +1615,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
           const shortage = expense - player.cash;
           const newIncome = player.income - shortage;
 
+          console.log(`[payExpenses] ${player.name}: 현금 부족 - shortage=${shortage}, newIncome=${newIncome}, MIN_INCOME=${GAME_CONSTANTS.MIN_INCOME}`);
+
           // 파산 체크: 수입이 MIN_INCOME 미만이면 파산
           if (newIncome < GAME_CONSTANTS.MIN_INCOME) {
             // 파산 처리
+            console.log(`[payExpenses] ${player.name}: 파산! (newIncome ${newIncome} < MIN_INCOME ${GAME_CONSTANTS.MIN_INCOME})`);
             bankruptPlayers.push(playerId);
             newPlayers[playerId] = {
               ...player,
@@ -1121,6 +1638,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             });
           } else {
             // 수입 감소로 비용 충당
+            console.log(`[payExpenses] ${player.name}: 수입 감소로 충당 - income ${player.income} → ${newIncome}`);
             newPlayers[playerId] = {
               ...player,
               cash: 0,
@@ -1140,6 +1658,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
       // 파산한 플레이어의 미완성 트랙 소유권 제거
       if (bankruptPlayers.length > 0) {
+        console.log(`[payExpenses] 파산 플레이어: ${bankruptPlayers.join(', ')}`);
         const updatedTrackTiles = newBoard.trackTiles.map(track => {
           if (track.owner && bankruptPlayers.includes(track.owner)) {
             // 완성된 링크의 일부가 아닌 트랙만 소유권 제거
@@ -1153,6 +1672,36 @@ export const useGameStore = create<GameStore>((set, get) => ({
         newBoard = {
           ...newBoard,
           trackTiles: updatedTrackTiles,
+        };
+      }
+
+      // 남은 플레이어 수 체크 - 1명만 남으면 게임 종료
+      const remainingPlayers = state.activePlayers.filter(
+        pid => !newPlayers[pid]?.eliminated
+      );
+
+      console.log(`[payExpenses] 남은 플레이어: ${remainingPlayers.length}명 (${remainingPlayers.join(', ')})`);
+
+      if (remainingPlayers.length <= 1) {
+        const winner = remainingPlayers[0];
+        const winnerName = winner ? newPlayers[winner]?.name : '없음';
+
+        console.log(`[payExpenses] 게임 종료! 승자: ${winnerName}`);
+
+        newLogs.push({
+          turn: state.currentTurn,
+          phase: state.currentPhase,
+          player: winner || state.currentPlayer,
+          action: `게임 종료! ${winnerName} 승리 (상대 파산)`,
+          timestamp: Date.now(),
+        });
+
+        return {
+          players: newPlayers,
+          board: newBoard,
+          logs: newLogs,
+          currentPhase: 'gameOver' as GamePhase,
+          winner: winner || null,
         };
       }
 
@@ -1217,15 +1766,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const newCities = state.board.cities.map(city => ({ ...city, cubes: [...city.cubes] }));
       const newLogs = [...state.logs];
 
-      // 열-도시 매핑 (Rust Belt)
+      // 열-도시 매핑 (Tutorial Map - TUTORIAL_COLUMN_MAPPING과 일치해야 함)
       // 1-6: 주사위 열, A-D: 신규 도시 열
       const columnToCityId: Record<string, string> = {
         '1': 'P', // Pittsburgh
-        '2': 'C', // Cincinnati
+        '2': 'C', // Cleveland
         '3': 'O', // Columbus
         '4': 'W', // Wheeling
-        '5': 'I', // Indianapolis (or another city)
-        '6': 'E', // Evansville
+        '5': 'I', // Cincinnati
+        '6': 'P', // Pittsburgh (다시)
       };
 
       // 열의 시작 인덱스 계산
@@ -1307,16 +1856,33 @@ export const useGameStore = create<GameStore>((set, get) => ({
   nextPhase: () => {
     const currentState = get();
 
+    // 이미 게임 오버면 진행하지 않음
+    if (currentState.currentPhase === 'gameOver') {
+      console.log('[nextPhase] 이미 게임 오버 - 진행 중단');
+      return;
+    }
+
     // 자동 단계 로직 실행 (단계 전환 전에 실행)
     if (currentState.currentPhase === 'collectIncome') {
       get().collectIncome();
     } else if (currentState.currentPhase === 'payExpenses') {
       get().payExpenses();
+      // payExpenses 후 gameOver 체크 - 파산으로 게임 종료되었으면 phase 전환 중단
+      const afterPayExpenses = get();
+      if (afterPayExpenses.currentPhase === 'gameOver') {
+        console.log('[nextPhase] payExpenses 후 게임 오버 감지 - 진행 중단');
+        return;
+      }
     } else if (currentState.currentPhase === 'incomeReduction') {
       get().applyIncomeReduction();
     }
 
     set((state) => {
+      // 다시 한번 gameOver 체크
+      if (state.currentPhase === 'gameOver') {
+        console.log('[nextPhase set] 게임 오버 상태 - 변경 없음');
+        return state;
+      }
       const phases: GamePhase[] = [
         'issueShares',
         'determinePlayerOrder',
@@ -1362,6 +1928,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
       // === II. 플레이어 순서 결정 ===
       if (state.currentPhase === 'determinePlayerOrder') {
+        console.log(`[nextPhase] determinePlayerOrder → selectActions: playerOrder=[${playerOrder.join(', ')}], 새 currentPlayer=${playerOrder[0]} (isAI: ${state.players[playerOrder[0]]?.isAI})`);
         return {
           currentPhase: 'selectActions' as GamePhase,
           currentPlayer: playerOrder[0],
@@ -1381,22 +1948,32 @@ export const useGameStore = create<GameStore>((set, get) => ({
           // 실제로 첫 번째로 건설할 플레이어 결정
           const firstBuilder = firstBuildPlayer || playerOrder[0];
 
+          // 디버그: buildTrack 진입 로그
+          const initialPlayerMoves = createPlayerMoves(activePlayers);
+          console.log(`[buildTrack 진입] firstBuilder: ${firstBuilder}, playerOrder: [${playerOrder.join(', ')}]`);
+          console.log(`[buildTrack 진입] activePlayers: [${activePlayers.join(', ')}]`);
+          console.log(`[buildTrack 진입] 초기 playerMoves:`, JSON.stringify(initialPlayerMoves));
+
           return {
             currentPhase: 'buildTrack' as GamePhase,
             currentPlayer: firstBuilder,
             phaseState: {
               ...state.phaseState,
               builtTracksThisTurn: 0,
+              lastBuiltCoords: [],
               // 첫 번째로 건설할 플레이어의 Engineer 효과 확인
               maxTracksThisTurn: state.players[firstBuilder].selectedAction === 'engineer'
                 ? GAME_CONSTANTS.ENGINEER_TRACK_LIMIT
                 : GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
+              // 모든 플레이어의 건설 완료 상태 초기화
+              playerMoves: initialPlayerMoves,
             },
           };
         }
 
         // 현재 플레이어가 선택했으면 다음 플레이어로 전환
         if (state.players[state.currentPlayer].selectedAction !== null) {
+          console.log(`[nextPhase] selectActions 내 플레이어 전환: ${state.currentPlayer} → ${nextPlayer} (isAI: ${state.players[nextPlayer]?.isAI})`);
           return {
             currentPlayer: nextPlayer,
           };
@@ -1408,16 +1985,33 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
       // === IV. 트랙 건설 단계 ===
       if (state.currentPhase === 'buildTrack') {
-        // 현재 플레이어를 먼저 완료 처리한 후 확인
-        const updatedPlayerMoves = {
-          ...state.phaseState.playerMoves,
-          [state.currentPlayer]: true,
-        };
+        // 디버그: 현재 상태 로그
+        console.log(`[buildTrack nextPhase] currentPlayer: ${state.currentPlayer}`);
+        console.log(`[buildTrack nextPhase] playerMoves 전:`, JSON.stringify(state.phaseState.playerMoves));
+
+        // 현재 플레이어를 완료 처리 (이미 완료된 경우 중복 마킹 방지)
+        const alreadyCompleted = state.phaseState.playerMoves[state.currentPlayer];
+        if (alreadyCompleted) {
+          console.log(`[buildTrack nextPhase] ${state.currentPlayer}는 이미 완료됨 - 중복 마킹 방지`);
+        }
+        const updatedPlayerMoves = alreadyCompleted
+          ? state.phaseState.playerMoves
+          : {
+            ...state.phaseState.playerMoves,
+            [state.currentPlayer]: true,
+          };
         const allPlayersBuilt = allPlayersMoved(updatedPlayerMoves, activePlayers);
+
+        console.log(`[buildTrack nextPhase] playerMoves 후:`, JSON.stringify(updatedPlayerMoves));
+        console.log(`[buildTrack nextPhase] allPlayersBuilt: ${allPlayersBuilt}`);
 
         if (allPlayersBuilt) {
           // First Move 확인
           const firstMover = findFirstMovePlayer(state.players, activePlayers);
+
+          // 디버그 로그
+          console.log(`[Move Goods 진입] firstMover: ${firstMover || 'none'}, playerOrder[0]: ${playerOrder[0]}`);
+          console.log(`[Move Goods 진입] 선택된 행동들:`, Object.entries(state.players).map(([id, p]) => `${id}: ${p.selectedAction}`));
 
           return {
             currentPhase: 'moveGoods' as GamePhase,
@@ -1436,6 +2030,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           phaseState: {
             ...state.phaseState,
             builtTracksThisTurn: 0,
+            lastBuiltCoords: [],
             maxTracksThisTurn: state.players[nextPlayer].selectedAction === 'engineer'
               ? GAME_CONSTANTS.ENGINEER_TRACK_LIMIT
               : GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
@@ -1446,11 +2041,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
       // === V. 물품 이동 단계 ===
       if (state.currentPhase === 'moveGoods') {
-        // 현재 플레이어를 먼저 완료 처리한 후 확인
-        const updatedPlayerMoves = {
-          ...state.phaseState.playerMoves,
-          [state.currentPlayer]: true,
-        };
+        // 현재 플레이어를 완료 처리 (이미 완료된 경우 중복 마킹 방지)
+        const alreadyCompleted = state.phaseState.playerMoves[state.currentPlayer];
+        const updatedPlayerMoves = alreadyCompleted
+          ? state.phaseState.playerMoves
+          : {
+            ...state.phaseState.playerMoves,
+            [state.currentPlayer]: true,
+          };
         const allMoved = allPlayersMoved(updatedPlayerMoves, activePlayers);
 
         if (allMoved) {
@@ -1506,6 +2104,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           phaseState: {
             builtTracksThisTurn: 0,
             maxTracksThisTurn: GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
+            lastBuiltCoords: [],
             moveGoodsRound: 1,
             playerMoves: createPlayerMoves(activePlayers),
             productionUsed: false,
@@ -1531,6 +2130,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         ],
       };
     });
+
+    // AI 턴 트리거 (중앙 집중식 스케줄러 사용)
+    scheduleAICheck(get);
   },
 
   endTurn: () => {
@@ -1554,6 +2156,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       phaseState: {
         builtTracksThisTurn: 0,
         maxTracksThisTurn: GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
+        lastBuiltCoords: [],
         moveGoodsRound: 1,
         playerMoves: createPlayerMoves(prevState.activePlayers),
         productionUsed: false,
@@ -1987,6 +2590,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       phaseState: {
         ...state.phaseState,
         builtTracksThisTurn: state.phaseState.builtTracksThisTurn + 1,
+        lastBuiltCoords: [...state.phaseState.lastBuiltCoords, coord],
       },
       ui: {
         ...state.ui,
@@ -2377,6 +2981,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return city;
     });
 
+    // 실행 컨텍스트 캡처 (completeCubeMove에서 사용)
+    const context: MovingCubeContext = {
+      playerId: state.currentPlayer,
+      phase: state.currentPhase,
+      moveRound: state.phaseState.moveGoodsRound,
+    };
+
     set({
       board: {
         ...state.board,
@@ -2388,6 +2999,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           color,
           path,
           currentIndex: 0,
+          context,  // 캡처된 컨텍스트 저장
         },
         movePath: path,
         selectedCube: null,
@@ -2423,7 +3035,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const state = get();
     if (!state.ui.movingCube) return;
 
-    const { path, color } = state.ui.movingCube;
+    const { path, color, context } = state.ui.movingCube;
+
+    // 캡처된 컨텍스트에서 플레이어 ID 사용 (레이스 컨디션 방지)
+    const movingPlayerId = context.playerId;
 
     // 경로의 트랙 소유자에게 수입 추가 (동적 플레이어 지원)
     const incomeChanges: Partial<Record<PlayerId, number>> = {};
@@ -2469,13 +3084,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // 총 링크 수 계산 (로그용)
     const totalLinks = Object.values(incomeChanges).reduce((a, b) => a + b, 0);
 
+    // 캡처된 플레이어 ID 사용 (state.currentPlayer 대신)
     set({
       players: newPlayers,
       phaseState: {
         ...state.phaseState,
         playerMoves: {
           ...state.phaseState.playerMoves,
-          [state.currentPlayer]: true,
+          [movingPlayerId]: true,  // 캡처된 플레이어 ID 사용
         },
       },
       ui: {
@@ -2489,13 +3105,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
         ...state.logs,
         {
           turn: state.currentTurn,
-          phase: state.currentPhase,
-          player: state.currentPlayer,
-          action: `${color} 물품 배달 (${totalLinks} 링크, +${incomeChanges[state.currentPlayer]} 수입)`,
+          phase: context.phase,  // 캡처된 phase 사용
+          player: movingPlayerId,  // 캡처된 플레이어 ID 사용
+          action: `${color} 물품 배달 (${totalLinks} 링크, +${incomeChanges[movingPlayerId] ?? 0} 수입)`,
           timestamp: Date.now(),
         },
       ],
     });
+
+    // 물품 이동 완료 후 AI 락 해제 및 다음 단계로 진행
+    // AI의 'move' 액션에서 락을 유지했으므로 여기서 해제
+    const currentExecId = state.aiExecution.executionId;
+    if (state.aiExecution.pending && currentExecId > 0) {
+      releaseAILock(currentExecId, get, set);
+    }
+
+    get().nextPhase();
   },
 
   // === 로그 ===

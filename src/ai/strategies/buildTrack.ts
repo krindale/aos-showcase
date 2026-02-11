@@ -190,6 +190,23 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     if (directBuild) {
       return directBuild;
     }
+
+    // tryDirectPathBuild가 null인 경우: 경로 완성 or 오류
+    // 경로가 완성된 경우 → 새 경로를 찾아서 남은 건설 기회를 활용
+    if (isRouteComplete(state, targetRoute, playerId)) {
+      debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 경로 ${targetRoute.from}→${targetRoute.to} 턴 중 완성! 새 경로 탐색`);
+
+      const newRoute = getNextTargetRoute(state, playerId);
+      if (newRoute && !isRouteComplete(state, newRoute, playerId)) {
+        targetRoute = newRoute;
+        debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 새 경로 ${newRoute.from}→${newRoute.to}로 전환`);
+        const directBuild2 = tryDirectPathBuild(state, playerId, newRoute);
+        if (directBuild2) {
+          return directBuild2;
+        }
+      }
+    }
+
     debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 직접 경로 추적 실패 → 일반 후보 평가 시스템으로 fallback`);
   }
 

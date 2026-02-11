@@ -88,6 +88,9 @@ export function evaluateTrackPosition(
 
 /**
  * 물품 이동의 가치 평가
+ *
+ * 링크 수(=수입)가 압도적 우선순위.
+ * 2링크 배달은 1링크 배달보다 항상 높은 점수를 받아야 함.
  */
 export function evaluateMoveValue(
   linksCount: number,
@@ -95,12 +98,12 @@ export function evaluateMoveValue(
 ): number {
   let score = 0;
 
-  // 링크 수 = 수입
-  score += linksCount * 5; // 기존 3 -> 5로 상향. 수입이 점수에 크게 반영되도록
+  // 링크 수 = 수입 (압도적 가중치로 경로 보너스에 뒤집히지 않도록)
+  score += linksCount * 20;
 
   // 자신의 트랙 사용 시 추가 점수
   if (usesOwnTracks) {
-    score += linksCount * 3; // 기존 2 -> 3으로 상향
+    score += linksCount * 5;
   }
 
   return score;

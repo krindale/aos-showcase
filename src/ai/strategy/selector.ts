@@ -14,7 +14,7 @@ import {
   isRouteComplete,
 } from './analyzer';
 import { hexDistance } from '@/utils/hexGrid';
-import { getCurrentRoute, setCurrentRoute, clearCurrentRoutes } from './state';
+import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, clearCurrentRoutes } from './state';
 import { debugLog } from '@/utils/debugConfig';
 
 /**
@@ -105,15 +105,21 @@ export function getNextTargetRoute(
     const bCompetitorPenalty = (isBAlreadyLinked && !connectedCities.includes(b.sourceCityId)) ? -2000 : 0;
 
     // [New] 경쟁자 진행도 체크 (이미 누군가 짓고 있는 경로는 피함)
+    // 역방향(O→P)도 같은 링크로 인식하여 체크
     let aOpponentMaxProgress = 0;
     let bOpponentMaxProgress = 0;
     const opponents = state.activePlayers.filter(id => id !== playerId);
 
     for (const oppId of opponents) {
-      const progA = getRouteProgress(state, oppId, { from: a.sourceCityId, to: a.targetCityId, priority: 1 });
+      // 정방향 + 역방향 모두 체크
+      const progAFwd = getRouteProgress(state, oppId, { from: a.sourceCityId, to: a.targetCityId, priority: 1 });
+      const progARev = getRouteProgress(state, oppId, { from: a.targetCityId, to: a.sourceCityId, priority: 1 });
+      const progA = Math.max(progAFwd, progARev);
       if (progA > aOpponentMaxProgress) aOpponentMaxProgress = progA;
 
-      const progB = getRouteProgress(state, oppId, { from: b.sourceCityId, to: b.targetCityId, priority: 1 });
+      const progBFwd = getRouteProgress(state, oppId, { from: b.sourceCityId, to: b.targetCityId, priority: 1 });
+      const progBRev = getRouteProgress(state, oppId, { from: b.targetCityId, to: b.sourceCityId, priority: 1 });
+      const progB = Math.max(progBFwd, progBRev);
       if (progB > bOpponentMaxProgress) bOpponentMaxProgress = progB;
     }
 
@@ -121,8 +127,43 @@ export function getNextTargetRoute(
     const aProgressPenalty = aOpponentMaxProgress > 0.7 ? -1500 : (aOpponentMaxProgress > 0.3 ? -500 : 0);
     const bProgressPenalty = bOpponentMaxProgress > 0.7 ? -1500 : (bOpponentMaxProgress > 0.3 ? -500 : 0);
 
-    const aScore = aFirstTurnBonus + aIncome + aEngineMatchingBonus + aFutureIncome + aConnectedBonus - aDistPenalty + aDuplicationPenalty + aCompetitorPenalty + aProgressPenalty;
-    const bScore = bFirstTurnBonus + bIncome + bEngineMatchingBonus + bFutureIncome + bConnectedBonus - bDistPenalty + bDuplicationPenalty + bCompetitorPenalty + bProgressPenalty;
+    // [New] 상대방 현재 목표 경로 확인 (같은 링크를 겨냥하면 강력 페널티)
+    let aOpponentTargetPenalty = 0;
+    let bOpponentTargetPenalty = 0;
+
+    for (const oppId of opponents) {
+      const oppRoute = getCurrentRoute(oppId);
+      if (!oppRoute) continue;
+
+      // 정방향 또는 역방향 일치 → 같은 링크를 경쟁 중
+      const aMatchesOpp =
+        (oppRoute.from === a.sourceCityId && oppRoute.to === a.targetCityId) ||
+        (oppRoute.from === a.targetCityId && oppRoute.to === a.sourceCityId);
+      const bMatchesOpp =
+        (oppRoute.from === b.sourceCityId && oppRoute.to === b.targetCityId) ||
+        (oppRoute.from === b.targetCityId && oppRoute.to === b.sourceCityId);
+
+      // 같은 링크 경쟁: 첫 턴 보너스(3000)를 상쇄할 수 있는 강력 페널티
+      if (aMatchesOpp) aOpponentTargetPenalty = -3500;
+      if (bMatchesOpp) bOpponentTargetPenalty = -3500;
+
+      // 종점 공유 (부분 겹침): 완전 겹침보다는 약한 페널티
+      if (!aMatchesOpp && aOpponentTargetPenalty === 0) {
+        const aSharesEndpoint =
+          oppRoute.from === a.sourceCityId || oppRoute.from === a.targetCityId ||
+          oppRoute.to === a.sourceCityId || oppRoute.to === a.targetCityId;
+        if (aSharesEndpoint) aOpponentTargetPenalty = -300;
+      }
+      if (!bMatchesOpp && bOpponentTargetPenalty === 0) {
+        const bSharesEndpoint =
+          oppRoute.from === b.sourceCityId || oppRoute.from === b.targetCityId ||
+          oppRoute.to === b.sourceCityId || oppRoute.to === b.targetCityId;
+        if (bSharesEndpoint) bOpponentTargetPenalty = -300;
+      }
+    }
+
+    const aScore = aFirstTurnBonus + aIncome + aEngineMatchingBonus + aFutureIncome + aConnectedBonus - aDistPenalty + aDuplicationPenalty + aCompetitorPenalty + aProgressPenalty + aOpponentTargetPenalty;
+    const bScore = bFirstTurnBonus + bIncome + bEngineMatchingBonus + bFutureIncome + bConnectedBonus - bDistPenalty + bDuplicationPenalty + bCompetitorPenalty + bProgressPenalty + bOpponentTargetPenalty;
 
     return bScore - aScore;
   });
@@ -333,6 +374,15 @@ export function reevaluateStrategy(
   );
 
   if (!hasMatchingCargo) {
+    // 투자 이력이 2개 이상이면 경로 유지 (물품 성장 대기)
+    const routeState = getCurrentRouteState(playerId);
+    const investedCount = routeState?.investedTrackCount ?? 0;
+
+    if (investedCount >= 2) {
+      debugLog.trackBuilding(`[AI 경로] ${player.name}: 경로 ${currentRoute.from}→${currentRoute.to} (최종→${finalTo})에 화물 없지만 투자 이력(${investedCount})으로 유지`);
+      return; // 경로 유지
+    }
+
     debugLog.trackBuilding(`[AI 경로] ${player.name}: 경로 ${currentRoute.from}→${currentRoute.to} (최종→${finalTo})에 화물 없음, 새 경로 탐색`);
     getNextTargetRoute(state, playerId);
     return;

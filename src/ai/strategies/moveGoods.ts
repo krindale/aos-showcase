@@ -103,16 +103,33 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
         // [추가] 내 트랙 점유율 보너스 (동일 수익일 때 내 트랙 더 많이 쓰기)
         const trackDensityBonus = ownTrackCount * 2;
 
-        // 전략 경로 점수 계산
+        // [추가] 상대가 이 화물을 배달할 수 있는지 확인 (가로채기 위험)
+        let stealRiskBonus = 0;
+        const opponents = state.activePlayers.filter(id => id !== playerId);
+        for (const oppId of opponents) {
+          const oppPlayer = state.players[oppId];
+          if (!oppPlayer) continue;
+          const oppReachable = findReachableDestinations(
+            city.coord, board, oppId, oppPlayer.engineLevel, cubeColor
+          );
+          if (oppReachable.some(d => hexCoordsEqual(d.coord, destCity.coord))) {
+            // 상대도 배달 가능 → 가로채기 위험, 이 화물을 먼저 배달해야 함
+            // 링크가 길수록 가로채기 손실이 크므로 링크 수 비례 보너스
+            stealRiskBonus = linksCount * 10;
+            break;
+          }
+        }
+
+        // 전략 경로 점수 계산 (수입보다 영향이 작도록 축소)
         let routeScore = 0;
         if (strategy && targetRoute) {
           // 전략 경로와 정확히 일치하면 점수 추가
           if (city.id === targetRoute.from && destCity.id === targetRoute.to) {
-            routeScore = 12;
+            routeScore = 5;
           }
           // 출발지 또는 목적지만 일치하면
           else if (city.id === targetRoute.from || destCity.id === targetRoute.to) {
-            routeScore = 6;
+            routeScore = 3;
           }
           // 전략의 모든 targetRoutes와 비교
           else if (strategy.targetRoutes.some(r =>
@@ -120,7 +137,7 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
             (r.from === city.id) ||
             (r.to === destCity.id)
           )) {
-            routeScore = 4;
+            routeScore = 1;
           }
         }
 
@@ -131,7 +148,7 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
           destinationCoord: destCity.coord,
           destinationCityId: destCity.id,
           path,
-          score: score + trackDensityBonus,
+          score: score + trackDensityBonus + stealRiskBonus,
           linksCount,
           ownTrackCount,
           routeScore,

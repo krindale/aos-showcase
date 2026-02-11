@@ -622,7 +622,8 @@ export function findOptimalPathAvoidingOpponent(
   from: HexCoord,
   to: HexCoord,
   board: BoardState,
-  playerId: PlayerId
+  playerId: PlayerId,
+  avoidCoords?: HexCoord[]
 ): HexCoord[] {
   // A* 알고리즘 구현
   interface Node {
@@ -639,6 +640,11 @@ export function findOptimalPathAvoidingOpponent(
 
   // 지형 비용 계산 + 상대 트랙 페널티
   const getTerrainCost = (coord: HexCoord): number => {
+    // 회피 좌표는 매우 높은 비용 (불가능하지는 않지만 회피 유도)
+    if (avoidCoords?.some(a => hexCoordsEqual(a, coord))) {
+      return 100;
+    }
+
     // 도시는 통과 비용 0
     if (board.cities.some(c => hexCoordsEqual(c.coord, coord))) {
       return 0;
@@ -717,8 +723,32 @@ export function findOptimalPathAvoidingOpponent(
       if (closedSet.has(neighborKey)) continue;
 
       // 지형 비용 계산
-      const terrainCost = getTerrainCost(neighbor);
+      let terrainCost = getTerrainCost(neighbor);
       if (terrainCost === Infinity) continue; // 건설 불가 지형
+
+      // 자사 트랙 엣지 비호환 페널티:
+      // 기존 트랙을 통과하려는데 엣지 방향이 맞지 않으면 우회 유도
+      const currentIsCity = board.cities.some(c => hexCoordsEqual(c.coord, current.coord));
+      if (!currentIsCity) {
+        const currentOwnTrack = board.trackTiles.find(
+          t => t.owner === playerId && hexCoordsEqual(t.coord, current.coord)
+        );
+        if (currentOwnTrack && !currentOwnTrack.edges.includes(edge)) {
+          terrainCost += 3; // 출구 방향 비호환
+        }
+      }
+      const neighborIsCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
+      if (!neighborIsCity) {
+        const neighborOwnTrack = board.trackTiles.find(
+          t => t.owner === playerId && hexCoordsEqual(t.coord, neighbor)
+        );
+        if (neighborOwnTrack) {
+          const oppositeEdge = (edge + 3) % 6;
+          if (!neighborOwnTrack.edges.includes(oppositeEdge)) {
+            terrainCost += 3; // 입구 방향 비호환
+          }
+        }
+      }
 
       const moveCost = terrainCost;
       const newG = current.g + moveCost;
@@ -932,11 +962,27 @@ export function evaluateTrackForRoute(
 
       // 3. 연속성 보너스 (이번 턴에 방금 지은 트랙 바로 옆에 짓는 경우)
       if (lastBuiltCoord && hexDistance(trackCoord, lastBuiltCoord) === 1) {
-        let continuityBonus = 300; // 기본 연속성 보너스
-        if (isOnOrNearPath) continuityBonus += 400; // 경로상/근접이면 추가
+        let continuityBonus: number;
+        if (isOnOrNearPath) {
+          // [Fix B] 방향 확인: edges가 경로 진행 방향을 가리키는지 체크
+          // 방향 불일치 연속 건설은 보너스를 대폭 축소
+          let directionMatch = true; // edges 없으면 기본 true
+          if (edges) {
+            const dirRef = isNearPath
+              ? optimalPath[nearestPathIndex]
+              : (effectivePosition < optimalPath.length - 1 ? optimalPath[effectivePosition + 1] : null);
+            if (dirRef) {
+              const edgeToDir = getEdgeBetweenHexes(trackCoord, dirRef);
+              directionMatch = edgeToDir >= 0 && (edges[0] === edgeToDir || edges[1] === edgeToDir);
+            }
+          }
+          continuityBonus = directionMatch ? 700 : 200;
+        } else {
+          continuityBonus = 50;  // 경로 이탈 연속 건설: 미미한 보너스
+        }
         score += continuityBonus;
-        intention = '번호 연속 건설(연속성 보장)';
-        debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 연속 건설 보너스 +${continuityBonus} → 누적 ${score}`);
+        intention = isOnOrNearPath ? '경로상 연속 건설' : '경로 이탈 연속 건설(미미)';
+        debugLog.aiEvaluation(`  [평가] (${trackCoord.col},${trackCoord.row}): 연속 건설 보너스 +${continuityBonus} (${isOnOrNearPath ? '경로상' : '경로이탈'}) → 누적 ${score}`);
       }
 
       // 4. 상대방 견제 보너스 (상대방의 예상 경로 상에 있는 경우)
@@ -981,6 +1027,13 @@ export function evaluateTrackForRoute(
       }
       if (nextPathCoord) {
         edgeTowardsNext = getEdgeBetweenHexes(trackCoord, nextPathCoord);
+      }
+
+      // [Fix A] Near-path 후보는 경로 좌표가 인접하지 않아 edgeTowards가 항상 -1
+      // → 방향 페널티가 절대 적용 안 됨. 가장 가까운 경로 좌표를 방향 참조점으로 사용
+      if (isNearPath && edgeTowardsNext === -1) {
+        const nearestPathCoord = optimalPath[nearestPathIndex];
+        edgeTowardsNext = getEdgeBetweenHexes(trackCoord, nearestPathCoord);
       }
 
       const [edge0, edge1] = edges;

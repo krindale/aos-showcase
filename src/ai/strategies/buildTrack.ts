@@ -13,7 +13,7 @@ import {
   playerHasTrack,
 } from '@/utils/trackValidation';
 import { getBuildableNeighbors, getExitDirections, hexCoordsEqual, getNeighborHex, hexDistance, findAllConnectedHexes } from '@/utils/hexGrid';
-import { getSelectedStrategy, getCurrentRoute } from '../strategy/state';
+import { getSelectedStrategy, getCurrentRoute, getCurrentRouteState, incrementInvestedTracks } from '../strategy/state';
 import { getNextTargetRoute, findNextTargetRoute, getTopPriorityRoutes } from '../strategy/selector';
 import {
   evaluateTrackForRoute,
@@ -24,6 +24,8 @@ import {
   isRouteComplete,
   isOnOptimalPath,
   clearPathCache,
+  findOptimalPathAvoidingOpponent,
+  getEdgeBetweenHexes,
 } from '../strategy/analyzer';
 import type { DeliveryRoute } from '../strategy/types';
 import { debugLog } from '@/utils/debugConfig';
@@ -112,9 +114,12 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
         return (distToSource + distToTarget) <= totalDist + 2;
       }));
 
-      debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 이전 경로 검증 (${previousRoute.from}→${previousRoute.to}, 최종→${finalDestId}) - 완성=${isComplete}, 화물=${!!hasMatchingCargo}, 트랙=${!!hasRelatedTracks}`);
+      const prevRouteState = getCurrentRouteState(playerId);
+      const investedCount = prevRouteState?.investedTrackCount ?? 0;
 
-      if (!isComplete && hasMatchingCargo && hasRelatedTracks) {
+      debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 이전 경로 검증 (${previousRoute.from}→${previousRoute.to}, 최종→${finalDestId}) - 완성=${isComplete}, 화물=${!!hasMatchingCargo}, 트랙=${!!hasRelatedTracks}, 투자=${investedCount}`);
+
+      if (!isComplete && hasRelatedTracks && (hasMatchingCargo || investedCount >= 2)) {
         targetRoute = previousRoute;
         reusesPreviousRoute = true;
         debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 이전 경로 유지 (${previousRoute.from}→${previousRoute.to}) - 화물 있고 미완성`);
@@ -177,7 +182,16 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   const strategy = getSelectedStrategy(playerId);
   const strategyName = strategy?.nameKo ?? '없음';
 
-
+  // ========== [핵심 수정] 결정론적 경로 추적 건설 ==========
+  // 점수 기반 후보 평가 대신, A* 최적 경로를 단계별로 따라가는 방식
+  // 이 방식이 성공하면 즉시 반환, 실패 시에만 아래 일반 시스템으로 fallback
+  if (targetRoute) {
+    const directBuild = tryDirectPathBuild(state, playerId, targetRoute);
+    if (directBuild) {
+      return directBuild;
+    }
+    debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 직접 경로 추적 실패 → 일반 후보 평가 시스템으로 fallback`);
+  }
 
   // 건설 가능한 후보 탐색
   let candidates = findBuildCandidates(state, playerId, targetRoute);
@@ -238,7 +252,11 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     // analyzer에 lastBuiltCoord 전달하여 연속성 보너스 적용
     if (targetRoute && lastBuiltCoord) {
       const continuityScore = evaluateTrackForRoute(targetRoute, state.board, c.coord, c.edges, playerId, lastBuiltCoord).score;
-      c.routeScore = Math.max(c.routeScore, continuityScore);
+      // [Fix C] 기본 경로 점수가 양수인 후보만 연속성 점수로 상향 조정
+      // 음수(역방향/고립) 후보가 연속성만으로 구제되는 것을 방지
+      if (c.routeScore > 0) {
+        c.routeScore = Math.max(c.routeScore, continuityScore);
+      }
     }
   });
 
@@ -279,7 +297,10 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     // 3단계: 네트워크 확장 목표로 시도
 
     if (targetRoute) {
-      debugLog.trackBuilding(`[Phase IV: 트랙 건설] 현재 목표(${targetRoute.from}->${targetRoute.to})로는 적절한 후보가 없음. 대체 경로 탐색.`);
+      const currentRouteState = getCurrentRouteState(playerId);
+      const investedCount = currentRouteState?.investedTrackCount ?? 0;
+
+      debugLog.trackBuilding(`[Phase IV: 트랙 건설] 현재 목표(${targetRoute.from}->${targetRoute.to})로는 적절한 후보가 없음. 대체 경로 탐색 (투자=${investedCount}).`);
 
       // ===== 1단계: 연결된 도시에서 같은 목적지로 시도 =====
       const connectedCities = getConnectedCities(state, playerId);
@@ -320,11 +341,18 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
           // 전역 경로는 변경하지 않음 (일시적 우회 건설, 다음 턴에 원래 경로 유지)
           const typeInfo = altBest.isComplexTrack ? ` [${altBest.trackType}]` : '';
           debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 (연결된 도시 경유) (${altBest.coord.col},${altBest.coord.row}) edges=[${altBest.edges}] $${altBest.cost}${typeInfo} 총점=${altBestScore.toFixed(1)} [의도: ${altBest.intention}]`);
+          incrementInvestedTracks(playerId);
           if (altBest.isComplexTrack && altBest.trackType) {
             return { action: 'buildComplex', coord: altBest.coord, edges: altBest.edges, trackType: altBest.trackType };
           }
           return { action: 'build', coord: altBest.coord, edges: altBest.edges };
         }
+      }
+
+      // 투자 이력이 2개 이상이면 2단계/3단계 차단 (경로 전환 방지)
+      if (investedCount >= 2) {
+        debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 투자 이력(${investedCount}) ≥ 2, 1단계 실패 → 경로 전환 없이 스킵`);
+        return { action: 'skip' };
       }
 
       // ===== 2단계: 다음 우선순위 경로로 시도 =====
@@ -364,6 +392,7 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
             // 전역 경로는 변경하지 않음 (일시적 우회 건설)
             const typeInfo = routeBest.isComplexTrack ? ` [${routeBest.trackType}]` : '';
             debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 (다음 우선순위) (${routeBest.coord.col},${routeBest.coord.row}) edges=[${routeBest.edges}] $${routeBest.cost}${typeInfo} 총점=${routeBestScore.toFixed(1)} [의도: ${routeBest.intention}]`);
+            incrementInvestedTracks(playerId);
             if (routeBest.isComplexTrack && routeBest.trackType) {
               return { action: 'buildComplex', coord: routeBest.coord, edges: routeBest.edges, trackType: routeBest.trackType };
             }
@@ -406,6 +435,7 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
             // 전역 경로는 변경하지 않음 (일시적 확장 건설)
             const typeInfo = newBest.isComplexTrack ? ` [${newBest.trackType}]` : '';
             debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 (네트워크 확장) (${newBest.coord.col},${newBest.coord.row}) edges=[${newBest.edges}] $${newBest.cost}${typeInfo} 총점=${newBestScore.toFixed(1)} [의도: ${newBest.intention}]`);
+            incrementInvestedTracks(playerId);
             if (newBest.isComplexTrack && newBest.trackType) {
               return { action: 'buildComplex', coord: newBest.coord, edges: newBest.edges, trackType: newBest.trackType };
             }
@@ -437,6 +467,7 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     const typeInfo = cheapBest.isComplexTrack ? ` [${cheapBest.trackType}]` : '';
     debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 (${cheapBest.coord.col},${cheapBest.coord.row}) edges=[${cheapBest.edges}] $${cheapBest.cost}${typeInfo} (전략=${strategyName})`);
 
+    incrementInvestedTracks(playerId);
     if (cheapBest.isComplexTrack && cheapBest.trackType) {
       return { action: 'buildComplex', coord: cheapBest.coord, edges: cheapBest.edges, trackType: cheapBest.trackType };
     }
@@ -447,6 +478,7 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   const typeInfo = best.isComplexTrack ? ` [${best.trackType}]` : '';
   debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 (${best.coord.col},${best.coord.row}) edges=[${best.edges}] $${best.cost}${typeInfo} 총점=${bestTotalScore.toFixed(1)} [의도: ${best.intention}] (전략=${strategyName}, 경로=${routeInfo})`);
 
+  incrementInvestedTracks(playerId);
   if (best.isComplexTrack && best.trackType) {
     return { action: 'buildComplex', coord: best.coord, edges: best.edges, trackType: best.trackType };
   }
@@ -1214,4 +1246,207 @@ function getTerrainCost(coord: HexCoord, board: { hexTiles: { coord: HexCoord; t
     default:
       return GAME_CONSTANTS.PLAIN_TRACK_COST;
   }
+}
+
+/**
+ * 결정론적 경로 추적 건설
+ *
+ * A* 최적 경로를 단계별로 따라가면서, 출발지에서부터 연속된 frontier의
+ * 다음 위치에 정확한 엣지로 트랙을 건설합니다.
+ *
+ * 점수 기반 시스템의 문제 (산발적 건설)를 근본적으로 해결합니다.
+ * 실패하면 null을 반환하여 기존 점수 기반 시스템으로 fallback합니다.
+ */
+function tryDirectPathBuild(
+  state: GameState,
+  playerId: PlayerId,
+  route: DeliveryRoute
+): TrackBuildDecision | null {
+  const { board } = state;
+  const player = state.players[playerId];
+  const sourceCity = board.cities.find(c => c.id === route.from);
+  const targetCity = board.cities.find(c => c.id === route.to);
+  if (!sourceCity || !targetCity || !player) return null;
+
+  const playerTracks = board.trackTiles.filter(t => t.owner === playerId);
+  const hasExistingTrack = playerTracks.length > 0;
+
+  // 자사 트랙 엣지 비호환 시 회피 좌표를 추가하며 최대 3회 재탐색
+  const avoidCoords: HexCoord[] = [];
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    // 1. A* 경로 계산 (상대 트랙 회피, 자사 트랙 우대, 비호환 트랙 회피)
+    const optimalPath = findOptimalPathAvoidingOpponent(
+      sourceCity.coord, targetCity.coord, board, playerId,
+      avoidCoords.length > 0 ? avoidCoords : undefined
+    );
+    if (optimalPath.length < 3) return null;
+
+    // 2. Frontier 탐색: 출발 도시에서 연속된 마지막 위치
+    // 중간 도시도 체인으로 인식, 순방향 엣지 연결도 검증
+    let frontierIndex = 0;
+    let edgeBlockedHex: HexCoord | null = null;
+
+    for (let i = 1; i < optimalPath.length - 1; i++) {
+      const pathCoord = optimalPath[i];
+
+      // 중간 도시 체크
+      const isIntermediateCity = board.cities.some(c => hexCoordsEqual(c.coord, pathCoord));
+      if (isIntermediateCity) {
+        const prevCoord = optimalPath[i - 1];
+        const prevIsCity = board.cities.some(c => hexCoordsEqual(c.coord, prevCoord));
+
+        if (prevIsCity) {
+          frontierIndex = i;
+          continue;
+        }
+
+        const prevTrack = playerTracks.find(t => hexCoordsEqual(t.coord, prevCoord));
+        if (prevTrack) {
+          const edgeToCity = getEdgeBetweenHexes(prevCoord, pathCoord);
+          if (edgeToCity >= 0 && prevTrack.edges.includes(edgeToCity)) {
+            frontierIndex = i;
+            continue;
+          }
+        }
+        break;
+      }
+
+      // 일반 헥스: 역방향 + 순방향 엣지 연결 모두 확인
+      const trackHere = playerTracks.find(t => hexCoordsEqual(t.coord, pathCoord));
+      if (trackHere) {
+        const prevCoord = optimalPath[i - 1];
+        const edgeToPrev = getEdgeBetweenHexes(pathCoord, prevCoord);
+        if (edgeToPrev >= 0 && trackHere.edges.includes(edgeToPrev)) {
+          // 역방향 OK. 순방향 검증: 다음 위치로 연결되는 엣지가 있는지
+          if (i + 1 < optimalPath.length) {
+            const nextPathCoord = optimalPath[i + 1];
+            const nextIsCity = board.cities.some(c => hexCoordsEqual(c.coord, nextPathCoord));
+            if (!nextIsCity) {
+              // 다음이 일반 헥스 → 트랙이 해당 방향 엣지를 가져야 함
+              const edgeToNext = getEdgeBetweenHexes(pathCoord, nextPathCoord);
+              if (edgeToNext < 0 || !trackHere.edges.includes(edgeToNext)) {
+                // 순방향 엣지 비호환 → 이 트랙을 회피해야 함
+                edgeBlockedHex = pathCoord;
+                break;
+              }
+            }
+            // 다음이 도시면 항상 연결 (도시는 모든 엣지 연결)
+          }
+          frontierIndex = i;
+        } else {
+          break; // 역방향 엣지 불일치
+        }
+      } else {
+        break; // 트랙 없으면 chain 끊김
+      }
+    }
+
+    // 순방향 엣지 비호환 발견 → 해당 좌표를 회피하고 재탐색
+    if (edgeBlockedHex) {
+      avoidCoords.push(edgeBlockedHex);
+      debugLog.trackBuilding(
+        `[직접 경로] (${edgeBlockedHex.col},${edgeBlockedHex.row}) 엣지 비호환 → 회피 재탐색 (시도 ${attempt + 1}/3)`
+      );
+      continue;
+    }
+
+    // 3. 다음 건설 위치 결정
+    let nextIndex = frontierIndex + 1;
+    if (nextIndex >= optimalPath.length) return null;
+
+    let nextCoord = optimalPath[nextIndex];
+
+    // 도시 헥스 처리: 도착 도시면 경로 완성, 중간 도시면 건너뜀
+    if (board.cities.some(c => hexCoordsEqual(c.coord, nextCoord))) {
+      if (hexCoordsEqual(nextCoord, targetCity.coord)) {
+        debugLog.trackBuilding(`[직접 경로] 도착 도시(${nextCoord.col},${nextCoord.row}) 도달 → 경로 완성`);
+        return null;
+      }
+      debugLog.trackBuilding(`[직접 경로] 중간 도시(${nextCoord.col},${nextCoord.row}) 건너뜀 → 다음 위치 건설`);
+      nextIndex++;
+      if (nextIndex >= optimalPath.length) return null;
+      nextCoord = optimalPath[nextIndex];
+      if (board.cities.some(c => hexCoordsEqual(c.coord, nextCoord))) {
+        if (hexCoordsEqual(nextCoord, targetCity.coord)) {
+          debugLog.trackBuilding(`[직접 경로] 도착 도시(${nextCoord.col},${nextCoord.row}) 도달 → 경로 완성`);
+          return null;
+        }
+        return null;
+      }
+    }
+
+    // 이미 트랙이 점유된 경우
+    const existingTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, nextCoord));
+    if (existingTrack) {
+      debugLog.trackBuilding(`[직접 경로] (${nextCoord.col},${nextCoord.row}) 이미 점유 → fallback`);
+      return null;
+    }
+
+    // 맵 유효성 확인
+    const hex = board.hexTiles.find(h => hexCoordsEqual(h.coord, nextCoord));
+    if (!hex || hex.terrain === 'lake') return null;
+
+    // 4. 엣지 결정
+    const prevCoord = optimalPath[nextIndex - 1];
+    const nextNextCoord = nextIndex + 1 < optimalPath.length
+      ? optimalPath[nextIndex + 1]
+      : null;
+
+    const entryEdge = getEdgeBetweenHexes(nextCoord, prevCoord);
+    if (entryEdge < 0) return null;
+
+    let exitEdge = -1;
+    if (nextNextCoord) {
+      exitEdge = getEdgeBetweenHexes(nextCoord, nextNextCoord);
+    }
+    if (exitEdge < 0) return null;
+
+    const edges: [number, number] = [entryEdge, exitEdge];
+
+    // 5. 순방향 연결 최종 검증: frontier 트랙이 건설 위치로 연결되는지
+    const frontierCoord = optimalPath[frontierIndex];
+    const frontierIsCity = board.cities.some(c => hexCoordsEqual(c.coord, frontierCoord));
+    if (!frontierIsCity && frontierIndex > 0) {
+      const frontierTrack = playerTracks.find(t => hexCoordsEqual(t.coord, frontierCoord));
+      if (frontierTrack) {
+        const edgeFromFrontier = getEdgeBetweenHexes(frontierCoord, nextCoord);
+        if (edgeFromFrontier >= 0 && !frontierTrack.edges.includes(edgeFromFrontier)) {
+          // frontier 트랙이 건설 위치 방향 엣지 없음 → 회피 재탐색
+          avoidCoords.push(frontierCoord);
+          debugLog.trackBuilding(
+            `[직접 경로] frontier(${frontierCoord.col},${frontierCoord.row}) → 건설위치(${nextCoord.col},${nextCoord.row}) 연결 불가 → 회피 재탐색`
+          );
+          continue;
+        }
+      }
+    }
+
+    // 6. 연결 규칙 검증
+    if (hasExistingTrack) {
+      if (!validateTrackConnection(nextCoord, edges, board, playerId)) {
+        debugLog.trackBuilding(`[직접 경로] (${nextCoord.col},${nextCoord.row}) edges=[${edges}] 연결 검증 실패`);
+        return null;
+      }
+    } else {
+      if (!validateFirstTrackRule(nextCoord, edges, board)) {
+        debugLog.trackBuilding(`[직접 경로] (${nextCoord.col},${nextCoord.row}) edges=[${edges}] 첫 트랙 규칙 실패`);
+        return null;
+      }
+    }
+
+    // 7. 비용 확인
+    const cost = getTerrainCost(nextCoord, board);
+    if (player.cash < cost) {
+      debugLog.trackBuilding(`[직접 경로] 현금 부족 ($${player.cash} < $${cost})`);
+      return null;
+    }
+
+    // 8. 건설!
+    debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 직접 경로 추적 (${nextCoord.col},${nextCoord.row}) edges=[${edges}] $${cost} 경로=${route.from}→${route.to} (frontier=${frontierIndex}, path=[${optimalPath.map(p => `(${p.col},${p.row})`).join('→')}])`);
+    incrementInvestedTracks(playerId);
+    return { action: 'build', coord: nextCoord, edges };
+  }
+
+  return null; // 모든 재탐색 시도 실패
 }

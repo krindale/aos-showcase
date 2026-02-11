@@ -9,11 +9,11 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { GameState, PlayerId, GAME_CONSTANTS, HexCoord, CubeColor, TrackTile } from '@/types/game';
 import { decideBuildTrack } from '../strategies/buildTrack';
 import { decideMoveGoods } from '../strategies/moveGoods';
-import { getCurrentRoute, clearCurrentRoutes, setCurrentRoute } from '../strategy/state';
+import { getCurrentRoute, clearCurrentRoutes } from '../strategy/state';
 import { clearPathCache } from '../strategy/analyzer';
 import { TUTORIAL_CITIES, generateTutorialHexTiles } from '@/utils/tutorialMap';
 import { createMockGameState, addCubesToCity } from './helpers/mockState';
-import { hexDistance, hexCoordsEqual, getNeighborHex } from '@/utils/hexGrid';
+import { hexCoordsEqual, getNeighborHex } from '@/utils/hexGrid';
 
 // ============ 헬퍼 함수 ============
 
@@ -24,7 +24,7 @@ function createTutorialState(): GameState {
 
   return createMockGameState({
     board: {
-      cities: cities as any,
+      cities: cities as GameState['board']['cities'],
       towns: [],
       trackTiles: [],
       hexTiles,
@@ -323,7 +323,7 @@ describe('AI 트랙 건설 전체 시뮬레이션', () => {
         };
 
         clearPathCache();
-        const { state: newState, builtCount, buildLog } = simulatePlayerTurn(state, player, 3);
+        const { state: newState, buildLog } = simulatePlayerTurn(state, player, 3);
         state = newState;
 
         const route = getCurrentRoute(player);
@@ -427,7 +427,7 @@ describe('AI 트랙 건설 전체 시뮬레이션', () => {
         };
 
         clearPathCache();
-        const { state: newState, builtCount, buildLog } = simulatePlayerTurn(state, pid, 3);
+        const { state: newState, buildLog } = simulatePlayerTurn(state, pid, 3);
         state = newState;
 
         const route = getCurrentRoute(pid);
@@ -769,7 +769,7 @@ describe('랜덤 큐브 + 수익 평가 시뮬레이션 (10회)', () => {
         };
 
         clearPathCache();
-        const { state: newState, builtCount, buildLog } = simulatePlayerTurn(state, player, 3);
+        const { state: newState, builtCount } = simulatePlayerTurn(state, player, 3);
         state = newState;
 
         // 링크 완성 체크
@@ -1014,7 +1014,7 @@ describe('2인 화물 수송 우선순위 시뮬레이션 (10회)', () => {
 
       state = {
         ...state,
-        currentPhase: 'moveGoods' as any,
+        currentPhase: 'moveGoods' as GameState['currentPhase'],
         currentTurn: 2,
       };
 

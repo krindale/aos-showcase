@@ -2,8 +2,11 @@
 
 import { useMemo, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { useGameStore } from '@/store/gameStore';
 import { useShallow } from 'zustand/react/shallow';
+import { useTouchGestures } from '@/hooks/useTouchGestures';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import {
   hexToPixel,
   getHexPoints,
@@ -59,6 +62,25 @@ export default function GameBoard() {
     () => calculateBoardDimensions(TUTORIAL_MAP.cols, TUTORIAL_MAP.rows),
     []
   );
+
+  // 터치 제스처 (핀치 줌, 팬) 지원
+  const {
+    scale,
+    position,
+    handleTouchStart,
+    handleTouchMove,
+    handleTouchEnd,
+    zoomIn,
+    zoomOut,
+    resetZoom,
+  } = useTouchGestures({
+    minScale: 0.5,
+    maxScale: 3.0,
+  });
+
+  // 모바일/태블릿 감지 (줌 컨트롤 표시용)
+  const isMobile = useMediaQuery('(max-width: 767px)');
+  const isTablet = useMediaQuery('(min-width: 768px) and (max-width: 1023px)');
 
   // 완성된 링크 계산 (소유 마커 표시용)
   const completedLinks = useMemo(
@@ -274,8 +296,13 @@ export default function GameBoard() {
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.3, ease: 'easeOut' }}
       className="rounded-xl overflow-hidden border border-foreground/10"
-      style={{ backgroundColor: TUTORIAL_COLORS.background }}
+      style={{
+        backgroundColor: TUTORIAL_COLORS.background,
+        contain: 'layout style paint', // Performance optimization
+        transform: 'translateZ(0)', // GPU acceleration
+      }}
     >
       {/* 보드 헤더 */}
       <div className="px-4 py-3 bg-background-secondary/50 border-b border-foreground/10">
@@ -302,7 +329,22 @@ export default function GameBoard() {
         width="100%"
         viewBox={`0 0 ${boardWidth} ${boardHeight}`}
         className="block"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        style={{
+          touchAction: 'none',
+          willChange: 'transform', // Optimize for transforms
+        }}
+        shapeRendering="optimizeSpeed" // Prioritize speed over quality for hex grid
       >
+        <g
+          transform={`translate(${position.x}, ${position.y}) scale(${scale})`}
+          style={{
+            transformOrigin: 'center',
+            willChange: 'transform', // GPU acceleration for zoom/pan
+          }}
+        >
         {/* 배경 헥스 그리드 */}
         {[...Array(TUTORIAL_MAP.rows)].map((_, row) =>
           [...Array(TUTORIAL_MAP.cols - TUTORIAL_MAP.startCol)].map((_, colIndex) => {
@@ -430,8 +472,10 @@ export default function GameBoard() {
                 stroke="#3A3A32"
                 strokeWidth="12"
                 strokeLinecap="round"
+                shapeRendering="geometricPrecision"
                 className={isTrackClickable ? 'cursor-pointer' : ''}
                 onClick={(e) => handleTrackClick(e)}
+                style={{ pointerEvents: isTrackClickable ? 'auto' : 'none' }}
               />
               <path
                 d={pathData}
@@ -439,8 +483,10 @@ export default function GameBoard() {
                 stroke={TUTORIAL_COLORS.terrain.plain}
                 strokeWidth="6"
                 strokeLinecap="round"
+                shapeRendering="geometricPrecision"
                 className={isTrackClickable ? 'cursor-pointer' : ''}
                 onClick={(e) => handleTrackClick(e)}
+                style={{ pointerEvents: isTrackClickable ? 'auto' : 'none' }}
               />
               {/* 첫 번째 침목 */}
               {ties.map((tie, i) => (
@@ -453,6 +499,8 @@ export default function GameBoard() {
                   stroke="#4A4A42"
                   strokeWidth="3"
                   strokeLinecap="round"
+                  shapeRendering="crispEdges"
+                  style={{ pointerEvents: 'none' }}
                 />
               ))}
 
@@ -467,6 +515,8 @@ export default function GameBoard() {
                       stroke="#2A2A22"
                       strokeWidth="16"
                       strokeLinecap="round"
+                      shapeRendering="geometricPrecision"
+                      style={{ pointerEvents: 'none' }}
                     />
                   )}
                   <path
@@ -475,6 +525,8 @@ export default function GameBoard() {
                     stroke="#3A3A32"
                     strokeWidth="12"
                     strokeLinecap="round"
+                    shapeRendering="geometricPrecision"
+                    style={{ pointerEvents: 'none' }}
                   />
                   <path
                     d={secondaryPathData}
@@ -482,6 +534,8 @@ export default function GameBoard() {
                     stroke={TUTORIAL_COLORS.terrain.plain}
                     strokeWidth="6"
                     strokeLinecap="round"
+                    shapeRendering="geometricPrecision"
+                    style={{ pointerEvents: 'none' }}
                   />
                   {/* 두 번째 침목 */}
                   {secondaryTies.map((tie, i) => (
@@ -494,6 +548,8 @@ export default function GameBoard() {
                       stroke="#4A4A42"
                       strokeWidth="3"
                       strokeLinecap="round"
+                      shapeRendering="crispEdges"
+                      style={{ pointerEvents: 'none' }}
                     />
                   ))}
                 </>
@@ -849,6 +905,8 @@ export default function GameBoard() {
                   strokeWidth="8"
                   strokeLinecap="round"
                   strokeDasharray="4 4"
+                  shapeRendering="geometricPrecision"
+                  style={{ pointerEvents: 'none' }}
                 />
               );
             })()}
@@ -864,6 +922,8 @@ export default function GameBoard() {
             strokeWidth="4"
             strokeLinecap="round"
             strokeDasharray="8 4"
+            shapeRendering="geometricPrecision"
+            style={{ pointerEvents: 'none' }}
           />
         )}
 
@@ -905,11 +965,51 @@ export default function GameBoard() {
                   ease: 'linear',
                   times: animPoints.map((_, i) => i / (animPoints.length - 1))
                 }}
+                style={{
+                  willChange: 'transform', // GPU acceleration
+                }}
               />
             </g>
           );
         })()}
+        </g>
       </svg>
+
+      {/* 줌 컨트롤 (모바일/태블릿) */}
+      {(isMobile || isTablet) && (
+        <div className="absolute bottom-4 right-4 flex flex-col gap-2 z-10">
+          <motion.button
+            onClick={zoomIn}
+            className="glass-card p-3 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
+            aria-label="Zoom In"
+            whileTap={{ scale: 0.95 }}
+            transition={{ duration: 0.1 }}
+            style={{ WebkitTapHighlightColor: 'transparent' }}
+          >
+            <ZoomIn className="w-5 h-5 text-accent" />
+          </motion.button>
+          <motion.button
+            onClick={zoomOut}
+            className="glass-card p-3 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
+            aria-label="Zoom Out"
+            whileTap={{ scale: 0.95 }}
+            transition={{ duration: 0.1 }}
+            style={{ WebkitTapHighlightColor: 'transparent' }}
+          >
+            <ZoomOut className="w-5 h-5 text-accent" />
+          </motion.button>
+          <motion.button
+            onClick={resetZoom}
+            className="glass-card p-3 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
+            aria-label="Reset Zoom"
+            whileTap={{ scale: 0.95 }}
+            transition={{ duration: 0.1 }}
+            style={{ WebkitTapHighlightColor: 'transparent' }}
+          >
+            <Maximize2 className="w-5 h-5 text-accent" />
+          </motion.button>
+        </div>
+      )}
 
       {/* 범례 */}
       <div className="flex flex-wrap justify-center items-center gap-x-8 gap-y-2 py-4 px-6 bg-background-secondary/50 border-t border-foreground/10">

@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { GameState, PlayerId, GAME_CONSTANTS, HexCoord } from '@/types/game';
+import { GameState, PlayerId, GAME_CONSTANTS } from '@/types/game';
 import { decideBuildTrack } from '../strategies/buildTrack';
 import { getCurrentRoute, clearCurrentRoutes } from '../strategy/state';
 import { clearPathCache } from '../strategy/analyzer';
@@ -24,7 +24,7 @@ function createTutorialGameState(): GameState {
 
   const state = createMockGameState({
     board: {
-      cities: cities as any,
+      cities: cities as GameState['board']['cities'],
       towns: [],
       trackTiles: [],
       hexTiles,
@@ -39,8 +39,8 @@ function simulateTurnBuilds(
   state: GameState,
   playerId: PlayerId,
   buildCount: number
-): { state: GameState; decisions: any[]; routes: string[] } {
-  const decisions: any[] = [];
+): { state: GameState; decisions: Record<string, unknown>[]; routes: string[] } {
+  const decisions: Record<string, unknown>[] = [];
   const routes: string[] = [];
   let currentState = state;
 

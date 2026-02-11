@@ -18,64 +18,85 @@ export default function TurnTrack({
   const { playerOrder, players, currentPlayer } = useGameStore();
 
   return (
-    <div className="flex items-center gap-4">
-      {/* 턴 표시 */}
-      <div className="flex items-center gap-2">
-        <span className="text-sm text-foreground-secondary">턴</span>
-        <div className="flex gap-1">
-          {[...Array(maxTurns)].map((_, i) => (
-            <div
-              key={i}
-              className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium transition-all ${
-                i + 1 === currentTurn
-                  ? 'bg-accent text-background'
-                  : i + 1 < currentTurn
-                  ? 'bg-accent/30 text-accent'
-                  : 'bg-foreground/10 text-foreground-secondary'
-              }`}
-            >
-              {i + 1}
-            </div>
-          ))}
+    <>
+      {/* Mobile: Compact view - only show turn and phase */}
+      <div className="flex md:hidden items-center gap-2">
+        {/* 턴 표시 (간략) */}
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-foreground-secondary">T{currentTurn}</span>
+        </div>
+
+        {/* 구분선 */}
+        <div className="w-px h-4 bg-foreground/10" />
+
+        {/* 현재 단계 (약어) */}
+        <div className="flex items-center">
+          <span className="text-xs text-accent font-medium truncate max-w-[120px]">
+            {phaseInfo.name}
+          </span>
         </div>
       </div>
 
-      {/* 구분선 */}
-      <div className="w-px h-6 bg-foreground/10" />
-
-      {/* 현재 단계 */}
-      <div className="flex items-center gap-2">
-        <span className="text-sm text-accent font-medium">
-          {phaseInfo.name}
-        </span>
-      </div>
-
-      {/* 구분선 */}
-      <div className="w-px h-6 bg-foreground/10" />
-
-      {/* 플레이어 순서 */}
-      <div className="flex items-center gap-2">
-        <span className="text-sm text-foreground-secondary">순서</span>
-        <div className="flex gap-1">
-          {playerOrder.map((playerId, index) => {
-            const player = players[playerId];
-            if (!player) return null;
-            const isCurrent = playerId === currentPlayer;
-            return (
+      {/* Desktop: Full view */}
+      <div className="hidden md:flex items-center gap-4">
+        {/* 턴 표시 */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-foreground-secondary">턴</span>
+          <div className="flex gap-1">
+            {[...Array(maxTurns)].map((_, i) => (
               <div
-                key={playerId}
-                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white transition-all ${
-                  isCurrent ? 'ring-2 ring-accent ring-offset-1 ring-offset-background scale-110' : 'opacity-70'
+                key={i}
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium transition-all ${
+                  i + 1 === currentTurn
+                    ? 'bg-accent text-background'
+                    : i + 1 < currentTurn
+                    ? 'bg-accent/30 text-accent'
+                    : 'bg-foreground/10 text-foreground-secondary'
                 }`}
-                style={{ backgroundColor: PLAYER_COLORS[player.color] }}
-                title={`${index + 1}번: ${player.name}`}
               >
-                {index + 1}
+                {i + 1}
               </div>
-            );
-          })}
+            ))}
+          </div>
+        </div>
+
+        {/* 구분선 */}
+        <div className="w-px h-6 bg-foreground/10" />
+
+        {/* 현재 단계 */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-accent font-medium">
+            {phaseInfo.name}
+          </span>
+        </div>
+
+        {/* 구분선 */}
+        <div className="w-px h-6 bg-foreground/10" />
+
+        {/* 플레이어 순서 */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-foreground-secondary">순서</span>
+          <div className="flex gap-1">
+            {playerOrder.map((playerId, index) => {
+              const player = players[playerId];
+              if (!player) return null;
+              const isCurrent = playerId === currentPlayer;
+              return (
+                <div
+                  key={playerId}
+                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white transition-all ${
+                    isCurrent ? 'ring-2 ring-accent ring-offset-1 ring-offset-background scale-110' : 'opacity-70'
+                  }`}
+                  style={{ backgroundColor: PLAYER_COLORS[player.color] }}
+                  title={`${index + 1}번: ${player.name}`}
+                >
+                  {index + 1}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

@@ -99,33 +99,34 @@ export default function PhasePanel() {
       animate={{ opacity: 1, y: 0 }}
       className="rounded-xl border border-accent/30 bg-accent/5 overflow-hidden"
     >
-      {/* 헤더 */}
-      <div className="px-4 py-3 bg-accent/10 border-b border-accent/20 flex items-center gap-3">
-        <span className="text-accent">{PHASE_ICONS[currentPhase]}</span>
-        <div className="flex-1">
-          <h3 className="font-semibold text-foreground">{phaseInfo.name}</h3>
-          <p className="text-xs text-foreground-secondary">{phaseInfo.description}</p>
+      {/* 헤더 - 반응형 패딩 */}
+      <div className="px-2 py-2 md:px-4 md:py-3 bg-accent/10 border-b border-accent/20 flex items-center gap-2 md:gap-3">
+        <span className="text-accent flex-shrink-0">{PHASE_ICONS[currentPhase]}</span>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-semibold text-sm md:text-base text-foreground truncate">{phaseInfo.name}</h3>
+          <p className="text-[10px] md:text-xs text-foreground-secondary truncate">{phaseInfo.description}</p>
         </div>
       </div>
 
-      {/* 단계별 UI */}
-      <div className="p-4">
-        {/* I. 주식 발행 */}
+      {/* 단계별 UI - 반응형 패딩 */}
+      <div className="p-2 md:p-4">
+        {/* I. 주식 발행 - 반응형 */}
         {currentPhase === 'issueShares' && (
-          <div className="space-y-3">
-            <p className="text-sm text-foreground-secondary">
+          <div className="space-y-2 md:space-y-3">
+            <p className="text-xs md:text-sm text-foreground-secondary">
               현재 플레이어: <span className="text-foreground font-medium">{currentPlayerData.name}</span>
             </p>
-            <p className="text-sm text-foreground-secondary">
+            <p className="text-xs md:text-sm text-foreground-secondary">
               보유 주식: {currentPlayerData.issuedShares}주 / 현금: ${currentPlayerData.cash}
             </p>
             <button
               onClick={handleNextPhase}
               disabled={isAIExecuting}
-              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="다음 단계로"
             >
               다음 단계로
-              <ChevronRight size={16} />
+              <ChevronRight className="w-4 h-4" />
             </button>
           </div>
         )}
@@ -135,9 +136,9 @@ export default function PhasePanel() {
           <AuctionPanel />
         )}
 
-        {/* III. 행동 선택 */}
+        {/* III. 행동 선택 - 반응형 */}
         {currentPhase === 'selectActions' && (
-          <div className="space-y-3">
+          <div className="space-y-2 md:space-y-3">
             {currentPlayerData.isAI ? (
               <div className="text-center py-4">
                 <div className="animate-pulse text-accent font-medium">
@@ -145,12 +146,12 @@ export default function PhasePanel() {
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-foreground-secondary mb-3">
+              <p className="text-xs md:text-sm text-foreground-secondary mb-2 md:mb-3">
                 <span className="text-accent font-medium">{currentPlayerData.name}</span>, 행동을 선택하세요:
               </p>
             )}
-            {/* 선택 현황 표시 */}
-            <div className="p-2 rounded-lg bg-background/30 text-xs text-foreground-secondary">
+            {/* 선택 현황 표시 - 반응형 */}
+            <div className="p-1.5 md:p-2 rounded-lg bg-background/30 text-[10px] md:text-xs text-foreground-secondary">
               {players.player1.selectedAction ? (
                 <span className="text-green-400">{players.player1.name}: {ACTION_INFO[players.player1.selectedAction].name}</span>
               ) : (
@@ -166,7 +167,7 @@ export default function PhasePanel() {
             {/* AI가 아닌 경우에만 행동 선택 버튼 표시 */}
             {!currentPlayerData.isAI && (
               <>
-                <div className="grid grid-cols-1 gap-2">
+                <div className="grid grid-cols-1 gap-1.5 md:gap-2">
                   {ACTIONS.map((action) => {
                     const info = ACTION_INFO[action];
                     const taken = isActionTaken(action);
@@ -177,7 +178,7 @@ export default function PhasePanel() {
                         key={action}
                         onClick={() => handleSelectAction(action)}
                         disabled={taken || currentPlayerData.selectedAction !== null}
-                        className={`p-3 rounded-lg text-left transition-all ${
+                        className={`p-2 md:p-3 min-h-[44px] rounded-lg text-left transition-all ${
                           isSelected
                             ? 'bg-accent/20 border border-accent'
                             : taken
@@ -186,16 +187,17 @@ export default function PhasePanel() {
                             ? 'bg-background/30 opacity-50 cursor-not-allowed'
                             : 'bg-background/50 hover:bg-background/70 border border-transparent'
                         }`}
+                        aria-label={`${info.name} 선택`}
                       >
                         <div className="flex items-center justify-between">
-                          <span className="font-medium text-sm text-foreground">
+                          <span className="font-medium text-xs md:text-sm text-foreground">
                             {info.name}
                           </span>
                           {taken && !isSelected && (
-                            <span className="text-xs text-foreground-secondary">선택됨</span>
+                            <span className="text-[10px] md:text-xs text-foreground-secondary">선택됨</span>
                           )}
                         </div>
-                        <p className="text-xs text-foreground-secondary mt-1">
+                        <p className="text-[10px] md:text-xs text-foreground-secondary mt-0.5 md:mt-1">
                           {info.description}
                         </p>
                       </button>
@@ -206,12 +208,13 @@ export default function PhasePanel() {
                   <button
                     onClick={handleNextPhase}
                     disabled={isAIExecuting}
-                    className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 mt-4 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 mt-3 md:mt-4 disabled:opacity-50 disabled:cursor-not-allowed"
+                    aria-label="다음 단계로"
                   >
                     {players.player1.selectedAction && players.player2.selectedAction
                       ? '트랙 건설 단계로'
                       : `${currentPlayer === 'player1' ? players.player2.name : players.player1.name} 차례로`}
-                    <ChevronRight size={16} />
+                    <ChevronRight className="w-4 h-4" />
                   </button>
                 )}
               </>
@@ -219,36 +222,36 @@ export default function PhasePanel() {
           </div>
         )}
 
-        {/* IV. 트랙 건설 */}
+        {/* IV. 트랙 건설 - 반응형 */}
         {currentPhase === 'buildTrack' && (
-          <div className="space-y-3">
-            <p className="text-sm text-foreground-secondary">
+          <div className="space-y-2 md:space-y-3">
+            <p className="text-xs md:text-sm text-foreground-secondary">
               <span className="text-accent font-medium">{currentPlayerData.name}</span>의 트랙 건설 차례
             </p>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-foreground-secondary">건설한 트랙</span>
-              <span className="text-lg font-bold text-foreground">
+              <span className="text-xs md:text-sm text-foreground-secondary">건설한 트랙</span>
+              <span className="text-base md:text-lg font-bold text-foreground">
                 {phaseState.builtTracksThisTurn} / {phaseState.maxTracksThisTurn}
               </span>
             </div>
-            <div className="p-3 rounded-lg bg-background/50">
-              <p className="text-xs text-foreground-secondary">
+            <div className="p-2 md:p-3 rounded-lg bg-background/50">
+              <p className="text-[10px] md:text-xs text-foreground-secondary">
                 1. 도시 또는 기존 트랙을 클릭
               </p>
-              <p className="text-xs text-foreground-secondary">
+              <p className="text-[10px] md:text-xs text-foreground-secondary">
                 2. 노란색 헥스를 클릭 (건설 위치)
               </p>
-              <p className="text-xs text-foreground-secondary">
+              <p className="text-[10px] md:text-xs text-foreground-secondary">
                 3. 나갈 방향 클릭 (곡선/직선 선택)
               </p>
-              <p className="text-xs text-foreground-secondary mt-2">
+              <p className="text-[10px] md:text-xs text-foreground-secondary mt-1 md:mt-2">
                 • 평지: $2 / 강: $3 / 산: $4
               </p>
-              <p className="text-xs text-foreground-secondary">
+              <p className="text-[10px] md:text-xs text-foreground-secondary">
                 • 현금: ${currentPlayerData.cash}
               </p>
               {currentPlayerData.selectedAction === 'engineer' && (
-                <p className="text-xs text-accent mt-1">
+                <p className="text-[10px] md:text-xs text-accent mt-1">
                   • Engineer: 4개까지 건설 가능!
                 </p>
               )}
@@ -256,7 +259,8 @@ export default function PhasePanel() {
             <button
               onClick={handleNextPhase}
               disabled={isAIExecuting}
-              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="다음 단계로"
             >
               {(() => {
                 // 클릭 후 상태 예측
@@ -272,32 +276,32 @@ export default function PhasePanel() {
                 }
                 return '물품 이동 단계로';
               })()}
-              <ChevronRight size={16} />
+              <ChevronRight className="w-4 h-4" />
             </button>
           </div>
         )}
 
-        {/* V. 물품 이동 */}
+        {/* V. 물품 이동 - 반응형 */}
         {currentPhase === 'moveGoods' && (
-          <div className="space-y-3">
-            <p className="text-sm text-foreground-secondary">
+          <div className="space-y-2 md:space-y-3">
+            <p className="text-xs md:text-sm text-foreground-secondary">
               <span className="text-accent font-medium">{currentPlayerData.name}</span>의 물품 이동 차례
             </p>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-foreground-secondary">이동 라운드</span>
-              <span className="text-lg font-bold text-foreground">
+              <span className="text-xs md:text-sm text-foreground-secondary">이동 라운드</span>
+              <span className="text-base md:text-lg font-bold text-foreground">
                 {phaseState.moveGoodsRound} / 2
               </span>
             </div>
-            <div className="p-3 rounded-lg bg-background/50">
-              <p className="text-xs text-foreground-secondary">
+            <div className="p-2 md:p-3 rounded-lg bg-background/50">
+              <p className="text-[10px] md:text-xs text-foreground-secondary">
                 • 엔진 레벨: {currentPlayerData.engineLevel} 링크
               </p>
-              <p className="text-xs text-foreground-secondary">
+              <p className="text-[10px] md:text-xs text-foreground-secondary">
                 • 물품을 클릭하여 이동하거나
               </p>
               {currentPlayerData.selectedAction === 'firstMove' && (
-                <p className="text-xs text-accent mt-1">
+                <p className="text-[10px] md:text-xs text-accent mt-1">
                   • First Move: 먼저 이동!
                 </p>
               )}
@@ -305,14 +309,16 @@ export default function PhasePanel() {
             <button
               onClick={() => upgradeEngine()}
               disabled={isAIExecuting || currentPlayerData.engineLevel >= GAME_CONSTANTS.MAX_ENGINE || phaseState.playerMoves[currentPlayer]}
-              className="w-full py-2 rounded-lg text-sm font-medium bg-background/50 hover:bg-background/70 text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-background/50 hover:bg-background/70 text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="엔진 업그레이드"
             >
               엔진 업그레이드 (+1 링크)
             </button>
             <button
               onClick={handleNextPhase}
               disabled={isAIExecuting}
-              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="다음 단계로"
             >
               {(() => {
                 // 클릭 후 상태 예측
@@ -328,22 +334,22 @@ export default function PhasePanel() {
                 }
                 return '수입 수집 단계로';
               })()}
-              <ChevronRight size={16} />
+              <ChevronRight className="w-4 h-4" />
             </button>
           </div>
         )}
 
-        {/* VI. 수입 수집 */}
+        {/* VI. 수입 수집 - 반응형 */}
         {currentPhase === 'collectIncome' && (
-          <div className="space-y-3">
-            <p className="text-sm text-foreground-secondary">
+          <div className="space-y-2 md:space-y-3">
+            <p className="text-xs md:text-sm text-foreground-secondary">
               각 플레이어가 수입 트랙 위치만큼 현금을 받습니다.
             </p>
             {activePlayers.map(pid => {
               const p = players[pid];
               if (!p || p.eliminated) return null;
               return (
-                <div key={pid} className="p-2 rounded-lg bg-background/30 text-xs text-foreground-secondary flex justify-between">
+                <div key={pid} className="p-2 rounded-lg bg-background/30 text-[10px] md:text-xs text-foreground-secondary flex justify-between">
                   <span>{p.name}</span>
                   <span>수입 {p.income} → +${Math.max(0, p.income)}</span>
                 </div>
@@ -352,18 +358,19 @@ export default function PhasePanel() {
             <button
               onClick={handleNextPhase}
               disabled={isAIExecuting}
-              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="진행"
             >
               진행
-              <ChevronRight size={16} />
+              <ChevronRight className="w-4 h-4" />
             </button>
           </div>
         )}
 
-        {/* VII. 비용 지불 */}
+        {/* VII. 비용 지불 - 반응형 */}
         {currentPhase === 'payExpenses' && (
-          <div className="space-y-3">
-            <p className="text-sm text-foreground-secondary">
+          <div className="space-y-2 md:space-y-3">
+            <p className="text-xs md:text-sm text-foreground-secondary">
               주식 + 엔진 레벨만큼 비용을 지불합니다.
             </p>
             {activePlayers.map(pid => {
@@ -402,27 +409,29 @@ export default function PhasePanel() {
             <button
               onClick={handleNextPhase}
               disabled={isAIExecuting}
-              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="진행"
             >
               진행
-              <ChevronRight size={16} />
+              <ChevronRight className="w-4 h-4" />
             </button>
           </div>
         )}
 
-        {/* VIII, X. 기타 자동 단계들 */}
+        {/* VIII, X. 기타 자동 단계들 - 반응형 */}
         {['incomeReduction', 'advanceTurn'].includes(currentPhase) && (
-          <div className="space-y-3">
-            <p className="text-sm text-foreground-secondary">
+          <div className="space-y-2 md:space-y-3">
+            <p className="text-xs md:text-sm text-foreground-secondary">
               이 단계는 자동으로 처리됩니다.
             </p>
             <button
               onClick={handleNextPhase}
               disabled={isAIExecuting}
-              className="w-full py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="진행"
             >
               진행
-              <ChevronRight size={16} />
+              <ChevronRight className="w-4 h-4" />
             </button>
           </div>
         )}

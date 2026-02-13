@@ -158,20 +158,6 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
     );
   }
 
-  // === 첫 턴 최소 현금 보장: $15 이상으로 시작 ===
-  // 초반 건설을 위해 충분한 자금 확보 (트랙 3개 × $2 + 경매 + 비용 = 최소 $12~15)
-  if (state.currentTurn === 1) {
-    const minStartCash = 15;
-    const cashAfterIssue = player.cash + sharesToIssue * GAME_CONSTANTS.SHARE_VALUE;
-    if (cashAfterIssue < minStartCash) {
-      const additionalNeeded = Math.ceil((minStartCash - cashAfterIssue) / GAME_CONSTANTS.SHARE_VALUE);
-      sharesToIssue = Math.min(sharesToIssue + additionalNeeded, maxPossibleShares);
-      debugLog.preparation(
-        `[Phase I: 주식 발행] ${player.name}: 첫 턴 최소 현금 보장 → ${sharesToIssue}주 발행 (목표 $${minStartCash})`
-      );
-    }
-  }
-
   // === 마지막 턴 전 파산 방지: 발행 후 비용이 수입을 크게 초과하면 감소 ===
   // 단, 초반(income=0)에는 적용하지 않음 — 트랙을 지어야 income이 생김
   // 예외: 건설 예산이 부족하여 주식 없이는 트랙을 지을 수 없고, 경로가 남아있으면 완화
@@ -189,6 +175,23 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
         );
       } else {
         break;
+      }
+    }
+  }
+
+  // === 최종 보장: 매 턴 경매 시작 전 최소 $15 현금 확보 ===
+  // 다른 제한(비용 초과 등)보다 우선하여 건설·경매 자금을 보장
+  if (state.currentTurn < state.maxTurns) {
+    const minStartCash = 15;
+    const cashAfterIssue = player.cash + sharesToIssue * GAME_CONSTANTS.SHARE_VALUE;
+    if (cashAfterIssue < minStartCash) {
+      const additionalNeeded = Math.ceil((minStartCash - cashAfterIssue) / GAME_CONSTANTS.SHARE_VALUE);
+      const newTotal = Math.min(sharesToIssue + additionalNeeded, maxPossibleShares);
+      if (newTotal > sharesToIssue) {
+        debugLog.preparation(
+          `[Phase I: 주식 발행] ${player.name}: 최소 $${minStartCash} 보장 → ${newTotal}주 발행 (현금 $${player.cash})`
+        );
+        sharesToIssue = newTotal;
       }
     }
   }

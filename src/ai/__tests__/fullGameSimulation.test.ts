@@ -870,7 +870,7 @@ describe('AI 전체 게임 시뮬레이션 (gameStore 기반 통합 테스트)',
     }
   });
 
-  it('주식 발행이 보수적 (턴당 최대 1주, 생존위기 시 2주)', () => {
+  it('주식 발행이 보수적 (턴당 최대 3주, 최소 $15 보장 포함)', () => {
     const rng = createSeededRng(42);
     initGameForTest(12345, getDefaultCubeMap());
 
@@ -878,7 +878,8 @@ describe('AI 전체 게임 시뮬레이션 (gameStore 기반 통합 테스트)',
 
     for (const pid of playerIds) {
       for (const turn of result.financials[pid]) {
-        expect(turn.sharesIssued).toBeLessThanOrEqual(2);
+        // 매 턴 $15 최소 현금 보장을 위해 최대 3주까지 허용
+        expect(turn.sharesIssued).toBeLessThanOrEqual(3);
       }
     }
   });

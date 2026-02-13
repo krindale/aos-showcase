@@ -124,10 +124,10 @@ export function decideAction(state: GameState, playerId: PlayerId): SpecialActio
   })();
 
   // 엔진 업그레이드 필요 시 locomotive 우선 선택
-  // 단, 턴 1에서 income=0이면 건설에 집중 (엔진 비용 $1/턴이 누적됨)
+  // income < 2이면 건설에 집중 (엔진 비용 $1/턴 영구 증가, 수입이 충분해야 정당화됨)
   if (needsEngineUpgrade && hasCompletedLinks && !isLastTurn
       && available.includes('locomotive')
-      && (state.currentTurn > 1 || player.income > 0)) {
+      && player.income >= 2) {
     const futureExp = player.issuedShares + (player.engineLevel + 1);
     // 건설비 확보 후 비용 감당 가능 여부 체크
     if (player.cash + Math.max(0, player.income) >= futureExp + engineerMinCash) {
@@ -142,9 +142,10 @@ export function decideAction(state: GameState, playerId: PlayerId): SpecialActio
     return 'engineer';
   }
 
-  // 완성된 링크가 있으면 firstMove 우선 (배달 선점 = 수입 ×3 VP)
-  // 링크가 없으면 건설 우선 (트랙이 없으면 배달 불가)
-  const fallbackPriority: SpecialAction[] = hasCompletedLinks
+  // 완성된 링크가 있고 수입이 있으면 firstMove 우선 (배달 선점 = 수입 ×3 VP)
+  // 링크가 없거나 수입이 0이면 건설 우선 (트랙을 더 지어야 수입 발생)
+  const hasProvenIncome = hasCompletedLinks && player.income >= 2;
+  const fallbackPriority: SpecialAction[] = hasProvenIncome
     ? (needsEngineUpgrade
       ? ['firstMove', 'locomotive', 'engineer', 'firstBuild', 'urbanization', 'production', 'turnOrder']
       : ['firstMove', 'firstBuild', 'engineer', 'urbanization', 'production', 'turnOrder', 'locomotive'])
@@ -155,7 +156,8 @@ export function decideAction(state: GameState, playerId: PlayerId): SpecialActio
     if (action === 'engineer' && player.cash < engineerMinCash) continue;
     if (action === 'locomotive') {
       // locomotive는 엔진3 이상이면 스킵 (tutorial max), 완성 링크 없으면 스킵
-      if (player.engineLevel >= 3 || !hasCompletedLinks) continue;
+      // income < 2이면 스킵 (수입 불안정 상태에서 비용만 증가 → 파산 위험)
+      if (player.engineLevel >= 3 || !hasCompletedLinks || player.income < 2) continue;
       const futureExp = player.issuedShares + (player.engineLevel + 1);
       // 현금+수입으로 비용 감당 불가하면 스킵
       if (player.cash + Math.max(0, player.income) < futureExp) continue;

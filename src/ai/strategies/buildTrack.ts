@@ -1443,6 +1443,18 @@ function tryDirectPathBuild(
 
     // [수정 A] 자기 완성 링크 연속 통과 루프
     while (true) {
+      // 이번 턴에 이미 건설한 좌표면 건너뜀 (중복 건설/리다이렉트 방지)
+      const alreadyBuiltThisTurn = state.phaseState.lastBuiltCoords.some(
+        c => hexCoordsEqual(c, nextCoord)
+      );
+      if (alreadyBuiltThisTurn) {
+        debugLog.trackBuilding(`[직접 경로] (${nextCoord.col},${nextCoord.row}) 이번 턴 건설 완료 → 건너뜀`);
+        nextIndex++;
+        if (nextIndex >= optimalPath.length) return null;
+        nextCoord = optimalPath[nextIndex];
+        continue;
+      }
+
       // 도시 헥스 처리: 도착 도시면 경로 완성, 중간 도시면 건너뜀
       if (board.cities.some(c => hexCoordsEqual(c.coord, nextCoord))) {
         if (hexCoordsEqual(nextCoord, targetCity.coord)) {

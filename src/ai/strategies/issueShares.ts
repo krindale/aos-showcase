@@ -186,7 +186,10 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
     const cashAfterIssue = player.cash + sharesToIssue * GAME_CONSTANTS.SHARE_VALUE;
     if (cashAfterIssue < minStartCash) {
       const additionalNeeded = Math.ceil((minStartCash - cashAfterIssue) / GAME_CONSTANTS.SHARE_VALUE);
-      const newTotal = Math.min(sharesToIssue + additionalNeeded, maxPossibleShares);
+      // $15 보장이더라도 총 주식이 maxTotalShares+1(6주)을 넘지 않도록 상한
+      // 7주 이상은 VP 손실(-21+)이 너무 커서 $15 보장의 이점을 상쇄
+      const maxSharesForGuarantee = Math.max(0, (maxTotalShares + 1) - player.issuedShares);
+      const newTotal = Math.min(sharesToIssue + additionalNeeded, maxPossibleShares, sharesToIssue + maxSharesForGuarantee);
       if (newTotal > sharesToIssue) {
         debugLog.preparation(
           `[Phase I: 주식 발행] ${player.name}: 최소 $${minStartCash} 보장 → ${newTotal}주 발행 (현금 $${player.cash})`

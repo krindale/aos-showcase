@@ -5,7 +5,7 @@
  */
 
 import { GameState, PlayerId, GAME_CONSTANTS } from '@/types/game';
-import { calculateExpectedExpenses, calculateExpectedExpensesAfterIssue, calculateMinCashReserve } from '../evaluator';
+import { calculateExpectedExpenses, calculateMinCashReserve } from '../evaluator';
 import { getCurrentRoute } from '../strategy/state';
 import { debugLog } from '@/utils/debugConfig';
 import { hexDistance, hexCoordsEqual } from '@/utils/hexGrid';
@@ -38,8 +38,9 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
     }
   }
 
-  // 0-B. 총 주식 상한: 시작 2주 + 추가 최대 1주 = 총 3주 (VP -9 vs -12는 3점 차이)
-  const maxTotalShares = 3;
+  // 0-B. 총 주식 상한: 시작 2주 + 추가 최대 3주 = 총 5주
+  // 초반에 현금이 필요하므로 상한을 여유있게 설정
+  const maxTotalShares = 5;
   if (player.issuedShares >= maxTotalShares) {
     const expenses = player.issuedShares + player.engineLevel;
     const canSurvive = player.cash + Math.max(0, player.income) >= expenses;
@@ -67,7 +68,7 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
         hexDistance(t.coord, fromCity.coord) < distance
       ).length;
 
-      const neededTracks = Math.max(0, Math.min(distance, 3) - ownTracksOnPath); // 이번 턴 현실적 건설: 3개 (engineer 없으면 3개 상한)
+      const neededTracks = Math.min(Math.max(0, distance - ownTracksOnPath), 3);
 
       // 경로 주변 헥스 지형을 조회하여 실제 평균 비용 산출
       let terrainCostSum = 0;
@@ -75,7 +76,6 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
       for (const hex of state.board.hexTiles) {
         const distToFrom = hexDistance(hex.coord, fromCity.coord);
         const distToTo = hexDistance(hex.coord, toCity.coord);
-        // 경로 근처(출발-도착 사이)에 있는 헥스만 고려
         if (distToFrom + distToTo <= distance + 1 && distToFrom > 0 && distToTo > 0) {
           const isOwnTrack = state.board.trackTiles.some(
             t => t.owner === playerId && hexCoordsEqual(t.coord, hex.coord)
@@ -84,7 +84,7 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
             switch (hex.terrain) {
               case 'river': terrainCostSum += GAME_CONSTANTS.RIVER_TRACK_COST; break;
               case 'mountain': terrainCostSum += GAME_CONSTANTS.MOUNTAIN_TRACK_COST; break;
-              case 'lake': break; // 건설 불가, 비용 계산 제외
+              case 'lake': break;
               default: terrainCostSum += GAME_CONSTANTS.PLAIN_TRACK_COST; break;
             }
             terrainHexCount++;
@@ -97,17 +97,17 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
       trackBuildCost = neededTracks * avgTerrainCost;
     }
   } else {
-    // 목표가 없어도 기본 건설 준비금 ($4 = 2개)
+    // 목표가 없어도 기본 건설 준비금
     trackBuildCost = 4;
   }
 
   // 2. 예상 운영 비용 계산 (주식 이자 + 엔진 유지비)
   const expectedExpenses = calculateExpectedExpenses(state, playerId);
 
-  // 3. 경매 예비비 (턴 1은 절약, 이후 $2)
-  const auctionReserve = state.currentTurn <= 1 ? 1 : 2;
+  // 3. 경매 예비비 (경쟁 입찰을 위해 $2 확보)
+  const auctionReserve = 2;
 
-  // 4. Pay Expenses 대비 현금 예비금 (수입 < 비용인 위험 상태에서만 적용)
+  // 4. Pay Expenses 대비 현금 예비금
   const expenseReserve = calculateMinCashReserve(state, playerId);
 
   // 총 예상 지출
@@ -122,16 +122,25 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
   // 최대 발행 가능 주식 확인 (룰상 최대 15주)
   const maxPossibleShares = GAME_CONSTANTS.MAX_SHARES - player.issuedShares;
 
-  // === 생존 판단 (먼저 계산) ===
-  // 생존 = 경매/건설 없이도 비용을 지불할 수 있는지 (경매 불참으로 비용 0 가능)
-  // 경매비를 포함하면 불필요하게 생존 위기로 판단하여 과잉 주식 발행
+  // === 생존 판단 ===
   const currentExpenses = player.issuedShares + player.engineLevel;
   const canSurviveTurn = player.cash + Math.max(0, player.income) >= currentExpenses;
 
-  // 모든 턴에서 전략적 발행은 1주로 제한 (VP -3 영구 페널티 최소화)
-  // 생존 위기일 때만 예외적으로 2주 허용
-  let maxStrategicShares = 1;
-  if (!canSurviveTurn && player.cash < expectedExpenses) {
+  // 턴별 전략적 발행 상한:
+  // - 마지막 턴: 생존 위기 아니면 0
+  // - 마지막 전 턴: 최대 1주
+  // - 초반/중반: 최대 2주 (충분한 현금 확보를 위해)
+  let maxStrategicShares: number;
+  if (state.currentTurn >= state.maxTurns) {
+    maxStrategicShares = canSurviveTurn ? 0 : 1;
+  } else if (state.currentTurn >= state.maxTurns - 1) {
+    maxStrategicShares = 1;
+  } else {
+    maxStrategicShares = 2;
+  }
+
+  // 생존 위기일 때 추가 허용
+  if (!canSurviveTurn && maxStrategicShares < 2) {
     maxStrategicShares = 2;
     debugLog.preparation(
       `[Phase I: 주식 발행] ${player.name}: 생존 위기 → 최대 2주 허용`
@@ -140,6 +149,8 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
 
   // 필요한 만큼만 발행
   let sharesToIssue = Math.min(sharesNeeded, maxPossibleShares, maxStrategicShares);
+
+  // 생존 위기 시 최소 1주 보장
   if (!canSurviveTurn && sharesToIssue === 0 && maxPossibleShares > 0) {
     sharesToIssue = 1;
     debugLog.preparation(
@@ -147,33 +158,38 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
     );
   }
 
-  // === 파산 방지 검사: 발행 후 비용이 수입을 과도하게 초과하면 감소 ===
-  // 단, 감소하면 이번 턴을 못 버티는 경우에는 감소하지 않음 (생존 우선)
-  // Turn 1도 필요할 때만 발행 (무조건 보장 안함 — $10으로 충분히 건설 가능)
-  const minimumGuaranteed = 0;
-  while (sharesToIssue > Math.max(minimumGuaranteed, canSurviveTurn ? 0 : 1)) {
-    const futureExpenses = calculateExpectedExpensesAfterIssue(state, playerId, sharesToIssue);
-    const futureIncome = player.income;
+  // === 첫 턴 최소 현금 보장: $15 이상으로 시작 ===
+  // 초반 건설을 위해 충분한 자금 확보 (트랙 3개 × $2 + 경매 + 비용 = 최소 $12~15)
+  if (state.currentTurn === 1) {
+    const minStartCash = 15;
+    const cashAfterIssue = player.cash + sharesToIssue * GAME_CONSTANTS.SHARE_VALUE;
+    if (cashAfterIssue < minStartCash) {
+      const additionalNeeded = Math.ceil((minStartCash - cashAfterIssue) / GAME_CONSTANTS.SHARE_VALUE);
+      sharesToIssue = Math.min(sharesToIssue + additionalNeeded, maxPossibleShares);
+      debugLog.preparation(
+        `[Phase I: 주식 발행] ${player.name}: 첫 턴 최소 현금 보장 → ${sharesToIssue}주 발행 (목표 $${minStartCash})`
+      );
+    }
+  }
 
-    // safetyMargin: 턴 1은 투자 필요하므로 약간 관대, 이후는 엄격
-    const safetyMargin = state.currentTurn <= 1 ? 3 : 2;
-    if (futureExpenses > futureIncome + safetyMargin) {
-      // 감소하기 전: 감소하면 이번 턴을 버틸 수 있는지 확인
-      const cashIfReduced = player.cash + (sharesToIssue - 1) * GAME_CONSTANTS.SHARE_VALUE;
-      const expIfReduced = (player.issuedShares + sharesToIssue - 1) + player.engineLevel;
-      if (cashIfReduced - auctionReserve + futureIncome < expIfReduced) {
-        // 감소하면 이번 턴 현금 부족 → 감소 중단 (생존 우선)
+  // === 마지막 턴 전 파산 방지: 발행 후 비용이 수입을 크게 초과하면 감소 ===
+  // 단, 초반(income=0)에는 적용하지 않음 — 트랙을 지어야 income이 생김
+  // 예외: 건설 예산이 부족하여 주식 없이는 트랙을 지을 수 없고, 경로가 남아있으면 완화
+  const cantAffordAnyTrack = player.cash < GAME_CONSTANTS.PLAIN_TRACK_COST + auctionReserve + expenseReserve;
+  const needsBuildFunding = cantAffordAnyTrack && trackBuildCost > 0 && state.currentTurn < state.maxTurns;
+  if (player.income > 0 && !needsBuildFunding) {
+    while (sharesToIssue > (canSurviveTurn ? 0 : 1)) {
+      const futureExpenses = (player.issuedShares + sharesToIssue) + player.engineLevel;
+      const futureIncome = player.income;
+      const safetyMargin = 1;
+      if (futureExpenses > futureIncome + safetyMargin) {
+        sharesToIssue--;
         debugLog.preparation(
-          `[Phase I: 주식 발행] ${player.name}: 감소하면 턴 생존 불가 → ${sharesToIssue}주 유지`
+          `[Phase I: 주식 발행] ${player.name}: 비용 초과! expenses $${futureExpenses} > income $${futureIncome}+${safetyMargin} → 발행량 감소`
         );
+      } else {
         break;
       }
-      sharesToIssue--;
-      debugLog.preparation(
-        `[Phase I: 주식 발행] ${player.name}: 파산 위험! 비용 $${futureExpenses} > 수입 $${futureIncome}+${safetyMargin} - 발행량 감소`
-      );
-    } else {
-      break;
     }
   }
 

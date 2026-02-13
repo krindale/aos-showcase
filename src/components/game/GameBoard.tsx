@@ -122,6 +122,9 @@ export default function GameBoard() {
         );
 
         if (neighborTrack) {
+          // 다른 소유자의 트랙 사이 끊김은 정상 (Age of Steam 룰: 별도 철도)
+          if (track.owner !== neighborTrack.owner) continue;
+
           const expectedEdge = getOppositeEdge(edge);
           const isConnected = neighborTrack.edges.includes(expectedEdge);
 
@@ -566,6 +569,7 @@ export default function GameBoard() {
                   strokeWidth={isRedirectable && ui.buildMode === 'idle' ? 2 : 1.5}
                   className={isTrackClickable ? 'cursor-pointer' : ''}
                   onClick={(e) => handleTrackClick(e)}
+                  style={{ pointerEvents: isTrackClickable ? 'auto' : 'none' }}
                 />
               )}
               {/* 복합 트랙: 두 번째 소유자 마커 (미완성 트랙에만) */}
@@ -595,6 +599,7 @@ export default function GameBoard() {
               fill={ownerColor}
               stroke="#1a1a1a"
               strokeWidth="2"
+              style={{ pointerEvents: 'none' }}
             />
           );
         })}
@@ -609,7 +614,7 @@ export default function GameBoard() {
           const midY = (y1 + y2) / 2;
 
           return (
-            <g key={`disconn-${index}`}>
+            <g key={`disconn-${index}`} style={{ pointerEvents: 'none' }}>
               {/* 끊어진 연결 표시 - 빨간색 X */}
               <circle
                 cx={midX}

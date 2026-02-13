@@ -109,6 +109,9 @@ export function decideAction(state: GameState, playerId: PlayerId): SpecialActio
 
   // === 일반 턴 ===
 
+  // 트랙 건설 최소 비용 (locomotive 비교에도 사용)
+  const engineerMinCash = 3 * GAME_CONSTANTS.PLAIN_TRACK_COST + minReserve;
+
   // 현재 목표 경로가 엔진 레벨보다 긴 경우 locomotive 필요 여부 판단
   const needsEngineUpgrade = (() => {
     if (!currentRoute) return false;
@@ -121,26 +124,22 @@ export function decideAction(state: GameState, playerId: PlayerId): SpecialActio
   })();
 
   // 엔진 업그레이드 필요 시 locomotive 우선 선택
+  // 단, 턴 1에서 income=0이면 건설에 집중 (엔진 비용 $1/턴이 누적됨)
   if (needsEngineUpgrade && hasCompletedLinks && !isLastTurn
-      && available.includes('locomotive')) {
+      && available.includes('locomotive')
+      && (state.currentTurn > 1 || player.income > 0)) {
     const futureExp = player.issuedShares + (player.engineLevel + 1);
-    if (futureExp <= Math.max(0, player.income) + (state.maxTurns - state.currentTurn)) {
+    // 건설비 확보 후 비용 감당 가능 여부 체크
+    if (player.cash + Math.max(0, player.income) >= futureExp + engineerMinCash) {
       debugLog.preparation(`[Phase III: 행동 선택] ${player.name}: locomotive (엔진 업그레이드 필요, 목표=${routeStr})`);
       return 'locomotive';
     }
   }
-
   // 트랙이 적으면 engineer 우선 (예비금 포함하여 충분한 현금 필요)
-  const engineerMinCash = 3 * GAME_CONSTANTS.PLAIN_TRACK_COST + minReserve;
-  if (trackCount < 6 && available.includes('engineer') && player.cash >= engineerMinCash) {
+  // 단, 트랙 0개(첫 건설)이면 firstBuild가 더 유리 (먼저 건설 = 최적 헥스 선점)
+  if (trackCount > 0 && trackCount < 6 && available.includes('engineer') && player.cash >= engineerMinCash) {
     debugLog.preparation(`[Phase III: 행동 선택] ${player.name}: engineer (트랙 ${trackCount}개, 4개 건설 가능)`);
     return 'engineer';
-  }
-
-  // 첫 번째 트랙 건설 전이면 firstBuild 우선
-  if (trackCount === 0 && available.includes('firstBuild')) {
-    debugLog.preparation(`[Phase III: 행동 선택] ${player.name}: firstBuild (첫 트랙 건설)`);
-    return 'firstBuild';
   }
 
   // 완성된 링크가 있으면 firstMove 우선 (배달 선점 = 수입 ×3 VP)
@@ -158,7 +157,8 @@ export function decideAction(state: GameState, playerId: PlayerId): SpecialActio
       // locomotive는 엔진3 이상이면 스킵 (tutorial max), 완성 링크 없으면 스킵
       if (player.engineLevel >= 3 || !hasCompletedLinks) continue;
       const futureExp = player.issuedShares + (player.engineLevel + 1);
-      if (futureExp > player.income && state.currentTurn > 1) continue;
+      // 현금+수입으로 비용 감당 불가하면 스킵
+      if (player.cash + Math.max(0, player.income) < futureExp) continue;
     }
     debugLog.preparation(`[Phase III: 행동 선택] ${player.name}: ${action} (경로=${routeStr}, 기본 우선순위)`);
     return action;

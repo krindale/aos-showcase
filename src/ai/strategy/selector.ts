@@ -68,7 +68,11 @@ function scoreOpportunity(
   // 5. 엔진 실현 가능성 (남은 턴 내 업그레이드 불가 → 페널티)
   const remainingTurns = state.maxTurns - state.currentTurn;
   const engineGap = Math.max(0, opp.distance - player.engineLevel);
-  const engineFeasible = engineGap <= remainingTurns ? 0 : -500;
+  let engineFeasible = engineGap <= remainingTurns ? 0 : -500;
+  // 첫 턴: 즉시 배달 불가능한 경로에 강한 페널티 (이번 턴 수입=0 위험)
+  if (state.currentTurn === 1 && opp.distance > player.engineLevel) {
+    engineFeasible -= 800;
+  }
 
   // === 페널티 (기존 유지) ===
 
@@ -153,10 +157,10 @@ export function getNextTargetRoute(
   });
 
   // 4. 도달 가능 경로 필터
-  // 첫 턴: 엔진 레벨 +1까지만 허용 (다음 턴 배달 가능 범위)
+  // 첫 턴: 엔진 레벨까지만 허용 (이번 턴 즉시 배달 가능한 경로만)
   // 이후: 엔진 레벨 +3까지 허용 (장기 계획)
   const maxDistance = isFirstTurn
-    ? player.engineLevel + 1
+    ? player.engineLevel
     : player.engineLevel + 3;
 
   const reachableOpportunities = opportunities.filter(opp => {

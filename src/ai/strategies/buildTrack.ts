@@ -11,6 +11,7 @@ import {
   validateFirstTrackRule,
   validateTrackConnection,
   playerHasTrack,
+  isTrackPartOfCompletedLink,
 } from '@/utils/trackValidation';
 import { getBuildableNeighbors, getExitDirections, hexCoordsEqual, getNeighborHex, hexDistance, findAllConnectedHexes } from '@/utils/hexGrid';
 import { getSelectedStrategy, getCurrentRoute, getCurrentRouteState, incrementInvestedTracks } from '../strategy/state';
@@ -46,6 +47,25 @@ interface BuildCandidate {
   trackType?: 'crossing' | 'coexist';  // 복합 트랙 타입
 }
 
+// ===== 모듈 레벨: 건설 실패 좌표 추적 (턴 기반 자동 초기화) =====
+const failedBuildCoords: Map<string, { turn: number; coords: HexCoord[] }> = new Map();
+
+export function addFailedBuildCoord(playerId: PlayerId, coord: HexCoord, currentTurn: number) {
+  let entry = failedBuildCoords.get(playerId);
+  if (!entry || entry.turn !== currentTurn) {
+    // 새 턴이면 이전 실패 좌표 자동 초기화
+    entry = { turn: currentTurn, coords: [] };
+    failedBuildCoords.set(playerId, entry);
+  }
+  entry.coords.push(coord);
+}
+
+function isFailedCoord(playerId: PlayerId, coord: HexCoord, currentTurn: number): boolean {
+  const entry = failedBuildCoords.get(playerId);
+  if (!entry || entry.turn !== currentTurn) return false;
+  return entry.coords.some(c => hexCoordsEqual(c, coord));
+}
+
 /**
  * 트랙 건설 결정
  *
@@ -74,6 +94,13 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 현금 부족 ($${player.cash})`);
     return { action: 'skip' };
   }
+
+  // 지도에 배달 가능한 화물이 있는지 확인
+  const hasDeliverableGoods = state.board.cities.some(city =>
+    city.cubes.length > 0 && state.board.cities.some(
+      dest => dest.id !== city.id && dest.color === city.cubes.find(c => c !== city.color)
+    )
+  );
 
   // 마지막 턴: 현금 예비금 공식이 자연스럽게 건설을 제한 (별도 하드리밋 불필요)
 
@@ -291,21 +318,38 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   const best = validCandidates[0];
   const bestTotalScore = best.score + best.routeScore * 2;
 
-  // [Refinement] 점수가 조금 낮더라도 (예: -40점 Trap) 완주를 위해 임계값 완화
-  // 일반 후보가 없고 복합 트랙만 있을 때는 더욱 완화
+  // 현금 예비금 계산 (화물이 있으면 예비금 없이 건설 비용만 확인)
+  const minReserve = calculateMinCashReserve(state, playerId);
+
+  // [Refinement] 점수가 조금 낮더라도 완주를 위해 임계값 완화
+  // 화물이 있으면 최대한 건설 (스킵 임계값을 대폭 완화)
   const hasSimpleOptions = simpleCandidates.length > 0;
-  const skipThreshold = hasSimpleOptions ? -100 : -2000; // 복합 트랙만 있으면 훨씬 관대하게
-  const routeThreshold = hasSimpleOptions ? -500 : -1500;
+  const skipThreshold = hasDeliverableGoods ? -2000 : (hasSimpleOptions ? -100 : -2000);
+  const routeThreshold = hasDeliverableGoods ? -2000 : (hasSimpleOptions ? -500 : -1500);
 
   debugLog.verbose(`[트랙 건설 디버그] 최선 후보 총점=${bestTotalScore.toFixed(1)}, 임계값=${skipThreshold}, 일반옵션=${hasSimpleOptions}`);
 
   if (bestTotalScore < skipThreshold || best.routeScore < routeThreshold) {
     debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 점수 낮음 (총점=${bestTotalScore.toFixed(1)}, 경로점수=${best.routeScore.toFixed(1)})`);
 
-    // [핵심 수정] 이번 턴에 이미 건설한 트랙이 있으면, 3단계 fallback으로 경로를 바꾸지 않고 스킵
-    // 동일 턴 내 경로 변경은 트랙이 산발적으로 건설되는 핵심 원인
+    // [수정] 이번 턴에 이미 건설한 트랙이 있으면, 3단계 fallback 대신 기존 경로에서 관대한 임계값으로 재시도
+    // 즉시 스킵하면 건설 기회를 낭비하여 수익 창출이 지연됨
     if (state.phaseState.builtTracksThisTurn > 0) {
-      debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 연속 건설 중 점수 낮음 → 경로 변경 없이 스킵 (턴 내 안정성 유지)`);
+      // 관대한 임계값으로 기존 후보 중 가장 나은 것 선택
+      const relaxedThreshold = -500;
+      if (bestTotalScore >= relaxedThreshold && best.routeScore >= -1000) {
+        const typeInfo = best.isComplexTrack ? ` [${best.trackType}]` : '';
+        debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 연속 건설 (관대 임계값) (${best.coord.col},${best.coord.row}) edges=[${best.edges}] $${best.cost}${typeInfo} 총점=${bestTotalScore.toFixed(1)} [의도: ${best.intention}]`);
+        // 현금 확인
+        if (player.cash >= best.cost + minReserve) {
+          incrementInvestedTracks(playerId);
+          if (best.isComplexTrack && best.trackType) {
+            return { action: 'buildComplex', coord: best.coord, edges: best.edges, trackType: best.trackType };
+          }
+          return { action: 'build', coord: best.coord, edges: best.edges };
+        }
+      }
+      debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 연속 건설 중 점수 낮음 (${bestTotalScore.toFixed(1)}) → 스킵`);
       return { action: 'skip' };
     }
 
@@ -370,7 +414,8 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
       }
 
       // 투자 이력이 2개 이상이면 2단계/3단계 차단 (경로 전환 방지)
-      if (investedCount >= 2) {
+      // 단, 화물이 있으면 건설 기회를 낭비하지 않도록 계속 탐색
+      if (investedCount >= 2 && !hasDeliverableGoods) {
         debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 투자 이력(${investedCount}) ≥ 2, 1단계 실패 → 경로 전환 없이 스킵`);
         return { action: 'skip' };
       }
@@ -452,7 +497,7 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
           const newBestScore = newBest.score + newBest.routeScore * 2;
 
           const stage3Reserve = calculateMinCashReserve(state, playerId);
-          if (newBestScore >= skipThreshold && newBest.routeScore >= -500 && player.cash >= newBest.cost + stage3Reserve) {
+          if (newBestScore >= skipThreshold && newBest.routeScore >= (hasDeliverableGoods ? -2000 : -500) && player.cash >= newBest.cost + stage3Reserve) {
             debugLog.trackBuilding(`[Phase IV: 트랙 건설] 3단계 성공: 네트워크 확장`);
             // 전역 경로는 변경하지 않음 (일시적 확장 건설)
             const typeInfo = newBest.isComplexTrack ? ` [${newBest.trackType}]` : '';
@@ -472,7 +517,6 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   }
 
   // 현금이 충분한지 최종 확인 (예비금 포함)
-  const minReserve = calculateMinCashReserve(state, playerId);
   if (player.cash < best.cost + minReserve) {
     // 더 저렴한 옵션 찾기
     const affordable = validCandidates.filter(c => c.cost + minReserve <= player.cash);
@@ -483,7 +527,8 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     const cheapBest = affordable[0];
     const cheapTotalScore = cheapBest.score + cheapBest.routeScore * 2;
 
-    if (cheapTotalScore < 0 || cheapBest.routeScore < -500) {
+    // 화물이 있으면 점수가 낮아도 건설 허용
+    if (!hasDeliverableGoods && (cheapTotalScore < 0 || cheapBest.routeScore < -500)) {
       return { action: 'skip' };
     }
 
@@ -920,7 +965,8 @@ function findBuildCandidates(
   const complexCandidates = findComplexTrackCandidates(state, playerId, targetRoute);
   candidates.push(...complexCandidates);
 
-  return candidates;
+  // [수정 B] 실패 좌표 제외
+  return candidates.filter(c => !isFailedCoord(playerId, c.coord, state.currentTurn));
 }
 
 /**
@@ -953,10 +999,13 @@ function findComplexTrackCandidates(
     }
   }
 
-  // 상대 트랙 중 단순 트랙인 것만 탐색
+  // 단순 트랙 위에 교차/공존 건설 후보 탐색
+  // 상대 트랙 + 자기 완성 링크 트랙 모두 대상
   for (const track of board.trackTiles) {
-    // 내 트랙이면 스킵
-    if (track.owner === playerId) continue;
+    // 자기 트랙이면 완성 링크만 대상 (미완성은 방향 전환으로 처리)
+    if (track.owner === playerId) {
+      if (!isTrackPartOfCompletedLink(track.coord, board)) continue;
+    }
     // 이미 복합 트랙이면 스킵
     if (track.trackType !== 'simple') continue;
 
@@ -1087,6 +1136,18 @@ function findPossibleComplexEdges(
     );
     if (isMyTrackEnd) {
       connectableEdges.push(edge);
+      continue;
+    }
+
+    // 이웃이 내 트랙(완성 링크 포함)이고 반대 엣지가 있는지 확인
+    const neighborTrack = board.trackTiles.find(
+      t => hexCoordsEqual(t.coord, neighbor) && t.owner === playerId
+    );
+    if (neighborTrack) {
+      const hasOppositeEdge = neighborTrack.edges[0] === oppositeEdge || neighborTrack.edges[1] === oppositeEdge;
+      if (hasOppositeEdge) {
+        connectableEdges.push(edge);
+      }
     }
   }
 
@@ -1374,35 +1435,98 @@ function tryDirectPathBuild(
       continue;
     }
 
-    // 3. 다음 건설 위치 결정
+    // 3. 다음 건설 위치 결정 (자기 완성 링크 연속 통과 포함)
     let nextIndex = frontierIndex + 1;
     if (nextIndex >= optimalPath.length) return null;
 
     let nextCoord = optimalPath[nextIndex];
 
-    // 도시 헥스 처리: 도착 도시면 경로 완성, 중간 도시면 건너뜀
-    if (board.cities.some(c => hexCoordsEqual(c.coord, nextCoord))) {
-      if (hexCoordsEqual(nextCoord, targetCity.coord)) {
-        debugLog.trackBuilding(`[직접 경로] 도착 도시(${nextCoord.col},${nextCoord.row}) 도달 → 경로 완성`);
-        return null;
-      }
-      debugLog.trackBuilding(`[직접 경로] 중간 도시(${nextCoord.col},${nextCoord.row}) 건너뜀 → 다음 위치 건설`);
-      nextIndex++;
-      if (nextIndex >= optimalPath.length) return null;
-      nextCoord = optimalPath[nextIndex];
+    // [수정 A] 자기 완성 링크 연속 통과 루프
+    while (true) {
+      // 도시 헥스 처리: 도착 도시면 경로 완성, 중간 도시면 건너뜀
       if (board.cities.some(c => hexCoordsEqual(c.coord, nextCoord))) {
         if (hexCoordsEqual(nextCoord, targetCity.coord)) {
           debugLog.trackBuilding(`[직접 경로] 도착 도시(${nextCoord.col},${nextCoord.row}) 도달 → 경로 완성`);
           return null;
         }
-        return null;
+        debugLog.trackBuilding(`[직접 경로] 중간 도시(${nextCoord.col},${nextCoord.row}) 건너뜀 → 다음 위치`);
+        nextIndex++;
+        if (nextIndex >= optimalPath.length) return null;
+        nextCoord = optimalPath[nextIndex];
+        continue;
       }
+
+      // 기존 트랙 확인
+      const existingTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, nextCoord));
+      if (!existingTrack) break; // 빈 헥스 → 여기에 건설
+
+      // [NEW] 자기 완성 링크이고 엣지가 경로와 호환 → 통과
+      if (existingTrack.owner === playerId && isTrackPartOfCompletedLink(existingTrack.coord, board)) {
+        const prevCoordLoop = optimalPath[nextIndex - 1];
+        const entryEdgeLoop = getEdgeBetweenHexes(nextCoord, prevCoordLoop);
+        let canPassThrough = false;
+
+        if (entryEdgeLoop >= 0 && existingTrack.edges.includes(entryEdgeLoop)) {
+          if (nextIndex + 1 < optimalPath.length) {
+            const nextNext = optimalPath[nextIndex + 1];
+            const isNextCity = board.cities.some(c => hexCoordsEqual(c.coord, nextNext));
+            if (isNextCity) {
+              canPassThrough = true; // 다음이 도시면 항상 연결
+            } else {
+              const exitEdgeLoop = getEdgeBetweenHexes(nextCoord, nextNext);
+              canPassThrough = exitEdgeLoop >= 0 && existingTrack.edges.includes(exitEdgeLoop);
+            }
+          }
+        }
+
+        if (canPassThrough) {
+          debugLog.trackBuilding(`[직접 경로] (${nextCoord.col},${nextCoord.row}) 자기 완성 링크 통과`);
+          nextIndex++;
+          if (nextIndex >= optimalPath.length) return null;
+          nextCoord = optimalPath[nextIndex];
+          continue;
+        }
+      }
+
+      // 통과 불가 → 복합 트랙(교차/공존) 건설 시도
+      const isOwnCompletedLink = existingTrack.owner === playerId && isTrackPartOfCompletedLink(existingTrack.coord, board);
+      if ((existingTrack.owner !== playerId || isOwnCompletedLink) && existingTrack.trackType === 'simple') {
+        const prevCoordForComplex = optimalPath[nextIndex - 1];
+        const nextNextCoordForComplex = nextIndex + 1 < optimalPath.length ? optimalPath[nextIndex + 1] : null;
+        const entryEdgeComplex = getEdgeBetweenHexes(nextCoord, prevCoordForComplex);
+        let exitEdgeComplex = -1;
+        if (nextNextCoordForComplex) {
+          exitEdgeComplex = getEdgeBetweenHexes(nextCoord, nextNextCoordForComplex);
+        }
+        if (entryEdgeComplex >= 0 && exitEdgeComplex >= 0) {
+          const complexEdges: [number, number] = [entryEdgeComplex, exitEdgeComplex];
+          const existingEdges = existingTrack.edges;
+          const edgesOverlap = complexEdges[0] === existingEdges[0] || complexEdges[0] === existingEdges[1]
+            || complexEdges[1] === existingEdges[0] || complexEdges[1] === existingEdges[1];
+          if (!edgesOverlap && canBuildComplexTrackForAI(state, nextCoord, complexEdges, playerId)) {
+            const trackType = determineComplexTrackType(existingEdges, complexEdges);
+            const cost = trackType === 'crossing'
+              ? TRACK_REPLACE_COSTS.simpleToCrossing
+              : TRACK_REPLACE_COSTS.default;
+            const directPathMinReserve = calculateMinCashReserve(state, playerId);
+            if (player.cash >= cost + directPathMinReserve) {
+              debugLog.trackBuilding(`[직접 경로] 트랙 위 복합 트랙(${trackType}) 건설: (${nextCoord.col},${nextCoord.row}) edges=[${complexEdges}] $${cost}`);
+              incrementInvestedTracks(playerId);
+              return { action: 'buildComplex', coord: nextCoord, edges: complexEdges, trackType };
+            } else {
+              debugLog.trackBuilding(`[직접 경로] 복합 트랙 현금 부족 ($${player.cash} < $${cost} + 예비금 $${directPathMinReserve})`);
+              return null;
+            }
+          }
+        }
+      }
+      debugLog.trackBuilding(`[직접 경로] (${nextCoord.col},${nextCoord.row}) 이미 점유 → fallback`);
+      return null;
     }
 
-    // 이미 트랙이 점유된 경우
-    const existingTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, nextCoord));
-    if (existingTrack) {
-      debugLog.trackBuilding(`[직접 경로] (${nextCoord.col},${nextCoord.row}) 이미 점유 → fallback`);
+    // [수정 B] 실패 좌표 체크
+    if (isFailedCoord(playerId, nextCoord, state.currentTurn)) {
+      debugLog.trackBuilding(`[직접 경로] (${nextCoord.col},${nextCoord.row}) 이전 실패 좌표 → fallback`);
       return null;
     }
 

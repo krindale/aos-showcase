@@ -89,22 +89,18 @@ export function evaluateTrackPosition(
 /**
  * 물품 이동의 가치 평가
  *
- * 링크 수(=수입)가 압도적 우선순위.
- * 2링크 배달은 1링크 배달보다 항상 높은 점수를 받아야 함.
+ * 자기 트랙 링크 수가 핵심 (자기 트랙만 수입 증가 → VP 기여).
+ * 상대 트랙 링크는 상대 수입만 올려주므로 가치가 낮음.
  */
 export function evaluateMoveValue(
-  linksCount: number,
-  usesOwnTracks: boolean
+  ownLinksCount: number,
+  totalLinksCount: number
 ): number {
-  let score = 0;
+  // 자기 트랙 = 직접 수입 증가 (income+1당 +3 VP)
+  let score = ownLinksCount * 25;
 
-  // 링크 수 = 수입 (압도적 가중치로 경로 보너스에 뒤집히지 않도록)
-  score += linksCount * 20;
-
-  // 자신의 트랙 사용 시 추가 점수
-  if (usesOwnTracks) {
-    score += linksCount * 5;
-  }
+  // 배달 완료 보너스 (상대 트랙이라도 배달 자체가 무배달보다 나음)
+  score += totalLinksCount * 5;
 
   return score;
 }
@@ -172,10 +168,14 @@ export function calculateMinCashReserve(state: GameState, playerId: PlayerId): n
   const expenses = player.issuedShares + player.engineLevel;
   const expectedIncome = Math.max(0, player.income);
 
-  // 수입 감소 = -3 VP (영구). 어떤 경우에도 허용하지 않음.
+  // 수입 감소(-3 VP/건)와 주식 발행(-3 VP/주 + 영구 비용) 비교:
+  // $1 부족 허용이 주식 1주 발행보다 낫다 (같은 -3 VP이지만 주식은 추가 비용 유발)
+  // 단, income=0일 때 $1 부족은 income → -1 = 파산이므로 허용 불가
   if (expectedIncome >= expenses) return 0;
 
-  return expenses - expectedIncome;
+  const shortfall = expenses - expectedIncome;
+  const allowableShortfall = expectedIncome > 0 ? 1 : 0;
+  return Math.max(0, shortfall - allowableShortfall);
 }
 
 /**

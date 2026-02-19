@@ -318,7 +318,7 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   const best = validCandidates[0];
   const bestTotalScore = best.score + best.routeScore * 2;
 
-  // 현금 예비금 계산 (화물이 있으면 예비금 없이 건설 비용만 확인)
+  // 현금 예비금 계산 (비용 지불 대비 최소 유보)
   const minReserve = calculateMinCashReserve(state, playerId);
 
   // [Refinement] 점수가 조금 낮더라도 완주를 위해 임계값 완화
@@ -691,11 +691,16 @@ function findBuildCandidates(
           continue;
         }
 
+        // 내 완성 링크 트랙이면 redirect 불가 → 빈 헥스나 복합 트랙만 고려
+        const isOwnCompletedLink = existingTrack &&
+          existingTrack.owner === playerId &&
+          isTrackPartOfCompletedLink(existingTrack.coord, board);
+        if (isOwnCompletedLink) {
+          continue; // 완성된 링크의 자기 트랙은 redirect도 복합 건설도 불가
+        }
+
         // 내 'simple' 트랙인 경우 방향 전환(Redirect) 옵션으로 고려
         // (연속 건설 방해 방지를 위해, 이번 턴의 첫 번째 건설일 때만 리다이렉트 허용)
-        if (existingTrack && existingTrack.owner === playerId) {
-          // 내 'simple' 트랙인 경우 방향 전환(Redirect) 옵션으로 고려
-        }
         const isRedirect = existingTrack &&
           existingTrack.owner === playerId &&
           state.phaseState.builtTracksThisTurn === 0;

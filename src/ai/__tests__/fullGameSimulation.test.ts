@@ -169,12 +169,17 @@ function executePerPlayerPhase(): boolean {
   const decision = getAIDecision(state, state.currentPlayer);
 
   switch (decision.type) {
-    case 'issueShares':
+    case 'issueShares': {
+      const beforeCash = state.players[state.currentPlayer]?.cash;
       if (decision.amount > 0) {
         useGameStore.getState().issueShare(state.currentPlayer, decision.amount);
       }
+      const after = useGameStore.getState();
+      const afterCash = after.players[state.currentPlayer]?.cash;
+      console.log(`[주식발행] Turn ${state.currentTurn} ${state.players[state.currentPlayer]?.name}: ${decision.amount}주, $${beforeCash}→$${afterCash}, shares=${after.players[state.currentPlayer]?.issuedShares}`);
       useGameStore.getState().nextPhase();
       return true;
+    }
     case 'selectAction':
       useGameStore.getState().selectAction(state.currentPlayer, decision.action);
       useGameStore.getState().nextPhase();
@@ -981,14 +986,15 @@ describe('AI 전체 게임 시뮬레이션 (gameStore 기반 통합 테스트)',
     }
   });
 
-  it('총 주식 발행이 적절 (≤6주)', () => {
+  it('총 주식 발행이 적절 (≤7주)', () => {
     const rng = createSeededRng(42);
     initGameForTest(12345, getDefaultCubeMap());
 
     const result = runFullGame(rng);
 
     for (const pid of playerIds) {
-      expect(result.finalPlayers[pid]?.issuedShares).toBeLessThanOrEqual(6);
+      // Turn 1에서 2주 발행 보장 + 이후 턴 발행 허용
+      expect(result.finalPlayers[pid]?.issuedShares).toBeLessThanOrEqual(7);
     }
   });
 
@@ -1176,5 +1182,71 @@ describe('AI 전체 게임 시뮬레이션 (gameStore 기반 통합 테스트)',
       }
     }
     expect(allFailures).toEqual([]);
+  });
+
+  it('executeAITurn 경로: initGame 후 AI가 자동으로 주식 발행', () => {
+    // 이 테스트는 브라우저 실제 게임과 동일한 executeAITurn 경로를 사용
+    // initGame → scheduleAICheck → executeAITurn → setTimeout chain
+
+    vi.useRealTimers();
+    vi.useFakeTimers();
+
+    // 두 플레이어 모두 AI로 초기화
+    const rng = createSeededRng(42);
+    vi.spyOn(Math, 'random').mockImplementation(rng);
+    useGameStore.getState().initGame('tutorial', ['AI-1', 'AI-2'], [
+      { playerIndex: 0, name: 'AI-1' },
+      { playerIndex: 1, name: 'AI-2' },
+    ]);
+    vi.restoreAllMocks();
+
+    // 물품 배치 오버라이드
+    const cubeMap = getDefaultCubeMap();
+    const state = useGameStore.getState();
+    useGameStore.setState({
+      board: {
+        ...state.board,
+        cities: state.board.cities.map(city => ({
+          ...city,
+          cubes: cubeMap[city.id] ?? city.cubes,
+        })),
+      },
+    });
+
+    // initGame 직후 상태 확인
+    const afterInit = useGameStore.getState();
+    expect(afterInit.currentPhase).toBe('issueShares');
+    expect(afterInit.currentPlayer).toBe('player1');
+    expect(afterInit.players.player1.cash).toBe(10); // 초기 $10
+    expect(afterInit.players.player1.issuedShares).toBe(2); // 초기 2주
+    expect(afterInit.players.player1.isAI).toBe(true);
+    expect(afterInit.players.player2.isAI).toBe(true);
+
+    // scheduleAICheck의 debounce (150ms) 진행
+    vi.advanceTimersByTime(200);
+
+    // executeAITurn의 setTimeout (AI_TURN_DELAY = 1000ms) 진행
+    vi.advanceTimersByTime(1200);
+
+    // player1이 주식을 발행했는지 확인
+    const afterP1Issue = useGameStore.getState();
+    console.log(`[executeAITurn 테스트] P1 주식발행 후: phase=${afterP1Issue.currentPhase}, player=${afterP1Issue.currentPlayer}, P1.cash=$${afterP1Issue.players.player1.cash}, P1.shares=${afterP1Issue.players.player1.issuedShares}`);
+
+    // player1이 주식을 발행해서 현금이 $10보다 커야 함
+    expect(afterP1Issue.players.player1.cash).toBeGreaterThan(10);
+    expect(afterP1Issue.players.player1.issuedShares).toBeGreaterThan(2);
+
+    // player2도 처리될 때까지 충분히 진행
+    vi.advanceTimersByTime(2000);
+
+    const afterP2Issue = useGameStore.getState();
+    console.log(`[executeAITurn 테스트] P2 주식발행 후: phase=${afterP2Issue.currentPhase}, player=${afterP2Issue.currentPlayer}, P2.cash=$${afterP2Issue.players.player2.cash}, P2.shares=${afterP2Issue.players.player2.issuedShares}`);
+
+    // player2도 주식을 발행해야 함
+    expect(afterP2Issue.players.player2.cash).toBeGreaterThan(10);
+    expect(afterP2Issue.players.player2.issuedShares).toBeGreaterThan(2);
+
+    // issueShares가 끝나고 다음 단계(auction)로 넘어갔어야 함
+    expect(afterP2Issue.currentPhase).not.toBe('issueShares');
   });
 });

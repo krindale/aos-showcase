@@ -507,6 +507,9 @@ export const useGameStore = create<GameStore>()(
     }
 
     console.log(`[initGame] AI 플레이어 ${aiPlayerManager.count}명 등록됨`);
+
+    // 첫 번째 플레이어가 AI면 자동 실행 트리거
+    scheduleAICheck(get);
   },
 
   resetGame: () => {
@@ -530,6 +533,9 @@ export const useGameStore = create<GameStore>()(
     });
 
     console.log(`[resetGame] AI 플레이어 ${aiPlayerManager.count}명 리셋됨`);
+
+    // 첫 번째 플레이어가 AI면 자동 실행 트리거
+    scheduleAICheck(get);
   },
 
   // ============================================================
@@ -583,12 +589,16 @@ export const useGameStore = create<GameStore>()(
       const store = get();
 
       switch (decision.type) {
-        case 'issueShares':
+        case 'issueShares': {
+          const beforeCash = store.players[capturedContext.currentPlayer]?.cash;
           if (decision.amount > 0) {
             store.issueShare(capturedContext.currentPlayer, decision.amount);
           }
+          const afterCash = get().players[capturedContext.currentPlayer]?.cash;
+          console.log(`[AI 주식발행] ${player.name}: ${decision.amount}주 발행, 현금 $${beforeCash} → $${afterCash}, shares=${get().players[capturedContext.currentPlayer]?.issuedShares}`);
           store.nextPhase();
           break;
+        }
 
         case 'auction': {
           const { decision: auctionDecision } = decision;
@@ -614,10 +624,13 @@ export const useGameStore = create<GameStore>()(
           return;
         }
 
-        case 'selectAction':
+        case 'selectAction': {
+          const cashBeforeAction = store.players[capturedContext.currentPlayer]?.cash;
+          console.log(`[AI 액션선택] ${player.name}: ${decision.action} 선택, 현금 $${cashBeforeAction}, shares=${store.players[capturedContext.currentPlayer]?.issuedShares}`);
           store.selectAction(capturedContext.currentPlayer, decision.action);
           store.nextPhase();
           break;
+        }
 
         case 'buildTrack': {
           const { decision: buildDecision } = decision;

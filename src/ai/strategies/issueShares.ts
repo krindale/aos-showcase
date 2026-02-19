@@ -68,7 +68,8 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
         hexDistance(t.coord, fromCity.coord) < distance
       ).length;
 
-      const neededTracks = Math.min(Math.max(0, distance - ownTracksOnPath), 3);
+      // engineer 선택 가능성을 고려하여 최대 4개 건설 비용 예측
+      const neededTracks = Math.min(Math.max(0, distance - ownTracksOnPath), 4);
 
       // 경로 주변 헥스 지형을 조회하여 실제 평균 비용 산출
       let terrainCostSum = 0;
@@ -97,8 +98,8 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
       trackBuildCost = neededTracks * avgTerrainCost;
     }
   } else {
-    // 목표가 없어도 기본 건설 준비금
-    trackBuildCost = 4;
+    // 목표가 없어도 4개 건설 비용 확보 (engineer 가능성 고려)
+    trackBuildCost = 4 * GAME_CONSTANTS.PLAIN_TRACK_COST; // $8
   }
 
   // 2. 예상 운영 비용 계산 (주식 이자 + 엔진 유지비)
@@ -149,6 +150,14 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
 
   // 필요한 만큼만 발행
   let sharesToIssue = Math.min(sharesNeeded, maxPossibleShares, maxStrategicShares);
+
+  // Turn 1: 최소 2주 발행 보장 (건설4개 + 경매 자금 확보 → 경매 후 $13-15)
+  if (state.currentTurn === 1 && sharesToIssue < 2 && maxPossibleShares >= 2) {
+    sharesToIssue = Math.min(2, maxPossibleShares);
+    debugLog.preparation(
+      `[Phase I: 주식 발행] ${player.name}: Turn 1 최소 2주 보장 (건설+경매 자금)`
+    );
+  }
 
   // 생존 위기 시 최소 1주 보장
   if (!canSurviveTurn && sharesToIssue === 0 && maxPossibleShares > 0) {

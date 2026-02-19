@@ -119,15 +119,23 @@ export default function PhasePanel() {
             <p className="text-xs md:text-sm text-foreground-secondary">
               보유 주식: {currentPlayerData.issuedShares}주 / 현금: ${currentPlayerData.cash}
             </p>
-            <button
-              onClick={handleNextPhase}
-              disabled={isAIExecuting}
-              className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              aria-label="다음 단계로"
-            >
-              다음 단계로
-              <ChevronRight className="w-4 h-4" />
-            </button>
+            {currentPlayerData.isAI ? (
+              <div className="text-center py-4">
+                <div className="animate-pulse text-accent font-medium">
+                  {currentPlayerData.name} (AI) 주식 발행 중...
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={handleNextPhase}
+                disabled={isAIExecuting}
+                className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                aria-label="다음 단계로"
+              >
+                다음 단계로
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
           </div>
         )}
 

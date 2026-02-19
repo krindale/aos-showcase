@@ -74,14 +74,33 @@ function scoreOpportunity(
     engineFeasible -= 800;
   }
 
+  // 6. 양방향/다중 큐브 배달 보너스: 같은 링크로 2회 배달 가능하면 income ×2
+  let multiDeliveryBonus = 0;
+  if (opp.distance <= player.engineLevel) {
+    const destCity = state.board.cities.find(c => c.id === opp.targetCityId);
+    const srcCity = state.board.cities.find(c => c.id === opp.sourceCityId);
+    if (destCity && srcCity) {
+      // 6a. 역방향 큐브: B→A 배달도 가능 (Move Round 2에서 역배달)
+      const hasReverseCube = destCity.cubes.some(cube => cube === srcCity.color);
+      if (hasReverseCube) {
+        multiDeliveryBonus = 200;
+      }
+      // 6b. 동방향 다중 큐브: A에서 같은 색 큐브 2개+ → 2회 연속 배달
+      const sameDirCubeCount = srcCity.cubes.filter(cube => cube === destCity.color).length;
+      if (sameDirCubeCount >= 2 && multiDeliveryBonus === 0) {
+        multiDeliveryBonus = 150;
+      }
+    }
+  }
+
   // === 페널티 (기존 유지) ===
 
-  // 6. 완공 여부 페널티 (중복 건설 배제)
+  // 7. 완공 여부 페널티 (중복 건설 배제)
   const isAlreadyLinked = isRouteComplete(state, route);
   const duplicationPenalty = isAlreadyLinked ? -1000 : 0;
   const competitorPenalty = (isAlreadyLinked && !connectedCities.includes(opp.sourceCityId)) ? -2000 : 0;
 
-  // 7. 경쟁자 진행도
+  // 8. 경쟁자 진행도
   const opponents = state.activePlayers.filter(id => id !== playerId);
   let opponentMaxProgress = 0;
   for (const oppId of opponents) {
@@ -91,7 +110,7 @@ function scoreOpportunity(
   }
   const opponentProgressPenalty = opponentMaxProgress > 0.7 ? -1500 : (opponentMaxProgress > 0.3 ? -500 : 0);
 
-  // 8. 상대 목표 경로 충돌
+  // 9. 상대 목표 경로 충돌
   let opponentTargetPenalty = 0;
   for (const oppId of opponents) {
     const oppRoute = getCurrentRoute(oppId);
@@ -101,15 +120,21 @@ function scoreOpportunity(
       (oppRoute.from === opp.targetCityId && oppRoute.to === opp.sourceCityId);
     if (matchesOpp) { opponentTargetPenalty = -3500; break; }
     if (opponentTargetPenalty === 0) {
-      const sharesEndpoint =
-        oppRoute.from === opp.sourceCityId || oppRoute.from === opp.targetCityId ||
-        oppRoute.to === opp.sourceCityId || oppRoute.to === opp.targetCityId;
-      if (sharesEndpoint) opponentTargetPenalty = -300;
+      // 같은 출발지를 공유하면 트랙 건설이 겹칠 위험 → 강한 페널티
+      const sharesSameSource = oppRoute.from === opp.sourceCityId;
+      if (sharesSameSource) {
+        opponentTargetPenalty = -1200;
+      } else {
+        const sharesEndpoint =
+          oppRoute.from === opp.targetCityId ||
+          oppRoute.to === opp.sourceCityId || oppRoute.to === opp.targetCityId;
+        if (sharesEndpoint) opponentTargetPenalty = -300;
+      }
     }
   }
 
   return deliveryValue + buildEfficiency + connectedBonus + progressBonus
-    + engineFeasible + duplicationPenalty + competitorPenalty
+    + multiDeliveryBonus + engineFeasible + duplicationPenalty + competitorPenalty
     + opponentProgressPenalty + opponentTargetPenalty;
 }
 
@@ -149,6 +174,21 @@ export function getNextTargetRoute(
 
   // 3. 가치 기반 정렬 (수입 vs 거리 vs 연결성)
   const isFirstTurn = state.currentTurn === 1;
+
+  // 경로 후보 점수 계산 및 로그 출력
+  const scoredOpps = opportunities.map(opp => ({
+    opp,
+    score: scoreOpportunity(opp, state, playerId, player, connectedCities, playerTracks),
+  }));
+  scoredOpps.sort((a, b) => b.score - a.score);
+
+  // 상위 5개 후보 로그 (항상 출력)
+  const opponents = state.activePlayers.filter(id => id !== playerId);
+  const oppRoutes = opponents.map(id => ({ id, route: getCurrentRoute(id) }));
+  console.log(`[AI 경로선택] ${player.name} Turn ${state.currentTurn}: 상대 경로=${oppRoutes.map(r => r.route ? `${r.id}:${r.route.from}→${r.route.to}` : `${r.id}:없음`).join(', ')}`);
+  for (const { opp, score } of scoredOpps.slice(0, 5)) {
+    console.log(`  ${opp.sourceCityId}→${opp.targetCityId} (${opp.cubeColor}, 거리${opp.distance}) = ${score.toFixed(0)}`);
+  }
 
   opportunities.sort((a, b) => {
     const aScore = scoreOpportunity(a, state, playerId, player, connectedCities, playerTracks);

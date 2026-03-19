@@ -114,31 +114,58 @@ export default function GameBoard() {
   const disconnectedConnections = useMemo(() => {
     const disconnected: { from: HexCoord; to: HexCoord; fromEdge: number; toEdge: number }[] = [];
 
+    // 각 플레이어별로 소유한 엣지를 수집하여 연결 체크
     for (const track of board.trackTiles) {
-      for (const edge of track.edges) {
-        const neighbor = getNeighborHex(track.coord, edge);
-        const neighborTrack = board.trackTiles.find(t =>
-          hexCoordsEqual(t.coord, neighbor)
-        );
+      // 플레이어별 소유 엣지 목록: [{ owner, edges }]
+      const ownerEdgePairs: { owner: PlayerId | null; edges: number[] }[] = [];
 
-        if (neighborTrack) {
-          // 다른 소유자의 트랙 사이 끊김은 정상 (Age of Steam 룰: 별도 철도)
-          if (track.owner !== neighborTrack.owner) continue;
+      // 기본 경로
+      if (track.owner) {
+        ownerEdgePairs.push({ owner: track.owner, edges: [...track.edges] });
+      }
 
-          const expectedEdge = getOppositeEdge(edge);
-          const isConnected = neighborTrack.edges.includes(expectedEdge);
+      // 보조 경로 (복합 트랙)
+      if (track.secondaryOwner && track.secondaryEdges) {
+        ownerEdgePairs.push({ owner: track.secondaryOwner, edges: [...track.secondaryEdges] });
+      }
 
-          if (!isConnected) {
-            // 중복 방지: 한 방향만 추가
-            const key1 = `${track.coord.col},${track.coord.row}`;
-            const key2 = `${neighbor.col},${neighbor.row}`;
-            if (key1 < key2) {
-              disconnected.push({
-                from: track.coord,
-                to: neighbor,
-                fromEdge: edge,
-                toEdge: expectedEdge,
-              });
+      for (const { owner, edges } of ownerEdgePairs) {
+        if (!owner) continue;
+
+        for (const edge of edges) {
+          const neighbor = getNeighborHex(track.coord, edge);
+          const neighborTrack = board.trackTiles.find(t =>
+            hexCoordsEqual(t.coord, neighbor)
+          );
+
+          if (neighborTrack) {
+            // 이웃 트랙에서 같은 소유자의 엣지 수집
+            const neighborPlayerEdges: number[] = [];
+            if (neighborTrack.owner === owner) {
+              neighborPlayerEdges.push(...neighborTrack.edges);
+            }
+            if (neighborTrack.secondaryOwner === owner && neighborTrack.secondaryEdges) {
+              neighborPlayerEdges.push(...neighborTrack.secondaryEdges);
+            }
+
+            // 같은 소유자가 아니면 스킵 (별도 철도)
+            if (neighborPlayerEdges.length === 0) continue;
+
+            const expectedEdge = getOppositeEdge(edge);
+            const isConnected = neighborPlayerEdges.includes(expectedEdge);
+
+            if (!isConnected) {
+              // 중복 방지: 한 방향만 추가
+              const key1 = `${track.coord.col},${track.coord.row}`;
+              const key2 = `${neighbor.col},${neighbor.row}`;
+              if (key1 < key2) {
+                disconnected.push({
+                  from: track.coord,
+                  to: neighbor,
+                  fromEdge: edge,
+                  toEdge: expectedEdge,
+                });
+              }
             }
           }
         }
@@ -183,7 +210,7 @@ export default function GameBoard() {
       if (isCity) return true;
 
       const playerTrack = board.trackTiles.find(
-        t => hexCoordsEqual(t.coord, coord) && t.owner === currentPlayer
+        t => hexCoordsEqual(t.coord, coord) && (t.owner === currentPlayer || t.secondaryOwner === currentPlayer)
       );
       return !!playerTrack;
     },
@@ -363,7 +390,7 @@ export default function GameBoard() {
             const isSourceSelected = ui.sourceHex && hexCoordsEqual(ui.sourceHex, coord);
             const isHighlighted = ui.highlightedHexes.some(h => hexCoordsEqual(h, coord));
             const hasPlayerTrack = board.trackTiles.some(
-              t => hexCoordsEqual(t.coord, coord) && t.owner === currentPlayer
+              t => hexCoordsEqual(t.coord, coord) && (t.owner === currentPlayer || t.secondaryOwner === currentPlayer)
             );
 
             // 클릭 가능 여부: 트랙 건설 단계에서 하이라이트되거나 플레이어 트랙이 있는 경우

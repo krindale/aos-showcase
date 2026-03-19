@@ -1515,9 +1515,10 @@ function tryDirectPathBuild(
         if (nextNextCoordForComplex) {
           exitEdgeComplex = getEdgeBetweenHexes(nextCoord, nextNextCoordForComplex);
         }
+        const existingEdges = existingTrack.edges;
+
         if (entryEdgeComplex >= 0 && exitEdgeComplex >= 0) {
           const complexEdges: [number, number] = [entryEdgeComplex, exitEdgeComplex];
-          const existingEdges = existingTrack.edges;
           const edgesOverlap = complexEdges[0] === existingEdges[0] || complexEdges[0] === existingEdges[1]
             || complexEdges[1] === existingEdges[0] || complexEdges[1] === existingEdges[1];
           if (!edgesOverlap && canBuildComplexTrackForAI(state, nextCoord, complexEdges, playerId)) {
@@ -1533,6 +1534,48 @@ function tryDirectPathBuild(
             } else {
               debugLog.trackBuilding(`[직접 경로] 복합 트랙 현금 부족 ($${player.cash} < $${cost} + 예비금 $${directPathMinReserve})`);
               return null;
+            }
+          }
+
+          // 엣지 겹침 → 대안 엣지 조합 탐색
+          if (edgesOverlap) {
+            debugLog.trackBuilding(`[직접 경로] 엣지 겹침 → 대안 엣지 탐색: (${nextCoord.col},${nextCoord.row}) existing=[${existingEdges}] wanted=[${complexEdges}]`);
+            const availableEdges = [0, 1, 2, 3, 4, 5].filter(
+              e => e !== existingEdges[0] && e !== existingEdges[1]
+            );
+
+            let bestAltEdges: [number, number] | null = null;
+            let bestAltScore = -Infinity;
+            let bestAltType: 'crossing' | 'coexist' = 'crossing';
+
+            for (let i = 0; i < availableEdges.length; i++) {
+              for (let j = i + 1; j < availableEdges.length; j++) {
+                const altEdges: [number, number] = [availableEdges[i], availableEdges[j]];
+                if (!canBuildComplexTrackForAI(state, nextCoord, altEdges, playerId)) continue;
+
+                // 원래 경로 방향과 가까운 엣지 조합 우선
+                let score = 0;
+                if (altEdges.includes(entryEdgeComplex)) score += 100;
+                if (altEdges.includes(exitEdgeComplex)) score += 100;
+
+                if (score > bestAltScore) {
+                  bestAltScore = score;
+                  bestAltEdges = altEdges;
+                  bestAltType = determineComplexTrackType(existingEdges, altEdges);
+                }
+              }
+            }
+
+            if (bestAltEdges) {
+              const cost = bestAltType === 'crossing'
+                ? TRACK_REPLACE_COSTS.simpleToCrossing
+                : TRACK_REPLACE_COSTS.default;
+              const directPathMinReserve = calculateMinCashReserve(state, playerId);
+              if (player.cash >= cost + directPathMinReserve) {
+                debugLog.trackBuilding(`[직접 경로] 대안 복합 트랙(${bestAltType}) 건설: (${nextCoord.col},${nextCoord.row}) edges=[${bestAltEdges}] $${cost}`);
+                incrementInvestedTracks(playerId);
+                return { action: 'buildComplex', coord: nextCoord, edges: bestAltEdges, trackType: bestAltType };
+              }
             }
           }
         }

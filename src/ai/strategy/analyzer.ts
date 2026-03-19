@@ -726,10 +726,19 @@ export function findOptimalPathAvoidingOpponent(
       let terrainCost = getTerrainCost(neighbor);
       if (terrainCost === Infinity) continue; // 건설 불가 지형
 
-      // 자사 트랙 엣지 비호환 페널티:
-      // 기존 트랙을 통과하려는데 엣지 방향이 맞지 않으면 우회 유도
+      // 상대 트랙 엣지 호환성 체크:
+      // 교차 트랙을 건설하려면 진입/퇴출 엣지가 기존 트랙 엣지와 겹치면 안 됨
       const currentIsCity = board.cities.some(c => hexCoordsEqual(c.coord, current.coord));
       if (!currentIsCity) {
+        // 현재 헥스에 상대 트랙 → 퇴출 엣지 호환성 체크
+        const currentOpponentTrack = board.trackTiles.find(
+          t => t.owner !== playerId && t.owner !== null &&
+            hexCoordsEqual(t.coord, current.coord) && t.trackType === 'simple'
+        );
+        if (currentOpponentTrack && currentOpponentTrack.edges.includes(edge)) {
+          continue; // 이 방향으로 퇴출 불가 (기존 트랙 엣지와 겹침)
+        }
+
         const currentOwnTrack = board.trackTiles.find(
           t => t.owner === playerId && hexCoordsEqual(t.coord, current.coord)
         );
@@ -739,6 +748,18 @@ export function findOptimalPathAvoidingOpponent(
       }
       const neighborIsCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
       if (!neighborIsCity) {
+        // 이웃 헥스에 상대 트랙 → 진입 엣지 호환성 체크
+        const neighborOpponentTrack = board.trackTiles.find(
+          t => t.owner !== playerId && t.owner !== null &&
+            hexCoordsEqual(t.coord, neighbor) && t.trackType === 'simple'
+        );
+        if (neighborOpponentTrack) {
+          const entryEdge = (edge + 3) % 6;
+          if (neighborOpponentTrack.edges.includes(entryEdge)) {
+            continue; // 이 방향에서 진입 불가 (기존 트랙 엣지와 겹침)
+          }
+        }
+
         const neighborOwnTrack = board.trackTiles.find(
           t => t.owner === playerId && hexCoordsEqual(t.coord, neighbor)
         );

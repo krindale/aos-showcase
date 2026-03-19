@@ -158,13 +158,13 @@ describe('getConnectedCities', () => {
   });
 
   describe('트랙 없음', () => {
-    it('트랙이 없으면 모든 도시 반환 (트랙 없음 = 첫 건설 가능)', () => {
+    it('트랙이 없으면 빈 배열 반환 (연결된 도시 없음)', () => {
       const state = createMockGameState();
 
       const connected = getConnectedCities(state, 'player1');
 
-      // 트랙이 없으면 모든 도시가 연결 가능한 것으로 취급
-      expect(connected.length).toBe(4);
+      // 트랙이 없으면 연결된 도시 없음
+      expect(connected.length).toBe(0);
     });
   });
 

@@ -51,10 +51,14 @@ export function decideAuctionBid(state: GameState, playerId: PlayerId): AuctionD
 
   const currentBid = auction.highestBid;
 
-  // 최대 입찰 가능 금액 (현금이 적으면 보수적으로)
-  // 트랙 건설비($6~8) + 운영비($3~4)를 확보해야 하므로 현금이 적을 때 입찰 억제
-  const bidRatio = player.cash < 15 ? 0.15 : 0.3;
-  const maxBid = Math.max(1, Math.floor(player.cash * bidRatio));
+  // 최대 입찰 가능 금액 계산
+  // 트랙 건설비(평균 $6) + 운영비(shares + engine) + 여유분($1) 을 제외한 금액
+  const expenses = player.issuedShares + player.engineLevel;
+  const buildReserve = 6; // 최소 트랙 1개 건설 비용
+  const reserveNeeded = expenses + buildReserve + 1;
+  const availableForBid = Math.max(0, player.cash - reserveNeeded);
+  // 가용 금액의 절반까지 입찰 허용 (최소 $1)
+  const maxBid = Math.max(1, Math.floor(availableForBid * 0.5));
 
   // Turn Order 행동을 선택했고 아직 패스를 사용하지 않았으면 패스 사용
   if (player.selectedAction === 'turnOrder' && !player.turnOrderPassUsed) {

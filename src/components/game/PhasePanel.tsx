@@ -119,15 +119,23 @@ export default function PhasePanel() {
             <p className="text-xs md:text-sm text-foreground-secondary">
               보유 주식: {currentPlayerData.issuedShares}주 / 현금: ${currentPlayerData.cash}
             </p>
-            <button
-              onClick={handleNextPhase}
-              disabled={isAIExecuting}
-              className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              aria-label="다음 단계로"
-            >
-              다음 단계로
-              <ChevronRight className="w-4 h-4" />
-            </button>
+            {currentPlayerData.isAI ? (
+              <div className="text-center py-4">
+                <div className="animate-pulse text-accent font-medium">
+                  {currentPlayerData.name} (AI) 주식 발행 중...
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={handleNextPhase}
+                disabled={isAIExecuting}
+                className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                aria-label="다음 단계로"
+              >
+                다음 단계로
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
           </div>
         )}
 
@@ -315,12 +323,26 @@ export default function PhasePanel() {
               엔진 업그레이드 (+1 링크)
             </button>
             <button
-              onClick={handleNextPhase}
+              onClick={() => {
+                // 인간 플레이어가 아직 이동하지 않았으면 확인
+                if (!currentPlayerData.isAI && !phaseState.playerMoves[currentPlayer]) {
+                  if (!window.confirm('물품 이동을 건너뛰시겠습니까?')) return;
+                }
+                handleNextPhase();
+              }}
               disabled={isAIExecuting}
-              className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                !currentPlayerData.isAI && !phaseState.playerMoves[currentPlayer]
+                  ? 'bg-foreground/10 text-foreground-secondary hover:bg-foreground/20 border border-foreground/20'
+                  : 'bg-accent text-background hover:bg-accent-light'
+              }`}
               aria-label="다음 단계로"
             >
               {(() => {
+                // 인간이 아직 이동 안 했으면 "이동 건너뛰기"
+                if (!currentPlayerData.isAI && !phaseState.playerMoves[currentPlayer]) {
+                  return '이동 건너뛰기';
+                }
                 // 클릭 후 상태 예측
                 const updatedMoves = { ...phaseState.playerMoves, [currentPlayer]: true };
                 const willBothMoved = updatedMoves.player1 && updatedMoves.player2;

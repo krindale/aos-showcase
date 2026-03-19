@@ -94,14 +94,8 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
         const linksCount = countTotalLinksInPath(path, board);
         const ownTrackCount = countOwnLinksInPath(path, board, playerId);
 
-        // 자신의 트랙 사용 여부
-        const usesOwnTracks = ownTrackCount > 0;
-
-        // 기본 점수 계산 (전체 링크 수 기반 수익 평가)
-        const score = evaluateMoveValue(linksCount, usesOwnTracks);
-
-        // [추가] 내 트랙 점유율 보너스 (동일 수익일 때 내 트랙 더 많이 쓰기)
-        const trackDensityBonus = ownTrackCount * 2;
+        // 기본 점수 계산 (자기 트랙 링크 중심 평가)
+        const score = evaluateMoveValue(ownTrackCount, linksCount);
 
         // [추가] 상대가 이 화물을 배달할 수 있는지 확인 (가로채기 위험)
         let stealRiskBonus = 0;
@@ -113,9 +107,8 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
             city.coord, board, oppId, oppPlayer.engineLevel, cubeColor
           );
           if (oppReachable.some(d => hexCoordsEqual(d.coord, destCity.coord))) {
-            // 상대도 배달 가능 → 가로채기 위험, 이 화물을 먼저 배달해야 함
-            // 링크가 길수록 가로채기 손실이 크므로 링크 수 비례 보너스
-            stealRiskBonus = linksCount * 10;
+            // 상대도 배달 가능 → 내 트랙을 사용하는 배달을 선점해야 함
+            stealRiskBonus = ownTrackCount * 10;
             break;
           }
         }
@@ -148,7 +141,7 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
           destinationCoord: destCity.coord,
           destinationCityId: destCity.id,
           path,
-          score: score + trackDensityBonus + stealRiskBonus,
+          score: score + stealRiskBonus,
           linksCount,
           ownTrackCount,
           routeScore,
@@ -157,18 +150,108 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
     }
   }
 
+  // 선제적 엔진 업그레이드: 1링크만 가능할 때 엔진 올려 2링크 해금
+  // 단, 이 플레이어가 이미 locomotive를 선택해 엔진 업그레이드한 턴에는 추가 업그레이드 금지
+  if (candidates.length > 0 && player.engineLevel < 3 && player.selectedAction !== 'locomotive') {
+    const bestCurrentLinks = Math.max(...candidates.map(c => c.linksCount));
+    if (bestCurrentLinks <= 1) {
+      // [수정] 자기 트랙 1링크 배달이 있으면 → 확정 income +1, 업그레이드 건너뜀
+      const hasOwnTrackDelivery = candidates.some(c => c.ownTrackCount >= 1);
+      if (hasOwnTrackDelivery) {
+        debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 자기 트랙 1링크 배달 있음 → 배달 우선`);
+      } else {
+        // 엔진+1로 자기 트랙 포함 2링크 이상 배달 가능한지 확인
+        // 상대 트랙만 사용하는 2링크 배달은 income 0이므로 업그레이드 비용 회수 불가
+        let hasOwnTrackLongerDelivery = false;
+        for (const city of board.cities) {
+          if (hasOwnTrackLongerDelivery) break;
+          for (let ci = 0; ci < city.cubes.length; ci++) {
+            const cubeColor = city.cubes[ci];
+            const reachable = findReachableDestinations(
+              city.coord, board, playerId, player.engineLevel + 1, cubeColor
+            );
+            for (const destCity of reachable) {
+              const path = findLongestPath(city.coord, destCity.coord, board, playerId, player.engineLevel + 1, cubeColor);
+              if (path && path.length >= 2) {
+                const links = countTotalLinksInPath(path, board);
+                const ownLinks = countOwnLinksInPath(path, board, playerId);
+                if (links >= 2 && ownLinks >= 1) { hasOwnTrackLongerDelivery = true; break; }
+              }
+            }
+            if (hasOwnTrackLongerDelivery) break;
+          }
+        }
+        if (hasOwnTrackLongerDelivery) {
+          const connectedCities = getConnectedCities(state, playerId);
+          const hasCompletedLinks = connectedCities.length >= 2;
+          if (hasCompletedLinks) {
+            // 자기 트랙 포함 2링크 배달 해금: income +1 이상 보장
+            // 이번 턴 생존 가능 여부만 체크
+            const futureExpenses = player.issuedShares + (player.engineLevel + 1);
+            if (player.cash + Math.max(0, player.income) >= futureExpenses) {
+              debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 선제적 엔진 업그레이드 (${player.engineLevel}→${player.engineLevel + 1}), 자기트랙 2링크 배달 해금`);
+              return { action: 'upgradeEngine' };
+            }
+          }
+        }
+      }
+    }
+  }
+
   // 이동 가능한 후보가 없으면 엔진 업그레이드 고려
-  const AI_MAX_ENGINE_LEVEL = 3;
   if (candidates.length === 0) {
-    // 완성된 링크(2개 이상 도시 연결)가 있을 때만 엔진 업그레이드
+    // 엔진 업그레이드 조건:
+    // 1. 엔진 3 미만 허용 (tutorial max)
+    // 2. 완성된 링크 있어야 (배달 가능 상태)
+    // 3. 마지막 턴 아닐 때 (업그레이드 비용 회수 불가)
+    // 4. 비용 감당 가능 (futureExpenses <= income + 여유분)
+    // 5. [NEW] 엔진+1로 2링크 자기트랙 배달이 가능하거나, 현재 화물이 없어 다음 턴 기대
     const connectedCities = getConnectedCities(state, playerId);
     const hasCompletedLinks = connectedCities.length >= 2;
+    const remainingTurns = state.maxTurns - state.currentTurn;
+    if (player.engineLevel < 3 &&
+        hasCompletedLinks &&
+        remainingTurns >= 1 &&
+        player.selectedAction !== 'locomotive') {
+      // 보드에 배달 가능 화물이 있는지 확인
+      const totalCubes = board.cities.reduce((sum, c) => sum + c.cubes.length, 0);
 
-    if (player.engineLevel < AI_MAX_ENGINE_LEVEL && hasCompletedLinks) {
-      debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 엔진 업그레이드 (${player.engineLevel} → ${player.engineLevel + 1}), 연결 도시=${connectedCities.length}개`);
-      return { action: 'upgradeEngine' };
+      // 엔진+1로 자기 트랙 포함 2링크 배달이 가능한지 확인
+      let upgradeEnablesLongerDelivery = false;
+      if (totalCubes > 0) {
+        for (const city of board.cities) {
+          if (upgradeEnablesLongerDelivery) break;
+          for (let ci = 0; ci < city.cubes.length; ci++) {
+            const cubeColor = city.cubes[ci];
+            const reachable = findReachableDestinations(
+              city.coord, board, playerId, player.engineLevel + 1, cubeColor
+            );
+            for (const destCity of reachable) {
+              const path = findLongestPath(city.coord, destCity.coord, board, playerId, player.engineLevel + 1, cubeColor);
+              if (path && path.length >= 2) {
+                const links = countTotalLinksInPath(path, board);
+                const ownLinks = countOwnLinksInPath(path, board, playerId);
+                if (links >= 2 && ownLinks >= 1) { upgradeEnablesLongerDelivery = true; break; }
+              }
+            }
+            if (upgradeEnablesLongerDelivery) break;
+          }
+        }
+      }
+
+      // 화물이 없으면 다음 턴 물품 성장 후 배달을 기대 → 업그레이드 허용
+      const shouldUpgrade = upgradeEnablesLongerDelivery || totalCubes === 0;
+
+      if (shouldUpgrade) {
+        const futureExpenses = player.issuedShares + (player.engineLevel + 1);
+        // 이번 턴 생존 가능 여부만 체크
+        if (player.cash + Math.max(0, player.income) >= futureExpenses) {
+          debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 배달 불가 → 엔진 업그레이드 (${player.engineLevel}→${player.engineLevel + 1}), 비용=${futureExpenses}`);
+          return { action: 'upgradeEngine' };
+        }
+      }
     }
-    debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 이동 불가, 스킵 (연결 도시=${connectedCities.length}개, 엔진=${player.engineLevel})`);
+    debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 이동 불가, 스킵 (엔진=${player.engineLevel})`);
     return { action: 'skip' };
   }
 

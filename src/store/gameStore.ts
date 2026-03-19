@@ -24,6 +24,7 @@ import {
   MovingCubeContext,
 } from '@/types/game';
 import { getAIDecision, AI_TURN_DELAY, isCurrentPlayerAI, aiPlayerManager } from '@/ai';
+import { addFailedBuildCoord } from '@/ai/strategies/buildTrack';
 import {
   createInitialBoardState,
   initializeGoodsDisplay,
@@ -506,6 +507,9 @@ export const useGameStore = create<GameStore>()(
     }
 
     console.log(`[initGame] AI 플레이어 ${aiPlayerManager.count}명 등록됨`);
+
+    // 첫 번째 플레이어가 AI면 자동 실행 트리거
+    scheduleAICheck(get);
   },
 
   resetGame: () => {
@@ -529,6 +533,9 @@ export const useGameStore = create<GameStore>()(
     });
 
     console.log(`[resetGame] AI 플레이어 ${aiPlayerManager.count}명 리셋됨`);
+
+    // 첫 번째 플레이어가 AI면 자동 실행 트리거
+    scheduleAICheck(get);
   },
 
   // ============================================================
@@ -582,12 +589,16 @@ export const useGameStore = create<GameStore>()(
       const store = get();
 
       switch (decision.type) {
-        case 'issueShares':
+        case 'issueShares': {
+          const beforeCash = store.players[capturedContext.currentPlayer]?.cash;
           if (decision.amount > 0) {
             store.issueShare(capturedContext.currentPlayer, decision.amount);
           }
+          const afterCash = get().players[capturedContext.currentPlayer]?.cash;
+          console.log(`[AI 주식발행] ${player.name}: ${decision.amount}주 발행, 현금 $${beforeCash} → $${afterCash}, shares=${get().players[capturedContext.currentPlayer]?.issuedShares}`);
           store.nextPhase();
           break;
+        }
 
         case 'auction': {
           const { decision: auctionDecision } = decision;
@@ -613,10 +624,13 @@ export const useGameStore = create<GameStore>()(
           return;
         }
 
-        case 'selectAction':
+        case 'selectAction': {
+          const cashBeforeAction = store.players[capturedContext.currentPlayer]?.cash;
+          console.log(`[AI 액션선택] ${player.name}: ${decision.action} 선택, 현금 $${cashBeforeAction}, shares=${store.players[capturedContext.currentPlayer]?.issuedShares}`);
           store.selectAction(capturedContext.currentPlayer, decision.action);
           store.nextPhase();
           break;
+        }
 
         case 'buildTrack': {
           const { decision: buildDecision } = decision;
@@ -624,7 +638,16 @@ export const useGameStore = create<GameStore>()(
             const beforeState = get();
             const buildNum = beforeState.phaseState.builtTracksThisTurn + 1;
             console.log(`[AI 트랙 건설] Turn ${beforeState.currentTurn}, ${player.name}: ${buildNum}/${beforeState.phaseState.maxTracksThisTurn}번째 트랙 (${buildDecision.coord.col},${buildDecision.coord.row}) edges=[${buildDecision.edges}]`);
-            store.buildTrack(buildDecision.coord, buildDecision.edges);
+            const success = store.buildTrack(buildDecision.coord, buildDecision.edges);
+
+            if (!success) {
+              // [수정] 실패 좌표 기록 후 재시도 (decideBuildTrack가 실패 좌표 필터링)
+              addFailedBuildCoord(capturedContext.currentPlayer, buildDecision.coord, beforeState.currentTurn);
+              console.warn(`[AI 트랙 건설] 실패: (${buildDecision.coord.col},${buildDecision.coord.row}) → 재시도`);
+              releaseAILock(executionId, get, set);
+              scheduleAICheck(get);
+              return;
+            }
 
             // 트랙 건설 후 상태 확인
             const afterBuildState = get();
@@ -641,7 +664,16 @@ export const useGameStore = create<GameStore>()(
             const beforeState = get();
             const buildNum = beforeState.phaseState.builtTracksThisTurn + 1;
             console.log(`[AI 트랙 건설] Turn ${beforeState.currentTurn}, ${player.name}: ${buildNum}/${beforeState.phaseState.maxTracksThisTurn}번째 복합트랙(${buildDecision.trackType}) (${buildDecision.coord.col},${buildDecision.coord.row}) edges=[${buildDecision.edges}]`);
-            store.buildComplexTrack(buildDecision.coord, buildDecision.edges, buildDecision.trackType);
+            const complexSuccess = store.buildComplexTrack(buildDecision.coord, buildDecision.edges, buildDecision.trackType);
+
+            if (!complexSuccess) {
+              // [수정] 실패 좌표 기록 후 재시도
+              addFailedBuildCoord(capturedContext.currentPlayer, buildDecision.coord, beforeState.currentTurn);
+              console.warn(`[AI 트랙 건설] 복합 트랙 실패: (${buildDecision.coord.col},${buildDecision.coord.row}) → 재시도`);
+              releaseAILock(executionId, get, set);
+              scheduleAICheck(get);
+              return;
+            }
 
             // 트랙 건설 후 상태 확인
             const afterBuildState = get();
@@ -2297,8 +2329,8 @@ export const useGameStore = create<GameStore>()(
       return;
     }
 
-    // 건설 가능한 이웃 헥스 계산
-    const neighbors = getBuildableNeighbors(coord, state.board, currentPlayer);
+    // 건설 가능한 이웃 헥스 계산 (교체/방향전환 포함)
+    const neighbors = getBuildableNeighbors(coord, state.board, currentPlayer, true);
 
     // 하이라이트할 헥스 목록
     const highlightedHexes = neighbors.map(n => n.coord);
@@ -2336,7 +2368,17 @@ export const useGameStore = create<GameStore>()(
     }
 
     // 나갈 수 있는 방향들 계산 (들어오는 방향 제외)
-    const exitDirs = getExitDirections(coord, neighbor.targetEdge, state.board);
+    let exitDirs = getExitDirections(coord, neighbor.targetEdge, state.board);
+
+    // 기존 트랙이 있는 헥스: 기존 트랙의 엣지와 겹치는 방향 제외 (복합 트랙은 겹치지 않는 엣지만 허용)
+    const existingTrack = state.board.trackTiles.find(
+      t => hexCoordsEqual(t.coord, coord)
+    );
+    if (existingTrack) {
+      exitDirs = exitDirs.filter(d =>
+        !existingTrack.edges.includes(d.exitEdge)
+      );
+    }
 
     // 하이라이트: 나갈 수 있는 방향의 이웃 헥스들
     const highlightedHexes = exitDirs.map(d => d.neighborCoord);
@@ -2379,7 +2421,7 @@ export const useGameStore = create<GameStore>()(
       t => hexCoordsEqual(t.coord, targetHex)
     );
 
-    // 기존 트랙이 있고 단순 트랙이면 복합 트랙 선택 패널 표시
+    // 기존 단순 트랙이면 복합 트랙 선택 패널 표시 (자기 트랙/상대 트랙 모두)
     if (existingTrack && existingTrack.trackType === 'simple') {
       // 엣지가 겹치지 않는지 확인
       const edgesOverlap =

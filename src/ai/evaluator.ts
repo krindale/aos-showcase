@@ -89,22 +89,18 @@ export function evaluateTrackPosition(
 /**
  * 물품 이동의 가치 평가
  *
- * 링크 수(=수입)가 압도적 우선순위.
- * 2링크 배달은 1링크 배달보다 항상 높은 점수를 받아야 함.
+ * 자기 트랙 링크 수가 핵심 (자기 트랙만 수입 증가 → VP 기여).
+ * 상대 트랙 링크는 상대 수입만 올려주므로 가치가 낮음.
  */
 export function evaluateMoveValue(
-  linksCount: number,
-  usesOwnTracks: boolean
+  ownLinksCount: number,
+  totalLinksCount: number
 ): number {
-  let score = 0;
+  // 자기 트랙 = 직접 수입 증가 (income+1당 +3 VP)
+  let score = ownLinksCount * 25;
 
-  // 링크 수 = 수입 (압도적 가중치로 경로 보너스에 뒤집히지 않도록)
-  score += linksCount * 20;
-
-  // 자신의 트랙 사용 시 추가 점수
-  if (usesOwnTracks) {
-    score += linksCount * 5;
-  }
+  // 배달 완료 보너스 (상대 트랙이라도 배달 자체가 무배달보다 나음)
+  score += totalLinksCount * 5;
 
   return score;
 }
@@ -152,4 +148,62 @@ export function willBeShortOnCash(
   const expectedIncome = Math.max(0, player.income);
 
   return player.cash - additionalSpending + expectedIncome < expectedExpenses;
+}
+
+/**
+ * Pay Expenses에서 현금 부족으로 수입 감소를 방지하기 위한 최소 현금 예비금 계산
+ *
+ * 흐름: Build Track → Move Goods → Collect Income (cash += income) → Pay Expenses (cash -= expenses)
+ * 따라서 수입감소 방지: cash_after_build + income >= expenses
+ * 예비금 = max(0, expenses - income)
+ *
+ * @param state 게임 상태
+ * @param playerId AI 플레이어 ID
+ * @returns 최소 현금 예비금 (0 이상)
+ */
+export function calculateMinCashReserve(state: GameState, playerId: PlayerId): number {
+  const player = state.players[playerId];
+  if (!player) return 0;
+
+  const expenses = player.issuedShares + player.engineLevel;
+  const expectedIncome = Math.max(0, player.income);
+
+  // 수입 감소(-3 VP/건)와 주식 발행(-3 VP/주 + 영구 비용) 비교:
+  // $1 부족 허용이 주식 1주 발행보다 낫다 (같은 -3 VP이지만 주식은 추가 비용 유발)
+  // 단, income=0일 때 $1 부족은 income → -1 = 파산이므로 허용 불가
+  if (expectedIncome >= expenses) return 0;
+
+  const shortfall = expenses - expectedIncome;
+  const allowableShortfall = expectedIncome > 0 ? 1 : 0;
+  return Math.max(0, shortfall - allowableShortfall);
+}
+
+/**
+ * 주식 발행의 VP 비용 계산
+ * 주식 1주 = -3 VP (영구)
+ */
+export function calculateShareVPCost(additionalShares: number): number {
+  return additionalShares * 3;
+}
+
+/**
+ * 엔진 업그레이드의 VP 비용-이익 계산
+ * 비용: 남은 턴 × $1 추가 유지비 (간접적 주식 발행 유발)
+ * 이익: 더 긴 배달 가능 → 수입 증가 가능성
+ */
+export function estimateEngineUpgradeVPValue(
+  state: GameState,
+  playerId: PlayerId
+): number {
+  const player = state.players[playerId];
+  if (!player) return -100;
+
+  const remainingTurns = state.maxTurns - state.currentTurn;
+  const additionalExpenseCost = remainingTurns; // $1/턴 추가 비용
+  // 비용이 현금을 줄여 주식 발행 유발 가능성
+  const potentialShareCost = Math.ceil(additionalExpenseCost / 5) * 3;
+  // 배달 거리 +1 = 수입 +1 가능 = +3 VP × 남은 턴
+  const potentialIncomeGain = remainingTurns * 3;
+
+  return potentialIncomeGain - potentialShareCost;
 }

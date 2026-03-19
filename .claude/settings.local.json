@@ -43,7 +43,9 @@
       "Bash(npm run test:unit:*)",
       "Bash(echo:*)",
       "Bash(wc:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "Skill(restart-server)",
+      "Bash(npx vitest run:*)"
     ]
   }
 }

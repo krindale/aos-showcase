@@ -147,7 +147,7 @@ describe('AI 트랙 건설 경로 안정성', () => {
     const playerId: PlayerId = 'player1';
     state = {
       ...state,
-      currentTurn: 1,
+      currentTurn: 2,
       currentPhase: 'buildTrack',
       currentPlayer: playerId,
       players: {
@@ -161,22 +161,22 @@ describe('AI 트랙 건설 경로 안정성', () => {
       },
     };
 
-    // 턴 1: 건설 (첫 세그먼트 P→O)
+    // 턴 2: 건설 (첫 세그먼트 P→O) — 턴 2이므로 2링크 경로 P→W가 세그먼트로 분해됨
     const turn1 = simulateTurnBuilds(state, playerId, 3);
     state = turn1.state;
     const turn1Route = getCurrentRoute(playerId);
-    console.log(`턴 1 경로: ${turn1Route?.from}→${turn1Route?.to}, 건설 ${turn1.decisions.length}개`);
+    console.log(`턴 2 경로: ${turn1Route?.from}→${turn1Route?.to}, 건설 ${turn1.decisions.length}개`);
 
-    // 검증: 턴 1의 초기 경로는 P→O 세그먼트 (완성 후 다음 세그먼트로 전환 가능)
+    // 검증: 초기 경로는 P→O 세그먼트 (완성 후 다음 세그먼트로 전환 가능)
     // 경로 완성 시 자동 전환되므로 최종 경로가 O→W일 수도 있음
     const firstRoute = turn1.routes[0];
-    console.log(`턴 1 첫 경로: ${firstRoute}, 최종 경로: ${turn1Route?.from}→${turn1Route?.to}`);
+    console.log(`첫 경로: ${firstRoute}, 최종 경로: ${turn1Route?.from}→${turn1Route?.to}`);
     expect(firstRoute).toBe('P→O');
 
-    // 턴 2로 전환
+    // 턴 3으로 전환
     state = {
       ...state,
-      currentTurn: 2,
+      currentTurn: 3,
       phaseState: {
         ...state.phaseState,
         builtTracksThisTurn: 0,
@@ -192,23 +192,23 @@ describe('AI 트랙 건설 경로 안정성', () => {
       },
     };
 
-    // 턴 2: 건설 (P→O 완성 후 다음 세그먼트 O→W로 진행해야 함)
+    // 턴 3: 건설 (P→O 완성 후 다음 세그먼트 O→W로 진행해야 함)
     const turn2 = simulateTurnBuilds(state, playerId, 3);
     const turn2Route = getCurrentRoute(playerId);
-    console.log(`턴 2 경로: ${turn2Route?.from}→${turn2Route?.to}, 건설 ${turn2.decisions.length}개`);
+    console.log(`턴 3 경로: ${turn2Route?.from}→${turn2Route?.to}, 건설 ${turn2.decisions.length}개`);
 
-    // 검증: 턴 2에서 건설이 진행됨
-    // 턴 1에서 P→O 완성 후 O→W로 전환하여 건설을 계속했으므로,
-    // 턴 2에서는 O→W가 이미 완성되어 새 경로(P→C 등)로 전환 가능
+    // 검증: 턴 3에서 건설이 진행됨
+    // 이전 턴에서 P→O 완성 후 O→W로 전환하여 건설을 계속했으므로,
+    // 턴 3에서는 O→W가 이미 완성되어 새 경로(P→C 등)로 전환 가능
     expect(turn2Route).toBeTruthy();
     if (turn2Route) {
-      // P→W 전체 경로가 턴 1에서 다 완성되었을 수 있으므로
-      // 턴 2에서 새로운 경로를 선택하는 것도 정상 동작
+      // P→W 전체 경로가 이전 턴에서 다 완성되었을 수 있으므로
+      // 턴 3에서 새로운 경로를 선택하는 것도 정상 동작
       console.log(`경로 진행 확인: ${turn2Route.from}→${turn2Route.to} (P→W 완성 후 새 경로 가능)`);
       expect(turn2.decisions.length).toBeGreaterThan(0);
     }
 
-    // 검증: 턴 2 내에서 경로 전환 최대 1회 (완성으로 인한 전환만 허용)
+    // 검증: 턴 3 내에서 경로 전환 최대 1회 (완성으로 인한 전환만 허용)
     const turn2UniqueRoutes = Array.from(new Set(turn2.routes));
     expect(turn2UniqueRoutes.length).toBeLessThanOrEqual(2);
   });

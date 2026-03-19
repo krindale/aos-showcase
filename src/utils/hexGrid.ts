@@ -483,6 +483,18 @@ export function getBuildableNeighbors(
         sourceEdge,
         targetEdge,
       });
+    } else {
+      // 기존 단순 트랙이 있는 헥스 → 복합 트랙(교차/공존) 건설 가능 대상
+      // 자기 트랙(완성된 링크)이든 상대 트랙이든 교차/공존 가능
+      const existingTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor));
+      if (existingTrack && existingTrack.trackType === 'simple') {
+        const targetEdge = getOppositeEdge(sourceEdge);
+        buildableNeighbors.push({
+          coord: neighbor,
+          sourceEdge,
+          targetEdge,
+        });
+      }
     }
   }
 

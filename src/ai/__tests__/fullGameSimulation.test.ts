@@ -20,7 +20,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useGameStore } from '@/store/gameStore';
-import { getAIDecision, AIDecision } from '@/ai';
+import { getAIDecision } from '@/ai';
 import { clearCurrentRoutes } from '../strategy/state';
 import { clearPathCache } from '../strategy/analyzer';
 import { addFailedBuildCoord } from '../strategies/buildTrack';
@@ -526,7 +526,7 @@ function runFullGame(rng: () => number): SimulationResult {
 
       case 'buildTrack': {
         // 트랙 건설: 더 건설 가능하면 재진입, 아니면 nextPhase
-        const moreToBuild = executeTrackBuildStep();
+        executeTrackBuildStep();
         // moreToBuild가 true면 같은 플레이어가 더 건설 (루프 재진입)
         // false면 nextPhase가 호출되어 다음 플레이어/단계로 전환됨
 
@@ -634,7 +634,7 @@ function runFullGame(rng: () => number): SimulationResult {
           const incomeReducedByShortage = 0;
 
           // 수입 감소 (income reduction)
-          let incomeReductionVal = 0;
+          const incomeReductionVal: number = 0;
           for (const bracket of GAME_CONSTANTS.INCOME_REDUCTION) {
             // 대략적 추정: turnEnd income + reduction이 bracket에 있었을 것
             // 정확한 값은 로그에서 추출하거나, income 변화에서 역추정

@@ -24,7 +24,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useGameStore } from '../gameStore';
 import { getBuildableNeighbors } from '@/utils/hexGrid';
-import { PlayerId, HexCoord, TrackTile } from '@/types/game';
+import { PlayerId, HexCoord } from '@/types/game';
 
 describe('트랙 건설 메커니즘', () => {
   beforeEach(() => {

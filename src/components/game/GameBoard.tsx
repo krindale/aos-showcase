@@ -22,7 +22,7 @@ import {
   getAnimationPoints,
 } from '@/utils/hexGrid';
 import { TUTORIAL_MAP, TUTORIAL_COLORS, TUTORIAL_LAKE_TILES } from '@/utils/tutorialMap';
-import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord } from '@/types/game';
+import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId } from '@/types/game';
 
 export default function GameBoard() {
   // Zustand selector 최적화: useShallow로 불필요한 리렌더링 방지

@@ -5,7 +5,7 @@
  */
 
 import { GameState, PlayerId, SpecialAction, GAME_CONSTANTS } from '@/types/game';
-import { countPlayerTracks, calculateExpectedExpenses, calculateMinCashReserve } from '../evaluator';
+import { countPlayerTracks, calculateMinCashReserve } from '../evaluator';
 import { getCurrentRoute, hasSelectedStrategy } from '../strategy/state';
 import { reevaluateStrategy } from '../strategy/selector';
 import { getConnectedCities, analyzeDeliveryOpportunities } from '../strategy/analyzer';

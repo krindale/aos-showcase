@@ -490,8 +490,6 @@ export function getTopPriorityRoutes(
   const connectedCities = getConnectedCities(state, playerId);
 
   // 점수 계산 후 정렬
-  const isFirstTurn = state.currentTurn === 1;
-
   const playerTracks = state.board.trackTiles.filter(t => t.owner === playerId);
 
   const scored = allOpportunities.map(opp => {

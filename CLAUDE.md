@@ -15,11 +15,14 @@ Age of Steam 보드게임의 프리미엄 비주얼 쇼케이스 웹사이트입
 
 ## 기술 스택
 
-- **Framework**: Next.js 14 (App Router)
+- **Framework**: Next.js 14 (App Router, Static Export)
 - **Styling**: Tailwind CSS 3.4
-- **Animation**: Framer Motion 11
+- **Animation**: Framer Motion 12 (GSAP 3.14 + @gsap/react 설치됨, 현재 미사용)
+- **State**: Zustand 5
 - **Icons**: Lucide React
 - **Language**: TypeScript
+- **Test**: Vitest 4 (단위 테스트)
+- **PWA**: Service Worker (`public/sw.js`), 오프라인 모드, 게임 상태 저장
 - **Deployment**: GitHub Pages (Static Export)
 
 ## 디자인 시스템
@@ -67,6 +70,7 @@ colors: {
 .btn-secondary    /* 골드 아웃라인 버튼 */
 .card-hover       /* 호버 시 상승 효과 */
 .hex-pattern      /* 헥스 패턴 배경 */
+.snap-section     /* 스크롤 스냅 정렬 (html에 scroll-snap-type: y proximity) */
 ```
 
 ## 프로젝트 구조
@@ -75,8 +79,11 @@ colors: {
 src/
 ├── app/                        # Next.js App Router 페이지
 │   ├── page.tsx                # 랜딩 페이지 (/, HeroSection + GameBoardPreview + FeatureCards)
-│   ├── layout.tsx              # 루트 레이아웃 (Navigation + Footer 포함)
+│   ├── layout.tsx              # 루트 레이아웃 (Navigation + Footer + ServiceWorkerRegistration + OfflineIndicator)
 │   ├── globals.css             # 글로벌 스타일, 유틸리티 클래스
+│   ├── error.tsx               # 라우트 에러 바운더리
+│   ├── global-error.tsx        # 전역 에러 바운더리
+│   ├── service-worker-registration.tsx  # SW 등록 클라이언트 컴포넌트
 │   ├── game/
 │   │   └── [mapId]/            # 동적 라우트 (tutorial, rust-belt 등)
 │   │       ├── page.tsx        # 서버 컴포넌트 (SSG)
@@ -129,6 +136,8 @@ src/
 │   │
 │   └── __tests__/              # AI 통합 테스트
 │       ├── trackBuildSimulation.test.ts  # 턴 간 트랙 건설 시뮬레이션
+│       ├── fullSimulation.test.ts        # 2 AI 멀티턴 트랙 건설/링크 완성 시뮬레이션
+│       ├── fullGameSimulation.test.ts    # 실제 gameStore 구동 전체 게임 시뮬레이션 (파산율/재정 검증)
 │       └── helpers/
 │           └── mockState.ts    # 테스트용 Mock 데이터 헬퍼
 │
@@ -138,7 +147,8 @@ src/
 │   ├── HeroSection.tsx         # 풀스크린 히어로 + 패럴랙스
 │   ├── GameBoardPreview.tsx    # 헥스 그리드 인터랙티브 프리뷰
 │   ├── FeatureCards.tsx        # 피처 카드 + 숫자 카운트업
-│   └── game/                   # 게임 UI 컴포넌트 (14개)
+│   ├── OfflineIndicator.tsx    # 오프라인/동기화 상태 표시 (PWA)
+│   └── game/                   # 게임 UI 컴포넌트 (16개)
 │       ├── GameBoard.tsx       # 헥스 그리드 게임보드 (SVG)
 │       ├── PlayerPanel.tsx     # 플레이어 정보 패널 (AI 표시 포함)
 │       ├── PhasePanel.tsx      # 현재 단계 표시 (AI 생각 중 상태)
@@ -152,12 +162,20 @@ src/
 │       ├── TurnTrack.tsx       # 턴 트랙 UI
 │       ├── DiceRoller.tsx      # 주사위 굴리기 UI
 │       ├── DebugPanel.tsx      # 디버그 패널 UI
-│       └── AIDebugModal.tsx    # AI 디버그 모달
+│       ├── AIDebugModal.tsx    # AI 디버그 모달
+│       ├── BottomSheet.tsx     # 모바일용 드래그 바텀 시트 (반응형)
+│       └── CollapsiblePanel.tsx    # 태블릿용 접이식 사이드 패널 (반응형)
+│
+├── hooks/                      # 반응형 UI 커스텀 훅
+│   ├── useMediaQuery.ts        # 미디어 쿼리 브레이크포인트 감지
+│   ├── useOrientation.ts       # 가로/세로 방향 감지
+│   └── useTouchGestures.ts     # 터치 제스처 (핀치 줌, 팬)
 │
 ├── store/                      # 상태 관리
 │   ├── gameStore.ts            # Zustand 게임 상태 관리 (AI 턴 실행 포함)
 │   └── __tests__/
-│       └── payExpenses.test.ts # 비용 지불/파산 로직 테스트
+│       ├── payExpenses.test.ts # 비용 지불/파산 로직 테스트
+│       └── trackBuilding.test.ts   # 트랙 건설 메커니즘 store 레벨 테스트 (방향 전환, 교차/공존, UI 플로우)
 │
 ├── types/
 │   └── game.ts                 # 전역 타입 (PlayerId, GamePhase, BoardState 등)
@@ -168,10 +186,14 @@ src/
     ├── trackValidation.ts      # 트랙 건설 및 연결성 검증
     ├── tutorialMap.ts          # 튜토리얼 맵 데이터 정의
     ├── debugConfig.ts          # 디버그 설정 유틸리티 (로그 카테고리 토글)
+    ├── pwaUtils.ts             # Service Worker 등록/관리 유틸리티
     └── testHelpers.ts          # 단위 테스트 헬퍼 함수
 
-tests/
-└── game-phases.spec.ts         # Playwright E2E 통합 테스트 (55개)
+public/
+├── manifest.json               # PWA 매니페스트
+├── sw.js                       # Service Worker (오프라인 캐시)
+├── icons/                      # PWA 아이콘
+└── maps/                       # 맵 이미지
 
 docs/
 ├── ai-strategy.md              # AI 전략 알고리즘 심층 가이드
@@ -206,11 +228,6 @@ docs/
 - 앞면: 아이콘, 제목, 설명
 - 뒷면: 상세 효과, 전략 팁
 
-### MapsPage
-- 풀스크린 슬라이더
-- AnimatePresence로 전환 효과
-- 맵 정보 오버레이
-
 ### CalculatorPage
 3개 탭으로 구성된 게임 계산기:
 
@@ -232,6 +249,8 @@ docs/
 - 현금 부족 시 수입 감소, 파산 경고
 
 ### MapsPage
+풀스크린 슬라이더 (AnimatePresence 전환 효과, 맵 정보 오버레이)
+
 7개 맵 갤러리:
 - **Rust Belt** (기본) - 미국 북동부
 - **Korea** - 한반도, 동적 도시 색상
@@ -240,6 +259,22 @@ docs/
 - **Germany** - 녹색 외국 터미널
 - **Barbados** - 솔로 게임
 - **St. Lucia** - 2인 전용
+
+## 반응형 UI & PWA
+
+### 반응형 UI
+- `src/hooks/useMediaQuery.ts`로 브레이크포인트 감지 (모바일/태블릿/데스크톱 분기)
+- `src/hooks/useOrientation.ts`로 가로/세로 방향 감지
+- `src/hooks/useTouchGestures.ts`로 게임보드 핀치 줌/팬 제스처 지원
+- 모바일: `BottomSheet` (드래그 가능한 바텀 시트)로 게임 컨트롤 표시
+- 태블릿: `CollapsiblePanel` (접이식 사이드 패널)로 패널 표시
+
+### PWA
+- `public/manifest.json` + `public/sw.js` (Service Worker, 오프라인 캐시)
+- `src/utils/pwaUtils.ts`: SW 등록/해제/업데이트 유틸리티
+- `src/app/service-worker-registration.tsx`: 루트 레이아웃에서 SW 등록
+- `src/components/OfflineIndicator.tsx`: 오프라인/동기화 상태 표시
+- GitHub Pages 배포를 위해 manifest와 SW 경로에 basePath(`/aos-showcase`) 적용됨
 
 ## 플레이어블 게임 (`/game`)
 
@@ -294,6 +329,16 @@ interface GameStore {
 
 ### AI 시스템 (`src/ai/`)
 
+**AI 실행 흐름 (실제 게임)**
+
+```
+initGame/resetGame → scheduleAICheck(get) → 150ms debounce →
+  isCurrentPlayerAI? → executeAITurn → getAIDecision →
+  1000ms setTimeout → 결정 실행 → nextPhase → scheduleAICheck → ...
+```
+
+주의: 단위 테스트와 실제 게임(`executeAITurn`)은 다른 실행 경로를 사용하므로, AI 자동 진행 관련 수정은 `executeAITurn` 경로를 사용하는 통합 테스트(fake timers)로 검증해야 합니다. `initGame`/`resetGame` 등 상태 변경 함수 끝에는 반드시 `scheduleAICheck(get)` 호출이 있어야 첫 AI 플레이어의 페이즈가 자동 실행됩니다.
+
 AI는 **객체 지향 아키텍처**로 설계되어 있으며, 각 AI 플레이어는 독립적인 인스턴스로 관리됩니다. 단순한 규칙 기반을 넘어 **화물 기반 동적 전략**을 사용하여 실시간으로 최적의 경로를 탐색합니다.
 
 #### AI 핵심 클래스
@@ -321,7 +366,7 @@ AI는 **객체 지향 아키텍처**로 설계되어 있으며, 각 AI 플레이
 - **3단계 대체 경로 탐색**: 목표 경로가 막히면 (1)연결 도시 경유 → (2)다음 우선순위 경로 → (3)네트워크 확장
 - **네트워크 확장 모드**: 배달 가능한 화물이 없을 때 가장 가까운 미연결 도시로 자동 확장 (`findNetworkExpansionTarget`)
 - **복합 트랙 평가**: 상대 트랙 위에 crossing/coexist 트랙 건설 시 유리한 경우 보너스 부여
-- **파산 방지**: 초반 턴(1-2) 최소 1주 발행 보장, 엔진 업그레이드 시 완성된 링크 존재 여부 확인
+- **파산 방지**: Turn 1 최소 2주 발행 보장(건설+경매 자금 $20), 매 턴 경매 전 최소 $15 현금 보장, 총 주식 상한 5주($15 보장 시 6주까지 허용), 엔진 업그레이드 시 완성된 링크 존재 여부 확인
 - **경로 경쟁 회피**: 상대 AI가 같은 링크(정방향/역방향 모두)를 겨냥 중이면 페널티 → 다른 경로 선택 유도 (`selector.ts`)
 - **A* 엣지 비호환 감지**: 기존 자사 트랙의 엣지 방향이 새 경로와 맞지 않으면 +3 비용 페널티, `tryDirectPathBuild`에서 전방 연결성 체크 후 최대 3회 재시도 (`analyzer.ts`, `buildTrack.ts`)
 
@@ -410,28 +455,28 @@ npm run build
 
 ### 테스트 실행
 
-**단위 테스트 (Vitest)**
+**단위 테스트 (Vitest)** — `npm run test:unit` 은 watch 모드이므로 1회 실행은 `npx vitest run` 사용
 ```bash
-npm run test:unit                    # 모든 단위 테스트 실행
+npx vitest run                       # 모든 단위 테스트 실행
 npx vitest run src/ai/__tests__/     # AI 테스트만 실행
 npx vitest run src/store/__tests__/  # Store 테스트만 실행
-```
-
-**E2E 테스트 (Playwright)**
-```bash
-# Claude Code에서 테스트 실행:
-/test-game
+npx vitest run src/ai/__tests__/fullGameSimulation.test.ts -t "스트레스"      # 스트레스 테스트만
+npx vitest run src/ai/__tests__/fullGameSimulation.test.ts -t "executeAITurn" # executeAITurn 경로 테스트
 ```
 
 테스트 파일:
-- `tests/game-phases.spec.ts` - Playwright E2E 통합 테스트 (55개)
 - `src/ai/__tests__/trackBuildSimulation.test.ts` - AI 트랙 건설 시뮬레이션
+- `src/ai/__tests__/fullSimulation.test.ts` - 2 AI 멀티턴 트랙 건설/링크 완성 시뮬레이션
+- `src/ai/__tests__/fullGameSimulation.test.ts` - 실제 gameStore 구동 전체 게임 시뮬레이션 (파산율 0%, 재정 건전성, 랜덤 시드 스트레스 테스트)
 - `src/ai/strategy/__tests__/analyzer.test.ts` - A* 경로 탐색 테스트
 - `src/ai/strategy/__tests__/selector.test.ts` - 전략 선택 테스트
 - `src/ai/strategies/__tests__/buildTrack.test.ts` - 트랙 건설 전략 테스트
 - `src/store/__tests__/payExpenses.test.ts` - 비용 지불/파산 테스트
+- `src/store/__tests__/trackBuilding.test.ts` - 트랙 건설 메커니즘 store 레벨 테스트 (방향 전환, 교차/공존, UI 플로우)
 - `src/ai/__tests__/helpers/mockState.ts` - AI 테스트용 Mock 헬퍼
 - `src/utils/testHelpers.ts` - 공용 테스트 헬퍼
+
+> **참고**: Playwright E2E 테스트(`tests/game-phases.spec.ts`)와 `/test-game` 커맨드는 제거되었습니다. 현재 테스트는 Vitest 단위/통합 테스트만 사용합니다.
 
 ### GitHub Pages 배포
 - `.github/workflows/deploy.yml` 자동 배포 설정됨
@@ -482,10 +527,11 @@ export default function ComponentName() {
 ## 향후 개선 사항
 
 - [ ] Three.js로 3D 게임보드 구현
-- [ ] GSAP ScrollTrigger 고급 애니메이션
+- [ ] GSAP ScrollTrigger 고급 애니메이션 (라이브러리는 설치됨, 미적용)
 - [ ] i18n 다국어 지원
 - [ ] 다크/라이트 모드 토글
-- [ ] PWA 지원
+- [x] PWA 지원 (오프라인 모드, 서비스 워커, 게임 상태 저장)
+- [x] 반응형 UI (모바일/태블릿/데스크톱 — hooks, BottomSheet, CollapsiblePanel)
 
 ## Age of Steam 룰북 (Deluxe Edition 전문)
 

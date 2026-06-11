@@ -13,8 +13,17 @@
  * 게임 파라미터(엔진 상한, 턴 수)는 MapAIConfig에서 주입 — 맵 하드코딩 금지.
  */
 
-import { GameState, PlayerId, GamePhase } from '@/types/game';
+import { GameState, PlayerId, GamePhase, HexCoord, GAME_CONSTANTS } from '@/types/game';
 import { getMapAIConfig } from './mapConfig';
+import { DeliveryOpportunity, DeliveryRoute } from './types';
+import {
+  findOptimalPathAvoidingOpponent,
+  getTerrainBuildCost,
+  getRouteProgress,
+  isRouteComplete,
+} from './analyzer';
+import { getCurrentRoute } from './state';
+import { hexCoordsEqual } from '@/utils/hexGrid';
 
 // ===== VP 환산 상수 =====
 export const VP_PER_INCOME = 3;
@@ -23,9 +32,10 @@ export const VP_PER_SHARE = -3;
 
 /**
  * 현금 $1의 한계 VP 가치 (λ 기본값)
- * 근거: 평지 트랙 $2 = 완성 시 +1 VP → 이론 상한 0.5 VP/$. 지형 평균(~$2.5)을 반영해 0.4.
+ * 근거: 평지 트랙 $2 = 완성 시 +1 VP → 0.5 VP/$.
+ * 베이스라인 스윕 측정(0.3:7.28 / 0.4:9.88 / 0.5:10.10 / 0.6:9.28)으로 0.5 확정.
  */
-export const LAMBDA_BASE = 0.4;
+export const LAMBDA_BASE = 0.5;
 
 /** 미래 배달(다음 턴 이후) 실현 확률 할인 — 상대 방해/화물 소진 리스크 */
 export const FUTURE_DELIVERY_DISCOUNT = 0.7;
@@ -187,4 +197,130 @@ export function engineUpgradeDeltaVP(
   }
 
   return unlockedDeliveryVP * realizationProb - costVP - shortfallVP * (1 - realizationProb);
+}
+
+// ===== 경로(배달 기회)의 기대 ΔVP =====
+
+export interface RouteVPEstimate {
+  /** 경로의 기대 ΔVP (완성 불가능하면 -Infinity) */
+  deltaVP: number;
+  /** 완성까지 남은 건설 트랙 수 */
+  tracksToBuild: number;
+  /** 남은 건설 비용 (지형별 실비) */
+  buildCost: number;
+  /** 남은 턴 안에 완성 + 자금 조달이 가능한가 */
+  completable: boolean;
+  /** 기대 배달 횟수 (남은 턴과 매칭 큐브 수에서 유도) */
+  expectedDeliveries: number;
+  /** A* 전체 경로 */
+  fullPath: HexCoord[] | null;
+}
+
+/**
+ * 배달 기회의 기대 ΔVP 추정 — scoreOpportunity의 ΔVP 대체물
+ *
+ * 핵심 원칙: 미완성 트랙은 0VP. 남은 턴 안에 완성할 수 없는 경로는 -Infinity로
+ * 원천 배제해 산발 건설을 차단한다.
+ *
+ *   deltaVP = ρ × (기대배달 × 배달ΔVP + 완성트랙 VP)
+ *           − 건설비 × λ − 조달 주식 비용
+ *   ρ: 경쟁 할인 (상대가 같은 경로를 노리거나 이미 진행 중이면 가치 하락)
+ */
+export function estimateRouteVP(
+  state: GameState,
+  playerId: PlayerId,
+  opp: DeliveryOpportunity,
+): RouteVPEstimate {
+  const player = state.players[playerId];
+  const { board } = state;
+  const config = getMapAIConfig(state);
+
+  const none: RouteVPEstimate = {
+    deltaVP: -Infinity, tracksToBuild: 0, buildCost: 0,
+    completable: false, expectedDeliveries: 0, fullPath: null,
+  };
+  if (!player) return none;
+
+  const sourceCity = board.cities.find(c => c.id === opp.sourceCityId);
+  const targetCity = board.cities.find(c => c.id === opp.targetCityId);
+  if (!sourceCity || !targetCity) return none;
+
+  // 1. A* 경로와 남은 건설량/비용
+  const fullPath = findOptimalPathAvoidingOpponent(
+    sourceCity.coord, targetCity.coord, board, playerId
+  );
+  if (fullPath.length < 2) return none;
+
+  let tracksToBuild = 0;
+  let buildCost = 0;
+  for (const coord of fullPath) {
+    if (board.cities.some(c => hexCoordsEqual(c.coord, coord))) continue;
+    if (board.trackTiles.some(t => t.owner === playerId && hexCoordsEqual(t.coord, coord))) continue;
+    tracksToBuild++;
+    buildCost += getTerrainBuildCost(coord, board);
+  }
+
+  // 2. 완성 가능성 게이트 (시간 + 자금)
+  const remainingTurnsIncl = Math.max(0, config.totalTurns - state.currentTurn + 1);
+  const timeFeasible = tracksToBuild <= remainingTurnsIncl * config.buildsPerTurn;
+  // 자금: 보유 현금 + 턴당 2주 발행 여력 (보수적 1턴치)
+  const fundingCapacity = player.cash + 2 * GAME_CONSTANTS.SHARE_VALUE;
+  const fundFeasible = buildCost <= fundingCapacity + Math.max(0, player.income) * remainingTurnsIncl;
+  const completable = timeFeasible && fundFeasible;
+  if (!completable) {
+    return { deltaVP: -Infinity, tracksToBuild, buildCost, completable, expectedDeliveries: 0, fullPath };
+  }
+
+  const links = opp.distance; // 이미 "예상 링크 수"
+
+  // 3. 배달 가능 턴 수: 완성 시점과 엔진 준비 시점 이후
+  const completionTurns = Math.ceil(tracksToBuild / config.buildsPerTurn); // 이번 턴 포함
+  const engineDelay = Math.max(0, Math.min(links, config.engineMax) - player.engineLevel);
+  if (links > config.engineMax) {
+    // 엔진 상한으로 배달 자체가 불가능한 경로
+    return { deltaVP: -Infinity, tracksToBuild, buildCost, completable: false, expectedDeliveries: 0, fullPath };
+  }
+  const deliverableTurns = remainingTurnsIncl - Math.max(completionTurns - 1, engineDelay);
+
+  // 4. 기대 배달 횟수: 매칭 큐브 수와 배달 가능 턴 (턴당 1회 보수 가정)
+  const matchingCubes = sourceCity.cubes.filter(cube => cube === targetCity.color).length;
+  const expectedDeliveries = Math.max(0, Math.min(deliverableTurns, matchingCubes));
+
+  // 5. 경쟁 할인 ρ
+  let rho = 1.0;
+  const route: DeliveryRoute = { from: opp.sourceCityId, to: opp.targetCityId, priority: 1 };
+  // 타사 트랙 포함 이미 완성된 경로: 평행 건설은 보통 비효율
+  if (isRouteComplete(state, route)) {
+    rho *= 0.4;
+  }
+  for (const oppId of state.activePlayers) {
+    if (oppId === playerId) continue;
+    const oppRoute = getCurrentRoute(oppId);
+    if (oppRoute) {
+      const sameRoute =
+        (oppRoute.from === route.from && oppRoute.to === route.to) ||
+        (oppRoute.from === route.to && oppRoute.to === route.from);
+      if (sameRoute) { rho *= 0.4; continue; }
+      if (oppRoute.from === route.from) rho *= 0.7; // 같은 출발지 → 건설 경합
+    }
+    const progFwd = getRouteProgress(state, oppId, route);
+    const progRev = getRouteProgress(state, oppId, { from: route.to, to: route.from, priority: 1 });
+    if (Math.max(progFwd, progRev) > 0.3) rho *= 0.6;
+  }
+
+  // 6. ΔVP 합산
+  // 트랙 VP는 건설 슬롯의 기회비용을 차감해 절반만 인정:
+  // 트랙 1개를 이 경로에 쓰면 다른 경로의 트랙 VP를 벌 기회를 잃는다.
+  // (안 그러면 "트랙이 많이 필요한 먼 경로"가 가까운 경로보다 점수가 높아지는 왜곡 발생)
+  const lambda = cashToVPRate(state, playerId);
+  const perDeliveryVP = deliveryDeltaVP(state, playerId, links, 0);
+  const fundShares = Math.ceil(Math.max(0, buildCost - player.cash) / GAME_CONSTANTS.SHARE_VALUE);
+  const netTrackVP = tracksToBuild * VP_PER_LINK_TRACK * 0.5;
+
+  const deltaVP =
+    rho * (expectedDeliveries * perDeliveryVP + netTrackVP)
+    - buildCost * lambda
+    - fundShares * -VP_PER_SHARE;
+
+  return { deltaVP, tracksToBuild, buildCost, completable, expectedDeliveries, fullPath };
 }

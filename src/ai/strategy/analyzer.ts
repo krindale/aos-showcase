@@ -525,53 +525,6 @@ export function isRouteBlockedByOpponent(
 }
 
 /**
- * 도시의 사용 가능한 엣지(면) 찾기
- *
- * 각 도시 헥스는 6개의 엣지를 가지고 있으며,
- * 각 엣지에는 하나의 철도만 연결될 수 있음
- *
- * @param cityCoord 도시 좌표
- * @param board 보드 상태
- * @param playerId 플레이어 ID
- * @returns 사용 가능한 엣지 번호 배열 (상대 점유, 호수, 맵 밖 제외)
- */
-export function findAvailableCityEdges(
-  cityCoord: HexCoord,
-  board: BoardState,
-  playerId: PlayerId
-): number[] {
-  const availableEdges: number[] = [];
-
-  for (let edge = 0; edge < 6; edge++) {
-    const neighbor = getNeighborHex(cityCoord, edge);
-    const oppositeEdge = (edge + 3) % 6;
-
-    // 1. 맵 밖이면 제외 (hexTiles에 없음)
-    const hex = board.hexTiles.find(h => hexCoordsEqual(h.coord, neighbor));
-    // 도시 헥스는 hexTiles에 없으므로 도시인지도 확인
-    const isNeighborCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
-    if (!hex && !isNeighborCity) continue;
-
-    // 2. 호수이면 제외
-    if (hex?.terrain === 'lake') continue;
-
-    // 3. 상대 트랙이 이 엣지를 점유하면 제외
-    // (상대 트랙이 neighbor 헥스에 있고, oppositeEdge가 도시를 향하면 점유)
-    const opponentTrack = board.trackTiles.find(
-      t => t.owner !== playerId &&
-        t.owner !== null &&
-        hexCoordsEqual(t.coord, neighbor) &&
-        t.edges.includes(oppositeEdge)
-    );
-    if (opponentTrack) continue;
-
-    availableEdges.push(edge);
-  }
-
-  return availableEdges;
-}
-
-/**
  * 특정 도시 엣지로 도달하는 경로 계산
  *
  * 목표 도시의 특정 엣지로 진입하려면 해당 엣지 방향의 인접 헥스에 도달해야 함
@@ -795,59 +748,6 @@ export function findOptimalPathAvoidingOpponent(
 
   // 경로 없음
   return [];
-}
-
-/**
- * AI 현재 위치에서 목표 도시의 최적 엣지 선택
- *
- * 여러 사용 가능한 엣지 중에서 AI의 현재 위치에서 가장 가까운 엣지를 선택
- *
- * @param currentPos AI의 현재 위치 (마지막 트랙 끝 또는 도시)
- * @param targetCity 목표 도시 좌표
- * @param availableEdges 사용 가능한 엣지 목록
- * @param board 보드 상태
- * @param playerId 플레이어 ID
- * @param remainingTracks 이번 턴에 건설 가능한 트랙 수
- * @returns 최적 경로 및 엣지 또는 null
- */
-export function findBestEdgeToCity(
-  currentPos: HexCoord,
-  targetCity: HexCoord,
-  availableEdges: number[],
-  board: BoardState,
-  playerId: PlayerId,
-  remainingTracks: number
-): { path: HexCoord[]; edge: number; canComplete: boolean } | null {
-  const candidates: { path: HexCoord[]; edge: number; distance: number }[] = [];
-
-  for (const edge of availableEdges) {
-    const path = findPathToEdge(currentPos, targetCity, edge, board, playerId);
-    if (path.length === 0) continue;
-
-    candidates.push({
-      path,
-      edge,
-      distance: path.length,
-    });
-  }
-
-  if (candidates.length === 0) return null;
-
-  // 거리순 정렬 (가장 가까운 엣지 우선)
-  candidates.sort((a, b) => a.distance - b.distance);
-
-  const best = candidates[0];
-  // 도시까지 연결하려면 path.length + 1 (마지막 헥스에서 도시로)
-  // 단, path에 출발지가 포함되어 있으므로 실제 건설할 트랙 수는 path.length
-  const canComplete = best.distance <= remainingTracks + 1;
-
-  debugLog.verbose(`[AI 트랙] 최적 엣지 선택: edge ${best.edge}, 거리=${best.distance}, 완성가능=${canComplete}`);
-
-  return {
-    path: best.path,
-    edge: best.edge,
-    canComplete,
-  };
 }
 
 /**

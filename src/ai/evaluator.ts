@@ -87,25 +87,6 @@ export function evaluateTrackPosition(
 }
 
 /**
- * 물품 이동의 가치 평가
- *
- * 자기 트랙 링크 수가 핵심 (자기 트랙만 수입 증가 → VP 기여).
- * 상대 트랙 링크는 상대 수입만 올려주므로 가치가 낮음.
- */
-export function evaluateMoveValue(
-  ownLinksCount: number,
-  totalLinksCount: number
-): number {
-  // 자기 트랙 = 직접 수입 증가 (income+1당 +3 VP)
-  let score = ownLinksCount * 25;
-
-  // 배달 완료 보너스 (상대 트랙이라도 배달 자체가 무배달보다 나음)
-  score += totalLinksCount * 5;
-
-  return score;
-}
-
-/**
  * 예상 비용 계산 (턴당)
  */
 export function calculateExpectedExpenses(state: GameState, playerId: PlayerId): number {
@@ -184,26 +165,4 @@ export function calculateMinCashReserve(state: GameState, playerId: PlayerId): n
  */
 export function calculateShareVPCost(additionalShares: number): number {
   return additionalShares * 3;
-}
-
-/**
- * 엔진 업그레이드의 VP 비용-이익 계산
- * 비용: 남은 턴 × $1 추가 유지비 (간접적 주식 발행 유발)
- * 이익: 더 긴 배달 가능 → 수입 증가 가능성
- */
-export function estimateEngineUpgradeVPValue(
-  state: GameState,
-  playerId: PlayerId
-): number {
-  const player = state.players[playerId];
-  if (!player) return -100;
-
-  const remainingTurns = state.maxTurns - state.currentTurn;
-  const additionalExpenseCost = remainingTurns; // $1/턴 추가 비용
-  // 비용이 현금을 줄여 주식 발행 유발 가능성
-  const potentialShareCost = Math.ceil(additionalExpenseCost / 5) * 3;
-  // 배달 거리 +1 = 수입 +1 가능 = +3 VP × 남은 턴
-  const potentialIncomeGain = remainingTurns * 3;
-
-  return potentialIncomeGain - potentialShareCost;
 }

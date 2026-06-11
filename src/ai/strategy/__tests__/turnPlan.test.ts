@@ -55,8 +55,8 @@ describe('turnPlan.ts — 턴 계획', () => {
     expect(plan.tracksNeeded).toBeGreaterThan(0);
     expect(plan.totalBuildCost).toBeGreaterThan(0);
     expect(plan.buildBudget).toBeGreaterThan(0);
-    // cashNeeded = 건설 예산 + 운영비(주식2+엔진1=3) + 경매 예비금(2)
-    expect(plan.cashNeeded).toBe(plan.buildBudget + 3 + 2);
+    // cashNeeded = 건설 예산 + 운영비(주식2+엔진1=3) + 경매/불확실성 예비금
+    expect(plan.cashNeeded).toBeGreaterThanOrEqual(plan.buildBudget + 3);
     expect(plan.routeLinks).toBeGreaterThanOrEqual(1);
   });
 

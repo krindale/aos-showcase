@@ -1285,10 +1285,11 @@ describe('AI 전체 게임 시뮬레이션 (gameStore 기반 통합 테스트)',
     //   0단계(버그 수정): 평균 3.80 / 최소 -16 / 완성 트랙 비율 80.2% / 파산 0건
     //   1단계(moveGoods ΔVP화): 평균 4.70 / 최소 -13 / 완성 트랙 비율 79.0% / 파산 0건
     //   2단계(turnPlan + selectAction ΔVP화): 평균 7.35 / 최소 -16 / 완성 트랙 비율 81.1% / 파산 0건
+    //   3단계(issueShares 계획 기반): 평균 7.53 / 최소 -10 / 완성 트랙 비율 79.7% / 파산 0건
     const BASELINE = {
-      avgAccurateVP: 7.35,
-      minAccurateVP: -16,
-      completedTrackRatio: 0.81,
+      avgAccurateVP: 7.53,
+      minAccurateVP: -10,
+      completedTrackRatio: 0.79,
     };
 
     const TOTAL_RUNS = 20;

@@ -108,8 +108,12 @@ export function clearTurnPlans(): void {
 
 // ===== 내부 계산 =====
 
-/** 경매 예비금 기본값 (4단계에서 가치 기반으로 대체) */
-const DEFAULT_AUCTION_RESERVE = 2;
+/**
+ * 경매 + 불확실성 예비금 기본값
+ * (경매 지불, 지형 오차, 턴 중 경로 변경 등 계획 외 지출의 충격 흡수 버퍼.
+ *  입찰 상한 자체는 4단계에서 가치 기반으로 계산)
+ */
+const DEFAULT_AUCTION_RESERVE = 4;
 
 function computeBudget(
   state: GameState,
@@ -162,10 +166,13 @@ function computeTurnPlan(state: GameState, playerId: PlayerId): TurnPlan {
         }
         tracksNeeded = unbuiltCosts.length;
         totalBuildCost = unbuiltCosts.reduce((a, b) => a + b, 0);
-        // 이번 턴 예산: 경로 순서대로 이번 턴에 지을 수 있는 만큼
-        buildBudget = unbuiltCosts
-          .slice(0, config.buildsPerTurn)
-          .reduce((a, b) => a + b, 0);
+        // 이번 턴 예산: 건설 슬롯 전체 기준 (Engineer 가능성 +1 포함)
+        // 경로에 필요한 트랙이 슬롯보다 적으면, 남는 슬롯은 다음 경로 착공에
+        // 쓰이므로 평지 비용으로 추정해 자금을 확보한다.
+        const slotsToFund = config.buildsPerTurn + 1;
+        const routeCost = unbuiltCosts.slice(0, slotsToFund).reduce((a, b) => a + b, 0);
+        const spareSlots = Math.max(0, slotsToFund - unbuiltCosts.length);
+        buildBudget = routeCost + spareSlots * GAME_CONSTANTS.PLAIN_TRACK_COST;
       }
 
       // 목표 경로의 예상 링크 수 (배달 기회 분석에서)

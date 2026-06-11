@@ -408,17 +408,22 @@ export function getTopPriorityRoutes(
   const allOpportunities = analyzeDeliveryOpportunities(state);
   const connectedCities = getConnectedCities(state, playerId);
 
-  // 점수 계산 후 정렬
-  const playerTracks = state.board.trackTiles.filter(t => t.owner === playerId);
+  // 사전 점수 상위 K개만 정밀 평가 (큰 맵 가지치기)
+  const preciseTargets = [...allOpportunities]
+    .sort((a, b) =>
+      preliminaryScore(b, player.engineLevel, connectedCities) -
+      preliminaryScore(a, player.engineLevel, connectedCities)
+    )
+    .slice(0, PRECISE_EVAL_TOP_K);
 
-  const scored = allOpportunities.map(opp => {
+  const scored = preciseTargets.map(opp => {
     const route: DeliveryRoute = { from: opp.sourceCityId, to: opp.targetCityId, priority: 1 };
 
     if (isRouteComplete(state, route, playerId)) {
       return { route, score: -Infinity };
     }
 
-    const score = scoreOpportunity(opp, state, playerId, player, connectedCities, playerTracks);
+    const score = scoreOpportunity(opp, state, playerId);
     return { route, score };
   });
 

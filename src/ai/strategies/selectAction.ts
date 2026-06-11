@@ -264,6 +264,10 @@ export function hasContestedBuildHex(state: GameState, playerId: PlayerId, plan:
  * Production: 물품 디스플레이에 빈 칸이 있어야 의미 (첫 턴에는 무의미)
  */
 function evaluateProduction(state: GameState): number {
+  // 마지막 턴: 물품 성장 직후 게임이 끝나 새 큐브를 배달할 기회가 없음
+  const config = getMapAIConfig(state);
+  if (state.currentTurn >= config.totalTurns) return 0;
+
   const hasEmptySlot = state.goodsDisplay.slots.some(s => s === null);
   return hasEmptySlot ? 0.3 : 0;
 }

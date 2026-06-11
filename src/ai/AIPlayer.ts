@@ -22,6 +22,7 @@ void _getNextTargetRoute; // 향후 확장용
 
 // 전역 상태 동기화용
 import { getCurrentRoute } from './strategy/state';
+import { refreshTurnPlan } from './strategy/turnPlan';
 
 // 분석 함수들 (순수 함수)
 import {
@@ -103,11 +104,12 @@ export class AIPlayer {
 
     const phase = state.currentPhase;
 
-    // 턴 시작 시 전략 재평가 (issueShares에서만 강제)
+    // 턴 시작 시 턴 계획 수립 (경로 재평가 포함 — refreshTurnPlan이 reevaluateStrategy 호출)
     if (phase === 'issueShares') {
       this._lastEvaluatedTurn = state.currentTurn;
       this._lastEvaluatedPhase = phase;
-      this.updateRoute(state);
+      refreshTurnPlan(state, this.playerId);
+      this._currentRoute = getCurrentRoute(this.playerId);
     }
 
     // Phase별 결정

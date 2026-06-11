@@ -1,14 +1,32 @@
 /**
- * Phase III: 행동 선택 전략
+ * Phase III: 행동 선택 전략 (ΔVP 기반)
  *
- * AI가 동적 화물 기반 전략에 따라 7가지 특수 행동 중 하나를 선택합니다.
+ * 고정 우선순위 배열 대신, 사용 가능한 각 행동의 "예상 VP 증분(ΔVP)"을
+ * 계산해 최대값을 선택합니다. 동점이면 tie-break 순서를 따릅니다.
+ *
+ *  - engineer:   4번째 트랙으로 경로 완성이 가능해지거나 1턴 조기화될 때 가치
+ *  - locomotive: 목표 경로 링크 > 엔진 레벨일 때 해금 배달 가치 − 매턴 비용
+ *  - firstMove:  경합 배달(상대도 같은 큐브 배달 가능)이 있을 때 선점 가치
+ *  - firstBuild: 내 경로의 미건설 헥스가 상대와 경합할 때 선점 가치
+ *  - production/urbanization/turnOrder: 소액 (tie-break 수준)
  */
 
 import { GameState, PlayerId, SpecialAction, GAME_CONSTANTS } from '@/types/game';
-import { countPlayerTracks, calculateMinCashReserve } from '../evaluator';
-import { getCurrentRoute, hasSelectedStrategy } from '../strategy/state';
-import { reevaluateStrategy } from '../strategy/selector';
+import { calculateMinCashReserve } from '../evaluator';
 import { getConnectedCities, analyzeDeliveryOpportunities } from '../strategy/analyzer';
+import { ensureTurnPlan, TurnPlan } from '../strategy/turnPlan';
+import { getMapAIConfig } from '../strategy/mapConfig';
+import {
+  deliveryDeltaVP,
+  engineUpgradeDeltaVP,
+  opponentWeight,
+  VP_PER_INCOME,
+  VP_PER_LINK_TRACK,
+  SAME_TURN_DELIVERY_DISCOUNT,
+  FUTURE_DELIVERY_DISCOUNT,
+  cashToVPRate,
+} from '../strategy/vp';
+import { findReachableDestinations, hexCoordsEqual, getNeighborHex } from '@/utils/hexGrid';
 import { debugLog } from '@/utils/debugConfig';
 
 /**
@@ -32,139 +50,243 @@ function getAvailableActions(state: GameState): SpecialAction[] {
   return allActions.filter(a => !selectedActions.includes(a));
 }
 
+/** 동점 시 선호 순서 (앞이 우선) */
+const TIE_BREAK_ORDER: SpecialAction[] = [
+  'engineer',
+  'firstBuild',
+  'firstMove',
+  'locomotive',
+  'production',
+  'urbanization',
+  'turnOrder',
+];
+
 /**
- * 행동 선택 결정
- *
- * 동적 화물 기반 전략:
- * 1. 엔진 레벨이 목표 경로 거리보다 낮으면 locomotive 우선
- * 2. 트랙이 적으면 engineer 우선
- * 3. 기본 우선순위대로 선택
- *
- * @param state 게임 상태
- * @param playerId AI 플레이어 ID
- * @returns 선택할 행동
+ * 행동 선택 결정 — 모든 후보를 ΔVP로 평가해 최대값 선택
  */
 export function decideAction(state: GameState, playerId: PlayerId): SpecialAction {
-  const player = state.players[playerId];
-  if (!player) {
-    const available = getAvailableActions(state);
-    return available[0] || 'turnOrder';
-  }
-
   const available = getAvailableActions(state);
+  const player = state.players[playerId];
 
   if (available.length === 0) {
     console.error('[AI 행동] 선택 가능한 행동 없음');
     return 'turnOrder';
   }
+  if (!player) return available[0];
 
-  // 경로 없으면 재평가 (과다 호출 방지)
-  if (!hasSelectedStrategy(playerId)) {
-    debugLog.preparation(`[Phase III: 행동 선택] ${player.name}: 경로 없음 - 초기화 및 평가 중...`);
-    reevaluateStrategy(state, playerId);
+  const plan = ensureTurnPlan(state, playerId);
+
+  const ranking = available
+    .map(action => ({
+      action,
+      deltaVP: evaluateActionDeltaVP(state, playerId, action, plan),
+    }))
+    .sort((a, b) => {
+      if (b.deltaVP !== a.deltaVP) return b.deltaVP - a.deltaVP;
+      return TIE_BREAK_ORDER.indexOf(a.action) - TIE_BREAK_ORDER.indexOf(b.action);
+    });
+
+  const best = ranking[0];
+  const routeStr = plan.targetRoute ? `${plan.targetRoute.from}→${plan.targetRoute.to}` : '없음';
+  debugLog.preparation(
+    `[Phase III: 행동 선택] ${player.name}: ${best.action} (ΔVP=${best.deltaVP.toFixed(2)}, 경로=${routeStr}) ` +
+    `[${ranking.map(r => `${r.action}:${r.deltaVP.toFixed(1)}`).join(', ')}]`
+  );
+
+  return best.action;
+}
+
+/**
+ * 행동별 ΔVP 평가
+ */
+function evaluateActionDeltaVP(
+  state: GameState,
+  playerId: PlayerId,
+  action: SpecialAction,
+  plan: TurnPlan,
+): number {
+  switch (action) {
+    case 'engineer': return evaluateEngineer(state, playerId, plan);
+    case 'locomotive': return evaluateLocomotive(state, playerId, plan);
+    case 'firstMove': return evaluateFirstMove(state, playerId);
+    case 'firstBuild': return evaluateFirstBuild(state, playerId, plan);
+    case 'production': return evaluateProduction(state);
+    case 'urbanization': return state.board.towns.length > 0 ? 0.2 : 0;
+    case 'turnOrder': return 0.1;
+    default: return 0;
   }
+}
 
-  // 현재 목표 경로 가져오기
-  const currentRoute = getCurrentRoute(playerId);
-  const routeStr = currentRoute ? `${currentRoute.from}→${currentRoute.to}` : '없음';
+/**
+ * Engineer: 이번 턴 4번째 트랙의 가치
+ *
+ * 핵심 가치는 "경로 완성이 가능해지거나 1턴 빨라지는" 경우.
+ * 단순 진행 가속은 소액 (트랙 자체는 λ에 이미 반영된 등가 교환).
+ */
+function evaluateEngineer(state: GameState, playerId: PlayerId, plan: TurnPlan): number {
+  const player = state.players[playerId];
+  if (!player || !plan.targetRoute) return 0;
 
-  // 완성된 링크 확인 (도시 2개 이상 연결)
-  const connectedCities = getConnectedCities(state, playerId);
-  const hasCompletedLinks = connectedCities.length >= 2;
-
-  const trackCount = countPlayerTracks(state.board, playerId);
+  const config = getMapAIConfig(state);
   const minReserve = calculateMinCashReserve(state, playerId);
-  const isLastTurn = state.currentTurn >= state.maxTurns;
+  // 4개 건설 자금 게이트 (평균 비용으로 4번째 트랙 추정)
+  const avgCost = plan.tracksNeeded > 0 ? plan.totalBuildCost / plan.tracksNeeded : GAME_CONSTANTS.PLAIN_TRACK_COST;
+  const fourTrackCost = plan.buildBudget + avgCost;
+  if (player.cash < fourTrackCost + minReserve) return 0;
 
-  // === 마지막 턴: 배달 극대화 (건설 VP < 수입감소 리스크) ===
-  if (isLastTurn) {
-    // 완성된 링크가 있으면 firstMove 우선 (배달 선점 = 수입 ×3 VP)
-    // 링크가 없으면 건설 우선 (트랙 +1 VP, firstMove는 무의미)
-    const lastTurnPriority: SpecialAction[] = hasCompletedLinks
-      ? [
-        'firstMove',
-        'engineer',
-        'firstBuild',
-        'urbanization',
-        'production',
-        'turnOrder',
-      ]
-      : [
-        'engineer',
-        'firstBuild',
-        'firstMove',
-        'urbanization',
-        'production',
-        'turnOrder',
-      ];
-    const engineerMinCash = 3 * GAME_CONSTANTS.PLAIN_TRACK_COST + minReserve;
-    for (const action of lastTurnPriority) {
-      if (!available.includes(action)) continue;
-      if (action === 'engineer' && player.cash < engineerMinCash) continue;
-      debugLog.preparation(`[Phase III: 행동 선택] ${player.name}: ${action} (마지막 턴, 링크=${hasCompletedLinks}, 경로=${routeStr})`);
-      return action;
+  const turnsAfterThis = Math.max(0, config.totalTurns - state.currentTurn);
+
+  if (plan.tracksNeeded >= 4) {
+    const completableWith3 = plan.tracksNeeded <= (1 + turnsAfterThis) * config.buildsPerTurn;
+    const completableWith4 = plan.tracksNeeded <= 4 + turnsAfterThis * config.buildsPerTurn;
+
+    // engineer가 완성 자체를 가능하게 함 (예: 마지막 턴에 4트랙 필요)
+    if (!completableWith3 && completableWith4) {
+      const deliveryVP = deliveryDeltaVP(state, playerId, plan.routeLinks, 0) * SAME_TURN_DELIVERY_DISCOUNT;
+      return plan.tracksNeeded * VP_PER_LINK_TRACK + deliveryVP;
     }
-    return available[0];
+    if (!completableWith4) return 0; // 어차피 완성 불가 → 4번째 트랙 무의미
+
+    // 완성 턴 조기화 여부 (이번 턴 4개 vs 3개 후 매턴 buildsPerTurn)
+    const turnsToComplete3 = Math.ceil(Math.max(0, plan.tracksNeeded - config.buildsPerTurn) / config.buildsPerTurn);
+    const turnsToComplete4 = Math.ceil(Math.max(0, plan.tracksNeeded - 4) / config.buildsPerTurn);
+    if (turnsToComplete4 < turnsToComplete3) {
+      // 배달 시작 1턴 조기화 ≈ 배달 1회 조기 실현
+      return deliveryDeltaVP(state, playerId, plan.routeLinks, 0) * FUTURE_DELIVERY_DISCOUNT;
+    }
+    return 0.5; // 4번째 트랙이 경로 진행에 직접 기여
   }
 
-  // === 일반 턴 ===
-
-  // 트랙 건설 최소 비용 (locomotive 비교에도 사용)
-  const engineerMinCash = 3 * GAME_CONSTANTS.PLAIN_TRACK_COST + minReserve;
-
-  // 현재 목표 경로가 엔진 레벨보다 긴 경우 locomotive 필요 여부 판단
-  const needsEngineUpgrade = (() => {
-    if (!currentRoute) return false;
+  // 현 경로에 4번째 트랙이 필요 없어도, 남은 건설 슬롯으로 다음 경로를 시작할 수 있음
+  // (경로 완성 후 잔여 건설 기회는 buildTrack의 새 경로 탐색이 활용)
+  if (plan.tracksNeeded >= 1 && turnsAfterThis > 0) {
     const opportunities = analyzeDeliveryOpportunities(state);
-    const finalTo = currentRoute.overallTo || currentRoute.to;
-    const targetOpp = opportunities.find(opp =>
-      opp.sourceCityId === currentRoute.from && opp.targetCityId === finalTo
+    const otherOpportunities = opportunities.filter(opp =>
+      !(opp.sourceCityId === plan.targetRoute!.from && opp.targetCityId === plan.targetRoute!.to)
     );
-    return targetOpp ? targetOpp.distance > player.engineLevel : false;
-  })();
-
-  // 엔진 업그레이드 필요 시 locomotive 우선 선택
-  // income < 2이면 건설에 집중 (엔진 비용 $1/턴 영구 증가, 수입이 충분해야 정당화됨)
-  if (needsEngineUpgrade && hasCompletedLinks && !isLastTurn
-      && available.includes('locomotive')
-      && player.income >= 2) {
-    const futureExp = player.issuedShares + (player.engineLevel + 1);
-    // 건설비 확보 후 비용 감당 가능 여부 체크
-    if (player.cash + Math.max(0, player.income) >= futureExp + engineerMinCash) {
-      debugLog.preparation(`[Phase III: 행동 선택] ${player.name}: locomotive (엔진 업그레이드 필요, 목표=${routeStr})`);
-      return 'locomotive';
+    if (otherOpportunities.length > 0) {
+      return 1.0; // 다음 경로 조기 착공 가치
     }
   }
-  // 트랙이 적으면 engineer 우선 (예비금 포함하여 충분한 현금 필요)
-  // 단, 트랙 0개(첫 건설)이면 firstBuild가 더 유리 (먼저 건설 = 최적 헥스 선점)
-  if (trackCount > 0 && trackCount < 6 && available.includes('engineer') && player.cash >= engineerMinCash) {
-    debugLog.preparation(`[Phase III: 행동 선택] ${player.name}: engineer (트랙 ${trackCount}개, 4개 건설 가능)`);
-    return 'engineer';
+
+  return 0.2; // 진행 가속 소액
+}
+
+/**
+ * Locomotive: 목표 경로 배달을 해금하는 엔진 업그레이드
+ */
+function evaluateLocomotive(state: GameState, playerId: PlayerId, plan: TurnPlan): number {
+  const player = state.players[playerId];
+  if (!player || !plan.targetRoute) return 0;
+
+  const config = getMapAIConfig(state);
+  if (plan.routeLinks <= player.engineLevel) return 0; // 현재 엔진으로 충분
+
+  // 실현 시점: 이번 턴 완성 가능하면 같은 턴 배달, 아니면 미래
+  const turnsAfterThis = Math.max(0, config.totalTurns - state.currentTurn);
+  const completableThisTurn = plan.tracksNeeded <= config.buildsPerTurn;
+  if (!completableThisTurn && turnsAfterThis === 0) return 0; // 마지막 턴 + 미래 실현 = 무가치
+  // 경로 자체가 남은 턴 안에 완성 불가능하면 업그레이드도 무의미
+  const completable = plan.tracksNeeded <= (1 + turnsAfterThis) * config.buildsPerTurn;
+  if (!completable) return 0;
+
+  const prob = completableThisTurn ? SAME_TURN_DELIVERY_DISCOUNT : FUTURE_DELIVERY_DISCOUNT;
+  const unlockedVP = deliveryDeltaVP(state, playerId, plan.routeLinks, 0);
+  // 생존 시나리오에 이번 턴 건설 예산을 반영 (건설 후 현금으로 비용을 감당해야 함)
+  const value = engineUpgradeDeltaVP(state, playerId, unlockedVP, prob, plan.buildBudget);
+
+  return value === -Infinity ? 0 : Math.max(0, value);
+}
+
+/**
+ * FirstMove: 경합 배달이 있을 때 선점 가치
+ * (내 income 확보 + 상대 income 차단)
+ */
+function evaluateFirstMove(state: GameState, playerId: PlayerId): number {
+  const player = state.players[playerId];
+  if (!player) return 0;
+
+  // 배달 가능한 네트워크가 없으면 무의미
+  const connectedCities = getConnectedCities(state, playerId);
+  if (connectedCities.length < 2) return 0;
+
+  if (hasContestedDelivery(state, playerId)) {
+    // 선점 가치: 경합 큐브를 빼앗겨도 보통 다른 배달이 가능하므로
+    // 실제 스윙은 income 1 차이의 절반 수준으로 평가
+    return VP_PER_INCOME * (1 + opponentWeight(state)) / 4;
   }
 
-  // 완성된 링크가 있고 수입이 있으면 firstMove 우선 (배달 선점 = 수입 ×3 VP)
-  // 링크가 없거나 수입이 0이면 건설 우선 (트랙을 더 지어야 수입 발생)
-  const hasProvenIncome = hasCompletedLinks && player.income >= 2;
-  const fallbackPriority: SpecialAction[] = hasProvenIncome
-    ? (needsEngineUpgrade
-      ? ['firstMove', 'locomotive', 'engineer', 'firstBuild', 'urbanization', 'production', 'turnOrder']
-      : ['firstMove', 'firstBuild', 'engineer', 'urbanization', 'production', 'turnOrder', 'locomotive'])
-    : ['firstBuild', 'engineer', 'firstMove', 'urbanization', 'production', 'turnOrder', 'locomotive'];
+  return 0.2; // 경합 없으면 순서 우위는 미미
+}
 
-  for (const action of fallbackPriority) {
-    if (!available.includes(action)) continue;
-    if (action === 'engineer' && player.cash < engineerMinCash) continue;
-    if (action === 'locomotive') {
-      // locomotive는 엔진3 이상이면 스킵 (tutorial max), 완성 링크 없으면 스킵
-      // income < 2이면 스킵 (수입 불안정 상태에서 비용만 증가 → 파산 위험)
-      if (player.engineLevel >= 3 || !hasCompletedLinks || player.income < 2) continue;
-      const futureExp = player.issuedShares + (player.engineLevel + 1);
-      // 현금+수입으로 비용 감당 불가하면 스킵
-      if (player.cash + Math.max(0, player.income) < futureExp) continue;
+/**
+ * FirstBuild: 내 경로의 미건설 헥스가 상대 트랙과 인접(경합 가능)할 때 선점 가치
+ */
+function evaluateFirstBuild(state: GameState, playerId: PlayerId, plan: TurnPlan): number {
+  if (!plan.fullPath || plan.tracksNeeded === 0) return 0;
+
+  const { board } = state;
+  const lambda = cashToVPRate(state, playerId);
+
+  for (const coord of plan.fullPath) {
+    const isCity = board.cities.some(c => hexCoordsEqual(c.coord, coord));
+    if (isCity) continue;
+    const occupied = board.trackTiles.some(t => hexCoordsEqual(t.coord, coord));
+    if (occupied) continue;
+
+    // 미건설 헥스가 상대 트랙과 인접 → 상대가 막거나 선점할 수 있음
+    for (let edge = 0; edge < 6; edge++) {
+      const neighbor = getNeighborHex(coord, edge);
+      const oppTrack = board.trackTiles.some(
+        t => t.owner !== null && t.owner !== playerId && hexCoordsEqual(t.coord, neighbor)
+      );
+      if (oppTrack) {
+        // 막히면 우회 비용(~$2) 발생 → 선점 가치 ≈ 우회 비용 × λ
+        return 2 * lambda;
+      }
     }
-    debugLog.preparation(`[Phase III: 행동 선택] ${player.name}: ${action} (경로=${routeStr}, 기본 우선순위)`);
-    return action;
   }
 
-  return available[0];
+  return 0.3; // 경합 없으면 소액 (건설 순서 우위)
+}
+
+/**
+ * Production: 물품 디스플레이에 빈 칸이 있어야 의미 (첫 턴에는 무의미)
+ */
+function evaluateProduction(state: GameState): number {
+  const hasEmptySlot = state.goodsDisplay.slots.some(s => s === null);
+  return hasEmptySlot ? 0.3 : 0;
+}
+
+/**
+ * 나와 상대가 같은 큐브를 같은 목적지로 배달할 수 있는지 (경합 배달 존재 여부)
+ */
+function hasContestedDelivery(state: GameState, playerId: PlayerId): boolean {
+  const player = state.players[playerId];
+  if (!player) return false;
+
+  const { board } = state;
+  const opponents = state.activePlayers.filter(id => id !== playerId);
+
+  for (const city of board.cities) {
+    for (const cubeColor of city.cubes) {
+      const myReach = findReachableDestinations(
+        city.coord, board, playerId, player.engineLevel, cubeColor
+      );
+      if (myReach.length === 0) continue;
+
+      for (const oppId of opponents) {
+        const opp = state.players[oppId];
+        if (!opp || opp.eliminated) continue;
+        const oppReach = findReachableDestinations(
+          city.coord, board, oppId, opp.engineLevel, cubeColor
+        );
+        if (oppReach.some(d => myReach.some(m => hexCoordsEqual(m.coord, d.coord)))) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
 }

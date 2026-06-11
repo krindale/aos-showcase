@@ -1284,10 +1284,11 @@ describe('AI 전체 게임 시뮬레이션 (gameStore 기반 통합 테스트)',
     // 단계별 측정 이력 (갱신 시 추가):
     //   0단계(버그 수정): 평균 3.80 / 최소 -16 / 완성 트랙 비율 80.2% / 파산 0건
     //   1단계(moveGoods ΔVP화): 평균 4.70 / 최소 -13 / 완성 트랙 비율 79.0% / 파산 0건
+    //   2단계(turnPlan + selectAction ΔVP화): 평균 7.35 / 최소 -16 / 완성 트랙 비율 81.1% / 파산 0건
     const BASELINE = {
-      avgAccurateVP: 4.7,
-      minAccurateVP: -13,
-      completedTrackRatio: 0.79,
+      avgAccurateVP: 7.35,
+      minAccurateVP: -16,
+      completedTrackRatio: 0.81,
     };
 
     const TOTAL_RUNS = 20;
@@ -1295,6 +1296,7 @@ describe('AI 전체 게임 시뮬레이션 (gameStore 기반 통합 테스트)',
     let totalBuiltTracks = 0;
     let totalCompletedTracks = 0;
     let bankruptCount = 0;
+    const actionCounts: Record<string, number> = {};
 
     for (let seed = 1; seed <= TOTAL_RUNS; seed++) {
       clearCurrentRoutes();
@@ -1310,9 +1312,14 @@ describe('AI 전체 게임 시뮬레이션 (gameStore 기반 통합 테스트)',
         allAccurateVPs.push(result.accurateVP[pid] ?? 0);
         totalBuiltTracks += result.totalTracks[pid] ?? 0;
         totalCompletedTracks += result.completedTracks[pid] ?? 0;
+        for (const turn of result.financials[pid]) {
+          const a = turn.actionChosen ?? 'none';
+          actionCounts[a] = (actionCounts[a] ?? 0) + 1;
+        }
       }
       if (result.anyBankrupt) bankruptCount++;
     }
+    console.log(`  행동 분포: ${JSON.stringify(actionCounts)}`);
 
     const avgVP = allAccurateVPs.reduce((a, b) => a + b, 0) / allAccurateVPs.length;
     const minVP = Math.min(...allAccurateVPs);

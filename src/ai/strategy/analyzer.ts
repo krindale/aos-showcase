@@ -166,6 +166,23 @@ export function clearPathCache(): void {
 }
 
 /**
+ * 지형에 따른 트랙 건설 비용 (공용 헬퍼)
+ */
+export function getTerrainBuildCost(coord: HexCoord, board: BoardState): number {
+  const hexTile = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
+  if (!hexTile) return GAME_CONSTANTS.PLAIN_TRACK_COST;
+
+  switch (hexTile.terrain) {
+    case 'river':
+      return GAME_CONSTANTS.RIVER_TRACK_COST;
+    case 'mountain':
+      return GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
+    default:
+      return GAME_CONSTANTS.PLAIN_TRACK_COST;
+  }
+}
+
+/**
  * 좌표가 최적 경로상에 있는지 확인
  */
 export function isOnOptimalPath(

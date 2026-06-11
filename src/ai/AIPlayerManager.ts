@@ -9,6 +9,7 @@
 
 import { GameState, PlayerId } from '@/types/game';
 import { AIPlayer, AIDecision } from './AIPlayer';
+import { clearTurnPlans } from './strategy/turnPlan';
 
 export class AIPlayerManager {
   private static instance: AIPlayerManager | null = null;
@@ -82,6 +83,7 @@ export class AIPlayerManager {
     Array.from(this.players.values()).forEach(player => {
       player.reset();
     });
+    clearTurnPlans();
   }
 
   /**
@@ -90,6 +92,7 @@ export class AIPlayerManager {
   clear(): void {
     console.log(`[AIPlayerManager] 모든 AI 플레이어 제거 (${this.players.size}명)`);
     this.players.clear();
+    clearTurnPlans();
   }
 
   /**

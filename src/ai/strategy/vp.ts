@@ -148,12 +148,14 @@ export function deliveryDeltaVP(
  *
  * @param unlockedDeliveryVP 업그레이드로 해금되는 배달의 ΔVP (호출자가 deliveryDeltaVP로 계산)
  * @param realizationProb 해금 배달의 실현 확률 (같은 턴 실현=0.9, 다음 턴 이후=0.7)
+ * @param plannedSpending 이번 턴 예정된 추가 지출 (건설 예산 등 — 생존 시나리오에 반영)
  */
 export function engineUpgradeDeltaVP(
   state: GameState,
   playerId: PlayerId,
   unlockedDeliveryVP: number,
   realizationProb: number = FUTURE_DELIVERY_DISCOUNT,
+  plannedSpending: number = 0,
 ): number {
   const player = state.players[playerId];
   if (!player) return -Infinity;
@@ -171,5 +173,18 @@ export function engineUpgradeDeltaVP(
   const futureExpenses = player.issuedShares + (player.engineLevel + 1);
   if (player.cash + Math.max(0, player.income) < futureExpenses) return -Infinity;
 
-  return unlockedDeliveryVP * realizationProb - costVP;
+  // 비관 시나리오(해금 배달 실패 → income 정체) 1턴 시야 생존 시뮬레이션:
+  //  - 현금 부족분 $1 = income -1 = -3VP (수입 감소)
+  //  - income이 음수로 떨어지면 파산 → 절대 불가 (-Infinity)
+  //  - 수입 감소 비용은 "배달 실패 확률(1-prob)"만큼만 기대 비용으로 차감
+  // (2턴 시야는 과보수적 — 다음 턴에는 배달/주식 발행 등 회복 수단이 있음)
+  let shortfallVP = 0;
+  const pessimisticCash = player.cash - plannedSpending + Math.max(0, player.income) - futureExpenses;
+  if (pessimisticCash < 0) {
+    const incomeAfterReduction = Math.max(0, player.income) + pessimisticCash;
+    if (incomeAfterReduction < 0) return -Infinity; // 파산 위험은 확률과 무관하게 차단
+    shortfallVP = -pessimisticCash * VP_PER_INCOME;
+  }
+
+  return unlockedDeliveryVP * realizationProb - costVP - shortfallVP * (1 - realizationProb);
 }

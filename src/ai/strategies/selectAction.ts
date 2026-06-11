@@ -225,8 +225,21 @@ function evaluateFirstMove(state: GameState, playerId: PlayerId): number {
 function evaluateFirstBuild(state: GameState, playerId: PlayerId, plan: TurnPlan): number {
   if (!plan.fullPath || plan.tracksNeeded === 0) return 0;
 
+  if (hasContestedBuildHex(state, playerId, plan)) {
+    // 막히면 우회 비용(~$2) 발생 → 선점 가치 ≈ 우회 비용 × λ
+    return 2 * cashToVPRate(state, playerId);
+  }
+
+  return 0.3; // 경합 없으면 소액 (건설 순서 우위)
+}
+
+/**
+ * 내 경로의 미건설 헥스가 상대 트랙과 인접해 경합 가능한지
+ * (auction의 1등 순서 가치 평가에서도 재사용)
+ */
+export function hasContestedBuildHex(state: GameState, playerId: PlayerId, plan: TurnPlan): boolean {
+  if (!plan.fullPath) return false;
   const { board } = state;
-  const lambda = cashToVPRate(state, playerId);
 
   for (const coord of plan.fullPath) {
     const isCity = board.cities.some(c => hexCoordsEqual(c.coord, coord));
@@ -240,14 +253,11 @@ function evaluateFirstBuild(state: GameState, playerId: PlayerId, plan: TurnPlan
       const oppTrack = board.trackTiles.some(
         t => t.owner !== null && t.owner !== playerId && hexCoordsEqual(t.coord, neighbor)
       );
-      if (oppTrack) {
-        // 막히면 우회 비용(~$2) 발생 → 선점 가치 ≈ 우회 비용 × λ
-        return 2 * lambda;
-      }
+      if (oppTrack) return true;
     }
   }
 
-  return 0.3; // 경합 없으면 소액 (건설 순서 우위)
+  return false;
 }
 
 /**
@@ -260,8 +270,9 @@ function evaluateProduction(state: GameState): number {
 
 /**
  * 나와 상대가 같은 큐브를 같은 목적지로 배달할 수 있는지 (경합 배달 존재 여부)
+ * (auction의 1등 순서 가치 평가에서도 재사용)
  */
-function hasContestedDelivery(state: GameState, playerId: PlayerId): boolean {
+export function hasContestedDelivery(state: GameState, playerId: PlayerId): boolean {
   const player = state.players[playerId];
   if (!player) return false;
 

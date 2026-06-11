@@ -268,7 +268,7 @@ export default function ActionsPage() {
       {/* Hero Section */}
       <section
         ref={heroRef}
-        className="relative pt-32 pb-20 overflow-hidden hex-pattern"
+        className="snap-section relative pt-32 pb-20 overflow-hidden hex-pattern"
       >
         <div className="absolute inset-0 bg-gradient-to-b from-background via-background-secondary to-background" />
 
@@ -295,7 +295,7 @@ export default function ActionsPage() {
       </section>
 
       {/* Action Cards Grid */}
-      <section className="py-24 relative">
+      <section className="snap-section py-24 relative">
         <div className="absolute inset-0 hex-pattern opacity-30" />
 
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

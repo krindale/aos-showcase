@@ -19,6 +19,11 @@
 
 html {
   scroll-behavior: smooth;
+  scroll-snap-type: y proximity;
+}
+
+.snap-section {
+  scroll-snap-align: start;
 }
 
 body {

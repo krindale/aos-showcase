@@ -120,7 +120,7 @@ export default function FeatureCards() {
   const [selectedFeature, setSelectedFeature] = useState<typeof features[0] | null>(null);
 
   return (
-    <section ref={ref} className="py-32 relative overflow-hidden">
+    <section ref={ref} className="snap-section py-32 relative overflow-hidden">
       {/* Background */}
       <div className="absolute inset-0 bg-background" />
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[1000px] bg-accent/5 rounded-full blur-3xl" />

@@ -181,7 +181,7 @@ export default function MapsPage() {
       {/* Hero Section */}
       <section
         ref={heroRef}
-        className="relative pt-32 pb-12 overflow-hidden"
+        className="snap-section relative pt-32 pb-12 overflow-hidden"
       >
         <div className="absolute inset-0 bg-gradient-to-b from-background via-background-secondary to-background" />
 
@@ -206,7 +206,7 @@ export default function MapsPage() {
       </section>
 
       {/* Map Slider */}
-      <section className="py-8 relative">
+      <section className="snap-section py-8 relative">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Fixed height container to prevent layout shifts */}
           <div className="h-[750px] relative">
@@ -393,7 +393,7 @@ export default function MapsPage() {
       </section>
 
       {/* Map Grid */}
-      <section className="py-24 relative">
+      <section className="snap-section py-24 relative">
         <div className="absolute inset-0 hex-pattern opacity-30" />
 
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

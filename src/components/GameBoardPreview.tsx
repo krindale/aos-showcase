@@ -397,7 +397,7 @@ export default function GameBoardPreview() {
   const trainPos = getTrainPosition();
 
   return (
-    <section ref={ref} className="py-24 relative overflow-hidden">
+    <section ref={ref} className="snap-section py-24 relative overflow-hidden">
       <div className="absolute inset-0 bg-[#1a1a1f]" />
 
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

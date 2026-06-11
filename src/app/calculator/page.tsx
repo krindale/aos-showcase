@@ -936,7 +936,7 @@ export default function CalculatorPage() {
       {/* Hero Section */}
       <section
         ref={heroRef}
-        className="relative pt-32 pb-12 overflow-hidden"
+        className="snap-section relative pt-32 pb-12 overflow-hidden"
       >
         <div className="absolute inset-0 bg-gradient-to-b from-background via-background-secondary to-background" />
 
@@ -962,7 +962,7 @@ export default function CalculatorPage() {
       </section>
 
       {/* Calculator Section */}
-      <section className="py-12 relative">
+      <section className="snap-section py-12 relative">
         <div className="absolute inset-0 hex-pattern opacity-30" />
 
         <div className="relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">

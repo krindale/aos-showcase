@@ -40,7 +40,7 @@ export default function HeroSection() {
   return (
     <section
       ref={containerRef}
-      className="relative min-h-screen flex items-center justify-center overflow-hidden hex-pattern"
+      className="snap-section relative min-h-screen flex items-center justify-center overflow-hidden hex-pattern"
     >
       {/* Background layers */}
       <div className="absolute inset-0 bg-hero-gradient" />

@@ -240,7 +240,7 @@ export default function GameplayPage() {
       {/* Hero Section */}
       <section
         ref={heroRef}
-        className="relative pt-32 pb-20 overflow-hidden hex-pattern"
+        className="snap-section relative pt-32 pb-20 overflow-hidden hex-pattern"
       >
         <div className="absolute inset-0 bg-gradient-to-b from-background via-background-secondary to-background" />
 
@@ -267,7 +267,7 @@ export default function GameplayPage() {
       </section>
 
       {/* Turn Sequence Timeline - 4 Categories */}
-      <section ref={timelineRef} className="py-24 relative" id="turn">
+      <section ref={timelineRef} className="snap-section py-24 relative" id="turn">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div
             initial={{ opacity: 0, y: 30 }}
@@ -441,7 +441,7 @@ export default function GameplayPage() {
       {/* Track Building Demo */}
       <section
         ref={trackRef}
-        className="py-24 bg-background-secondary relative"
+        className="snap-section py-24 bg-background-secondary relative"
         id="track"
       >
         <div className="absolute inset-0 hex-pattern opacity-30" />
@@ -676,7 +676,7 @@ export default function GameplayPage() {
       </section>
 
       {/* Goods Delivery Section */}
-      <section className="py-24 relative" id="goods">
+      <section className="snap-section py-24 relative" id="goods">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div
             initial={{ opacity: 0, y: 30 }}

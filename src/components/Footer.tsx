@@ -27,7 +27,7 @@ const footerLinks = [
 
 export default function Footer() {
   return (
-    <footer className="relative bg-background-secondary border-t border-glass-border">
+    <footer className="snap-section relative bg-background-secondary border-t border-glass-border">
       {/* Decorative gradient */}
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/50 to-transparent" />
 

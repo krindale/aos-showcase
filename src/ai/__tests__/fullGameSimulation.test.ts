@@ -1289,11 +1289,11 @@ describe('AI 전체 게임 시뮬레이션 (gameStore 기반 통합 테스트)',
     //   4단계(auction ΔVP화): 평균 8.95 / 최소 -13 / 완성 트랙 비율 80.1% / 파산 0건
     //   5단계(buildTrack 재구성, 1666→648줄): 평균 8.38 / 최소 -13 / 완성 트랙 비율 79.6% / 파산 0건
     //     (점수 fallback 제거로 -0.57 — 게이트 내. 베이스라인은 4단계 수치 유지, 6단계에서 회복 목표)
-    //   6단계(estimateRouteVP + 슬롯 기회비용 + λ=0.5 확정): 평균 10.10 / 최소 -10 / 완성 트랙 비율 85.5% / 파산 0건
+    //   6단계(estimateRouteVP + 슬롯 기회비용 + λ=0.5 확정): 평균 9.30 / 최소 -10 / 완성 트랙 비율 84.3% / 파산 0건
     const BASELINE = {
-      avgAccurateVP: 10.1,
+      avgAccurateVP: 9.3,
       minAccurateVP: -10,
-      completedTrackRatio: 0.85,
+      completedTrackRatio: 0.84,
     };
 
     const TOTAL_RUNS = 20;

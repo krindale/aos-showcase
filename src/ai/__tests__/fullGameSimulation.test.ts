@@ -1281,12 +1281,13 @@ describe('AI 전체 게임 시뮬레이션 (gameStore 기반 통합 테스트)',
   // accurateVP = 룰북 기준 VP (완성 링크 트랙만 +1, 미완성 트랙 0).
   // completedTrackRatio = 완성 링크 트랙 / 전체 건설 트랙 (산발 건설의 직접 지표).
   it('VP 회귀 베이스라인: 고정 시드 20개 (평균 VP / 완성 트랙 비율)', () => {
-    // 0단계(버그 수정 직후) 측정값 — 갱신 이력은 git history 참조
-    // 측정: 평균 3.80 / 최소 -16 / 완성 트랙 비율 80.2% / 파산 0건
+    // 단계별 측정 이력 (갱신 시 추가):
+    //   0단계(버그 수정): 평균 3.80 / 최소 -16 / 완성 트랙 비율 80.2% / 파산 0건
+    //   1단계(moveGoods ΔVP화): 평균 4.70 / 최소 -13 / 완성 트랙 비율 79.0% / 파산 0건
     const BASELINE = {
-      avgAccurateVP: 3.8,
-      minAccurateVP: -16,
-      completedTrackRatio: 0.80,
+      avgAccurateVP: 4.7,
+      minAccurateVP: -13,
+      completedTrackRatio: 0.79,
     };
 
     const TOTAL_RUNS = 20;

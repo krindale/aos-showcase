@@ -360,9 +360,30 @@ function estimateRouteLinkCount(
   return Math.max(1, Math.round(hexDistance(from, to) / 3));
 }
 
+// 배달 기회 분석 메모이즈: 같은 보드 상태(큐브 배치 + 트랙 수)에서는 결과가 동일한데
+// 한 턴에 여러 Phase(turnPlan/selector/selectAction/moveGoods)가 반복 호출하므로 캐시한다.
+// 키 계산은 도시 수에 선형 — 전수 분석(도시×큐브×목적지 + 링크 추정 BFS)보다 훨씬 싸다.
+let opportunitiesCache: { key: string; result: DeliveryOpportunity[] } | null = null;
+
+function getOpportunitiesCacheKey(state: GameState): string {
+  const cubeSignature = state.board.cities
+    .map(c => `${c.id}:${c.cubes.join(',')}`)
+    .join('|');
+  return `${state.currentTurn}-t${state.board.trackTiles.length}-${cubeSignature}`;
+}
+
+export function clearOpportunitiesCache(): void {
+  opportunitiesCache = null;
+}
+
 export function analyzeDeliveryOpportunities(
   state: GameState
 ): DeliveryOpportunity[] {
+  const cacheKey = getOpportunitiesCacheKey(state);
+  if (opportunitiesCache && opportunitiesCache.key === cacheKey) {
+    return opportunitiesCache.result;
+  }
+
   const opportunities: DeliveryOpportunity[] = [];
   const { board } = state;
 
@@ -392,6 +413,7 @@ export function analyzeDeliveryOpportunities(
     });
   }
 
+  opportunitiesCache = { key: cacheKey, result: opportunities };
   return opportunities;
 }
 

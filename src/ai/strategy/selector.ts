@@ -98,22 +98,23 @@ export function getNextTargetRoute(
     )
     .slice(0, PRECISE_EVAL_TOP_K);
 
-  const scoredOpps = preciseTargets.map(opp => ({
+  const allScoredOpps = preciseTargets.map(opp => ({
     opp,
     score: scoreOpportunity(opp, state, playerId),
   }));
+  // -Infinity(완성 불가능)를 정렬 전에 제거 — (-Inf) - (-Inf) = NaN 비교로 정렬이 깨지는 것 방지
+  const scoredOpps = allScoredOpps.filter(s => s.score > -Infinity);
   scoredOpps.sort((a, b) => b.score - a.score);
 
   // 상위 5개 후보 로그
   const opponents = state.activePlayers.filter(id => id !== playerId);
   const oppRoutes = opponents.map(id => ({ id, route: getCurrentRoute(id) }));
-  debugLog.trackBuilding(`[AI 경로선택] ${player.name} Turn ${state.currentTurn}: 상대 경로=${oppRoutes.map(r => r.route ? `${r.id}:${r.route.from}→${r.route.to}` : `${r.id}:없음`).join(', ')}`);
+  debugLog.trackBuilding(`[AI 경로선택] ${player.name} Turn ${state.currentTurn}: 상대 경로=${oppRoutes.map(r => r.route ? `${r.id}:${r.route.from}→${r.route.to}` : `${r.id}:없음`).join(', ')} (완성 불가 제외 ${allScoredOpps.length - scoredOpps.length}건)`);
   for (const { opp, score } of scoredOpps.slice(0, 5)) {
-    debugLog.trackBuilding(`  ${opp.sourceCityId}→${opp.targetCityId} (${opp.cubeColor}, 거리${opp.distance}) ΔVP=${score === -Infinity ? '-∞' : score.toFixed(1)}`);
+    debugLog.trackBuilding(`  ${opp.sourceCityId}→${opp.targetCityId} (${opp.cubeColor}, 거리${opp.distance}) ΔVP=${score.toFixed(1)}`);
   }
 
-  // 완성 불가능(-Infinity) 경로 제거 후 ΔVP 순으로
-  const viableOpps = scoredOpps.filter(s => s.score > -Infinity).map(s => s.opp);
+  const viableOpps = scoredOpps.map(s => s.opp);
 
   // 4. 도달 가능 경로 필터
   // 첫 턴: 엔진 레벨까지만 허용 (이번 턴 즉시 배달 가능한 경로만)

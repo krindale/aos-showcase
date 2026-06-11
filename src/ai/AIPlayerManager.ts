@@ -10,6 +10,16 @@
 import { GameState, PlayerId } from '@/types/game';
 import { AIPlayer, AIDecision } from './AIPlayer';
 import { clearTurnPlans } from './strategy/turnPlan';
+import { clearCurrentRoutes } from './strategy/state';
+import { clearPathCache, clearOpportunitiesCache } from './strategy/analyzer';
+
+/** 게임 간 모듈 레벨 AI 상태 전체 정리 (이전 게임의 경로/캐시 누출 방지) */
+function clearModuleLevelAIState(): void {
+  clearTurnPlans();
+  clearCurrentRoutes();
+  clearPathCache();
+  clearOpportunitiesCache();
+}
 
 export class AIPlayerManager {
   private static instance: AIPlayerManager | null = null;
@@ -83,7 +93,7 @@ export class AIPlayerManager {
     Array.from(this.players.values()).forEach(player => {
       player.reset();
     });
-    clearTurnPlans();
+    clearModuleLevelAIState();
   }
 
   /**
@@ -92,7 +102,7 @@ export class AIPlayerManager {
   clear(): void {
     console.log(`[AIPlayerManager] 모든 AI 플레이어 제거 (${this.players.size}명)`);
     this.players.clear();
-    clearTurnPlans();
+    clearModuleLevelAIState();
   }
 
   /**

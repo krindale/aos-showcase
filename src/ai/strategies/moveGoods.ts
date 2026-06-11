@@ -10,9 +10,8 @@
  */
 
 import { GameState, PlayerId, HexCoord, CubeColor, City } from '@/types/game';
-import { findReachableDestinations, findLongestPath, hexCoordsEqual } from '@/utils/hexGrid';
-import { getSelectedStrategy } from '../strategy/state';
-import { getNextTargetRoute } from '../strategy/selector';
+import { findReachableDestinations, findLongestPath, hexCoordsEqual, countPathLinks } from '@/utils/hexGrid';
+import { getSelectedStrategy, getCurrentRoute } from '../strategy/state';
 import { getConnectedCities } from '../strategy/analyzer';
 import { getMapAIConfig } from '../strategy/mapConfig';
 import {
@@ -56,9 +55,11 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
     return { action: 'skip' };
   }
 
-  // 전략 및 목표 경로 가져오기 (tie-break용)
+  // 전략 및 목표 경로 가져오기 (tie-break용 — 조회만, 상태 변경 없음)
+  // 주의: getNextTargetRoute는 setCurrentRoute 부수효과 + A* 비용이 있으므로
+  // buildTrack에서 커밋된 경로를 O(1)로 읽기만 한다 (경로 커밋 보존)
   const strategy = getSelectedStrategy(playerId);
-  const targetRoute = getNextTargetRoute(state, playerId);
+  const targetRoute = getCurrentRoute(playerId);
 
   const { board } = state;
   const candidates: MoveCandidate[] = [];
@@ -88,7 +89,7 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
 
         if (!path || path.length < 2) continue;
 
-        const linksCount = countTotalLinksInPath(path, board);
+        const linksCount = countPathLinks(path, board);
         const ownTrackCount = countOwnLinksInPath(path, board, playerId);
 
         // 배달의 기본 ΔVP (내 income VP + 현금흐름 − 상대 income 페널티)
@@ -249,7 +250,7 @@ function findBestUnlockedDelivery(
         const path = findLongestPath(city.coord, destCity.coord, board, playerId, engineLevel, cubeColor);
         if (!path || path.length < 2) continue;
 
-        const totalLinks = countTotalLinksInPath(path, board);
+        const totalLinks = countPathLinks(path, board);
         const ownLinks = countOwnLinksInPath(path, board, playerId);
 
         // 현재 엔진으로도 가능한 배달은 "해금"이 아님
@@ -267,21 +268,6 @@ function findBestUnlockedDelivery(
   }
 
   return best;
-}
-
-/**
- * 경로에서 전체 링크 수 계산 (도시/마을 → 도시/마을 사이의 구간 수)
- */
-function countTotalLinksInPath(path: HexCoord[], board: { cities: City[]; towns: { coord: HexCoord }[] }): number {
-  let links = 0;
-  for (let i = 1; i < path.length; i++) {
-    const coord = path[i];
-    if (board.cities.some(c => hexCoordsEqual(c.coord, coord)) ||
-      board.towns.some(t => hexCoordsEqual(t.coord, coord))) {
-      links++;
-    }
-  }
-  return links;
 }
 
 /**

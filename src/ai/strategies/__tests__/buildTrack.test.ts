@@ -3,53 +3,13 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { calculateMinFallbackScore, findNetworkExpansionTarget } from '../buildTrack';
+import { findNetworkExpansionTarget } from '../buildTrack';
 import { resetStrategyStates } from '../../strategy/state';
 import {
   createMockGameState,
   addTrack,
 } from '../../__tests__/helpers/mockState';
 import type { GameState } from '@/types/game';
-
-describe('calculateMinFallbackScore', () => {
-  let baseState: GameState;
-
-  beforeEach(() => {
-    resetStrategyStates();
-    baseState = createMockGameState();
-  });
-
-  describe('첫 트랙인 경우', () => {
-    it('트랙이 없으면 10 반환', () => {
-      // 트랙 없는 상태
-      const result = calculateMinFallbackScore(baseState, 'player1', []);
-
-      expect(result).toBe(10);
-    });
-  });
-
-  describe('연결된 도시가 있는 경우', () => {
-    it('트랙 있고 연결된 도시가 있으면 15 반환', () => {
-      // 트랙 추가
-      const state = addTrack(baseState, { col: 3, row: 0 }, [3, 0], 'player1');
-
-      const result = calculateMinFallbackScore(state, 'player1', ['Pittsburgh']);
-
-      expect(result).toBe(15);
-    });
-  });
-
-  describe('기본 상황', () => {
-    it('트랙 있고 연결된 도시가 없으면 20 반환', () => {
-      // 트랙 추가하지만 도시와 연결 안됨 (미완성 구간)
-      const state = addTrack(baseState, { col: 2, row: 2 }, [3, 0], 'player1');
-
-      const result = calculateMinFallbackScore(state, 'player1', []);
-
-      expect(result).toBe(20);
-    });
-  });
-});
 
 describe('findNetworkExpansionTarget', () => {
   let baseState: GameState;

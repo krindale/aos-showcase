@@ -1,6 +1,6 @@
 import { GameState, PlayerId, HexCoord, CubeColor, BoardState, GAME_CONSTANTS } from '@/types/game';
 import { debugLog } from '@/utils/debugConfig';
-import { DeliveryOpportunity, DeliveryRoute, AIStrategy } from './types';
+import { DeliveryOpportunity, DeliveryRoute } from './types';
 import { getNeighborHex, hexCoordsEqual, hexDistance, getConnectedNeighbors, hexToKey, getConnectingEdge, getOppositeEdge } from '@/utils/hexGrid';
 
 // 경로 캐시 (출발지-목적지 → 경로)
@@ -8,9 +8,11 @@ const pathCache: Map<string, HexCoord[]> = new Map();
 
 /**
  * 캐시 키 생성
+ * 트랙 수를 키에 포함해 보드가 변하면 자동으로 캐시 미스가 나도록 함
+ * (현재 비용 함수는 지형만 보지만, 향후 트랙 반영 시에도 stale 경로를 반환하지 않도록 방어)
  */
-function getCacheKey(from: HexCoord, to: HexCoord): string {
-  return `${from.col},${from.row}-${to.col},${to.row}`;
+function getCacheKey(from: HexCoord, to: HexCoord, board: BoardState): string {
+  return `${from.col},${from.row}-${to.col},${to.row}-t${board.trackTiles.length}`;
 }
 
 /**
@@ -27,7 +29,7 @@ export function findOptimalPath(
   board: BoardState
 ): HexCoord[] {
   // 캐시 확인
-  const cacheKey = getCacheKey(from, to);
+  const cacheKey = getCacheKey(from, to, board);
   const cached = pathCache.get(cacheKey);
   if (cached) return cached;
 
@@ -161,6 +163,23 @@ export function findOptimalPath(
  */
 export function clearPathCache(): void {
   pathCache.clear();
+}
+
+/**
+ * 지형에 따른 트랙 건설 비용 (공용 헬퍼)
+ */
+export function getTerrainBuildCost(coord: HexCoord, board: BoardState): number {
+  const hexTile = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
+  if (!hexTile) return GAME_CONSTANTS.PLAIN_TRACK_COST;
+
+  switch (hexTile.terrain) {
+    case 'river':
+      return GAME_CONSTANTS.RIVER_TRACK_COST;
+    case 'mountain':
+      return GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
+    default:
+      return GAME_CONSTANTS.PLAIN_TRACK_COST;
+  }
 }
 
 /**
@@ -341,9 +360,30 @@ function estimateRouteLinkCount(
   return Math.max(1, Math.round(hexDistance(from, to) / 3));
 }
 
+// 배달 기회 분석 메모이즈: 같은 보드 상태(큐브 배치 + 트랙 수)에서는 결과가 동일한데
+// 한 턴에 여러 Phase(turnPlan/selector/selectAction/moveGoods)가 반복 호출하므로 캐시한다.
+// 키 계산은 도시 수에 선형 — 전수 분석(도시×큐브×목적지 + 링크 추정 BFS)보다 훨씬 싸다.
+let opportunitiesCache: { key: string; result: DeliveryOpportunity[] } | null = null;
+
+function getOpportunitiesCacheKey(state: GameState): string {
+  const cubeSignature = state.board.cities
+    .map(c => `${c.id}:${c.cubes.join(',')}`)
+    .join('|');
+  return `${state.currentTurn}-t${state.board.trackTiles.length}-${cubeSignature}`;
+}
+
+export function clearOpportunitiesCache(): void {
+  opportunitiesCache = null;
+}
+
 export function analyzeDeliveryOpportunities(
   state: GameState
 ): DeliveryOpportunity[] {
+  const cacheKey = getOpportunitiesCacheKey(state);
+  if (opportunitiesCache && opportunitiesCache.key === cacheKey) {
+    return opportunitiesCache.result;
+  }
+
   const opportunities: DeliveryOpportunity[] = [];
   const { board } = state;
 
@@ -373,30 +413,8 @@ export function analyzeDeliveryOpportunities(
     });
   }
 
+  opportunitiesCache = { key: cacheKey, result: opportunities };
   return opportunities;
-}
-
-/**
- * 특정 시나리오와 매칭되는 물품 기회 찾기
- */
-export function findMatchingOpportunities(
-  opportunities: DeliveryOpportunity[],
-  strategy: AIStrategy
-): DeliveryOpportunity[] {
-  const matching: DeliveryOpportunity[] = [];
-
-  for (const opportunity of opportunities) {
-    for (const route of strategy.targetRoutes) {
-      // 출발지 또는 목적지가 매칭되면 추가
-      if (opportunity.sourceCityId === route.from ||
-        opportunity.targetCityId === route.to) {
-        matching.push(opportunity);
-        break;  // 중복 추가 방지
-      }
-    }
-  }
-
-  return matching;
 }
 
 /**
@@ -526,53 +544,6 @@ export function isRouteBlockedByOpponent(
   }
 
   return false;
-}
-
-/**
- * 도시의 사용 가능한 엣지(면) 찾기
- *
- * 각 도시 헥스는 6개의 엣지를 가지고 있으며,
- * 각 엣지에는 하나의 철도만 연결될 수 있음
- *
- * @param cityCoord 도시 좌표
- * @param board 보드 상태
- * @param playerId 플레이어 ID
- * @returns 사용 가능한 엣지 번호 배열 (상대 점유, 호수, 맵 밖 제외)
- */
-export function findAvailableCityEdges(
-  cityCoord: HexCoord,
-  board: BoardState,
-  playerId: PlayerId
-): number[] {
-  const availableEdges: number[] = [];
-
-  for (let edge = 0; edge < 6; edge++) {
-    const neighbor = getNeighborHex(cityCoord, edge);
-    const oppositeEdge = (edge + 3) % 6;
-
-    // 1. 맵 밖이면 제외 (hexTiles에 없음)
-    const hex = board.hexTiles.find(h => hexCoordsEqual(h.coord, neighbor));
-    // 도시 헥스는 hexTiles에 없으므로 도시인지도 확인
-    const isNeighborCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
-    if (!hex && !isNeighborCity) continue;
-
-    // 2. 호수이면 제외
-    if (hex?.terrain === 'lake') continue;
-
-    // 3. 상대 트랙이 이 엣지를 점유하면 제외
-    // (상대 트랙이 neighbor 헥스에 있고, oppositeEdge가 도시를 향하면 점유)
-    const opponentTrack = board.trackTiles.find(
-      t => t.owner !== playerId &&
-        t.owner !== null &&
-        hexCoordsEqual(t.coord, neighbor) &&
-        t.edges.includes(oppositeEdge)
-    );
-    if (opponentTrack) continue;
-
-    availableEdges.push(edge);
-  }
-
-  return availableEdges;
 }
 
 /**
@@ -799,59 +770,6 @@ export function findOptimalPathAvoidingOpponent(
 
   // 경로 없음
   return [];
-}
-
-/**
- * AI 현재 위치에서 목표 도시의 최적 엣지 선택
- *
- * 여러 사용 가능한 엣지 중에서 AI의 현재 위치에서 가장 가까운 엣지를 선택
- *
- * @param currentPos AI의 현재 위치 (마지막 트랙 끝 또는 도시)
- * @param targetCity 목표 도시 좌표
- * @param availableEdges 사용 가능한 엣지 목록
- * @param board 보드 상태
- * @param playerId 플레이어 ID
- * @param remainingTracks 이번 턴에 건설 가능한 트랙 수
- * @returns 최적 경로 및 엣지 또는 null
- */
-export function findBestEdgeToCity(
-  currentPos: HexCoord,
-  targetCity: HexCoord,
-  availableEdges: number[],
-  board: BoardState,
-  playerId: PlayerId,
-  remainingTracks: number
-): { path: HexCoord[]; edge: number; canComplete: boolean } | null {
-  const candidates: { path: HexCoord[]; edge: number; distance: number }[] = [];
-
-  for (const edge of availableEdges) {
-    const path = findPathToEdge(currentPos, targetCity, edge, board, playerId);
-    if (path.length === 0) continue;
-
-    candidates.push({
-      path,
-      edge,
-      distance: path.length,
-    });
-  }
-
-  if (candidates.length === 0) return null;
-
-  // 거리순 정렬 (가장 가까운 엣지 우선)
-  candidates.sort((a, b) => a.distance - b.distance);
-
-  const best = candidates[0];
-  // 도시까지 연결하려면 path.length + 1 (마지막 헥스에서 도시로)
-  // 단, path에 출발지가 포함되어 있으므로 실제 건설할 트랙 수는 path.length
-  const canComplete = best.distance <= remainingTracks + 1;
-
-  debugLog.verbose(`[AI 트랙] 최적 엣지 선택: edge ${best.edge}, 거리=${best.distance}, 완성가능=${canComplete}`);
-
-  return {
-    path: best.path,
-    edge: best.edge,
-    canComplete,
-  };
 }
 
 /**

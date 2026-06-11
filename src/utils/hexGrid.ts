@@ -811,7 +811,7 @@ function findAllPaths(
 /**
  * 경로의 링크 수 계산 (도시/마을 사이의 완성된 연결 수)
  */
-function countPathLinks(path: HexCoord[], board: BoardState): number {
+export function countPathLinks(path: HexCoord[], board: BoardState): number {
   let linkCount = 0;
   for (const coord of path) {
     // 도시/마을을 지날 때마다 링크 카운트 (시작점 제외)

@@ -347,47 +347,34 @@ AI는 **객체 지향 아키텍처**로 설계되어 있으며, 각 AI 플레이
 - **`AIPlayerManager`**: 모든 AI 플레이어 인스턴스를 관리하는 싱글톤 클래스입니다.
 - **`AIDebugger`**: AI의 의사결정 과정을 추적하고 분석 리포트를 생성합니다.
 
-#### VP-최적 동적 전략 (VP-Optimal Dynamic Strategy)
+#### ΔVP 중심 의사결정 (2026-06 재설계)
 
-고정된 시나리오 대신, AI는 **VP(승점) 극대화**를 목표로 보드 위의 물품 배치를 분석하여 최적의 경로를 실시간으로 선택합니다. VP 공식: `income × 3 + completedLinkTracks - issuedShares × 3`
+모든 Phase의 결정 기준을 **예상 VP 증분(ΔVP)** 단위로 통일했습니다. VP 공식(룰북): `income × 3 + 완성 링크의 트랙 구간 × 1 - 발행 주식 × 3`
 
-1. **상태 분석 (`analyzer.ts`)**: A* 알고리즘을 사용하여 목표 도시까지의 최적 경로와 건설 비용을 계산합니다. 복합 트랙(crossing/coexist)의 독립 경로를 올바르게 처리하기 위해 `entryEdge`를 추적합니다.
-2. **전략 선택 (`selector.ts`)**: `scoreOpportunity()` 함수로 VP-최적 경로를 선택합니다. 배달 가치, 건설 효율성, 네트워크 연결, 경로 진행도, 엔진 실현 가능성을 종합 평가합니다.
-3. **Phase별 지능형 결정**:
-   - `issueShares`: 전략 실행에 필요한 비용과 예상 수입을 비교하여 주식 발행량을 최적화합니다.
-   - `selectAction`: 목표 경로 거리가 엔진 레벨보다 길면 locomotive를 우선 선택하여 긴 링크 배달을 해금합니다.
-   - `buildTrack`: 목표 경로를 완성하기 위해 방향(Edge) 보너스와 페널티가 포함된 상세 평가 로직을 사용합니다. **타사 트랙으로 이미 완성된 경로 감지 및 대체 경로 자동 탐색**을 지원합니다.
-   - `moveGoods`: 자신의 트랙 사용을 극대화하면서 가장 높은 수입을 주는 배달을 선택합니다. **1링크만 가능할 때 선제적 엔진 업그레이드**로 2링크 배달을 해금합니다.
+**핵심 모듈**:
+- **`strategy/vp.ts`**: ΔVP 환산기 (순수 함수). income +1 = +3VP, 완성 트랙 = +1VP(미완성 = 0VP), 주식 = -3VP, 현금 한계가치 λ=0.5 (스윕 측정으로 확정). 모든 튜닝 상수가 이 파일 상단에 집중.
+  - `deliveryDeltaVP`: 배달 가치 (내 링크 income VP + 잔여 턴 현금흐름 − 상대 링크 페널티, N인 정규화)
+  - `engineUpgradeDeltaVP`: 해금 배달 가치 × 실현확률 − 매턴 비용. 비관 시나리오 1턴 생존 시뮬레이션으로 파산 위험은 -∞ 차단
+  - `estimateRouteVP`: 경로의 기대 ΔVP. **완성 불가능한 경로(시간/자금/엔진 상한)는 -∞로 원천 배제** → 산발 건설 차단. 건설 슬롯 기회비용으로 트랙VP 절반 인정
+  - `incomeMarginalVP`: 수입 감소 구간(11+) 경계에서 한계가치 체감 (큰 맵 대비)
+- **`strategy/mapConfig.ts`**: 엔진 상한·턴 수·턴당 건설 수를 맵 오버라이드 테이블로 주입. **AI 코드에 "tutorial이면 3" 같은 맵 분기 금지** — 새 맵 추가 시 이 테이블만 갱신
+- **`strategy/turnPlan.ts`**: 턴 시작(issueShares)에 계획(목표 경로, A* fullPath, 필요 트랙/비용/현금) 수립, Phase 간 공유. 게임 리셋 시 `clearTurnPlans()` (AIPlayerManager에서 호출)
 
-#### 트랙 건설 고급 기능
+**Phase별 결정**:
+- `issueShares`: TurnPlan.cashNeeded 부족분만 발행. 생존 발행(파산 방지) 절대 우선, 마지막 턴 생존 외 발행 금지, 턴당 2주/총 5주 상한
+- `auction`: 1등 순서의 가치(경합배달 + 경합건설 + 행동선점)를 λ로 달러 환산한 입찰 상한. 경합 없으면 일찍 포기 (첫 포기 무료 규칙 활용). 건설 예산 절대 침범 금지
+- `selectAction`: 행동별 ΔVP 랭킹 (engineer=완성 가능/조기화/다음 경로 착공, locomotive=해금 배달 가치, firstMove/firstBuild=경합 감지 기반)
+- `buildTrack`: 경로 커밋 + 결정론적 경로 추적(`tryDirectPathBuild`). 후보 경로(목표 → 상위 우선순위 → 네트워크 확장)를 순서대로 시도, 전부 실패 시 skip (미완성 트랙 = 0VP)
+- `moveGoods`: 배달 vs 엔진 업그레이드 vs 스킵을 동일 ΔVP 단위로 비교. 상대만 이득인 배달(ΔVP≤0)은 스킵
 
-- **턴 내 경로 안정성**: 첫 건설 시 경로 평가, 이후 건설은 기존 경로 유지 (`getCurrentRoute`)
-- **lastBuiltCoords 추적**: `PhaseState.lastBuiltCoords`로 이번 턴 건설 좌표를 정확히 추적
-- **3단계 대체 경로 탐색**: 목표 경로가 막히면 (1)연결 도시 경유 → (2)다음 우선순위 경로 → (3)네트워크 확장
-- **네트워크 확장 모드**: 배달 가능한 화물이 없을 때 가장 가까운 미연결 도시로 자동 확장 (`findNetworkExpansionTarget`)
-- **복합 트랙 평가**: 상대 트랙 위에 crossing/coexist 트랙 건설 시 유리한 경우 보너스 부여
-- **파산 방지**: Turn 1 최소 2주 발행 보장(건설+경매 자금 $20), 매 턴 경매 전 최소 $15 현금 보장, 총 주식 상한 5주($15 보장 시 6주까지 허용), 엔진 업그레이드 시 완성된 링크 존재 여부 확인
-- **경로 경쟁 회피**: 상대 AI가 같은 링크(정방향/역방향 모두)를 겨냥 중이면 페널티 → 다른 경로 선택 유도 (`selector.ts`)
-- **A* 엣지 비호환 감지**: 기존 자사 트랙의 엣지 방향이 새 경로와 맞지 않으면 +3 비용 페널티, `tryDirectPathBuild`에서 전방 연결성 체크 후 최대 3회 재시도 (`analyzer.ts`, `buildTrack.ts`)
+**확장성 (큰 맵 대비)**:
+- 정밀 평가(A* 포함)는 사전 점수 상위 K=8개만 — 결정당 A* 호출이 맵 크기와 무관하게 O(K)
+- 상대 평가는 opponents 배열 순회 + 1/(N-1) 정규화 (2인 가정 없음)
+- cap/가중치는 보드 상태(매칭 큐브 수, 남은 턴)에서 유도
 
-#### 경로 선택 점수 체계 (`scoreOpportunity`)
-
-```typescript
-// selector.ts - scoreOpportunity() VP-최적 경로 점수
-deliveryValue     // 엔진 실현 가능성 반영: 즉시=distance×300, 1업=×150, 그외=×50
-buildEfficiency   // 건설 효율: max(0, 600 - remainingTracks×150) — 빨리 완성 = 빨리 VP
-connectedBonus    // 출발지 연결됨: +300
-progressBonus     // 경로 진행도 × 500
-engineFeasible    // 엔진갭 > 남은턴: -500
-// + 중복/경쟁/상대목표 페널티 (기존 유지)
-```
-
-#### 화물 수송 전략
-
-- **가로채기 위험 감지**: 상대도 같은 화물을 배달 가능하면 `linksCount × 10` 보너스 → 고가치 화물 선점
-- **내 트랙 극대화**: 자사 트랙 사용 비율이 높은 배달을 우선 선택 (`ownTrackCount × 2` 밀도 보너스)
-- **선제적 엔진 업그레이드**: 1링크만 배달 가능하고 엔진+1로 2링크 해금 가능시 Move 1에서 업그레이드 → Move 2에서 2링크 배달
-- **locomotive 우선 선택**: 목표 경로 거리 > 엔진 레벨이면 selectAction에서 locomotive 우선 (engine max 3, tutorial)
+**VP 회귀 베이스라인** (fullGameSimulation.test.ts, 고정 시드 20개):
+- 재설계 전 3.80 → 재설계 후 **9.30** (accurateVP 평균), 완성 트랙 비율 80%→84%, 파산 0건 유지
+- 각 변경은 `평균 VP ≥ 베이스라인 - 1` 게이트를 통과해야 함. 단계별 이력은 테스트 파일 주석 참조
 
 #### AI 디버깅 시스템
 
@@ -422,23 +409,18 @@ setAllDebug(true);                   // 모든 로그 on/off
 
 #### AI 트랙 건설 로직 (상세)
 
-- 자세한 의사결정 수치와 A* 가중치는 @./docs/ai-strategy.md 를 참고하세요.
-
-```typescript
-// analyzer.ts - evaluateTrackForRoute 점수 체계
-// 1. 최적 경로상 위치: +150
-// 2. 순차 확장 (출발지 망에서 다음 칸): +500
-// 3. 연속 건설 (이번 턴 마지막 트랙 옆): +300 기본, +400 경로상 추가
-// 4. 다음 방향 연결: +120, 이전 방향 연결: +60
-// 5. 출발 도시 연결: +300
-// 6. 네트워크 고립: -500, 방향 불일치: -350, 역행: -1000
-// ... (상세 가이드: docs/ai-strategy.md)
-```
+- `tryDirectPathBuild` (buildTrack.ts): A* 최적 경로(상대 트랙 회피, 자사 트랙 0.1 우대)를 따라
+  frontier(출발지에서 연속된 자사 트랙 끝) 다음 칸에 정확한 엣지로 건설
+- 엣지 비호환/실패 좌표는 avoidCoords에 넣어 최대 3회 재탐색
+- 상대 단순 트랙 위 복합 트랙(교차/공존) 건설 처리 포함
+- 점수 기반 후보 평가 시스템(evaluateTrackForRoute 매직넘버 체계)은 2026-06 재설계에서 제거됨
+  — evaluateTrackForRoute는 AI 디버그 모달 표시 용도로만 잔존 (analyzer.ts)
+- 참고: docs/ai-strategy.md는 재설계 이전 문서로 일부 구식 (점수 체계 부분)
 
 #### 알려진 이슈 (미해결)
 
-- **턴 내 대체 경로 탐색 시 경로 변경**: 3단계 fallback에서 `setCurrentRoute`가 호출되어 같은 턴 내에서도 경로가 바뀔 수 있음.
 - **`getConnectedCities` 트랙 없음 시 반환값**: 트랙이 0개일 때 빈 배열 반환 (테스트에서 4를 기대하는 기존 실패 1건)
+- ~~턴 내 대체 경로 탐색 시 경로 변경~~ → 2026-06 재설계에서 해결 (모든 경로 전환 시 `setCurrentRoute` 동기화 + 경로 커밋)
 
 ## 빌드 & 배포
 

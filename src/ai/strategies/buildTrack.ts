@@ -14,7 +14,7 @@ import {
   isTrackPartOfCompletedLink,
 } from '@/utils/trackValidation';
 import { getBuildableNeighbors, getExitDirections, hexCoordsEqual, getNeighborHex, hexDistance, findAllConnectedHexes } from '@/utils/hexGrid';
-import { getSelectedStrategy, getCurrentRoute, getCurrentRouteState, incrementInvestedTracks } from '../strategy/state';
+import { getSelectedStrategy, getCurrentRoute, getCurrentRouteState, setCurrentRoute, incrementInvestedTracks } from '../strategy/state';
 import { getNextTargetRoute, findNextTargetRoute, getTopPriorityRoutes } from '../strategy/selector';
 import {
   evaluateTrackForRoute,
@@ -191,12 +191,14 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
       if (nextRouteResult.route && !isRouteComplete(state, nextRouteResult.route, playerId)) {
         debugLog.trackBuilding(`[Phase IV: 트랙 건설] 새로운 목표 전환: ${nextRouteResult.route.from}->${nextRouteResult.route.to}`);
         targetRoute = nextRouteResult.route;
+        setCurrentRoute(playerId, targetRoute); // 전역 상태 동기화 (moveGoods 등 후속 Phase 일관성)
       } else {
         // 2. 배달 경로가 없으면 네트워크 확장 시도
         const expansionTarget = findNetworkExpansionTarget(state, playerId);
         if (expansionTarget) {
           debugLog.trackBuilding(`[Phase IV: 트랙 건설] 네트워크 확장 목표 설정: ${expansionTarget.from}->${expansionTarget.to}`);
           targetRoute = expansionTarget;
+          setCurrentRoute(playerId, targetRoute);
         }
       }
 
@@ -228,6 +230,7 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
       const newRoute = getNextTargetRoute(state, playerId);
       if (newRoute && !isRouteComplete(state, newRoute, playerId)) {
         targetRoute = newRoute;
+        setCurrentRoute(playerId, newRoute); // 전역 상태 동기화
         debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 새 경로 ${newRoute.from}→${newRoute.to}로 전환`);
         const directBuild2 = tryDirectPathBuild(state, playerId, newRoute);
         if (directBuild2) {
@@ -254,6 +257,7 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
       if (altTarget) {
         debugLog.trackBuilding(`[Phase IV: 트랙 건설] 대체 목표 설정: ${altTarget.from}->${altTarget.to}`);
         targetRoute = altTarget;
+        setCurrentRoute(playerId, targetRoute); // 전역 상태 동기화
         // 새 목표로 다시 탐색
         candidates = findBuildCandidates(state, playerId, targetRoute);
       } else {
@@ -1584,10 +1588,11 @@ function tryDirectPathBuild(
       return null;
     }
 
-    // [수정 B] 실패 좌표 체크
+    // [수정 B] 실패 좌표 체크: 즉시 포기하지 않고 회피 좌표에 넣어 대체 경로 재탐색
     if (isFailedCoord(playerId, nextCoord, state.currentTurn)) {
-      debugLog.trackBuilding(`[직접 경로] (${nextCoord.col},${nextCoord.row}) 이전 실패 좌표 → fallback`);
-      return null;
+      avoidCoords.push(nextCoord);
+      debugLog.trackBuilding(`[직접 경로] (${nextCoord.col},${nextCoord.row}) 이전 실패 좌표 → 회피 재탐색 (시도 ${attempt + 1}/3)`);
+      continue;
     }
 
     // 맵 유효성 확인

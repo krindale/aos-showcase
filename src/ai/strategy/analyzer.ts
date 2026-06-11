@@ -1,6 +1,6 @@
 import { GameState, PlayerId, HexCoord, CubeColor, BoardState, GAME_CONSTANTS } from '@/types/game';
 import { debugLog } from '@/utils/debugConfig';
-import { DeliveryOpportunity, DeliveryRoute, AIStrategy } from './types';
+import { DeliveryOpportunity, DeliveryRoute } from './types';
 import { getNeighborHex, hexCoordsEqual, hexDistance, getConnectedNeighbors, hexToKey, getConnectingEdge, getOppositeEdge } from '@/utils/hexGrid';
 
 // 경로 캐시 (출발지-목적지 → 경로)
@@ -8,9 +8,11 @@ const pathCache: Map<string, HexCoord[]> = new Map();
 
 /**
  * 캐시 키 생성
+ * 트랙 수를 키에 포함해 보드가 변하면 자동으로 캐시 미스가 나도록 함
+ * (현재 비용 함수는 지형만 보지만, 향후 트랙 반영 시에도 stale 경로를 반환하지 않도록 방어)
  */
-function getCacheKey(from: HexCoord, to: HexCoord): string {
-  return `${from.col},${from.row}-${to.col},${to.row}`;
+function getCacheKey(from: HexCoord, to: HexCoord, board: BoardState): string {
+  return `${from.col},${from.row}-${to.col},${to.row}-t${board.trackTiles.length}`;
 }
 
 /**
@@ -27,7 +29,7 @@ export function findOptimalPath(
   board: BoardState
 ): HexCoord[] {
   // 캐시 확인
-  const cacheKey = getCacheKey(from, to);
+  const cacheKey = getCacheKey(from, to, board);
   const cached = pathCache.get(cacheKey);
   if (cached) return cached;
 
@@ -374,29 +376,6 @@ export function analyzeDeliveryOpportunities(
   }
 
   return opportunities;
-}
-
-/**
- * 특정 시나리오와 매칭되는 물품 기회 찾기
- */
-export function findMatchingOpportunities(
-  opportunities: DeliveryOpportunity[],
-  strategy: AIStrategy
-): DeliveryOpportunity[] {
-  const matching: DeliveryOpportunity[] = [];
-
-  for (const opportunity of opportunities) {
-    for (const route of strategy.targetRoutes) {
-      // 출발지 또는 목적지가 매칭되면 추가
-      if (opportunity.sourceCityId === route.from ||
-        opportunity.targetCityId === route.to) {
-        matching.push(opportunity);
-        break;  // 중복 추가 방지
-      }
-    }
-  }
-
-  return matching;
 }
 
 /**

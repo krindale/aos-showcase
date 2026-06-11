@@ -29,7 +29,7 @@ import {
   CubeColor,
   GAME_CONSTANTS,
 } from '@/types/game';
-import { findLongestPath, getNeighborHex, hexCoordsEqual, getBuildableNeighbors } from '@/utils/hexGrid';
+import { findLongestPath, getNeighborHex, hexCoordsEqual, getBuildableNeighbors, isTrackPartOfCompletedLink } from '@/utils/hexGrid';
 import { isValidConnectionPoint } from '@/utils/trackValidation';
 import { calculateVictoryPoints } from '@/utils/gameLogic';
 import { HexCoord } from '@/types/game';
@@ -66,9 +66,13 @@ interface SimulationResult {
   financials: Record<PlayerId, TurnFinancials[]>;
   anyBankrupt: boolean;
   victoryPoints: Record<PlayerId, number>;
+  /** 룰북 기준 정확한 VP: 완성된 링크에 속한 트랙만 +1VP로 집계 (victoryPoints는 미완성 트랙도 포함하는 구버전 호환 필드) */
+  accurateVP: Record<PlayerId, number>;
   anyIncomeReduced: boolean;
   finalPlayers: Record<PlayerId, { cash: number; income: number; issuedShares: number; engineLevel: number; eliminated: boolean }>;
   totalTracks: Record<PlayerId, number>;
+  /** 완성된 링크에 속한 트랙 수 (플레이어별) */
+  completedTracks: Record<PlayerId, number>;
   uiBuildFlowFailures: string[];
   complexTracksBuilt: number;
   complexTracksOnBoard: number;
@@ -709,14 +713,23 @@ function runFullGame(rng: () => number): SimulationResult {
 
   // 승점 계산
   const victoryPoints: Record<string, number> = {};
+  const accurateVP: Record<string, number> = {};
   const finalPlayers: Record<string, { cash: number; income: number; issuedShares: number; engineLevel: number; eliminated: boolean }> = {};
   const totalTracks: Record<string, number> = {};
+  const completedTracks: Record<string, number> = {};
 
   for (const pid of playerIds) {
     const p = finalState.players[pid];
     if (!p) continue;
-    const trackTileCount = finalState.board.trackTiles.filter(t => t.owner === pid).length;
+    const ownTracks = finalState.board.trackTiles.filter(t => t.owner === pid);
+    const trackTileCount = ownTracks.length;
+    // 룰북: 완성된 링크를 구성하는 트랙만 VP에 포함 (미완성 트랙 구간 = 0VP)
+    const completedTrackCount = ownTracks.filter(t =>
+      isTrackPartOfCompletedLink(t.coord, finalState.board)
+    ).length;
     victoryPoints[pid] = calculateVictoryPoints(p.income, trackTileCount, p.issuedShares);
+    accurateVP[pid] = calculateVictoryPoints(p.income, completedTrackCount, p.issuedShares);
+    completedTracks[pid] = completedTrackCount;
     finalPlayers[pid] = {
       cash: p.cash,
       income: p.income,
@@ -738,9 +751,11 @@ function runFullGame(rng: () => number): SimulationResult {
     financials,
     anyBankrupt,
     victoryPoints: victoryPoints as Record<PlayerId, number>,
+    accurateVP: accurateVP as Record<PlayerId, number>,
     anyIncomeReduced,
     finalPlayers: finalPlayers as Record<PlayerId, typeof finalPlayers[string]>,
     totalTracks: totalTracks as Record<PlayerId, number>,
+    completedTracks: completedTracks as Record<PlayerId, number>,
     uiBuildFlowFailures: [...uiBuildFlowFailures],
     complexTracksBuilt: complexTracksBuiltCounter,
     complexTracksOnBoard: finalState.board.trackTiles.filter(t => t.trackType !== 'simple').length,
@@ -787,11 +802,18 @@ function printSimulationReport(
     }
   }
 
-  // 최종 승점 출력
-  console.log('\n--- Victory Points ---');
+  // 최종 승점 출력 (VP 분해: income VP / 트랙 VP / 주식 VP)
+  console.log('\n--- Victory Points (정확한 VP = 완성 링크 트랙만) ---');
   for (const pid of playerIds) {
     const p = result.finalPlayers[pid];
-    console.log(`  ${pid}: ${result.victoryPoints[pid]} VP (income=${p?.income}, tracks=${result.totalTracks[pid]}, shares=${p?.issuedShares})`);
+    if (!p) continue;
+    const incomeVP = p.income * 3;
+    const trackVP = result.completedTracks[pid] ?? 0;
+    const shareVP = -p.issuedShares * 3;
+    console.log(
+      `  ${pid}: ${result.accurateVP[pid]} VP = income ${incomeVP} + 완성트랙 ${trackVP} ${shareVP} 주식` +
+      ` (건설 ${result.totalTracks[pid]}개 중 완성 ${result.completedTracks[pid]}개, 구VP=${result.victoryPoints[pid]})`
+    );
   }
 
   console.log('\n' + '='.repeat(60));
@@ -1248,5 +1270,62 @@ describe('AI 전체 게임 시뮬레이션 (gameStore 기반 통합 테스트)',
 
     // issueShares가 끝나고 다음 단계(auction)로 넘어갔어야 함
     expect(afterP2Issue.currentPhase).not.toBe('issueShares');
+  });
+
+  // ========================================
+  // VP 회귀 베이스라인 (AI 재설계 게이트)
+  // ========================================
+  //
+  // 고정 시드 20개로 AI vs AI 풀게임을 돌려 측정한 수치.
+  // 각 마이그레이션 단계는 이 수치 이상을 유지해야 하며, 단계 통과 시 상향 조정한다.
+  // accurateVP = 룰북 기준 VP (완성 링크 트랙만 +1, 미완성 트랙 0).
+  // completedTrackRatio = 완성 링크 트랙 / 전체 건설 트랙 (산발 건설의 직접 지표).
+  it('VP 회귀 베이스라인: 고정 시드 20개 (평균 VP / 완성 트랙 비율)', () => {
+    // 0단계(버그 수정 직후) 측정값 — 갱신 이력은 git history 참조
+    // 측정: 평균 3.80 / 최소 -16 / 완성 트랙 비율 80.2% / 파산 0건
+    const BASELINE = {
+      avgAccurateVP: 3.8,
+      minAccurateVP: -16,
+      completedTrackRatio: 0.80,
+    };
+
+    const TOTAL_RUNS = 20;
+    const allAccurateVPs: number[] = [];
+    let totalBuiltTracks = 0;
+    let totalCompletedTracks = 0;
+    let bankruptCount = 0;
+
+    for (let seed = 1; seed <= TOTAL_RUNS; seed++) {
+      clearCurrentRoutes();
+      clearPathCache();
+
+      const rng = createSeededRng(seed * 1000);
+      const cubeMap = getRandomCubeMap(rng);
+      initGameForTest(seed * 1000 + 777, cubeMap);
+
+      const result = runFullGame(rng);
+
+      for (const pid of playerIds) {
+        allAccurateVPs.push(result.accurateVP[pid] ?? 0);
+        totalBuiltTracks += result.totalTracks[pid] ?? 0;
+        totalCompletedTracks += result.completedTracks[pid] ?? 0;
+      }
+      if (result.anyBankrupt) bankruptCount++;
+    }
+
+    const avgVP = allAccurateVPs.reduce((a, b) => a + b, 0) / allAccurateVPs.length;
+    const minVP = Math.min(...allAccurateVPs);
+    const completedRatio = totalBuiltTracks > 0 ? totalCompletedTracks / totalBuiltTracks : 0;
+
+    console.log('\n===== VP 회귀 베이스라인 측정 =====');
+    console.log(`  평균 accurateVP: ${avgVP.toFixed(2)}`);
+    console.log(`  최소 accurateVP: ${minVP}`);
+    console.log(`  완성 트랙 비율: ${(completedRatio * 100).toFixed(1)}% (${totalCompletedTracks}/${totalBuiltTracks})`);
+    console.log(`  파산 게임 수: ${bankruptCount}/${TOTAL_RUNS}`);
+    console.log(`  VP 분포: [${allAccurateVPs.join(', ')}]`);
+
+    // 회귀 게이트: 평균 VP는 베이스라인 -1까지, 완성 트랙 비율은 -5%p까지 허용
+    expect(avgVP).toBeGreaterThanOrEqual(BASELINE.avgAccurateVP - 1);
+    expect(completedRatio).toBeGreaterThanOrEqual(BASELINE.completedTrackRatio - 0.05);
   });
 });

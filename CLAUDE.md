@@ -417,6 +417,47 @@ setAllDebug(true);                   // 모든 로그 on/off
   — evaluateTrackForRoute는 AI 디버그 모달 표시 용도로만 잔존 (analyzer.ts)
 - 참고: docs/ai-strategy.md는 재설계 이전 문서로 일부 구식 (점수 체계 부분)
 
+#### St. Lucia 맵 구현 (2026-06-12, feature/st-lucia-map)
+
+공식 맵 PDF(`maps/aos-st_lucia.pdf`) 픽셀 측정으로 재구성한 2인 전용 8턴 맵.
+
+- **맵 데이터** (`src/utils/stLuciaMap.ts`): 도시 0(도시화로만 생성), 마을 11, 산 10, 강 9.
+  원본은 flat-top 보드 — 데이터는 전치 좌표로 저장(인접 동형, 게임 로직 무변경),
+  렌더만 `orientation: 'flat'`으로 기하 함수들이 전치 (`hexToPixel` 등의 `flat` 파라미터)
+- **맵 룰 분리** (`src/utils/mapRegistry.ts`의 MapRuleConfig): `skipGoodsGrowth`,
+  `alternateTurnOrder`(경매 대신 교대 선공권 $5), `firstSeatCost`, `disabledActions`
+  (production/turnOrder), `hexCubeSetup`(헥스 위 큐브 38개, 마을 제외),
+  `townsAnchorFirstTrack`(도시 0 맵의 첫 트랙 마을 앵커). **게임 엔진에 mapId 분기 금지** — 플래그만
+- **트랙 큐브 배달**: 트랙 위 큐브를 미완성 링크여도 같은 색 도시로 배달 (`findTrackCubeDeliveries`,
+  구간 소유자 보너스 수입 +1). UI는 `selectCube('track:<id>')` 컨벤션
+- 튜토리얼(경매/물품성장 O)과 St. Lucia(선공권/헥스큐브 O) **양쪽 헤드리스 완주 검증 필수**
+
+#### 마을 가닥(스퍼) 모델 (2026-06-12 재설계, 모든 맵 공통)
+
+마을 = 헥스 안의 원. **마을 헥스에는 트랙 타일을 배치할 수 없다** (도시처럼).
+노선이 마을에 연결되려면 **원→변 가닥(TownSpur)** 이 있어야 하며, 가닥은 실제 건설물이다.
+
+- `TownSpur { townCoord, edge, owner }` — `board.townSpurs`
+- 트랙이 마을 변에 닿게 지어지면 가닥이 **자동 동시 건설**: 건설 카운트 +1, 비용 +$1
+  (마을 연결 = 타일 1 + 가닥 1 = 카운트 2. 잔여 카운트 부족 시 건설 거부)
+- 연결된 노선 수 = 마을 안 가닥 수 (화면의 철길 토막 수 = 건설 카운트 일치)
+- 이동/배달/완성 링크 판정 모두 **가닥이 있는 변으로만** 마을 통과/도달 인정
+- 내 가닥이 있는 마을 = 내 네트워크 → 6방향 어디로든 새 노선 시작 가능
+- 도시화 시 해당 마을의 가닥 제거 (도시는 모든 변 연결)
+- **도시화된 마을(`town.newCityColor !== null`)은 모든 마을 판정에서 제외** — towns 배열에
+  남아 있으므로 `t.newCityColor === null` 조건 필수 (빠뜨리면 도시 연결에 가닥을 요구하는 버그)
+- 핵심 테스트: `src/store/__tests__/townHubModel.test.ts` (7 케이스),
+  `buildLimitByLog.test.ts` (게임 로그 기반 턴당 건설 제한 검증)
+
+#### 건설 제한 시스템
+
+- 턴당 3개(Engineer 4개) — `builtTracksThisTurn`/`maxTracksThisTurn`
+- 모든 건설 경로(buildTrack/buildComplexTrack/redirectTrack)가 카운트 검사,
+  buildTrack에는 canBuildTrack과 별개의 최종 하드 가드 (`[제한 위반 차단]` 콘솔 박제)
+- 게임 로그에 `[N/max]` 카운트 병기, 이번 턴 건설 트랙에 흰 점선 링 표시
+- 디버깅: dev 모드에서 브라우저 콘솔 로그를 localhost:3999로 미러링하는 코드가
+  GamePageClient에 있음 (수신 서버는 별도 실행 필요 — 없어도 무해, fetch 실패 무시)
+
 #### 알려진 이슈 (미해결)
 
 - **`getConnectedCities` 트랙 없음 시 반환값**: 트랙이 0개일 때 빈 배열 반환 (테스트에서 4를 기대하는 기존 실패 1건)
@@ -508,6 +549,9 @@ export default function ComponentName() {
 
 ## 향후 개선 사항
 
+- [ ] **Rust Belt 맵 3-6인 플레이어블** (다음 큰 작업) — 공식 맵 PDF 픽셀 측정으로 데이터 추출,
+  다인 경매/순서/물품성장 헤드리스 검증, AI 다인 밸런스(VP 베이스라인 신규 측정).
+  맵 레지스트리/가닥 모델/AI N인 정규화 인프라는 준비됨
 - [ ] Three.js로 3D 게임보드 구현
 - [ ] GSAP ScrollTrigger 고급 애니메이션 (라이브러리는 설치됨, 미적용)
 - [ ] i18n 다국어 지원

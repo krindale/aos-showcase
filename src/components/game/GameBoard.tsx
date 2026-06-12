@@ -1042,7 +1042,7 @@ export default function GameBoard() {
         {/* 이동 경로 - 트랙을 따라 곡선으로 표시 */}
         {ui.movePath.length > 1 && !ui.movingCube && (
           <path
-            d={getMovementPathSVG(ui.movePath, board, HEX_SIZE - 2)}
+            d={getMovementPathSVG(ui.movePath, board, HEX_SIZE - 2, isFlat)}
             fill="none"
             stroke="#d4a853"
             strokeWidth="4"
@@ -1056,7 +1056,7 @@ export default function GameBoard() {
         {/* 이동 중인 큐브 애니메이션 - Framer Motion 사용 */}
         {ui.movingCube && (() => {
           // 경로의 모든 애니메이션 포인트 계산
-          const animPoints = getAnimationPoints(ui.movingCube.path, board, HEX_SIZE - 2, 5);
+          const animPoints = getAnimationPoints(ui.movingCube.path, board, HEX_SIZE - 2, 5, isFlat);
 
           // 모든 x, y 좌표 배열 생성
           const xPoints = animPoints.map(p => p.x - 9);
@@ -1066,7 +1066,7 @@ export default function GameBoard() {
             <g>
               {/* 이동 경로 표시 - 트랙을 따라 점선으로 */}
               <path
-                d={getMovementPathSVG(ui.movingCube.path, board, HEX_SIZE - 2)}
+                d={getMovementPathSVG(ui.movingCube.path, board, HEX_SIZE - 2, isFlat)}
                 fill="none"
                 stroke={CUBE_COLORS[ui.movingCube.color]}
                 strokeWidth="4"

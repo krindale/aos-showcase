@@ -1160,7 +1160,8 @@ export function isTrackPartOfCompletedLink(
 export function getMovementPathSVG(
   path: HexCoord[],
   board: BoardState,
-  hexSize: number
+  hexSize: number,
+  flat: boolean = false
 ): string {
   if (path.length < 2) return '';
 
@@ -1168,32 +1169,29 @@ export function getMovementPathSVG(
 
   for (let i = 0; i < path.length; i++) {
     const coord = path[i];
-    const pixel = hexToPixel(coord.col, coord.row);
+    const pixel = hexToPixel(coord.col, coord.row, undefined, undefined, undefined, flat);
 
     const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
-    const isCity = board.cities.some(c => hexCoordsEqual(c.coord, coord));
     const isTown = board.towns.some(t => hexCoordsEqual(t.coord, coord));
 
     if (i === 0) {
-      // 시작점 (도시)
-      if (isCity || isTown) {
-        pathParts.push(`M ${pixel.x} ${pixel.y}`);
+      // 시작점 — 도시/마을 또는 트랙(트랙 큐브 배달) 중심에서 시작
+      pathParts.push(`M ${pixel.x} ${pixel.y}`);
 
-        // 다음 헥스로 나가는 엣지
-        if (i + 1 < path.length) {
-          const nextEdge = getConnectingEdge(coord, path[i + 1]);
-          if (nextEdge !== null) {
-            const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize);
-            pathParts.push(`L ${exitPoint.x} ${exitPoint.y}`);
-          }
+      // 다음 헥스로 나가는 엣지
+      if (i + 1 < path.length) {
+        const nextEdge = getConnectingEdge(coord, path[i + 1]);
+        if (nextEdge !== null) {
+          const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat);
+          pathParts.push(`L ${exitPoint.x} ${exitPoint.y}`);
         }
       }
     } else if (i === path.length - 1) {
-      // 끝점 (도시)
-      if (isCity || isTown) {
+      // 끝점 (도시/마을 중심으로 진입)
+      {
         const prevEdge = getConnectingEdge(coord, path[i - 1]);
         if (prevEdge !== null) {
-          const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize);
+          const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat);
           pathParts.push(`L ${entryPoint.x} ${entryPoint.y}`);
         }
         pathParts.push(`L ${pixel.x} ${pixel.y}`);
@@ -1205,8 +1203,8 @@ export function getMovementPathSVG(
         const nextEdge = getConnectingEdge(coord, path[i + 1]);
 
         if (prevEdge !== null && nextEdge !== null) {
-          const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize);
-          const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize);
+          const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat);
+          const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat);
 
           // 엣지 간 거리로 직선/곡선 결정
           const edgeDiff = Math.abs(prevEdge - nextEdge);
@@ -1228,8 +1226,8 @@ export function getMovementPathSVG(
         const nextEdge = getConnectingEdge(coord, path[i + 1]);
 
         if (prevEdge !== null && nextEdge !== null) {
-          const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize);
-          const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize);
+          const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat);
+          const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat);
 
           pathParts.push(`L ${entryPoint.x} ${entryPoint.y}`);
           pathParts.push(`L ${pixel.x} ${pixel.y}`);
@@ -1250,7 +1248,8 @@ export function getAnimationPoints(
   path: HexCoord[],
   board: BoardState,
   hexSize: number,
-  pointsPerSegment: number = 10
+  pointsPerSegment: number = 10,
+  flat: boolean = false
 ): { x: number; y: number }[] {
   if (path.length < 2) return [];
 
@@ -1258,7 +1257,7 @@ export function getAnimationPoints(
 
   for (let i = 0; i < path.length; i++) {
     const coord = path[i];
-    const pixel = hexToPixel(coord.col, coord.row);
+    const pixel = hexToPixel(coord.col, coord.row, undefined, undefined, undefined, flat);
 
     const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
     const isTown = board.towns.some(t => hexCoordsEqual(t.coord, coord));
@@ -1271,7 +1270,7 @@ export function getAnimationPoints(
       if (i + 1 < path.length) {
         const nextEdge = getConnectingEdge(coord, path[i + 1]);
         if (nextEdge !== null) {
-          const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize);
+          const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat);
           // 중간 포인트 추가
           for (let j = 1; j <= pointsPerSegment; j++) {
             const t = j / pointsPerSegment;
@@ -1286,7 +1285,7 @@ export function getAnimationPoints(
       // 끝 도시
       const prevEdge = getConnectingEdge(coord, path[i - 1]);
       if (prevEdge !== null) {
-        const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize);
+        const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat);
         // 이전 헥스 경계에서 진입점으로
         for (let j = 1; j <= pointsPerSegment; j++) {
           const t = j / pointsPerSegment;
@@ -1302,8 +1301,8 @@ export function getAnimationPoints(
       const nextEdge = getConnectingEdge(coord, path[i + 1]);
 
       if (prevEdge !== null && nextEdge !== null) {
-        const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize);
-        const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize);
+        const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat);
+        const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat);
 
         // 진입점 추가
         points.push(entryPoint);

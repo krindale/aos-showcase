@@ -1207,10 +1207,16 @@ export const useGameStore = create<GameStore>()(
   // Phase II (대체): 교대 선공권 (alternateTurnOrder 맵 전용)
   // ============================================================
   respondTurnOrderOffer: (playerId, accept) => {
+    // 가드는 set 밖에서: 해결(offer가 null이 됨) 시 nextPhase 호출 여부를 판단해야 함
+    const pre = get();
+    if (!pre.turnOrderOffer || pre.turnOrderOffer.offerPlayer !== playerId) {
+      console.warn(`[WARN] respondTurnOrderOffer: 유효하지 않은 응답 - playerId: ${playerId}`);
+      return;
+    }
+
     set((state) => {
       const offer = state.turnOrderOffer;
       if (!offer || offer.offerPlayer !== playerId) {
-        console.warn(`[WARN] respondTurnOrderOffer: 유효하지 않은 응답 - playerId: ${playerId}`);
         return state;
       }
 
@@ -1287,7 +1293,14 @@ export const useGameStore = create<GameStore>()(
       };
     });
 
-    // AI 턴 트리거 (중앙 집중식 스케줄러 사용)
+    // 선공권이 해결됨(수락 또는 모두 거절) → 다음 단계로 진행
+    // (이게 없으면 determinePlayerOrder에 머물러 경매 패널이 표시되는 버그)
+    if (!get().turnOrderOffer) {
+      get().nextPhase(); // 내부에서 scheduleAICheck 호출
+      return;
+    }
+
+    // 옵션이 다음 플레이어에게 이전됨 → AI 턴 트리거만
     scheduleAICheck(get);
   },
 

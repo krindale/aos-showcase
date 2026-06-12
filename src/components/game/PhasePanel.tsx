@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import AuctionPanel from './AuctionPanel';
 import TurnOrderOfferPanel from './TurnOrderOfferPanel';
+import { getMapRules } from '@/utils/mapRegistry';
 import GoodsGrowthPanel from './GoodsGrowthPanel';
 
 const PHASE_ICONS: Record<GamePhase, React.ReactNode> = {
@@ -60,6 +61,7 @@ export default function PhasePanel() {
     phaseState,
     aiExecution,
     turnOrderOffer,
+    mapId,
   } = useGameStore(
     useShallow((state) => ({
       currentPhase: state.currentPhase,
@@ -69,6 +71,7 @@ export default function PhasePanel() {
       phaseState: state.phaseState,
       aiExecution: state.aiExecution,
       turnOrderOffer: state.turnOrderOffer,
+      mapId: state.mapId,
     }))
   );
 
@@ -183,17 +186,19 @@ export default function PhasePanel() {
                     const info = ACTION_INFO[action];
                     const taken = isActionTaken(action);
                     const isSelected = currentPlayerData.selectedAction === action;
+                    // 맵 룰로 금지된 행동 (St. Lucia: production, turnOrder)
+                    const mapDisabled = getMapRules(mapId).disabledActions.includes(action);
 
                     return (
                       <button
                         key={action}
                         onClick={() => handleSelectAction(action)}
-                        disabled={taken || currentPlayerData.selectedAction !== null}
+                        disabled={taken || mapDisabled || currentPlayerData.selectedAction !== null}
                         className={`p-2 md:p-3 min-h-[44px] rounded-lg text-left transition-all ${
                           isSelected
                             ? 'bg-accent/20 border border-accent'
-                            : taken
-                            ? 'bg-background/30 opacity-50 cursor-not-allowed'
+                            : taken || mapDisabled
+                            ? 'bg-background/30 opacity-40 cursor-not-allowed'
                             : currentPlayerData.selectedAction !== null
                             ? 'bg-background/30 opacity-50 cursor-not-allowed'
                             : 'bg-background/50 hover:bg-background/70 border border-transparent'
@@ -201,12 +206,14 @@ export default function PhasePanel() {
                         aria-label={`${info.name} 선택`}
                       >
                         <div className="flex items-center justify-between">
-                          <span className="font-medium text-xs md:text-sm text-foreground">
+                          <span className={`font-medium text-xs md:text-sm ${mapDisabled ? 'line-through text-foreground-muted' : 'text-foreground'}`}>
                             {info.name}
                           </span>
-                          {taken && !isSelected && (
+                          {mapDisabled ? (
+                            <span className="text-[10px] md:text-xs text-steam-red">이 맵에서 사용 불가</span>
+                          ) : taken && !isSelected ? (
                             <span className="text-[10px] md:text-xs text-foreground-secondary">선택됨</span>
-                          )}
+                          ) : null}
                         </div>
                         <p className="text-[10px] md:text-xs text-foreground-secondary mt-0.5 md:mt-1">
                           {info.description}

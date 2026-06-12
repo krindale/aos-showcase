@@ -525,7 +525,8 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
               ${isLandscape ? 'space-y-2' : 'space-y-4'}
             `}>
               <GameBoard />
-              {!isLandscape && <GoodsDisplayPanel />}
+              {/* 물품 성장이 없는 맵(St. Lucia)은 물품 디스플레이가 무의미 → 숨김 */}
+              {!isLandscape && !mapConfig.rules.skipGoodsGrowth && <GoodsDisplayPanel />}
             </div>
 
             {/* 오른쪽: 패널들 (Desktop: always visible, Tablet: collapsible, Mobile: hidden) */}
@@ -536,7 +537,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: 20 }}
                   transition={{ duration: 0.3 }}
-                  className="hidden md:block md:col-span-4 lg:col-span-4 space-y-4"
+                  className="hidden md:block md:col-span-4 lg:col-span-4 space-y-4 md:sticky md:top-20 md:self-start md:max-h-[calc(100vh-6rem)] md:overflow-y-auto md:pr-1"
                 >
                   {renderPanelContent()}
                 </motion.div>

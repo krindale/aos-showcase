@@ -12,6 +12,7 @@ import {
   getHexPoints,
   getTrackPath,
   getRailroadTies,
+  getEdgeMidpoint,
   calculateBoardDimensions,
   hexCoordsEqual,
   getNeighborHex,
@@ -740,6 +741,26 @@ export default function GameBoard() {
           const canUrbanize = ui.urbanizationMode && ui.selectedNewCityTile && !isUrbanized;
           const isUrbanizationClickable = canPlaceNewCity(town.coord);
 
+          // 마을로 들어오는 철길: 인접 헥스의 트랙이 이 마을 변에 닿는 변 + 그 트랙 소유자 색
+          // (룰: 마을은 진입하는 모든 트랙을 연결 — 시각적으로 마을 중심까지 철길을 이어 그림)
+          const incomingEdges: { edge: number; color: string }[] = [];
+          for (let edge = 0; edge < 6; edge++) {
+            const neighbor = getNeighborHex(town.coord, edge);
+            const nTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor));
+            if (!nTrack) continue;
+            const opp = getOppositeEdge(edge);
+            let ownerId: PlayerId | null = null;
+            if (nTrack.edges.includes(opp)) ownerId = nTrack.owner;
+            else if (nTrack.secondaryEdges?.includes(opp)) ownerId = nTrack.secondaryOwner ?? null;
+            else continue;
+            const color = ownerId ? PLAYER_COLORS[players[ownerId].color] : '#888';
+            incomingEdges.push({ edge, color });
+          }
+
+          // 마을 헥스 자체에 깔린 트랙 (마을 디스크 아래 트랙 타일)
+          const townTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, town.coord));
+          const townTrackCache = townTrack ? trackPathCache.get(townTrack.id) : undefined;
+
           // 마을 클릭 핸들러
           const handleTownClick = () => {
             // 도시화 모드인 경우
@@ -771,6 +792,37 @@ export default function GameBoard() {
                 onClick={handleTownClick}
               />
 
+              {/* 마을 헥스 위 트랙 타일 (마을 디스크 아래 깔린 철길) */}
+              {townTrack && townTrackCache && (
+                <>
+                  <path d={townTrackCache.pathData} fill="none" stroke={townTrack.owner ? PLAYER_COLORS[players[townTrack.owner].color] : '#888'} strokeWidth="10" strokeLinecap="round" style={{ pointerEvents: 'none' }} />
+                  <path d={townTrackCache.pathData} fill="none" stroke={terrainColors.plain} strokeWidth="6" strokeLinecap="round" style={{ pointerEvents: 'none' }} />
+                </>
+              )}
+              {/* 마을로 들어오는 철길 스텁 (인접 트랙 → 마을 중심) */}
+              {incomingEdges.map(({ edge, color }) => {
+                const mid = getEdgeMidpoint(x, y, edge, HEX_SIZE - 2, isFlat);
+                return (
+                  <g key={`town-rail-${town.id}-${edge}`} style={{ pointerEvents: 'none' }}>
+                    <line x1={x} y1={y} x2={mid.x} y2={mid.y} stroke={color} strokeWidth="10" strokeLinecap="round" />
+                    <line x1={x} y1={y} x2={mid.x} y2={mid.y} stroke={terrainColors.plain} strokeWidth="6" strokeLinecap="round" />
+                    {/* 침목 */}
+                    {[0.45, 0.72].map(t => {
+                      const tx = x + (mid.x - x) * t;
+                      const ty = y + (mid.y - y) * t;
+                      const ang = Math.atan2(mid.y - y, mid.x - x) + Math.PI / 2;
+                      return (
+                        <line
+                          key={t}
+                          x1={tx - 7 * Math.cos(ang)} y1={ty - 7 * Math.sin(ang)}
+                          x2={tx + 7 * Math.cos(ang)} y2={ty + 7 * Math.sin(ang)}
+                          stroke="#4A4A42" strokeWidth="3" strokeLinecap="round"
+                        />
+                      );
+                    })}
+                  </g>
+                );
+              })}
               {/* 도시화 가능 표시 - 글로우 효과 */}
               {canUrbanize && !isUrbanized && (
                 <circle
@@ -874,6 +926,20 @@ export default function GameBoard() {
           );
           const isMoveGoodsPhase = currentPhase === 'moveGoods';
 
+          // 도시로 들어오는 철길 (도시는 모든 변이 연결 — 진입 트랙 변마다 시각화)
+          const cityIncoming: { edge: number; color: string }[] = [];
+          for (let edge = 0; edge < 6; edge++) {
+            const neighbor = getNeighborHex(city.coord, edge);
+            const nTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor));
+            if (!nTrack) continue;
+            const opp = getOppositeEdge(edge);
+            let ownerId: PlayerId | null = null;
+            if (nTrack.edges.includes(opp)) ownerId = nTrack.owner;
+            else if (nTrack.secondaryEdges?.includes(opp)) ownerId = nTrack.secondaryOwner ?? null;
+            else continue;
+            cityIncoming.push({ edge, color: ownerId ? PLAYER_COLORS[players[ownerId].color] : '#888' });
+          }
+
           // 도시 클릭 핸들러
           const handleCityClick = () => {
             if (currentPhase === 'buildTrack') {
@@ -904,6 +970,16 @@ export default function GameBoard() {
                 }
                 onClick={handleCityClick}
               />
+              {/* 도시로 들어오는 철길 스텁 */}
+              {cityIncoming.map(({ edge, color }) => {
+                const mid = getEdgeMidpoint(x, y, edge, HEX_SIZE - 2, isFlat);
+                return (
+                  <g key={`city-rail-${city.id}-${edge}`} style={{ pointerEvents: 'none' }}>
+                    <line x1={x + (mid.x - x) * 0.45} y1={y + (mid.y - y) * 0.45} x2={mid.x} y2={mid.y} stroke={color} strokeWidth="10" strokeLinecap="round" />
+                    <line x1={x + (mid.x - x) * 0.45} y1={y + (mid.y - y) * 0.45} x2={mid.x} y2={mid.y} stroke="rgba(255,255,255,0.55)" strokeWidth="5" strokeLinecap="round" />
+                  </g>
+                );
+              })}
 
               {/* 도시 ID 원 */}
               <circle

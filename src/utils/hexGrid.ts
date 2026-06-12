@@ -361,6 +361,9 @@ export function isValidBuildTarget(coord: HexCoord, board: BoardState): boolean 
   // 도시인 경우 건설 불가
   if (isCity) return false;
 
+  // 마을인 경우 건설 불가 (마을은 도시처럼 타일 없는 연결점 — 인접 트랙이 변에 닿으면 연결)
+  if (board.towns.some(t => hexCoordsEqual(t.coord, coord))) return false;
+
   // 호수인 경우 건설 불가
   if (hexTile && hexTile.terrain === 'lake') return false;
 
@@ -387,6 +390,10 @@ export function isValidBuildTargetWithReplace(
     return false;
   }
   if (isCity) {
+    return false;
+  }
+  // 마을인 경우 건설 불가 (마을은 타일 없는 연결점)
+  if (board.towns.some(t => hexCoordsEqual(t.coord, coord))) {
     return false;
   }
   if (hexTile && hexTile.terrain === 'lake') {
@@ -510,9 +517,10 @@ export function getBuildableNeighbors(
       });
     } else {
       // 기존 단순 트랙이 있는 헥스 → 복합 트랙(교차/공존) 건설 가능 대상
-      // 자기 트랙(완성된 링크)이든 상대 트랙이든 교차/공존 가능
+      // 자기 트랙(완성된 링크)이든 상대 트랙이든 교차/공존 가능 (마을 헥스 제외)
+      const isNeighborTownHex = board.towns.some(t => hexCoordsEqual(t.coord, neighbor));
       const existingTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor));
-      if (existingTrack && existingTrack.trackType === 'simple') {
+      if (!isNeighborTownHex && existingTrack && existingTrack.trackType === 'simple') {
         const targetEdge = getOppositeEdge(sourceEdge);
         buildableNeighbors.push({
           coord: neighbor,
@@ -600,15 +608,16 @@ export function getConnectedNeighbors(
 ): HexCoord[] {
   const neighbors: HexCoord[] = [];
 
-  // 현재 위치가 도시인지 확인
+  // 현재 위치가 도시/마을인지 확인 (마을도 도시처럼 모든 진입 트랙을 연결하는 허브)
   const isCurrentCity = board.cities.some(c => hexCoordsEqual(c.coord, currentCoord));
+  const isCurrentTown = board.towns.some(t => hexCoordsEqual(t.coord, currentCoord));
 
   // 현재 위치가 트랙인지 확인 (소유자 무관)
   const currentTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, currentCoord));
 
 
-  if (isCurrentCity) {
-    // 도시에서: 6방향 모두에서 완성된 트랙이 연결되어 있는지 확인
+  if (isCurrentCity || isCurrentTown) {
+    // 도시/마을에서: 6방향 모두에서 완성된 트랙이 연결되어 있는지 확인
     for (let edge = 0; edge < 6; edge++) {
       const neighbor = getNeighborHex(currentCoord, edge);
       const neighborKey = hexToKey(neighbor);
@@ -697,9 +706,10 @@ export function getConnectedNeighbors(
         continue;
       }
 
-      // 이웃이 도시인지 확인
+      // 이웃이 도시/마을인지 확인 (마을도 허브 — 타일 없이 변에 닿으면 연결)
       const isNeighborCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
-      if (isNeighborCity) {
+      const isNeighborTown = board.towns.some(t => hexCoordsEqual(t.coord, neighbor));
+      if (isNeighborCity || isNeighborTown) {
         neighbors.push(neighbor);
         continue;
       }
@@ -1407,21 +1417,65 @@ export function findTrackCubeDeliveries(
   const deliveries: TrackCubeDelivery[] = [];
   const visited = new Set<string>([hexToKey(startTrack.coord)]);
 
-  // 시작 트랙의 두 엣지 방향으로 각각 체인 추적
-  for (const startEdge of startTrack.edges) {
-    const pathCoords: HexCoord[] = [startTrack.coord];
-    let current = startTrack.coord;
-    let exitEdge = startEdge;
-    let sectionOwner: PlayerId | null = startTrack.owner;
+  // 워크 스택: 트랙 체인을 따라가다 마을(허브)을 만나면 마을에 닿은 다른 타일들로 분기
+  // sectionOwner = 큐브가 있는 구간(첫 마을/도시 도달 전까지)의 소유자 — 마을 경유 후엔 고정
+  interface TrackWalkState {
+    current: HexCoord;
+    exitEdge: number;
+    pathCoords: HexCoord[];
+    sectionOwner: PlayerId | null;
+    ownerLocked: boolean;
+  }
+  const stack: TrackWalkState[] = startTrack.edges.map(startEdge => ({
+    current: startTrack.coord,
+    exitEdge: startEdge,
+    pathCoords: [startTrack.coord],
+    sectionOwner: startTrack.owner,
+    ownerLocked: false,
+  }));
 
-    for (let steps = 0; steps < 32; steps++) {
+  let guard = 0;
+  while (stack.length > 0 && guard++ < 256) {
+    const st = stack.pop()!;
+    let current = st.current;
+    let exitEdge = st.exitEdge;
+    let sectionOwner = st.sectionOwner;
+    const ownerLocked = st.ownerLocked;
+    const pathCoords = [...st.pathCoords];
+
+    for (let steps = 0; steps < 64; steps++) {
       const nextCoord = getNeighborHex(current, exitEdge);
+      const key = hexToKey(nextCoord);
 
       // 도시 도달 → 색 일치하면 배달 후보
       const city = board.cities.find(c => hexCoordsEqual(c.coord, nextCoord));
       if (city) {
         if (city.color === cubeColor && !deliveries.some(d => d.city.id === city.id)) {
           deliveries.push({ city, pathCoords: [...pathCoords], sectionOwner });
+        }
+        break;
+      }
+
+      // 마을 도달 → 허브: 마을에 닿은 다른 타일들로 분기 계속 (구간 소유자는 여기서 고정)
+      const isTownHere = board.towns.some(t => hexCoordsEqual(t.coord, nextCoord));
+      if (isTownHere) {
+        if (visited.has(key)) break;
+        visited.add(key);
+        const townPath = [...pathCoords, nextCoord];
+        for (let edge = 0; edge < 6; edge++) {
+          const beyond = getNeighborHex(nextCoord, edge);
+          if (visited.has(hexToKey(beyond))) continue;
+          const bTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, beyond));
+          const opp = getOppositeEdge(edge);
+          if (bTrack?.edges.includes(opp) || bTrack?.secondaryEdges?.includes(opp)) {
+            stack.push({
+              current: nextCoord,
+              exitEdge: edge,
+              pathCoords: townPath,
+              sectionOwner,
+              ownerLocked: true,
+            });
+          }
         }
         break;
       }
@@ -1435,14 +1489,13 @@ export function findTrackCubeDeliveries(
       let edges: [number, number] | undefined;
       if (nextTrack.edges.includes(entryEdge)) {
         edges = nextTrack.edges;
-        sectionOwner = nextTrack.owner ?? sectionOwner;
+        if (!ownerLocked) sectionOwner = nextTrack.owner ?? sectionOwner;
       } else if (nextTrack.secondaryEdges?.includes(entryEdge)) {
         edges = nextTrack.secondaryEdges;
-        sectionOwner = nextTrack.secondaryOwner ?? sectionOwner;
+        if (!ownerLocked) sectionOwner = nextTrack.secondaryOwner ?? sectionOwner;
       }
       if (!edges) break;
 
-      const key = hexToKey(nextCoord);
       if (visited.has(key)) break;
       visited.add(key);
 

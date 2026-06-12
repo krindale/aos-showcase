@@ -88,11 +88,10 @@ export function validateFirstTrackRule(
     const isCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
     if (isCity) return true;
 
-    // 마을 앵커 허용 맵 (St. Lucia: 도시가 없어 마을이 시작점) — 마을 헥스 자체에 짓는 것도 허용
+    // 마을 앵커 허용 맵 (St. Lucia: 도시가 없어 마을이 시작점) — 트랙 변이 마을에 닿으면 연결
     if (allowTownAnchor) {
       const isTownNeighbor = board.towns.some(t => hexCoordsEqual(t.coord, neighbor));
-      const isTownHere = board.towns.some(t => hexCoordsEqual(t.coord, targetCoord));
-      if (isTownNeighbor || isTownHere) return true;
+      if (isTownNeighbor) return true;
     }
   }
   return false;

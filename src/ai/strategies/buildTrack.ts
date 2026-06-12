@@ -349,11 +349,13 @@ function tryDirectPathBuild(
     for (let i = 1; i < optimalPath.length - 1; i++) {
       const pathCoord = optimalPath[i];
 
-      // 중간 도시 체크
-      const isIntermediateCity = board.cities.some(c => hexCoordsEqual(c.coord, pathCoord));
+      // 중간 허브(도시/마을) 체크 — 마을도 타일 없이 모든 진입 트랙을 연결
+      const isIntermediateCity = board.cities.some(c => hexCoordsEqual(c.coord, pathCoord))
+        || board.towns.some(t => hexCoordsEqual(t.coord, pathCoord));
       if (isIntermediateCity) {
         const prevCoord = optimalPath[i - 1];
-        const prevIsCity = board.cities.some(c => hexCoordsEqual(c.coord, prevCoord));
+        const prevIsCity = board.cities.some(c => hexCoordsEqual(c.coord, prevCoord))
+          || board.towns.some(t => hexCoordsEqual(t.coord, prevCoord));
 
         if (prevIsCity) {
           frontierIndex = i;
@@ -380,7 +382,8 @@ function tryDirectPathBuild(
           // 역방향 OK. 순방향 검증: 다음 위치로 연결되는 엣지가 있는지
           if (i + 1 < optimalPath.length) {
             const nextPathCoord = optimalPath[i + 1];
-            const nextIsCity = board.cities.some(c => hexCoordsEqual(c.coord, nextPathCoord));
+            const nextIsCity = board.cities.some(c => hexCoordsEqual(c.coord, nextPathCoord))
+              || board.towns.some(t => hexCoordsEqual(t.coord, nextPathCoord));
             if (!nextIsCity) {
               // 다음이 일반 헥스 → 트랙이 해당 방향 엣지를 가져야 함
               const edgeToNext = getEdgeBetweenHexes(pathCoord, nextPathCoord);
@@ -430,8 +433,9 @@ function tryDirectPathBuild(
         continue;
       }
 
-      // 도시 헥스 처리: 도착 도시면 경로 완성, 중간 도시면 건너뜀
-      if (board.cities.some(c => hexCoordsEqual(c.coord, nextCoord))) {
+      // 허브(도시/마을) 헥스 처리: 도착지면 경로 완성, 중간이면 건너뜀 (타일 배치 불가/불필요)
+      if (board.cities.some(c => hexCoordsEqual(c.coord, nextCoord))
+        || board.towns.some(t => hexCoordsEqual(t.coord, nextCoord))) {
         if (hexCoordsEqual(nextCoord, targetCity.coord)) {
           debugLog.trackBuilding(`[직접 경로] 도착 도시(${nextCoord.col},${nextCoord.row}) 도달 → 경로 완성`);
           return null;
@@ -456,7 +460,8 @@ function tryDirectPathBuild(
         if (entryEdgeLoop >= 0 && existingTrack.edges.includes(entryEdgeLoop)) {
           if (nextIndex + 1 < optimalPath.length) {
             const nextNext = optimalPath[nextIndex + 1];
-            const isNextCity = board.cities.some(c => hexCoordsEqual(c.coord, nextNext));
+            const isNextCity = board.cities.some(c => hexCoordsEqual(c.coord, nextNext))
+              || board.towns.some(t => hexCoordsEqual(t.coord, nextNext));
             if (isNextCity) {
               canPassThrough = true; // 다음이 도시면 항상 연결
             } else {

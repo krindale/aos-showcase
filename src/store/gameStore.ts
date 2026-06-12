@@ -1400,9 +1400,12 @@ export const useGameStore = create<GameStore>()(
 
     const { board } = state;
 
-    // 유효한 헥스인지 확인 (도시, 호수 제외)
+    // 유효한 헥스인지 확인 (도시, 마을, 호수 제외)
+    // 마을은 도시처럼 타일 없는 연결점 — 인접 트랙이 변에 닿으면 연결됨
     const isCity = board.cities.some(c => hexCoordsEqual(c.coord, coord));
     if (isCity) return false;
+    const isTownHex = board.towns.some(t => hexCoordsEqual(t.coord, coord));
+    if (isTownHex) return false;
 
     const hexTile = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
     if (hexTile && hexTile.terrain === 'lake') return false;
@@ -1571,6 +1574,9 @@ export const useGameStore = create<GameStore>()(
     if (state.phaseState.builtTracksThisTurn >= state.phaseState.maxTracksThisTurn) {
       return false;
     }
+
+    // 마을 헥스에는 복합 트랙 불가 (마을은 타일 없는 연결점)
+    if (state.board.towns.some(t => hexCoordsEqual(t.coord, coord))) return false;
 
     // 기존 트랙이 있어야 함
     const existingTrack = state.board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));

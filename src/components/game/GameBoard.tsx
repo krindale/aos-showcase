@@ -302,6 +302,41 @@ export default function GameBoard() {
   );
 
   // 큐브 클릭 핸들러
+  // 도시/마을로 들어오는 철길 스텁 — 일반 트랙과 동일한 스타일 (어두운 레일 + 바닥색 + 침목)
+  // 마을/도시는 타일 없는 연결점이므로, 인접 타일이 변에 닿으면 중심 쪽으로 철길을 이어 그린다
+  const renderIncomingRails = useCallback(
+    (coord: HexCoord, x: number, y: number, keyPrefix: string, depth: number = 1) => {
+      const rails: React.ReactNode[] = [];
+      for (let edge = 0; edge < 6; edge++) {
+        const neighbor = getNeighborHex(coord, edge);
+        const nTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor));
+        if (!nTrack) continue;
+        const opp = getOppositeEdge(edge);
+        if (!nTrack.edges.includes(opp) && !nTrack.secondaryEdges?.includes(opp)) continue;
+        const mid = getEdgeMidpoint(x, y, edge, HEX_SIZE - 2, isFlat);
+        const ex = mid.x + (x - mid.x) * depth;
+        const ey = mid.y + (y - mid.y) * depth;
+        // 침목 1개 (변에서 35% 지점)
+        const tx = mid.x + (x - mid.x) * 0.35;
+        const ty = mid.y + (y - mid.y) * 0.35;
+        const ang = Math.atan2(y - mid.y, x - mid.x) + Math.PI / 2;
+        rails.push(
+          <g key={`${keyPrefix}-rail-${edge}`} style={{ pointerEvents: 'none' }}>
+            <line x1={mid.x} y1={mid.y} x2={ex} y2={ey} stroke="#3A3A32" strokeWidth="12" strokeLinecap="round" />
+            <line x1={mid.x} y1={mid.y} x2={ex} y2={ey} stroke={terrainColors.plain} strokeWidth="6" strokeLinecap="round" />
+            <line
+              x1={tx - 8 * Math.cos(ang)} y1={ty - 8 * Math.sin(ang)}
+              x2={tx + 8 * Math.cos(ang)} y2={ty + 8 * Math.sin(ang)}
+              stroke="#4A4A42" strokeWidth="3" strokeLinecap="round"
+            />
+          </g>
+        );
+      }
+      return rails;
+    },
+    [board.trackTiles, isFlat, terrainColors.plain]
+  );
+
   const handleCubeClick = useCallback(
     (cityId: string, cubeIndex: number) => {
       if (currentPhase === 'moveGoods') {
@@ -773,6 +808,9 @@ export default function GameBoard() {
                   ))}
                 </g>
               )}
+              {/* 마을로 들어오는 철길 (일반 트랙과 동일 스타일, 디스크 중심까지) */}
+              {renderIncomingRails(town.coord, x, y, `town-${town.id}`, 1)}
+
               {/* 도시화 가능 표시 - 글로우 효과 */}
               {canUrbanize && !isUrbanized && (
                 <circle
@@ -906,6 +944,9 @@ export default function GameBoard() {
                 }
                 onClick={handleCityClick}
               />
+
+              {/* 도시로 들어오는 철길 (일반 트랙과 동일 스타일) */}
+              {renderIncomingRails(city.coord, x, y, `city-${city.id}`, 0.55)}
 
               {/* 도시 ID 원 */}
               <circle

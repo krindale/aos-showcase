@@ -56,9 +56,10 @@ export function findOptimalPath(
     return GAME_CONSTANTS.PLAIN_TRACK_COST;
   };
 
-  // 도시인지 확인
+  // 도시/마을인지 확인 (마을도 도시처럼 타일 없이 통과 가능한 허브)
   const isCity = (coord: HexCoord): boolean => {
-    return board.cities.some(c => hexCoordsEqual(c.coord, coord));
+    return board.cities.some(c => hexCoordsEqual(c.coord, coord))
+      || board.towns.some(t => hexCoordsEqual(t.coord, coord));
   };
 
   // 시작 노드

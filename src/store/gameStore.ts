@@ -107,10 +107,15 @@ export function createInitialGameState(
     return { ...city, cubes };
   });
 
-  // 헥스 큐브 셋업 (공식 맵: "1 Good: Every Plain and River space" — 마을 헥스 포함)
+  // 헥스 큐브 셋업 (공식 맵: "1 Good: Every Plain and River space")
+  // 마을 헥스는 제외 — AoS 룰북 용어상 마을 칸은 'Town hex'로 plain hex와 구분됨
   const hexTilesWithCubes = setupRules.hexCubeSetup
     ? boardState.hexTiles.map((hex) => {
       if (hex.terrain !== 'plain' && hex.terrain !== 'river') return hex;
+      const isTownHex = boardState.towns.some(
+        t => t.coord.col === hex.coord.col && t.coord.row === hex.coord.row
+      );
+      if (isTownHex) return hex;
       const cube = bag.length > 0 ? bag.pop() : null;
       return { ...hex, cube: cube ?? null };
     })

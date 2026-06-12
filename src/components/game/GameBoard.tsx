@@ -23,6 +23,7 @@ import {
   getAnimationPoints,
 } from '@/utils/hexGrid';
 import { getMapData } from '@/utils/mapRegistry';
+import { isValidConnectionPoint as isValidConnectionPointUtil } from '@/utils/trackValidation';
 import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId } from '@/types/game';
 
 export default function GameBoard() {
@@ -210,18 +211,12 @@ export default function GameBoard() {
     return cache;
   }, [board.trackTiles, isFlat]);
 
-  // 헥스가 유효한 연결점인지 확인 (도시 또는 현재 플레이어의 트랙)
+  // 헥스가 유효한 연결점인지 확인 (도시, 내 트랙, 또는 내 트랙이 진입한 마을)
   const isValidConnectionPoint = useCallback(
     (coord: HexCoord) => {
-      const isCity = board.cities.some(c => hexCoordsEqual(c.coord, coord));
-      if (isCity) return true;
-
-      const playerTrack = board.trackTiles.find(
-        t => hexCoordsEqual(t.coord, coord) && (t.owner === currentPlayer || t.secondaryOwner === currentPlayer)
-      );
-      return !!playerTrack;
+      return isValidConnectionPointUtil(coord, board, currentPlayer);
     },
-    [board.cities, board.trackTiles, currentPlayer]
+    [board, currentPlayer]
   );
 
   // 헥스가 하이라이트된 건설 대상인지 확인 (source_selected 모드)

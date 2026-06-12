@@ -16,6 +16,38 @@ export {
 /**
  * 연결점으로 유효한 헥스인지 확인 (도시 또는 플레이어의 트랙)
  */
+/**
+ * 플레이어의 트랙이 마을에 진입해 있는지 확인
+ * (마을 헥스 위 타일 소유, 또는 인접 타일이 마을 쪽 변을 가짐)
+ * 룰북: 마을은 진입하는 모든 트랙을 연결 — 진입한 플레이어는 마을의
+ * 어느 방향으로든 새 트랙을 시작할 수 있는 허브가 된다.
+ */
+export function playerConnectsToTown(
+  townCoord: HexCoord,
+  board: BoardState,
+  playerId: PlayerId
+): boolean {
+  const isTown = board.towns.some(t => hexCoordsEqual(t.coord, townCoord));
+  if (!isTown) return false;
+
+  // 마을 헥스 위 타일이 내 소유 (전용 마을 트랙에 해당)
+  const trackHere = board.trackTiles.find(t => hexCoordsEqual(t.coord, townCoord));
+  if (trackHere && (trackHere.owner === playerId || trackHere.secondaryOwner === playerId)) {
+    return true;
+  }
+
+  // 인접 헥스의 내 타일이 마을 쪽 변에 닿음 (= 마을로 진입한 트랙)
+  for (let edge = 0; edge < 6; edge++) {
+    const neighbor = getNeighborHex(townCoord, edge);
+    const nTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor));
+    if (!nTrack) continue;
+    const opp = getOppositeEdge(edge);
+    if (nTrack.owner === playerId && nTrack.edges.includes(opp)) return true;
+    if (nTrack.secondaryOwner === playerId && nTrack.secondaryEdges?.includes(opp)) return true;
+  }
+  return false;
+}
+
 export function isValidConnectionPoint(
   coord: HexCoord,
   board: BoardState,
@@ -32,6 +64,9 @@ export function isValidConnectionPoint(
     trackAtCoord.secondaryOwner === currentPlayer
   );
   if (hasPlayerTrack) return true;
+
+  // 내 트랙이 진입해 있는 마을 - 마을은 진입 트랙을 모두 연결하는 허브
+  if (playerConnectsToTown(coord, board, currentPlayer)) return true;
 
   return false;
 }
@@ -80,6 +115,9 @@ export function validateTrackConnection(
     // 도시에 연결되는 경우
     const isCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
     if (isCity) return true;
+
+    // 내 트랙이 진입해 있는 마을에 연결되는 경우 (마을은 진입 트랙을 모두 연결)
+    if (playerConnectsToTown(neighbor, board, currentPlayer)) return true;
 
     // 플레이어의 기존 트랙에 연결되는 경우
     const oppositeEdge = getOppositeEdge(edge);

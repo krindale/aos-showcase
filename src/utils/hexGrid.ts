@@ -442,6 +442,23 @@ export function getBuildableNeighbors(
   // sourceCoord가 도시인지 확인
   const isCity = board.cities.some(c => hexCoordsEqual(c.coord, sourceCoord));
 
+  // sourceCoord가 내 트랙이 진입해 있는 마을인지 확인 (마을은 진입 트랙을 모두 연결하는 허브)
+  const isConnectedTown = !isCity && (() => {
+    const isTown = board.towns.some(t => hexCoordsEqual(t.coord, sourceCoord));
+    if (!isTown) return false;
+    const here = board.trackTiles.find(t => hexCoordsEqual(t.coord, sourceCoord));
+    if (here && (here.owner === currentPlayer || here.secondaryOwner === currentPlayer)) return true;
+    for (let edge = 0; edge < 6; edge++) {
+      const nb = getNeighborHex(sourceCoord, edge);
+      const nt = board.trackTiles.find(t => hexCoordsEqual(t.coord, nb));
+      if (!nt) continue;
+      const opp = getOppositeEdge(edge);
+      if (nt.owner === currentPlayer && nt.edges.includes(opp)) return true;
+      if (nt.secondaryOwner === currentPlayer && nt.secondaryEdges?.includes(opp)) return true;
+    }
+    return false;
+  })();
+
   // sourceCoord에 트랙이 있는지 확인 (소유권 필터 없이)
   const trackAtSource = board.trackTiles.find(t => hexCoordsEqual(t.coord, sourceCoord));
 
@@ -454,8 +471,8 @@ export function getBuildableNeighbors(
   // 연결 가능한 엣지 목록 결정
   let availableEdges: number[];
 
-  if (isCity) {
-    // 도시: 모든 6개 엣지에서 연결 가능
+  if (isCity || isConnectedTown) {
+    // 도시/진입한 마을: 모든 6개 엣지에서 연결 가능
     availableEdges = [0, 1, 2, 3, 4, 5];
   } else if (isPlayerOwned && trackAtSource) {
     // 플레이어 트랙: 플레이어 소유 경로의 엣지에서만 연결 가능 (복합 트랙 지원)

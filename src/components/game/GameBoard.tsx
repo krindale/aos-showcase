@@ -413,6 +413,8 @@ export default function GameBoard() {
                   fill={
                     isHighlighted
                       ? 'rgba(212, 168, 83, 0.3)' // 건설 가능 헥스 하이라이트
+                      : terrain === 'river'
+                      ? terrainColors.plain // 강 헥스: 평지색 + 아래 강줄기 곡선 오버레이
                       : terrainColors[terrain] ?? terrainColors.plain
                   }
                   stroke={
@@ -435,6 +437,18 @@ export default function GameBoard() {
                   onClick={() => isClickable && handleHexClick(coord)}
                   onMouseEnter={() => handleHexHover(coord)}
                 />
+                {/* 강 헥스: 평지 위로 흐르는 강줄기 (공식 맵 스타일) */}
+                {terrain === 'river' && !isHighlighted && (
+                  <path
+                    d={`M ${x - HEX_SIZE * 0.85} ${y - HEX_SIZE * 0.25} Q ${x - HEX_SIZE * 0.3} ${y + HEX_SIZE * 0.3}, ${x + HEX_SIZE * 0.1} ${y} T ${x + HEX_SIZE * 0.85} ${y + HEX_SIZE * 0.2}`}
+                    fill="none"
+                    stroke={terrainColors.river}
+                    strokeWidth="11"
+                    strokeLinecap="round"
+                    opacity="0.95"
+                    style={{ pointerEvents: 'none' }}
+                  />
+                )}
                 {/* 헥스 위 물품 큐브 (St. Lucia 셋업) */}
                 {hexTile?.cube && (
                   <rect
@@ -790,11 +804,27 @@ export default function GameBoard() {
                 onClick={handleTownClick}
               />
 
-              {/* 마을 ID (신규 도시로 변환된 경우 도시 색상 표시) */}
-              {isUrbanized ? (
+              {/* 마을 이름 라벨 (공식 맵처럼 헥스 상단에 표시) */}
+              <text
+                x={x}
+                y={y - 28}
+                textAnchor="middle"
+                fill="#1a1a1a"
+                fontSize="13"
+                fontWeight="700"
+                fontFamily="system-ui, sans-serif"
+                stroke="rgba(255,255,255,0.75)"
+                strokeWidth="3"
+                paintOrder="stroke"
+                style={{ pointerEvents: 'none' }}
+              >
+                {mapData.townNames?.[town.id] ?? town.id}
+              </text>
+              {/* 도시화된 경우 원 안에 신규 도시 ID 표시 */}
+              {isUrbanized && (
                 <text
                   x={x}
-                  y={y + 5}
+                  y={y + 6}
                   textAnchor="middle"
                   fill="#ffffff"
                   fontSize="18"
@@ -802,20 +832,7 @@ export default function GameBoard() {
                   fontFamily="system-ui, sans-serif"
                   style={{ pointerEvents: 'none' }}
                 >
-                  {mapData.townNames?.[town.id] ?? town.id}
-                </text>
-              ) : (
-                <text
-                  x={x}
-                  y={y + 5}
-                  textAnchor="middle"
-                  fill="#333333"
-                  fontSize="14"
-                  fontWeight="600"
-                  fontFamily="system-ui, sans-serif"
-                  style={{ pointerEvents: 'none' }}
-                >
-                  Town
+                  {town.newCityColor ? town.id : ''}
                 </text>
               )}
 

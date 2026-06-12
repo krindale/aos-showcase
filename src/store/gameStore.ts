@@ -84,7 +84,15 @@ export function createInitialGameState(
   const goodsDisplay = initializeGoodsDisplay();
 
   const setupRules = getMapRules(mapId);
-  const bag = [...goodsDisplay.bag];
+  // 헥스 큐브 맵(St. Lucia): 물품 성장이 없어 디스플레이가 불필요 →
+  // 디스플레이에 깔린 큐브까지 전부 주머니로 합쳐 모든 평지/강 헥스를 채운다
+  // (디스플레이 52개를 빼면 주머니가 44개뿐이라 일부 헥스가 비는 문제 방지)
+  const bag = setupRules.hexCubeSetup
+    ? [...goodsDisplay.bag, ...goodsDisplay.slots.filter((c): c is NonNullable<typeof c> => c !== null)]
+    : [...goodsDisplay.bag];
+  const displaySlots = setupRules.hexCubeSetup
+    ? goodsDisplay.slots.map(() => null)
+    : goodsDisplay.slots;
 
   // 도시에 물품 배치 (헥스 큐브 셋업 맵은 도시 큐브 없음 — 룰북 St. Lucia)
   const citiesWithCubes = boardState.cities.map((city) => {
@@ -166,7 +174,7 @@ export function createInitialGameState(
       hexTiles: hexTilesWithCubes,
     },
     goodsDisplay: {
-      slots: goodsDisplay.slots,
+      slots: displaySlots,
       bag,
     },
     newCityTiles: NEW_CITY_TILES.map(tile => ({ ...tile })),  // 복사본 생성

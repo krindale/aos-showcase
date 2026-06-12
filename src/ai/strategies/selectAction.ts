@@ -28,14 +28,17 @@ import {
 } from '../strategy/vp';
 import { findReachableDestinations, hexCoordsEqual, getNeighborHex } from '@/utils/hexGrid';
 import { debugLog } from '@/utils/debugConfig';
+import { getMapRules } from '@/utils/mapRegistry';
 
 /**
- * 사용 가능한 행동 목록 반환
+ * 사용 가능한 행동 목록 반환 (맵 룰에서 금지된 행동 제외 — 예: St. Lucia의 production)
  */
 function getAvailableActions(state: GameState): SpecialAction[] {
   const selectedActions = Object.values(state.players)
     .map(p => p.selectedAction)
     .filter((a): a is SpecialAction => a !== null);
+
+  const disabled = getMapRules(state.mapId).disabledActions;
 
   const allActions: SpecialAction[] = [
     'firstMove',
@@ -47,7 +50,7 @@ function getAvailableActions(state: GameState): SpecialAction[] {
     'turnOrder',
   ];
 
-  return allActions.filter(a => !selectedActions.includes(a));
+  return allActions.filter(a => !selectedActions.includes(a) && !disabled.includes(a));
 }
 
 /** 동점 시 선호 순서 (앞이 우선) */

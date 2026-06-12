@@ -24,6 +24,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import AuctionPanel from './AuctionPanel';
+import TurnOrderOfferPanel from './TurnOrderOfferPanel';
 import GoodsGrowthPanel from './GoodsGrowthPanel';
 
 const PHASE_ICONS: Record<GamePhase, React.ReactNode> = {
@@ -58,6 +59,7 @@ export default function PhasePanel() {
     activePlayers,
     phaseState,
     aiExecution,
+    turnOrderOffer,
   } = useGameStore(
     useShallow((state) => ({
       currentPhase: state.currentPhase,
@@ -66,6 +68,7 @@ export default function PhasePanel() {
       activePlayers: state.activePlayers,
       phaseState: state.phaseState,
       aiExecution: state.aiExecution,
+      turnOrderOffer: state.turnOrderOffer,
     }))
   );
 
@@ -139,9 +142,9 @@ export default function PhasePanel() {
           </div>
         )}
 
-        {/* II. 플레이어 순서 - AuctionPanel 사용 */}
+        {/* II. 플레이어 순서 - 교대 선공권 맵(St. Lucia)은 제안 패널, 그 외 경매 */}
         {currentPhase === 'determinePlayerOrder' && (
-          <AuctionPanel />
+          turnOrderOffer ? <TurnOrderOfferPanel /> : <AuctionPanel />
         )}
 
         {/* III. 행동 선택 - 반응형 */}

@@ -158,6 +158,7 @@ export function createMockGameState(
     newCityTiles: [],
 
     auction: null,
+    turnOrderOffer: null,
     phaseState: {
       builtTracksThisTurn: 0,
       maxTracksThisTurn: GAME_CONSTANTS.NORMAL_TRACK_LIMIT,

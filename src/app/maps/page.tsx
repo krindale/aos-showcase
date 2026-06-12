@@ -14,8 +14,7 @@ import {
   Factory,
   Mountain,
   Palmtree,
-  MapPin,
-} from 'lucide-react';
+  MapPin, Play } from 'lucide-react';
 
 const basePath = process.env.NODE_ENV === 'production' ? '/aos-showcase' : '';
 
@@ -156,8 +155,8 @@ const maps = [
       '직접적인 경쟁',
       '빠른 게임 진행',
     ],
-    specialRules: '2인 모드 규칙 적용',
-    playable: false,
+    specialRules: '경매 대신 교대 선공권($5), Production 불가, 물품 성장 생략, 8턴',
+    playable: true,
   },
 ];
 
@@ -360,6 +359,17 @@ export default function MapsPage() {
                           <div className="h-[52px]" />
                         )}
                       </div>
+
+                      {/* 플레이 가능한 맵: 게임 진입 버튼 */}
+                      {currentMap.playable && (
+                        <a
+                          href={`${basePath}/game/${currentMap.slug === 'rust-belt' ? 'tutorial' : currentMap.slug}/`}
+                          className="btn-primary mt-4 flex items-center justify-center gap-2 text-sm py-3"
+                        >
+                          <Play className="w-4 h-4" />
+                          지금 플레이하기
+                        </a>
+                      )}
                     </div>
                   </div>
                 </div>

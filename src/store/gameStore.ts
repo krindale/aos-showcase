@@ -25,10 +25,8 @@ import {
 } from '@/types/game';
 import { getAIDecision, AI_TURN_DELAY, isCurrentPlayerAI, aiPlayerManager } from '@/ai';
 import { addFailedBuildCoord } from '@/ai/strategies/buildTrack';
-import {
-  createInitialBoardState,
-  initializeGoodsDisplay,
-} from '@/utils/tutorialMap';
+import { initializeGoodsDisplay } from '@/utils/tutorialMap';
+import { getMapData, getMapRules } from '@/utils/mapRegistry';
 import {
   isValidConnectionPoint,
   validateFirstTrackRule,
@@ -81,7 +79,8 @@ export function createInitialGameState(
   playerNames: string[],
   aiPlayers: AIPlayerConfig[] = []
 ): GameState {
-  const boardState = createInitialBoardState();
+  const mapData = getMapData(mapId);
+  const boardState = mapData.createBoardState();
   const goodsDisplay = initializeGoodsDisplay();
 
   // 도시에 물품 배치
@@ -120,8 +119,8 @@ export function createInitialGameState(
   const playerMoves: Partial<Record<PlayerId, boolean>> = {};
   activePlayers.forEach(p => { playerMoves[p] = false; });
 
-  // 튜토리얼 맵은 3턴으로 제한
-  const maxTurns = mapId === 'tutorial' ? TUTORIAL_GAME_CONFIG.maxTurns : (TURNS_BY_PLAYER_COUNT[playerCount] || 6);
+  // 맵별 턴 수 (튜토리얼 3턴, St. Lucia 8턴 등 - mapRegistry에서 정의)
+  const maxTurns = mapData.maxTurns || (TURNS_BY_PLAYER_COUNT[playerCount] || 6);
 
   return {
     // 메타 정보
@@ -153,6 +152,9 @@ export function createInitialGameState(
 
     // 경매
     auction: null,
+
+    // 교대 선공권 제안 (alternateTurnOrder 맵 전용)
+    turnOrderOffer: null,
 
     // 단계 상태
     phaseState: {
@@ -344,6 +346,8 @@ interface GameStore extends GameState {
   skipBid: (playerId: PlayerId) => void;
   /** 경매 해결 */
   resolveAuction: () => void;
+  /** 교대 선공권 응답 (alternateTurnOrder 맵 전용) - 수락 시 firstSeatCost 지불 후 선공 */
+  respondTurnOrderOffer: (playerId: PlayerId, accept: boolean) => void;
 
   // --- Phase III: 행동 선택 ---
   /** 특수 행동 선택 */
@@ -619,6 +623,15 @@ export const useGameStore = create<GameStore>()(
           }
           // 경매: 락 해제 후 다음 AI 체크 스케줄링
           // (passBid/placeBid 내 scheduleAICheck는 락이 아직 걸려있어 실행 안됨)
+          releaseAILock(executionId, get, set);
+          scheduleAICheck(get);
+          return;
+        }
+
+        case 'turnOrderOffer': {
+          // 교대 선공권 응답 (alternateTurnOrder 맵 전용)
+          console.log(`[AI 선공권] ${player.name}: ${decision.accept ? '수락 ($지불)' : '거절'}`);
+          store.respondTurnOrderOffer(capturedContext.currentPlayer, decision.accept);
           releaseAILock(executionId, get, set);
           scheduleAICheck(get);
           return;
@@ -1075,6 +1088,94 @@ export const useGameStore = create<GameStore>()(
   },
 
   // ============================================================
+  // Phase II (대체): 교대 선공권 (alternateTurnOrder 맵 전용)
+  // ============================================================
+  respondTurnOrderOffer: (playerId, accept) => {
+    set((state) => {
+      const offer = state.turnOrderOffer;
+      if (!offer || offer.offerPlayer !== playerId) {
+        console.warn(`[WARN] respondTurnOrderOffer: 유효하지 않은 응답 - playerId: ${playerId}`);
+        return state;
+      }
+
+      const rules = getMapRules(state.mapId);
+      const others = state.activePlayers.filter(p => p !== playerId);
+
+      // 수락: firstSeatCost 지불 후 선공
+      if (accept) {
+        const player = state.players[playerId];
+        const cost = rules.firstSeatCost;
+        if (player.cash < cost) {
+          console.warn(`[WARN] respondTurnOrderOffer: 현금 부족 - ${playerId}, 필요: $${cost}, 보유: $${player.cash}`);
+          return state;
+        }
+        return {
+          players: {
+            ...state.players,
+            [playerId]: { ...player, cash: player.cash - cost },
+          },
+          playerOrder: [playerId, ...others],
+          turnOrderOffer: null,
+          currentPlayer: playerId,
+          logs: [
+            ...state.logs,
+            {
+              turn: state.currentTurn,
+              phase: state.currentPhase,
+              player: playerId,
+              action: `선공권 구매 ($${cost} 지불) - 1번 플레이어`,
+              timestamp: Date.now(),
+            },
+          ],
+        };
+      }
+
+      // 거절: 다음 플레이어에게 옵션 이전
+      const declined = [...offer.declined, playerId];
+      const nextOffer = state.activePlayers.find(p => !declined.includes(p));
+
+      if (nextOffer) {
+        return {
+          turnOrderOffer: { ...offer, offerPlayer: nextOffer, declined },
+          currentPlayer: nextOffer,
+          logs: [
+            ...state.logs,
+            {
+              turn: state.currentTurn,
+              phase: state.currentPhase,
+              player: playerId,
+              action: `선공권 거절 → ${state.players[nextOffer]?.name}에게 옵션 이전`,
+              timestamp: Date.now(),
+            },
+          ],
+        };
+      }
+
+      // 모두 거절: 첫 제안 대상이 무료로 선공
+      const first = offer.firstOptionPlayer;
+      const rest = state.activePlayers.filter(p => p !== first);
+      return {
+        playerOrder: [first, ...rest],
+        turnOrderOffer: null,
+        currentPlayer: first,
+        logs: [
+          ...state.logs,
+          {
+            turn: state.currentTurn,
+            phase: state.currentPhase,
+            player: first,
+            action: `모두 선공권 거절 → ${state.players[first]?.name} 무료 선공`,
+            timestamp: Date.now(),
+          },
+        ],
+      };
+    });
+
+    // AI 턴 트리거 (중앙 집중식 스케줄러 사용)
+    scheduleAICheck(get);
+  },
+
+  // ============================================================
   // Phase III: 행동 선택
   // ============================================================
   selectAction: (playerId, action) => {
@@ -1083,6 +1184,12 @@ export const useGameStore = create<GameStore>()(
       const player = state.players[playerId];
       if (!player) {
         console.error(`[ERROR] selectAction: 플레이어 없음 - playerId: ${playerId}`);
+        return state;
+      }
+
+      // 맵 룰에서 비활성화된 행동인지 확인 (예: St. Lucia의 production)
+      if (getMapRules(state.mapId).disabledActions.includes(action)) {
+        console.warn(`[WARN] selectAction: 이 맵에서 사용 불가한 행동 - playerId: ${playerId}, action: ${action}`);
         return state;
       }
 
@@ -1801,30 +1908,24 @@ export const useGameStore = create<GameStore>()(
       const newCities = state.board.cities.map(city => ({ ...city, cubes: [...city.cubes] }));
       const newLogs = [...state.logs];
 
-      // 열-도시 매핑 (Tutorial Map - TUTORIAL_COLUMN_MAPPING과 일치해야 함)
+      // 열-도시 매핑 (맵 레지스트리의 columnMapping에서 유도)
       // 1-6: 주사위 열, A-D: 신규 도시 열
-      const columnToCityId: Record<string, string> = {
-        '1': 'P', // Pittsburgh
-        '2': 'C', // Cleveland
-        '3': 'O', // Columbus
-        '4': 'W', // Wheeling
-        '5': 'I', // Cincinnati
-        '6': 'P', // Pittsburgh (다시)
-      };
-
-      // 열의 시작 인덱스 계산
-      const columnStartIndex: Record<string, number> = {
-        '1': 0,   // 0-5
-        '2': 6,   // 6-11
-        '3': 12,  // 12-17
-        '4': 18,  // 18-23
-        '5': 24,  // 24-29
-        '6': 30,  // 30-35
-        'A': 36,  // 36-39
-        'B': 40,  // 40-43
-        'C': 44,  // 44-47
-        'D': 48,  // 48-51
-      };
+      const columnMapping = getMapData(state.mapId).columnMapping;
+      const columnToCityId: Record<string, string> = {};
+      const columnStartIndex: Record<string, number> = {};
+      const columnRowCount: Record<string, number> = {};
+      {
+        let slotIndex = 0;
+        for (const m of columnMapping) {
+          columnStartIndex[m.columnId] = slotIndex;
+          columnRowCount[m.columnId] = m.rowCount;
+          slotIndex += m.rowCount;
+          // 주사위 열(1-6)만 도시로 직접 매핑 (신규 도시 열은 별도 처리)
+          if (!m.isNewCity) {
+            columnToCityId[m.columnId] = m.cityId;
+          }
+        }
+      }
 
       // 주사위 결과에 따른 물품 배치
       const columnCounts: Record<string, number> = {};
@@ -1842,7 +1943,7 @@ export const useGameStore = create<GameStore>()(
         if (!city) continue;
 
         const startIdx = columnStartIndex[column];
-        const rowCount = column.match(/[A-D]/) ? 4 : 6;
+        const rowCount = columnRowCount[column] ?? 6;
 
         // 위에서부터 큐브 가져오기
         let moved = 0;
@@ -1950,6 +2051,23 @@ export const useGameStore = create<GameStore>()(
       if (state.currentPhase === 'issueShares') {
         // 마지막 플레이어까지 완료했으면 다음 단계로
         if (isLast) {
+          // 교대 선공권 맵 (St. Lucia): 경매 대신 선공권 제안 초기화
+          // 제안 대상은 턴마다 교대 (턴1: player1, 턴2: player2, ...)
+          const rules = getMapRules(state.mapId);
+          if (rules.alternateTurnOrder) {
+            const firstOption = activePlayers[(state.currentTurn - 1) % activePlayers.length];
+            console.log(`[nextPhase] 교대 선공권 시작: 제안 대상=${firstOption} (턴 ${state.currentTurn})`);
+            return {
+              currentPhase: 'determinePlayerOrder' as GamePhase,
+              currentPlayer: firstOption,
+              turnOrderOffer: {
+                offerPlayer: firstOption,
+                firstOptionPlayer: firstOption,
+                declined: [],
+              },
+            };
+          }
+
           return {
             currentPhase: 'determinePlayerOrder' as GamePhase,
             currentPlayer: playerOrder[0],
@@ -1967,6 +2085,7 @@ export const useGameStore = create<GameStore>()(
         return {
           currentPhase: 'selectActions' as GamePhase,
           currentPlayer: playerOrder[0],
+          turnOrderOffer: null, // 미해결 선공권 제안 정리 (안전장치)
         };
       }
 
@@ -2119,7 +2238,12 @@ export const useGameStore = create<GameStore>()(
       }
 
       // === VI-X. 자동 단계들 ===
-      const nextIndex = (currentIndex + 1) % phases.length;
+      let nextIndex = (currentIndex + 1) % phases.length;
+      // 맵 룰: 물품 성장 단계 생략 (St. Lucia)
+      if (phases[nextIndex] === 'goodsGrowth' && getMapRules(state.mapId).skipGoodsGrowth) {
+        console.log('[nextPhase] 물품 성장 단계 생략 (맵 룰: skipGoodsGrowth)');
+        nextIndex = (nextIndex + 1) % phases.length;
+      }
       const nextPhaseName = phases[nextIndex];
 
       // advanceTurn 후에는 새 턴 시작

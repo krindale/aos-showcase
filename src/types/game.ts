@@ -146,6 +146,15 @@ export const GOODS_DISPLAY_CONFIG = {
   ROWS_PER_COLUMN: [6, 6, 6, 6, 6, 6, 4, 4, 4, 4],  // 총 52칸
 };
 
+// === 교대 선공권 (St. Lucia 등 alternateTurnOrder 맵) ===
+// 경매 대신: 제안받은 플레이어가 $5를 내고 선공하거나 거절 →
+// 상대에게 옵션이 넘어가고, 둘 다 거절하면 첫 제안자가 무료로 선공
+export interface TurnOrderOfferState {
+  offerPlayer: PlayerId;       // 현재 선공권 제안을 받은 플레이어
+  firstOptionPlayer: PlayerId; // 이번 턴 첫 제안 대상 (모두 거절 시 무료 선공)
+  declined: PlayerId[];        // 거절한 플레이어들
+}
+
 // === 턴 순서 경매 ===
 export interface AuctionState {
   currentBidder: PlayerId | null;
@@ -301,6 +310,9 @@ export interface GameState {
 
   // 경매 (플레이어 순서 결정 단계)
   auction: AuctionState | null;
+
+  // 교대 선공권 제안 (alternateTurnOrder 맵 전용, 그 외 항상 null)
+  turnOrderOffer: TurnOrderOfferState | null;
 
   // 현재 단계 관련 임시 상태
   phaseState: PhaseState;

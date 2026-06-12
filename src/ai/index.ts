@@ -18,7 +18,8 @@ import { aiPlayerManager } from './AIPlayerManager';
 
 // === 기존 전략 함수 (호환성 유지용) ===
 import { decideSharesIssue } from './strategies/issueShares';
-import { decideAuctionBid, AuctionDecision } from './strategies/auction';
+import { decideAuctionBid, decideTurnOrderOffer, AuctionDecision } from './strategies/auction';
+import { getMapRules } from '@/utils/mapRegistry';
 import { decideAction } from './strategies/selectAction';
 import { decideBuildTrack, TrackBuildDecision } from './strategies/buildTrack';
 import { decideMoveGoods, MoveGoodsDecision } from './strategies/moveGoods';
@@ -35,6 +36,7 @@ import { DynamicStrategy } from './strategy/types';
 export type AIDecision =
   | { type: 'issueShares'; amount: number }
   | { type: 'auction'; decision: AuctionDecision }
+  | { type: 'turnOrderOffer'; accept: boolean } // 교대 선공권 응답 (alternateTurnOrder 맵)
   | { type: 'selectAction'; action: SpecialAction }
   | { type: 'buildTrack'; decision: TrackBuildDecision }
   | { type: 'moveGoods'; decision: MoveGoodsDecision }
@@ -116,6 +118,16 @@ export function getAIDecision(state: GameState, playerId: PlayerId): AIDecision 
     }
 
     case 'determinePlayerOrder': {
+      // 교대 선공권 맵 (St. Lucia): 경매 대신 선공권 수락/거절 결정
+      const rules = getMapRules(state.mapId);
+      if (rules.alternateTurnOrder) {
+        if (state.turnOrderOffer && state.turnOrderOffer.offerPlayer === playerId) {
+          const accept = decideTurnOrderOffer(state, playerId, rules.firstSeatCost);
+          return { type: 'turnOrderOffer', accept };
+        }
+        return { type: 'skip' };
+      }
+
       const decision = decideAuctionBid(state, playerId);
       return { type: 'auction', decision };
     }

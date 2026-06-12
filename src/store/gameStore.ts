@@ -2901,6 +2901,11 @@ export const useGameStore = create<GameStore>()(
     const state = get();
     const currentPlayer = state.currentPlayer;
 
+    // 트랙 제한 확인 (방향 전환도 건설 1회로 카운트 — 룰: 턴당 3개, Engineer 4개)
+    if (state.phaseState.builtTracksThisTurn >= state.phaseState.maxTracksThisTurn) {
+      return false;
+    }
+
     // 방향 전환 가능한지 확인
     if (!canRedirectTrack(coord, state.board, currentPlayer)) {
       return false;

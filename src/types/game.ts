@@ -73,6 +73,8 @@ export interface TrackTile {
   secondaryOwner?: PlayerId | null;   // 두 번째 경로 소유자
   /** 트랙 위 물품 큐브 (St. Lucia — 미완성 링크여도 배달 가능) */
   cube?: CubeColor | null;
+  /** 건설된 턴 (이번 턴에 지은 트랙 시각 표시용) */
+  builtTurn?: number;
 }
 
 // 도시

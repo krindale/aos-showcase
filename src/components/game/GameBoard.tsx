@@ -44,6 +44,7 @@ export default function GameBoard() {
     }))
   );
   const mapId = useGameStore((state) => state.mapId);
+  const currentTurn = useGameStore((state) => state.currentTurn);
   // 맵 데이터(그리드 크기/지형 색): mapRegistry에서 주입 — 튜토리얼 하드코딩 금지
   const mapData = useMemo(() => getMapData(mapId), [mapId]);
   const terrainColors = mapData.colors.terrain;
@@ -649,6 +650,19 @@ export default function GameBoard() {
                     />
                   ))}
                 </>
+              )}
+
+              {/* 이번 턴에 건설한 트랙 표시 (턴이 끝나면 사라짐) — 누적 트랙과 구분용 */}
+              {tile.builtTurn === currentTurn && (
+                <polygon
+                  points={getHexPoints(x, y, HEX_SIZE - 6, isFlat)}
+                  fill="none"
+                  stroke="#ffffff"
+                  strokeWidth="2"
+                  strokeDasharray="5 4"
+                  opacity="0.85"
+                  style={{ pointerEvents: 'none' }}
+                />
               )}
 
               {/* 소유자 마커 - 미완성 트랙(완성된 링크에 포함되지 않은 트랙)에만 표시 */}

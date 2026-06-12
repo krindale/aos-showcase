@@ -945,9 +945,6 @@ export default function GameBoard() {
                 onClick={handleCityClick}
               />
 
-              {/* 도시로 들어오는 철길 (일반 트랙과 동일 스타일) */}
-              {renderIncomingRails(city.coord, x, y, `city-${city.id}`, 0.55)}
-
               {/* 도시 ID 원 */}
               <circle
                 cx={x}

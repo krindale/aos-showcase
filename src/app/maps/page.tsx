@@ -413,7 +413,7 @@ export default function MapsPage() {
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {maps.map((map, index) => (
-              <motion.button
+              <motion.div
                 key={map.id}
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
@@ -424,7 +424,8 @@ export default function MapsPage() {
                   setCurrentIndex(index);
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className={`glass-card p-6 rounded-xl text-left transition-all
+                role="button"
+                className={`glass-card p-6 rounded-xl text-left transition-all cursor-pointer
                   ${currentIndex === index ? 'ring-2 ring-accent' : ''}`}
               >
                 <div className="flex items-center gap-4">
@@ -442,7 +443,18 @@ export default function MapsPage() {
                     {map.players}
                   </div>
                 </div>
-              </motion.button>
+                {/* 플레이 가능한 맵: 그리드에서 바로 게임 진입 */}
+                {map.playable && (
+                  <a
+                    href={`${basePath}/game/${map.slug === 'rust-belt' ? 'tutorial' : map.slug}/`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="btn-primary mt-4 flex items-center justify-center gap-2 text-sm py-2"
+                  >
+                    <Play className="w-4 h-4" />
+                    플레이
+                  </a>
+                )}
+              </motion.div>
             ))}
           </div>
         </div>

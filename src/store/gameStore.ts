@@ -1466,6 +1466,15 @@ export const useGameStore = create<GameStore>()(
       return false;
     }
 
+    // 최종 하드 가드: 어떤 경로로도 턴당 제한을 초과한 건설은 불가 (위반 시도는 박제)
+    if (state.phaseState.builtTracksThisTurn >= state.phaseState.maxTracksThisTurn) {
+      console.error(
+        `[제한 위반 차단] ${state.currentPlayer} 트랙 건설 시도: ` +
+        `built=${state.phaseState.builtTracksThisTurn} >= max=${state.phaseState.maxTracksThisTurn}, turn=${state.currentTurn}`
+      );
+      return false;
+    }
+
     const currentPlayer = state.currentPlayer;
     const terrain = state.board.hexTiles.find(
       (h) => hexCoordsEqual(h.coord, coord)
@@ -2334,6 +2343,7 @@ export const useGameStore = create<GameStore>()(
         }
 
         // 다음 플레이어로 전환
+        console.log(`[빌드카운트 리셋] 차례 전환: ${state.currentPlayer}(${state.phaseState.builtTracksThisTurn}개 건설) → ${nextPlayer}, turn=${state.currentTurn}`);
         return {
           currentPlayer: nextPlayer,
           phaseState: {
@@ -2345,6 +2355,16 @@ export const useGameStore = create<GameStore>()(
               : GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
             playerMoves: updatedPlayerMoves,
           },
+          logs: [
+            ...state.logs,
+            {
+              turn: state.currentTurn,
+              phase: state.currentPhase,
+              player: state.currentPlayer,
+              action: `[시스템] 건설 차례 종료 (${state.phaseState.builtTracksThisTurn}개 건설) → ${state.players[nextPlayer]?.name} 차례`,
+              timestamp: Date.now(),
+            },
+          ],
         };
       }
 

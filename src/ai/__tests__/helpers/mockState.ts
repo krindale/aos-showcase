@@ -174,6 +174,7 @@ export function createMockGameState(
         player6: false,
       },
       productionUsed: false,
+      urbanizationUsed: false,
       locomotiveUsed: false,
     },
 

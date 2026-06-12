@@ -12,11 +12,13 @@ import {
   breakRouteIntoSegments,
   getRouteProgress,
   isRouteComplete,
+  findOptimalPathAvoidingOpponent,
 } from './analyzer';
-import { hexDistance } from '@/utils/hexGrid';
+import { hexDistance, hexCoordsEqual } from '@/utils/hexGrid';
 import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, clearCurrentRoutes } from './state';
 import { estimateRouteVP } from './vp';
 import { getMapAIConfig } from './mapConfig';
+import { getMapRules } from '@/utils/mapRegistry';
 import { debugLog } from '@/utils/debugConfig';
 
 /**
@@ -64,6 +66,14 @@ export function getNextTargetRoute(
 ): DeliveryRoute | null {
   const player = state.players[playerId];
   if (!player) return null;
+
+  // 헥스 큐브 맵 (St. Lucia): 도시 큐브가 없으므로 표준 기회 분석 대신
+  // "헥스 큐브를 트랙 위로 수집하며 도시/마을을 잇는 경로"를 선택
+  if (getMapRules(state.mapId).hexCubeSetup) {
+    const route = getHexCubeMapRoute(state, playerId);
+    if (route) setCurrentRoute(playerId, route);
+    return route;
+  }
 
   // 1. 현재 물품 배치 기반 모든 배달 기회 분석
   const allOpportunities = analyzeDeliveryOpportunities(state);
@@ -406,6 +416,12 @@ export function getTopPriorityRoutes(
   const player = state.players[playerId];
   if (!player) return [];
 
+  // 헥스 큐브 맵: 표준 기회 분석이 무의미 → getNextTargetRoute(헥스 큐브 경로)에 위임
+  if (getMapRules(state.mapId).hexCubeSetup) {
+    const route = getHexCubeMapRoute(state, playerId);
+    return route ? [route] : [];
+  }
+
   const allOpportunities = analyzeDeliveryOpportunities(state);
   const connectedCities = getConnectedCities(state, playerId);
 
@@ -433,4 +449,93 @@ export function getTopPriorityRoutes(
     .sort((a, b) => b.score - a.score)
     .slice(0, count)
     .map(s => s.route);
+}
+
+
+// ============================================================
+// 헥스 큐브 맵 (St. Lucia) 전용 경로 선택
+// ============================================================
+
+/**
+ * 헥스 큐브 맵의 건설 경로 선택
+ *
+ * 전략: stop(도시/마을) 쌍을 잇는 경로 중,
+ *  - 경로상 헥스 큐브가 많고 (건설하며 트랙 위로 수집 → 배달 재료)
+ *  - 끝점에 도시(배달 목적지)가 포함되면 가중
+ *  - 내 연결망에서 시작하면 가중
+ * 한 경로를 고른다. 도시가 없으면 마을-마을 경로(큐브 수집)도 유효.
+ */
+export function getHexCubeMapRoute(
+  state: GameState,
+  playerId: PlayerId
+): DeliveryRoute | null {
+  const { board } = state;
+  const player = state.players[playerId];
+  if (!player) return null;
+
+  // stop 목록: 도시 + 도시화 안 된 마을
+  const stops: { id: string; coord: { col: number; row: number }; isCity: boolean }[] = [
+    ...board.cities.map(c => ({ id: c.id, coord: c.coord, isCity: true })),
+    ...board.towns.filter(t => !t.newCityColor).map(t => ({ id: t.id, coord: t.coord, isCity: false })),
+  ];
+  if (stops.length < 2) return null;
+
+  const connectedCities = getConnectedCities(state, playerId);
+  const myTracks = board.trackTiles.filter(t => t.owner === playerId);
+
+  // 후보 쌍: 거리 2~5 (1은 너무 짧아 링크 가치 낮음, 6+는 한 경로로 비효율)
+  type Cand = { from: typeof stops[0]; to: typeof stops[0]; prelim: number };
+  const candidates: Cand[] = [];
+  for (const from of stops) {
+    for (const to of stops) {
+      if (from.id === to.id) continue;
+      const d = hexDistance(from.coord, to.coord);
+      if (d < 1 || d > 5) continue;
+      // 이미 내 트랙으로 완성된 경로는 제외
+      if (isRouteComplete(state, { from: from.id, to: to.id, priority: 1 }, playerId)) continue;
+
+      let prelim = -d; // 가까울수록 우선
+      if (to.isCity || from.isCity) prelim += 4;          // 배달 목적지 연결
+      if (connectedCities.includes(from.id)) prelim += 3; // 내 연결망에서 확장
+      if (myTracks.length === 0) prelim += 0;             // 첫 트랙은 어디든
+      candidates.push({ from, to, prelim });
+    }
+  }
+  if (candidates.length === 0) return null;
+
+  // 사전 점수 상위 K개만 A*로 정밀 평가 (경로상 헥스 큐브 수)
+  candidates.sort((a, b) => b.prelim - a.prelim);
+  const K = 8;
+  let best: { route: DeliveryRoute; score: number } | null = null;
+
+  for (const cand of candidates.slice(0, K)) {
+    const path = findOptimalPathAvoidingOpponent(cand.from.coord, cand.to.coord, board, playerId);
+    if (path.length < 2) continue;
+
+    let cubes = 0;
+    let unbuilt = 0;
+    for (const coord of path) {
+      const hex = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
+      if (hex?.cube) cubes++;
+      const hasTrack = board.trackTiles.some(t => hexCoordsEqual(t.coord, coord));
+      const isCityHex = board.cities.some(c => hexCoordsEqual(c.coord, coord));
+      if (!hasTrack && !isCityHex) unbuilt++;
+    }
+    if (unbuilt === 0) continue; // 지을 게 없음
+
+    // 점수: 수집 큐브(배달 재료) + 도시 연결 보너스 - 건설 부담
+    const score = cubes * 3 + (cand.to.isCity || cand.from.isCity ? 5 : 0)
+      + (connectedCities.includes(cand.from.id) ? 3 : 0)
+      - unbuilt;
+
+    if (!best || score > best.score) {
+      best = { route: { from: cand.from.id, to: cand.to.id, priority: 1 }, score };
+    }
+  }
+
+  if (best) {
+    debugLog.trackBuilding(`[AI 경로/헥스큐브] ${player.name}: ${best.route.from}→${best.route.to} (점수 ${best.score})`);
+    return best.route;
+  }
+  return null;
 }

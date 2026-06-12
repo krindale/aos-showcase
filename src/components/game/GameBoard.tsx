@@ -392,6 +392,9 @@ export default function GameBoard() {
             const hexTile = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
             const terrain = hexTile?.terrain ?? 'plain';
             const isLake = terrain === 'lake';
+
+            // 섬 맵(St. Lucia): 바다 헥스를 그리지 않아 섬 윤곽 표시
+            if (isLake && mapData.hideLakeHexes) return null;
             const isSourceSelected = ui.sourceHex && hexCoordsEqual(ui.sourceHex, coord);
             const isHighlighted = ui.highlightedHexes.some(h => hexCoordsEqual(h, coord));
             const hasPlayerTrack = board.trackTiles.some(
@@ -739,7 +742,7 @@ export default function GameBoard() {
               {/* 마을 배경 헥스 */}
               <polygon
                 points={getHexPoints(x, y, HEX_SIZE - 2)}
-                fill={TUTORIAL_COLORS.terrain.plain}
+                fill={terrainColors.plain}
                 stroke={
                   isUrbanizationClickable
                     ? '#3B82F6'  // 도시화 가능: 파란색 테두리
@@ -797,7 +800,7 @@ export default function GameBoard() {
                   fontFamily="system-ui, sans-serif"
                   style={{ pointerEvents: 'none' }}
                 >
-                  {town.id}
+                  {mapData.townNames?.[town.id] ?? town.id}
                 </text>
               ) : (
                 <text

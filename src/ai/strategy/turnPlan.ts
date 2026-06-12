@@ -22,6 +22,7 @@ import {
   analyzeDeliveryOpportunities,
   findOptimalPathAvoidingOpponent,
   getTerrainBuildCost,
+  findStopById,
 } from './analyzer';
 import { getMapAIConfig } from './mapConfig';
 import { hexCoordsEqual } from '@/utils/hexGrid';
@@ -143,8 +144,8 @@ function computeTurnPlan(state: GameState, playerId: PlayerId): TurnPlan {
   let routeLinks = 0;
 
   if (targetRoute) {
-    const sourceCity = board.cities.find(c => c.id === targetRoute.from);
-    const targetCity = board.cities.find(c => c.id === targetRoute.to);
+    const sourceCity = findStopById(board, targetRoute.from);
+    const targetCity = findStopById(board, targetRoute.to);
 
     if (sourceCity && targetCity) {
       const path = findOptimalPathAvoidingOpponent(

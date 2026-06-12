@@ -40,7 +40,7 @@ const maps = [
       '기본 규칙 적용',
     ],
     specialRules: null,
-    playable: true, // 게임 플레이 가능 여부
+    playable: false, // Rust Belt는 미구현 (튜토리얼 맵과 별개)
   },
   {
     id: 2,
@@ -363,7 +363,7 @@ export default function MapsPage() {
                       {/* 플레이 가능한 맵: 게임 진입 버튼 */}
                       {currentMap.playable && (
                         <a
-                          href={`${basePath}/game/${currentMap.slug === 'rust-belt' ? 'tutorial' : currentMap.slug}/`}
+                          href={`${basePath}/game/${currentMap.slug}/`}
                           className="btn-primary mt-4 flex items-center justify-center gap-2 text-sm py-3"
                         >
                           <Play className="w-4 h-4" />
@@ -446,7 +446,7 @@ export default function MapsPage() {
                 {/* 플레이 가능한 맵: 그리드에서 바로 게임 진입 */}
                 {map.playable && (
                   <a
-                    href={`${basePath}/game/${map.slug === 'rust-belt' ? 'tutorial' : map.slug}/`}
+                    href={`${basePath}/game/${map.slug}/`}
                     onClick={(e) => e.stopPropagation()}
                     className="btn-primary mt-4 flex items-center justify-center gap-2 text-sm py-2"
                   >

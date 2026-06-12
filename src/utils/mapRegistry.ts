@@ -25,6 +25,7 @@ import {
   ST_LUCIA_TOWNS,
   ST_LUCIA_COLUMN_MAPPING,
   ST_LUCIA_COLORS,
+  ST_LUCIA_TOWN_NAMES,
   createStLuciaBoardState,
 } from './stLuciaMap';
 
@@ -44,6 +45,8 @@ export interface MapRuleConfig {
   /** 셋업: 도시 큐브 대신 평지/강 헥스마다 큐브 1개 배치 (St. Lucia).
    *  건설 시 그 큐브는 트랙 위로 올라가며, 미완성 링크여도 배달 가능. */
   hexCubeSetup: boolean;
+  /** 첫 트랙을 마을 인접에도 허용 (도시가 없는 맵 — St. Lucia는 도시화 전까지 도시 0개) */
+  townsAnchorFirstTrack: boolean;
 }
 
 export const DEFAULT_MAP_RULES: MapRuleConfig = {
@@ -52,6 +55,7 @@ export const DEFAULT_MAP_RULES: MapRuleConfig = {
   firstSeatCost: 0,
   disabledActions: [],
   hexCubeSetup: false,
+  townsAnchorFirstTrack: false,
 };
 
 /**
@@ -79,6 +83,10 @@ export interface GameMapData {
     background: string;
     border: string;
   };
+  /** 마을 ID → 표시 이름 (없으면 ID 표시) */
+  townNames?: Record<string, string>;
+  /** 바다(lake) 헥스를 그리지 않아 섬 모양으로 표시 (St. Lucia) */
+  hideLakeHexes?: boolean;
   /** 맵별 특수 룰 */
   rules: MapRuleConfig;
   /** 초기 보드 상태 생성 (도시 큐브는 createInitialGameState에서 배치) */
@@ -124,6 +132,8 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     cities: ST_LUCIA_CITIES,
     towns: ST_LUCIA_TOWNS,
     columnMapping: ST_LUCIA_COLUMN_MAPPING,
+    townNames: ST_LUCIA_TOWN_NAMES,
+    hideLakeHexes: true,
     colors: {
       terrain: ST_LUCIA_COLORS.terrain,
       background: ST_LUCIA_COLORS.background,
@@ -133,8 +143,10 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
       skipGoodsGrowth: true,       // 물품 성장 단계 생략
       alternateTurnOrder: true,    // 경매 대신 교대 선공권($5)
       firstSeatCost: 5,
-      disabledActions: ['production'], // Production 선택 불가
+      // 공식 맵 시트: "Turn Order Action: Not available" / "Production Action: Not available"
+      disabledActions: ['production', 'turnOrder'],
       hexCubeSetup: true,          // 평지/강 헥스마다 큐브 1개 (도시 큐브 없음)
+      townsAnchorFirstTrack: true, // 도시가 없는 맵 — 첫 트랙은 마을 인접 허용
     },
     createBoardState: createStLuciaBoardState,
   },

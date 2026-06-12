@@ -114,7 +114,15 @@ function evaluateActionDeltaVP(
     case 'firstMove': return evaluateFirstMove(state, playerId);
     case 'firstBuild': return evaluateFirstBuild(state, playerId, plan);
     case 'production': return evaluateProduction(state);
-    case 'urbanization': return state.board.towns.length > 0 ? 0.2 : 0;
+    case 'urbanization': {
+      const towns = state.board.towns.filter(t => !t.newCityColor);
+      if (towns.length === 0) return 0;
+      // 배달 목적지(도시)가 없는 맵(St. Lucia 초기): 도시화는 income의 전제 조건 → 최우선
+      if (state.board.cities.length === 0) return 10;
+      // 도시가 1개뿐이면 두 번째 목적지의 가치도 큼
+      if (state.board.cities.length === 1) return 3;
+      return 0.2;
+    }
     case 'turnOrder': return 0.1;
     default: return 0;
   }

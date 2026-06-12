@@ -99,15 +99,10 @@ export function createInitialGameState(
     return { ...city, cubes };
   });
 
-  // 헥스 큐브 셋업 (룰북 St. Lucia): 각 평지/강 헥스에 큐브 1개 무작위 배치
+  // 헥스 큐브 셋업 (공식 맵: "1 Good: Every Plain and River space" — 마을 헥스 포함)
   const hexTilesWithCubes = setupRules.hexCubeSetup
     ? boardState.hexTiles.map((hex) => {
       if (hex.terrain !== 'plain' && hex.terrain !== 'river') return hex;
-      // 마을 헥스는 제외 (도시화 대상)
-      const isTown = boardState.towns.some(
-        t => t.coord.col === hex.coord.col && t.coord.row === hex.coord.row
-      );
-      if (isTown) return hex;
       const cube = bag.length > 0 ? bag.pop() : null;
       return { ...hex, cube: cube ?? null };
     })
@@ -192,6 +187,7 @@ export function createInitialGameState(
       moveGoodsRound: 1,
       playerMoves: playerMoves as Record<PlayerId, boolean>,
       productionUsed: false,
+      urbanizationUsed: false,
       locomotiveUsed: false,
     },
 
@@ -656,6 +652,21 @@ export const useGameStore = create<GameStore>()(
           // (passBid/placeBid 내 scheduleAICheck는 락이 아직 걸려있어 실행 안됨)
           releaseAILock(executionId, get, set);
           scheduleAICheck(get);
+          return;
+        }
+
+        case 'placeNewCity': {
+          // 도시화: 신규 도시 배치 (트랙 건설 전) — 배치 후 같은 buildTrack 단계에서 건설 계속
+          console.log(`[AI 도시화] ${player.name}: ${decision.tileId} 타일 → (${decision.townCoord.col},${decision.townCoord.row})`);
+          store.enterUrbanizationMode();
+          store.selectNewCityTile(decision.tileId);
+          const placed = store.placeNewCity(decision.townCoord);
+          if (!placed) {
+            console.warn('[AI 도시화] 배치 실패 — 건설 계속 진행');
+            store.exitUrbanizationMode();
+          }
+          releaseAILock(executionId, get, set);
+          scheduleAICheck(get); // 같은 플레이어의 buildTrack 결정으로 재진입
           return;
         }
 
@@ -1397,7 +1408,7 @@ export const useGameStore = create<GameStore>()(
 
     if (!hasExistingTrack) {
       // 첫 트랙: 도시에 인접해야 함
-      if (!validateFirstTrackRule(coord, edges, board)) {
+      if (!validateFirstTrackRule(coord, edges, board, getMapRules(state.mapId).townsAnchorFirstTrack)) {
         return false;
       }
     } else {
@@ -1423,7 +1434,7 @@ export const useGameStore = create<GameStore>()(
       const hasExisting = playerHasTrack(board, state.currentPlayer);
       const isConnected = hasExisting
         ? validateTrackConnection(coord, edges, board, state.currentPlayer)
-        : validateFirstTrackRule(coord, edges, board);
+        : validateFirstTrackRule(coord, edges, board, getMapRules(state.mapId).townsAnchorFirstTrack);
 
       console.error(`[buildTrack 실패] ${playerForLog?.name || state.currentPlayer}:`, {
         coord: `(${coord.col},${coord.row})`,
@@ -2390,6 +2401,7 @@ export const useGameStore = create<GameStore>()(
             moveGoodsRound: 1 as const,
             playerMoves: createPlayerMoves(activePlayers),
             productionUsed: false,
+      urbanizationUsed: false,
             locomotiveUsed: false,
           },
           players: resetPlayerActions(state.players, activePlayers),
@@ -2467,6 +2479,7 @@ export const useGameStore = create<GameStore>()(
         moveGoodsRound: 1,
         playerMoves: createPlayerMoves(prevState.activePlayers),
         productionUsed: false,
+      urbanizationUsed: false,
         locomotiveUsed: false,
       },
       players: resetPlayerActions(prevState.players, prevState.activePlayers),
@@ -3078,6 +3091,10 @@ export const useGameStore = create<GameStore>()(
     });
 
     set({
+      phaseState: {
+        ...state.phaseState,
+        urbanizationUsed: true,
+      },
       board: {
         ...state.board,
         towns: updatedTowns,

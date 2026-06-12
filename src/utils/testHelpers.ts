@@ -189,6 +189,7 @@ export function createTestGameState(options: TestGameStateOptions = {}): GameSta
       moveGoodsRound: 1,
       playerMoves: playerMoves as Record<PlayerId, boolean>,
       productionUsed: false,
+      urbanizationUsed: false,
       locomotiveUsed: false,
     },
 

@@ -10,7 +10,7 @@
  * 기존 함수형 API는 호환성을 위해 유지됩니다.
  */
 
-import { GameState, PlayerId, SpecialAction } from '@/types/game';
+import { GameState, PlayerId, SpecialAction, HexCoord, NewCityTileId } from '@/types/game';
 
 // === 새로운 인스턴스 기반 시스템 ===
 // aiPlayerManager만 임포트 (클래스는 하단에서 재export)
@@ -37,6 +37,7 @@ export type AIDecision =
   | { type: 'issueShares'; amount: number }
   | { type: 'auction'; decision: AuctionDecision }
   | { type: 'turnOrderOffer'; accept: boolean } // 교대 선공권 응답 (alternateTurnOrder 맵)
+  | { type: 'placeNewCity'; townCoord: HexCoord; tileId: NewCityTileId } // 도시화 배치
   | { type: 'selectAction'; action: SpecialAction }
   | { type: 'buildTrack'; decision: TrackBuildDecision }
   | { type: 'moveGoods'; decision: MoveGoodsDecision }

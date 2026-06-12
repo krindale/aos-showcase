@@ -182,6 +182,8 @@ export interface PhaseState {
 
   // 기타 플래그
   productionUsed: boolean;
+  // Urbanization으로 이번 턴 신규 도시를 배치했는지 (AI 중복 배치 방지)
+  urbanizationUsed: boolean;
   locomotiveUsed: boolean;
 }
 

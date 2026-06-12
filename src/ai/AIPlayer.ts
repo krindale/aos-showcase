@@ -7,7 +7,8 @@
  * - 동적 화물 기반 전략 사용
  */
 
-import { GameState, PlayerId, SpecialAction, HexCoord } from '@/types/game';
+import { GameState, PlayerId, SpecialAction, HexCoord, NewCityTileId } from '@/types/game';
+import { hexDistance } from '@/utils/hexGrid';
 import {
   DeliveryRoute,
   DynamicStrategy,
@@ -47,6 +48,7 @@ import { getMapRules } from '@/utils/mapRegistry';
 export type AIDecision =
   | { type: 'issueShares'; amount: number }
   | { type: 'auction'; decision: AuctionDecision }
+  | { type: 'placeNewCity'; townCoord: HexCoord; tileId: NewCityTileId } // 도시화 (buildTrack 단계 첫머리)
   | { type: 'turnOrderOffer'; accept: boolean } // 교대 선공권 응답 (alternateTurnOrder 맵)
   | { type: 'selectAction'; action: SpecialAction }
   | { type: 'buildTrack'; decision: TrackBuildDecision }
@@ -147,6 +149,19 @@ export class AIPlayer {
       }
 
       case 'buildTrack': {
+        // 도시화(Urbanization): 트랙 건설 전에 신규 도시 배치 (룰북: before they build their track)
+        // St. Lucia처럼 도시가 없는 맵에서는 배달 목적지를 만드는 필수 행동
+        if (
+          player.selectedAction === 'urbanization' &&
+          !state.phaseState.urbanizationUsed &&
+          state.currentPlayer === this.playerId
+        ) {
+          const placement = decideUrbanizationPlacement(state, this.playerId);
+          if (placement) {
+            return { type: 'placeNewCity', ...placement };
+          }
+        }
+
         // 경로가 없을 때만 재평가 (과다 호출 방지)
         if (!this._currentRoute) {
           this.updateRoute(state);
@@ -268,4 +283,71 @@ export class AIPlayer {
     console.log(`  - 전략: 화물 기반 동적 전략`);
     console.log(`  - 현재 경로: ${this._currentRoute.from} → ${this._currentRoute.to}`);
   }
+}
+
+
+/**
+ * 도시화 배치 휴리스틱: 어느 마을에 어떤 색 신규 도시를 놓을까
+ *
+ * - 타일 색: 보드 위 큐브(헥스/트랙/도시) 중 가장 많은 색의 미사용 타일
+ *   → 그 색 큐브들의 배달 목적지가 생겨 income 기회 최대화
+ * - 마을: 그 색 큐브가 많은 주변 + 내 트랙과 가까운 마을 우선
+ */
+export function decideUrbanizationPlacement(
+  state: GameState,
+  playerId: PlayerId,
+): { townCoord: HexCoord; tileId: NewCityTileId } | null {
+  const { board } = state;
+  const towns = board.towns.filter(t => !t.newCityColor);
+  const availableTiles = state.newCityTiles.filter(t => !t.used);
+  if (towns.length === 0 || availableTiles.length === 0) return null;
+
+  // 보드 위 큐브 색 분포 (헥스 큐브 + 트랙 큐브 + 도시 큐브)
+  const colorCount = new Map<string, number>();
+  const bump = (c: string | null | undefined) => {
+    if (c) colorCount.set(c, (colorCount.get(c) ?? 0) + 1);
+  };
+  board.hexTiles.forEach(h => bump(h.cube));
+  board.trackTiles.forEach(t => bump(t.cube));
+  board.cities.forEach(city => city.cubes.forEach(bump));
+
+  // 이미 같은 색 도시가 있으면 후순위 (목적지 중복)
+  const existingColors = new Set(board.cities.map(c => c.color));
+
+  let bestTile = availableTiles[0];
+  let bestTileScore = -1;
+  for (const tile of availableTiles) {
+    const cubes = colorCount.get(tile.color) ?? 0;
+    const score = cubes - (existingColors.has(tile.color) ? 100 : 0);
+    if (score > bestTileScore) {
+      bestTileScore = score;
+      bestTile = tile;
+    }
+  }
+
+  // 마을 점수: 타일 색 큐브와의 근접성 + 내 트랙 근접성
+  const myTracks = board.trackTiles.filter(t => t.owner === playerId);
+  let bestTown = towns[0];
+  let bestTownScore = -Infinity;
+  for (const town of towns) {
+    let score = 0;
+    // 주변 3칸 내 해당 색 큐브 수
+    for (const hex of board.hexTiles) {
+      if (hex.cube === bestTile.color && hexDistance(hex.coord, town.coord) <= 3) score += 2;
+    }
+    for (const track of board.trackTiles) {
+      if (track.cube === bestTile.color && hexDistance(track.coord, town.coord) <= 3) score += 2;
+    }
+    // 내 트랙과의 거리 (가까울수록 배달 실현 쉬움)
+    if (myTracks.length > 0) {
+      const minDist = Math.min(...myTracks.map(t => hexDistance(t.coord, town.coord)));
+      score += Math.max(0, 5 - minDist);
+    }
+    if (score > bestTownScore) {
+      bestTownScore = score;
+      bestTown = town;
+    }
+  }
+
+  return { townCoord: bestTown.coord, tileId: bestTile.id };
 }

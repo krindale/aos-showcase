@@ -1,10 +1,11 @@
 // St. Lucia 맵 데이터
-// Age of Steam Deluxe Edition - 2인 전용 맵 (8턴)
+// Age of Steam: St. Lucia (Ted Alspach, Bezier Games) - 2인 전용, 8턴
 //
-// 카리브해의 화산섬 세인트루시아를 모티프로 한 섬 지형 맵입니다.
-// - 섬 모양: 남북으로 긴 타원형, 바깥은 바다(lake)
-// - 중앙부: 피톤(Pitons) 화산 산악 지대 (mountain)
-// - 해안 도시 5개를 잇는 해안선 경로가 주요 건설 루트
+// 공식 맵 시트(maps/aos-st_lucia.pdf) 기준:
+// - 도시가 없고 **마을 11개**만 존재 — 배달 목적지는 도시화(Urbanization)로 생성
+// - 남북으로 긴 섬 (13행), 중앙 산맥(Barre de l'Isle ~ Morne Gimie 능선), 강 4곳
+// - 셋업: 모든 평지/강 헥스에 큐브 1개
+// - Turn Order / Production 행동 불가, 물품 성장 없음
 
 import {
   City,
@@ -21,86 +22,87 @@ export const ST_LUCIA_MAP = {
   id: 'st-lucia',
   name: 'St. Lucia',
   nameKo: '세인트루시아',
-  description: '카리브해의 섬 세인트루시아. 2인 전용 8턴 대결 맵',
+  description: '카리브해의 섬 세인트루시아. 마을을 도시화하며 경쟁하는 2인 전용 8턴 맵',
   players: { min: 2, max: 2 },
   supportedPlayers: [2], // 2인 전용
   difficulty: 3,
-  cols: 7, // 유효 col: startCol(1) ~ cols-1(6)
-  rows: 7,
+  cols: 9, // 유효 col: startCol(1) ~ cols-1(8)
+  rows: 13,
   startCol: 1,
   maxTurns: 8, // 룰북: 8턴 완료 후 게임 종료
 };
 
-// === 도시 데이터 (실제 세인트루시아의 해안 도시들) ===
-export const ST_LUCIA_CITIES: City[] = [
-  {
-    id: 'G',
-    name: 'Gros Islet',
-    coord: { col: 4, row: 0 }, // 북단
-    color: 'red',
-    cubes: [],
-  },
-  {
-    id: 'C',
-    name: 'Castries',
-    coord: { col: 2, row: 1 }, // 북서 해안 (수도)
-    color: 'blue',
-    cubes: [],
-  },
-  {
-    id: 'D',
-    name: 'Dennery',
-    coord: { col: 6, row: 2 }, // 동부 해안
-    color: 'yellow',
-    cubes: [],
-  },
-  {
-    id: 'S',
-    name: 'Soufrière',
-    coord: { col: 2, row: 4 }, // 남서 해안 (피톤 인근)
-    color: 'purple',
-    cubes: [],
-  },
-  {
-    id: 'V',
-    name: 'Vieux Fort',
-    coord: { col: 4, row: 6 }, // 남단
-    color: 'black',
-    cubes: [],
-  },
-];
+// === 도시: 없음! (공식 맵 — 도시는 Urbanization으로만 생성) ===
+export const ST_LUCIA_CITIES: City[] = [];
 
-// === 마을 (도시화 대상) ===
+// === 마을 11개 (공식 맵 시트의 실제 마을) ===
 export const ST_LUCIA_TOWNS: Town[] = [
-  { id: 'AR', coord: { col: 2, row: 3 }, newCityColor: null, cubes: [] }, // Anse La Raye (서부 해안)
-  { id: 'MC', coord: { col: 6, row: 4 }, newCityColor: null, cubes: [] }, // Micoud (동부 해안)
+  { id: 'LC', coord: { col: 5, row: 0 }, newCityColor: null, cubes: [] },  // Le Cap (북단)
+  { id: 'CS', coord: { col: 3, row: 3 }, newCityColor: null, cubes: [] },  // Castries (북서 해안)
+  { id: 'GA', coord: { col: 6, row: 4 }, newCityColor: null, cubes: [] },  // Grand Anse (북동 해안)
+  { id: 'BI', coord: { col: 4, row: 6 }, newCityColor: null, cubes: [] },  // Barre de l'Isle (중앙)
+  { id: 'AR', coord: { col: 1, row: 7 }, newCityColor: null, cubes: [] },  // Anse Le Raye (서해안)
+  { id: 'DN', coord: { col: 7, row: 7 }, newCityColor: null, cubes: [] },  // Dennery (동해안)
+  { id: 'MG', coord: { col: 4, row: 9 }, newCityColor: null, cubes: [] },  // Morne Gimie (중앙 산악)
+  { id: 'AC', coord: { col: 1, row: 9 }, newCityColor: null, cubes: [] },  // Anse Chastenet (서해안)
+  { id: 'FJ', coord: { col: 3, row: 11 }, newCityColor: null, cubes: [] }, // Fond St Jacques (남부)
+  { id: 'MC', coord: { col: 7, row: 11 }, newCityColor: null, cubes: [] }, // Micoud (남동 해안)
+  { id: 'LB', coord: { col: 4, row: 12 }, newCityColor: null, cubes: [] }, // Laborie (남단)
 ];
 
-// === 섬 지형 정의 ===
-// 행별 육지 col 범위 (그 외는 바다 = lake)
-const LAND_RANGES: Record<number, [number, number]> = {
-  0: [3, 4], // 북단 (좁음)
-  1: [2, 5],
-  2: [2, 6],
-  3: [1, 6], // 중앙 (가장 넓음)
-  4: [2, 6],
-  5: [2, 5],
-  6: [3, 4], // 남단 (좁음)
+/** 마을 이름 (UI 표시용) */
+export const ST_LUCIA_TOWN_NAMES: Record<string, string> = {
+  LC: 'Le Cap',
+  CS: 'Castries',
+  GA: 'Grand Anse',
+  BI: "Barre de l'Isle",
+  AR: 'Anse Le Raye',
+  DN: 'Dennery',
+  MG: 'Morne Gimie',
+  AC: 'Anse Chastenet',
+  FJ: 'Fond St Jacques',
+  MC: 'Micoud',
+  LB: 'Laborie',
 };
 
-// 산악 지대 (피톤 화산 능선 - 섬 중앙)
+// === 섬 지형 정의 ===
+// 행별 육지 col 범위 — 공식 맵의 섬 윤곽 (북단 좁음 → 중앙 넓음 → 남단 좁음)
+const LAND_RANGES: Record<number, [number, number]> = {
+  0: [4, 6],   // 북단 (Le Cap)
+  1: [4, 6],
+  2: [3, 6],
+  3: [3, 7],   // Castries 행
+  4: [2, 7],   // Grand Anse 행
+  5: [2, 7],
+  6: [1, 7],   // Barre de l'Isle — 중앙 (가장 넓음)
+  7: [1, 7],   // Anse Le Raye ~ Dennery
+  8: [1, 7],
+  9: [1, 7],   // Anse Chastenet ~ Morne Gimie
+  10: [1, 7],
+  11: [2, 7],  // Fond St Jacques ~ Micoud
+  12: [3, 6],  // 남단 (Laborie)
+};
+
+// 산악 지대 (공식 맵의 진녹색 — 중앙 능선 + Morne Gimie 군집)
 const MOUNTAIN_TILES: { col: number; row: number }[] = [
-  { col: 3, row: 3 },
-  { col: 4, row: 3 },
-  { col: 3, row: 4 },
-  { col: 4, row: 4 },
+  { col: 5, row: 2 },  // 북부 능선 (Castries 동측)
+  { col: 5, row: 4 },  // 중북부
+  { col: 5, row: 6 },  // Barre de l'Isle 동측
+  { col: 5, row: 7 },
+  { col: 2, row: 8 },  // Morne Gimie 서측 군집
+  { col: 3, row: 8 },
+  { col: 5, row: 8 },  // Morne Gimie 동측
+  { col: 3, row: 10 }, // Morne Gimie 남측
+  { col: 4, row: 10 },
 ];
 
-// 강 (해안 경로를 가로지르는 하천)
+// 강 (공식 맵의 4개 하천)
 const RIVER_TILES: { col: number; row: number }[] = [
-  { col: 4, row: 2 }, // Castries → Dennery 경로
-  { col: 5, row: 4 }, // 동부 내륙
-  { col: 3, row: 5 }, // 남부 해안 경로
+  { col: 2, row: 4 },  // Castries 남서쪽 → 서해안
+  { col: 6, row: 5 },  // Dennery 북쪽 → 동해안
+  { col: 2, row: 7 },  // Anse Chastenet 북쪽 → 서해안
+  { col: 5, row: 11 }, // Micoud 남서쪽 → 남동 해안
+  { col: 6, row: 12 },
 ];
 
 // === 호수(바다) 타일 ===
@@ -118,13 +120,8 @@ export const ST_LUCIA_LAKE_TILES: { col: number; row: number }[] = (() => {
 })();
 
 // === 물품 디스플레이 열-도시 매핑 ===
+// 물품 성장이 없는 맵이라 사실상 미사용 — 신규 도시(A-D) 열만 형식상 유지
 export const ST_LUCIA_COLUMN_MAPPING: GoodsColumnMapping[] = [
-  { columnId: '1' as GoodsColumnId, cityId: 'G', isNewCity: false, rowCount: 6 }, // Gros Islet
-  { columnId: '2' as GoodsColumnId, cityId: 'C', isNewCity: false, rowCount: 6 }, // Castries
-  { columnId: '3' as GoodsColumnId, cityId: 'D', isNewCity: false, rowCount: 6 }, // Dennery
-  { columnId: '4' as GoodsColumnId, cityId: 'S', isNewCity: false, rowCount: 6 }, // Soufrière
-  { columnId: '5' as GoodsColumnId, cityId: 'V', isNewCity: false, rowCount: 6 }, // Vieux Fort
-  { columnId: '6' as GoodsColumnId, cityId: 'C', isNewCity: false, rowCount: 6 }, // Castries (다시)
   { columnId: 'A' as GoodsColumnId, cityId: 'A', isNewCity: true, rowCount: 4 },
   { columnId: 'B' as GoodsColumnId, cityId: 'B', isNewCity: true, rowCount: 4 },
   { columnId: 'C' as GoodsColumnId, cityId: 'C', isNewCity: true, rowCount: 4 },
@@ -137,12 +134,7 @@ export function generateStLuciaHexTiles(): HexTile[] {
 
   for (let row = 0; row < ST_LUCIA_MAP.rows; row++) {
     for (let col = ST_LUCIA_MAP.startCol; col < ST_LUCIA_MAP.cols; col++) {
-      // 도시 헥스는 지형 없음
-      const isCity = ST_LUCIA_CITIES.some(
-        (c) => c.coord.col === col && c.coord.row === row
-      );
-      if (isCity) continue;
-
+      // 도시는 없음 — 모든 육지 헥스에 지형 부여 (마을 헥스 포함: 마을은 트랙 배치 가능)
       let terrain: TerrainType = 'plain';
       if (ST_LUCIA_LAKE_TILES.some((l) => l.col === col && l.row === row)) {
         terrain = 'lake';
@@ -169,14 +161,14 @@ export function createStLuciaBoardState(): BoardState {
   };
 }
 
-// === 색상 상수 (UI용 - 열대 섬 톤) ===
+// === 색상 상수 (UI용 - 공식 맵 톤) ===
 export const ST_LUCIA_COLORS = {
   terrain: {
-    plain: '#3F6B44',    // 열대 우림 녹색
-    lake: '#2E6E8C',     // 카리브해 청록
-    river: '#4E8AA0',    // 하천
-    mountain: '#6E5F50', // 화산 능선
+    plain: '#8FBC6E',    // 공식 맵의 연녹색
+    lake: '#8C9FC9',     // 바다 (배경 보라-블루 톤)
+    river: '#7BA3C9',    // 하천
+    mountain: '#3E6B3A', // 공식 맵의 진녹색 산
   },
-  background: '#1E3038',
-  border: '#2A4250',
+  background: '#9FA8D0',
+  border: '#5A6B4A',
 };

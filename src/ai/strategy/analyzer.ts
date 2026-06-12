@@ -1403,9 +1403,25 @@ export function getStrategyAdjustments(
  * 보드 상태를 기준으로 경로 완성 여부 확인
  * @param playerId 지정 시 해당 플레이어 트랙으로만 완성 여부 확인, 미지정 시 모든 플레이어 트랙 고려
  */
+
+/**
+ * 경로 끝점(stop) 좌표 해석: 도시 우선, 없으면 마을
+ * (St. Lucia처럼 마을이 경로 끝점이 되는 맵 지원)
+ */
+export function findStopById(
+  board: BoardState,
+  id: string,
+): { id: string; coord: HexCoord } | null {
+  const city = board.cities.find(c => c.id === id);
+  if (city) return { id: city.id, coord: city.coord };
+  const town = board.towns.find(t => t.id === id);
+  if (town) return { id: town.id, coord: town.coord };
+  return null;
+}
+
 export function isRouteCompleteForBoard(board: BoardState, route: DeliveryRoute, playerId?: PlayerId): boolean {
-  const sourceCity = board.cities.find(c => c.id === route.from);
-  const targetCity = board.cities.find(c => c.id === route.to);
+  const sourceCity = findStopById(board, route.from);
+  const targetCity = findStopById(board, route.to);
   if (!sourceCity || !targetCity) return false;
 
   // BFS로 실제 연결 여부 확인

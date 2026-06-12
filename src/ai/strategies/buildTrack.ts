@@ -20,9 +20,11 @@ import {
   clearPathCache,
   findOptimalPathAvoidingOpponent,
   getEdgeBetweenHexes,
+  findStopById,
 } from '../strategy/analyzer';
 import type { DeliveryRoute } from '../strategy/types';
 import { debugLog } from '@/utils/debugConfig';
+import { getMapRules } from '@/utils/mapRegistry';
 
 export type TrackBuildDecision =
   | { action: 'build'; coord: HexCoord; edges: [number, number] }
@@ -321,8 +323,8 @@ function tryDirectPathBuild(
 ): TrackBuildDecision | null {
   const { board } = state;
   const player = state.players[playerId];
-  const sourceCity = board.cities.find(c => c.id === route.from);
-  const targetCity = board.cities.find(c => c.id === route.to);
+  const sourceCity = findStopById(board, route.from);
+  const targetCity = findStopById(board, route.to);
   if (!sourceCity || !targetCity || !player) return null;
 
   const playerTracks = board.trackTiles.filter(t => t.owner === playerId);
@@ -605,7 +607,7 @@ function tryDirectPathBuild(
         return null;
       }
     } else {
-      if (!validateFirstTrackRule(nextCoord, edges, board)) {
+      if (!validateFirstTrackRule(nextCoord, edges, board, getMapRules(state.mapId).townsAnchorFirstTrack)) {
         debugLog.trackBuilding(`[직접 경로] (${nextCoord.col},${nextCoord.row}) edges=[${edges}] 첫 트랙 규칙 실패`);
         return null;
       }

@@ -180,7 +180,7 @@ export default function GameBoard() {
     }
 
     return disconnected;
-  }, [board.trackTiles, isFlat]);
+  }, [board.trackTiles]);
 
   // 트랙 경로 계산 캐시 (SVG 경로 계산은 비용이 큼)
   const trackPathCache = useMemo(() => {
@@ -208,7 +208,7 @@ export default function GameBoard() {
     }
 
     return cache;
-  }, [board.trackTiles]);
+  }, [board.trackTiles, isFlat]);
 
   // 헥스가 유효한 연결점인지 확인 (도시 또는 현재 플레이어의 트랙)
   const isValidConnectionPoint = useCallback(
@@ -676,11 +676,16 @@ export default function GameBoard() {
         {/* 완성된 링크 소유 마커 - 링크 중앙에 하나만 표시 */}
         {completedLinks.map((link) => {
           const ownerColor = PLAYER_COLORS[players[link.owner].color];
+          // centerPosition은 pointy 기준 좌표 — flat 맵에서도 맞도록 중간 타일에서 재계산
+          const midTile = link.trackTiles[Math.floor(link.trackTiles.length / 2)];
+          const center = midTile
+            ? hexToPixel(midTile.col, midTile.row, undefined, undefined, undefined, isFlat)
+            : link.centerPosition;
           return (
             <circle
               key={link.id}
-              cx={link.centerPosition.x}
-              cy={link.centerPosition.y}
+              cx={center.x}
+              cy={center.y}
               r="8"
               fill={ownerColor}
               stroke="#1a1a1a"
@@ -732,29 +737,15 @@ export default function GameBoard() {
         {board.towns.map((town) => {
           const { x, y } = hexToPixel(town.coord.col, town.coord.row, undefined, undefined, undefined, isFlat);
           const isUrbanized = town.newCityColor !== null;
-          const townColor = isUrbanized ? CITY_COLORS[town.newCityColor!] : '#ffffff';
+          // 도시화된 마을은 cities 배열에 추가되어 도시로 렌더링됨 — 여기서 또 그리면 중복
+          if (isUrbanized) return null;
+          const townColor = '#ffffff';
           const isSourceSelected = ui.sourceHex && hexCoordsEqual(ui.sourceHex, town.coord);
           const isTownClickable = currentPhase === 'buildTrack' && !ui.urbanizationMode;
 
           // 도시화 가능 여부 확인
           const canUrbanize = ui.urbanizationMode && ui.selectedNewCityTile && !isUrbanized;
           const isUrbanizationClickable = canPlaceNewCity(town.coord);
-
-          // 마을로 들어오는 철길: 인접 헥스의 트랙이 이 마을 변에 닿는 변 + 그 트랙 소유자 색
-          // (룰: 마을은 진입하는 모든 트랙을 연결 — 시각적으로 마을 중심까지 철길을 이어 그림)
-          const incomingEdges: { edge: number; color: string }[] = [];
-          for (let edge = 0; edge < 6; edge++) {
-            const neighbor = getNeighborHex(town.coord, edge);
-            const nTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor));
-            if (!nTrack) continue;
-            const opp = getOppositeEdge(edge);
-            let ownerId: PlayerId | null = null;
-            if (nTrack.edges.includes(opp)) ownerId = nTrack.owner;
-            else if (nTrack.secondaryEdges?.includes(opp)) ownerId = nTrack.secondaryOwner ?? null;
-            else continue;
-            const color = ownerId ? PLAYER_COLORS[players[ownerId].color] : '#888';
-            incomingEdges.push({ edge, color });
-          }
 
           // 마을 헥스 자체에 깔린 트랙 (마을 디스크 아래 트랙 타일)
           const townTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, town.coord));
@@ -793,35 +784,23 @@ export default function GameBoard() {
 
               {/* 마을 헥스 위 트랙 타일 (마을 디스크 아래 깔린 철길) */}
               {townTrack && townTrackCache && (
-                <>
-                  <path d={townTrackCache.pathData} fill="none" stroke={townTrack.owner ? PLAYER_COLORS[players[townTrack.owner].color] : '#888'} strokeWidth="10" strokeLinecap="round" style={{ pointerEvents: 'none' }} />
-                  <path d={townTrackCache.pathData} fill="none" stroke={terrainColors.plain} strokeWidth="6" strokeLinecap="round" style={{ pointerEvents: 'none' }} />
-                </>
+                <g style={{ pointerEvents: 'none' }}>
+                  <path d={townTrackCache.pathData} fill="none" stroke="#3A3A32" strokeWidth="12" strokeLinecap="round" shapeRendering="geometricPrecision" />
+                  <path d={townTrackCache.pathData} fill="none" stroke={terrainColors.plain} strokeWidth="6" strokeLinecap="round" shapeRendering="geometricPrecision" />
+                  {townTrackCache.ties.map((tie, i) => (
+                    <line
+                      key={`town-tie-${town.id}-${i}`}
+                      x1={tie.x - 8 * Math.cos((tie.angle + 90) * Math.PI / 180)}
+                      y1={tie.y - 8 * Math.sin((tie.angle + 90) * Math.PI / 180)}
+                      x2={tie.x + 8 * Math.cos((tie.angle + 90) * Math.PI / 180)}
+                      y2={tie.y + 8 * Math.sin((tie.angle + 90) * Math.PI / 180)}
+                      stroke="#4A4A42"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                    />
+                  ))}
+                </g>
               )}
-              {/* 마을로 들어오는 철길 스텁 (인접 트랙 → 마을 중심) */}
-              {incomingEdges.map(({ edge, color }) => {
-                const mid = getEdgeMidpoint(x, y, edge, HEX_SIZE - 2, isFlat);
-                return (
-                  <g key={`town-rail-${town.id}-${edge}`} style={{ pointerEvents: 'none' }}>
-                    <line x1={x} y1={y} x2={mid.x} y2={mid.y} stroke={color} strokeWidth="10" strokeLinecap="round" />
-                    <line x1={x} y1={y} x2={mid.x} y2={mid.y} stroke={terrainColors.plain} strokeWidth="6" strokeLinecap="round" />
-                    {/* 침목 */}
-                    {[0.45, 0.72].map(t => {
-                      const tx = x + (mid.x - x) * t;
-                      const ty = y + (mid.y - y) * t;
-                      const ang = Math.atan2(mid.y - y, mid.x - x) + Math.PI / 2;
-                      return (
-                        <line
-                          key={t}
-                          x1={tx - 7 * Math.cos(ang)} y1={ty - 7 * Math.sin(ang)}
-                          x2={tx + 7 * Math.cos(ang)} y2={ty + 7 * Math.sin(ang)}
-                          stroke="#4A4A42" strokeWidth="3" strokeLinecap="round"
-                        />
-                      );
-                    })}
-                  </g>
-                );
-              })}
               {/* 도시화 가능 표시 - 글로우 효과 */}
               {canUrbanize && !isUrbanized && (
                 <circle

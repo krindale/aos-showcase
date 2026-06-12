@@ -646,29 +646,6 @@ export default function GameBoard() {
                   strokeWidth="1"
                 />
               )}
-              {/* 트랙 위 물품 큐브 (St. Lucia — 클릭하면 배달 출발지 선택) */}
-              {tile.cube && (
-                <rect
-                  x={x - 6}
-                  y={y - 18}
-                  width="12"
-                  height="12"
-                  fill={CUBE_COLORS[tile.cube]}
-                  stroke={
-                    ui.selectedCube?.cityId === `track:${tile.id}`
-                      ? '#ffffff'
-                      : 'rgba(0,0,0,0.4)'
-                  }
-                  strokeWidth={ui.selectedCube?.cityId === `track:${tile.id}` ? 2.5 : 1}
-                  rx="2"
-                  className={currentPhase === 'moveGoods' ? 'cursor-pointer hover:opacity-80' : ''}
-                  onClick={(e) => {
-                    if (currentPhase !== 'moveGoods') return;
-                    e.stopPropagation();
-                    selectCube(`track:${tile.id}`, 0);
-                  }}
-                />
-              )}
             </g>
           );
         })}
@@ -1040,6 +1017,42 @@ export default function GameBoard() {
         )}
 
         {/* 이동 경로 - 트랙을 따라 곡선으로 표시 */}
+        {/* 트랙 위 물품 큐브 — 최상위 레이어 (마을/도시 등 다른 요소에 클릭이 가려지지 않도록) */}
+        {board.trackTiles.filter(t => t.cube).map((tile) => {
+          const { x, y } = hexToPixel(tile.coord.col, tile.coord.row, undefined, undefined, undefined, isFlat);
+          const isSelected = ui.selectedCube?.cityId === `track:${tile.id}`;
+          const clickable = currentPhase === 'moveGoods';
+          const handleClick = (e: React.MouseEvent) => {
+            if (!clickable) return;
+            e.stopPropagation();
+            selectCube(`track:${tile.id}`, 0);
+          };
+          return (
+            <g key={`track-cube-${tile.id}`} className={clickable ? 'cursor-pointer' : ''}>
+              <rect
+                x={x - 6}
+                y={y - 18}
+                width="12"
+                height="12"
+                fill={CUBE_COLORS[tile.cube!]}
+                stroke={isSelected ? '#ffffff' : 'rgba(0,0,0,0.4)'}
+                strokeWidth={isSelected ? 2.5 : 1}
+                rx="2"
+                className={clickable ? 'hover:opacity-80' : ''}
+                onClick={handleClick}
+              />
+              {/* 투명 히트 영역 (작은 큐브도 클릭하기 쉽게) */}
+              <circle
+                cx={x}
+                cy={y - 12}
+                r="16"
+                fill="transparent"
+                onClick={handleClick}
+              />
+            </g>
+          );
+        })}
+
         {ui.movePath.length > 1 && !ui.movingCube && (
           <path
             d={getMovementPathSVG(ui.movePath, board, HEX_SIZE - 2, isFlat)}

@@ -2532,7 +2532,11 @@ export const useGameStore = create<GameStore>()(
       const trackId = cityId.slice('track:'.length);
       const deliveries = findTrackCubeDeliveries(state.board, trackId);
       console.log(`[selectCube] 트랙 큐브 선택: ${trackId}, 배달 가능 도시=${deliveries.map(d => d.city.id).join(',') || '없음'}`);
-      if (deliveries.length === 0) return;
+      if (deliveries.length === 0) {
+        // 무반응으로 보이지 않게 게임 로그로 안내 (같은 색 도시가 트랙으로 연결돼야 배달 가능)
+        get().addLog('이 화물은 배달할 수 있는 도시가 없습니다 (트랙으로 연결된 같은 색 도시 필요)');
+        return;
+      }
       set({
         ui: {
           ...state.ui,

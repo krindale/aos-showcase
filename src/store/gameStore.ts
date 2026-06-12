@@ -769,13 +769,14 @@ export const useGameStore = create<GameStore>()(
             // completeCubeMove에서 releaseAILock 호출됨
             return;
           } else if (moveDecision.action === 'moveTrackCube') {
-            // St. Lucia: 트랙 위 큐브 배달 (moveTrackCube가 nextPhase 호출)
+            // St. Lucia: 트랙 위 큐브 배달 — 애니메이션 시작
+            // 성공 시 락 유지: completeCubeMove에서 releaseAILock + nextPhase
             const ok = store.moveTrackCube(moveDecision.trackId, moveDecision.destCityId);
             if (!ok) {
               store.nextPhase(); // 배달 실패 시 스킵으로 처리
+              releaseAILock(executionId, get, set);
+              scheduleAICheck(get);
             }
-            releaseAILock(executionId, get, set);
-            scheduleAICheck(get);
             return;
           } else if (moveDecision.action === 'upgradeEngine') {
             // 중요: captured currentPlayer를 사용 (레이스 컨디션 방지)
@@ -1174,45 +1175,31 @@ export const useGameStore = create<GameStore>()(
     if (!track || !track.cube) return false;
     const cubeColor = track.cube;
 
-    // 큐브 제거 + 구간 소유자 수입 1 (룰북: one Bonus income)
+    // 큐브를 트랙에서 즉시 제거하고 애니메이션 시작
+    // (수입/이동 완료 처리는 completeCubeMove에서 — 도시 큐브 배달과 동일한 흐름)
     const newTrackTiles = state.board.trackTiles.map(t =>
       t.id === trackId ? { ...t, cube: null } : t
     );
-    const ownerId = delivery.sectionOwner;
-    const ownerPlayer = ownerId ? state.players[ownerId] : null;
-    const newPlayers = (ownerId && ownerPlayer && !ownerPlayer.eliminated)
-      ? {
-        ...state.players,
-        [ownerId]: { ...ownerPlayer, income: ownerPlayer.income + 1 },
-      }
-      : state.players;
+    const path = [...delivery.pathCoords, delivery.city.coord];
+    const context: MovingCubeContext = {
+      playerId: currentPlayer,
+      phase: state.currentPhase,
+      moveRound: state.phaseState.moveGoodsRound,
+      trackCubeSectionOwner: delivery.sectionOwner,
+    };
 
     set({
       board: { ...state.board, trackTiles: newTrackTiles },
-      players: newPlayers,
-      phaseState: {
-        ...state.phaseState,
-        playerMoves: { ...state.phaseState.playerMoves, [currentPlayer]: true },
-      },
       ui: {
         ...state.ui,
+        movingCube: { color: cubeColor, path, currentIndex: 0, context },
+        movePath: path,
         selectedCube: null,
         reachableDestinations: [],
       },
-      logs: [
-        ...state.logs,
-        {
-          turn: state.currentTurn,
-          phase: state.currentPhase,
-          player: currentPlayer,
-          action: `${cubeColor} 트랙 큐브 배달 → ${destCityId} (구간 소유 ${ownerId ?? '없음'} 수입 +1)`,
-          timestamp: Date.now(),
-        },
-      ],
     });
 
-    console.log(`[moveTrackCube] ${currentPlayer}: ${cubeColor} → ${destCityId}, 수입 +1 to ${ownerId}`);
-    get().nextPhase();
+    console.log(`[moveTrackCube] ${currentPlayer}: ${cubeColor} → ${destCityId} 애니메이션 시작 (구간 소유 ${delivery.sectionOwner ?? '없음'})`);
     return true;
   },
 
@@ -3417,6 +3404,13 @@ export const useGameStore = create<GameStore>()(
     const incomeChanges: Partial<Record<PlayerId, number>> = {};
     state.activePlayers.forEach(p => { incomeChanges[p] = 0; });
 
+    // 트랙 큐브 배달(St. Lucia): 링크 수입 대신 구간 소유자에게 보너스 수입 1
+    if (context.trackCubeSectionOwner !== undefined) {
+      const owner = context.trackCubeSectionOwner;
+      if (owner && state.activePlayers.includes(owner)) {
+        incomeChanges[owner] = 1;
+      }
+    } else {
     // 링크별로 수입 계산 (도시/마을 → 다음 도시/마을 = 1 링크)
     // 룰북: "물품이 지나가는 각 완성된 철도 링크마다 해당 링크 소유자의 수입이 1 증가"
     let linkStartIndex = 0;
@@ -3438,6 +3432,7 @@ export const useGameStore = create<GameStore>()(
         }
         linkStartIndex = i; // 다음 링크 시작점 업데이트
       }
+    }
     }
 
     const newPlayers = { ...state.players };
@@ -3480,7 +3475,9 @@ export const useGameStore = create<GameStore>()(
           turn: state.currentTurn,
           phase: context.phase,  // 캡처된 phase 사용
           player: movingPlayerId,  // 캡처된 플레이어 ID 사용
-          action: `${color} 물품 배달 (${totalLinks} 링크, +${incomeChanges[movingPlayerId] ?? 0} 수입)`,
+          action: context.trackCubeSectionOwner !== undefined
+            ? `${color} 트랙 큐브 배달 (구간 소유 ${context.trackCubeSectionOwner ?? '없음'} 수입 +1)`
+            : `${color} 물품 배달 (${totalLinks} 링크, +${incomeChanges[movingPlayerId] ?? 0} 수입)`,
           timestamp: Date.now(),
         },
       ],

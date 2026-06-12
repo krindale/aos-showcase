@@ -217,6 +217,8 @@ export interface MovingCubeContext {
   playerId: PlayerId;        // 이동을 수행한 플레이어
   phase: GamePhase;          // 이동 시작 시 단계
   moveRound: 1 | 2;          // 이동 라운드
+  // 트랙 큐브 배달(St. Lucia): 정의되어 있으면 링크 수입 대신 구간 소유자 +1
+  trackCubeSectionOwner?: PlayerId | null;
 }
 
 // === UI 상태 ===

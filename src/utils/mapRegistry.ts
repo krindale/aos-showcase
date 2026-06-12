@@ -87,6 +87,8 @@ export interface GameMapData {
   townNames?: Record<string, string>;
   /** 바다(lake) 헥스를 그리지 않아 섬 모양으로 표시 (St. Lucia) */
   hideLakeHexes?: boolean;
+  /** 헥스 배향: 공식 맵이 flat-top이면 'flat' — 렌더만 전치, 게임 로직은 동형 (기본 'pointy') */
+  orientation?: 'pointy' | 'flat';
   /** 맵별 특수 룰 */
   rules: MapRuleConfig;
   /** 초기 보드 상태 생성 (도시 큐브는 createInitialGameState에서 배치) */
@@ -134,6 +136,7 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     columnMapping: ST_LUCIA_COLUMN_MAPPING,
     townNames: ST_LUCIA_TOWN_NAMES,
     hideLakeHexes: true,
+    orientation: 'flat',
     colors: {
       terrain: ST_LUCIA_COLORS.terrain,
       background: ST_LUCIA_COLORS.background,

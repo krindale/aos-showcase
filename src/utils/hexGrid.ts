@@ -31,12 +31,15 @@ export function hexToPixel(
   row: number,
   startCol: number = DEFAULT_START_COL,
   paddingX: number = DEFAULT_PADDING_X,
-  paddingY: number = DEFAULT_PADDING_Y
+  paddingY: number = DEFAULT_PADDING_Y,
+  flat: boolean = false
 ): { x: number; y: number } {
   const offset = row % 2 === 1 ? HEX_WIDTH / 2 : 0;
   const x = (col - startCol) * HEX_WIDTH + offset + paddingX;
   const y = row * HEX_HEIGHT * 0.75 + paddingY;
-  return { x, y };
+  // flat-top 맵(St. Lucia): 화면 전치 — 데이터의 col이 화면 세로, row가 화면 가로
+  // (전치는 인접 관계를 보존하므로 게임 로직은 그대로, 렌더만 원본 보드 배치가 됨)
+  return flat ? { x: y, y: x } : { x, y };
 }
 
 /**
@@ -85,13 +88,14 @@ export function pixelToHex(
 /**
  * pointy-top 헥스 꼭지점 계산
  */
-export function getHexPoints(cx: number, cy: number, size: number): string {
+export function getHexPoints(cx: number, cy: number, size: number, flat: boolean = false): string {
   const points = [];
   for (let i = 0; i < 6; i++) {
     const angle = (Math.PI / 3) * i - Math.PI / 6;
-    const x = cx + size * Math.cos(angle);
-    const y = cy + size * Math.sin(angle);
-    points.push(`${x},${y}`);
+    const dx = size * Math.cos(angle);
+    const dy = size * Math.sin(angle);
+    // flat-top: 오프셋 전치 (dx↔dy) → 평평한 윗변 헥스
+    points.push(flat ? `${cx + dy},${cy + dx}` : `${cx + dx},${cy + dy}`);
   }
   return points.join(' ');
 }
@@ -115,14 +119,14 @@ export function getEdgeMidpoint(
   cx: number,
   cy: number,
   edge: number,
-  size: number
+  size: number,
+  flat: boolean = false
 ): { x: number; y: number } {
   const angle1 = (Math.PI / 3) * edge - Math.PI / 6;
   const angle2 = (Math.PI / 3) * ((edge + 1) % 6) - Math.PI / 6;
-  return {
-    x: cx + size * (Math.cos(angle1) + Math.cos(angle2)) / 2,
-    y: cy + size * (Math.sin(angle1) + Math.sin(angle2)) / 2,
-  };
+  const dx = size * (Math.cos(angle1) + Math.cos(angle2)) / 2;
+  const dy = size * (Math.sin(angle1) + Math.sin(angle2)) / 2;
+  return flat ? { x: cx + dy, y: cy + dx } : { x: cx + dx, y: cy + dy };
 }
 
 /**
@@ -133,10 +137,11 @@ export function getTrackPath(
   cy: number,
   edge1: number,
   edge2: number,
-  size: number
+  size: number,
+  flat: boolean = false
 ): string {
-  const p1 = getEdgeMidpoint(cx, cy, edge1, size);
-  const p2 = getEdgeMidpoint(cx, cy, edge2, size);
+  const p1 = getEdgeMidpoint(cx, cy, edge1, size, flat);
+  const p2 = getEdgeMidpoint(cx, cy, edge2, size, flat);
 
   // 엣지 간 거리 계산 (0-3)
   const diff = Math.abs(edge1 - edge2);
@@ -160,10 +165,11 @@ export function getRailroadTies(
   edge1: number,
   edge2: number,
   size: number,
-  numTies: number = 6
+  numTies: number = 6,
+  flat: boolean = false
 ): { x: number; y: number; angle: number }[] {
-  const p1 = getEdgeMidpoint(cx, cy, edge1, size);
-  const p2 = getEdgeMidpoint(cx, cy, edge2, size);
+  const p1 = getEdgeMidpoint(cx, cy, edge1, size, flat);
+  const p2 = getEdgeMidpoint(cx, cy, edge2, size, flat);
   const ties: { x: number; y: number; angle: number }[] = [];
 
   const diff = Math.abs(edge1 - edge2);
@@ -329,12 +335,14 @@ export function calculateBoardDimensions(
   cols: number = DEFAULT_BOARD_COLS,
   rows: number = DEFAULT_BOARD_ROWS,
   startCol: number = DEFAULT_START_COL,
-  margin: number = DEFAULT_MARGIN
+  margin: number = DEFAULT_MARGIN,
+  flat: boolean = false
 ): { width: number; height: number } {
   const actualCols = cols - startCol + 0.5; // odd row offset
   const width = actualCols * HEX_WIDTH + margin * 2 + HEX_HORIZONTAL_RADIUS * 2;
   const height = (rows - 1) * HEX_HEIGHT * 0.75 + margin * 2 + HEX_VERTICAL_RADIUS * 2;
-  return { width, height };
+  // flat-top 전치 렌더: 가로/세로 교환
+  return flat ? { width: height, height: width } : { width, height };
 }
 
 // === 트랙 건설 관련 함수 ===

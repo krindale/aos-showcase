@@ -46,6 +46,8 @@ export default function GameBoard() {
   // 맵 데이터(그리드 크기/지형 색): mapRegistry에서 주입 — 튜토리얼 하드코딩 금지
   const mapData = useMemo(() => getMapData(mapId), [mapId]);
   const terrainColors = mapData.colors.terrain;
+  // flat-top 맵(St. Lucia): 모든 렌더 기하를 전치 — 데이터/게임 로직은 pointy-top 그대로 (인접 동형)
+  const isFlat = mapData.orientation === 'flat';
 
   // Actions (참조가 변하지 않으므로 별도 selector)
   const {
@@ -64,8 +66,8 @@ export default function GameBoard() {
   } = useGameStore();
 
   const { width: boardWidth, height: boardHeight } = useMemo(
-    () => calculateBoardDimensions(mapData.cols, mapData.rows),
-    [mapData]
+    () => calculateBoardDimensions(mapData.cols, mapData.rows, undefined, undefined, isFlat),
+    [mapData, isFlat]
   );
 
   // 터치 제스처 (핀치 줌, 팬) 지원
@@ -190,16 +192,16 @@ export default function GameBoard() {
     }>();
 
     for (const tile of board.trackTiles) {
-      const { x, y } = hexToPixel(tile.coord.col, tile.coord.row);
-      const pathData = getTrackPath(x, y, tile.edges[0], tile.edges[1], HEX_SIZE - 2);
-      const ties = getRailroadTies(x, y, tile.edges[0], tile.edges[1], HEX_SIZE - 2);
+      const { x, y } = hexToPixel(tile.coord.col, tile.coord.row, undefined, undefined, undefined, isFlat);
+      const pathData = getTrackPath(x, y, tile.edges[0], tile.edges[1], HEX_SIZE - 2, isFlat);
+      const ties = getRailroadTies(x, y, tile.edges[0], tile.edges[1], HEX_SIZE - 2, 6, isFlat);
 
       const hasSecondary = tile.trackType !== 'simple' && tile.secondaryEdges;
       const secondaryPathData = hasSecondary
-        ? getTrackPath(x, y, tile.secondaryEdges![0], tile.secondaryEdges![1], HEX_SIZE - 2)
+        ? getTrackPath(x, y, tile.secondaryEdges![0], tile.secondaryEdges![1], HEX_SIZE - 2, isFlat)
         : null;
       const secondaryTies = hasSecondary
-        ? getRailroadTies(x, y, tile.secondaryEdges![0], tile.secondaryEdges![1], HEX_SIZE - 2)
+        ? getRailroadTies(x, y, tile.secondaryEdges![0], tile.secondaryEdges![1], HEX_SIZE - 2, 6, isFlat)
         : [];
 
       cache.set(tile.id, { pathData, ties, secondaryPathData, secondaryTies });
@@ -384,7 +386,7 @@ export default function GameBoard() {
         {[...Array(mapData.rows)].map((_, row) =>
           [...Array(mapData.cols - mapData.startCol)].map((_, colIndex) => {
             const col = colIndex + mapData.startCol;
-            const { x, y } = hexToPixel(col, row);
+            const { x, y } = hexToPixel(col, row, undefined, undefined, undefined, isFlat);
 
             if (!shouldRenderHex(col, row)) return null;
 
@@ -407,7 +409,7 @@ export default function GameBoard() {
             return (
               <g key={`hex-${col}-${row}`}>
                 <polygon
-                  points={getHexPoints(x, y, HEX_SIZE - 2)}
+                  points={getHexPoints(x, y, HEX_SIZE - 2, isFlat)}
                   fill={
                     isHighlighted
                       ? 'rgba(212, 168, 83, 0.3)' // 건설 가능 헥스 하이라이트
@@ -454,7 +456,7 @@ export default function GameBoard() {
 
         {/* 트랙 타일 */}
         {board.trackTiles.map((tile) => {
-          const { x, y } = hexToPixel(tile.coord.col, tile.coord.row);
+          const { x, y } = hexToPixel(tile.coord.col, tile.coord.row, undefined, undefined, undefined, isFlat);
           // 캐시에서 경로 데이터 가져오기 (계산 비용 절감)
           const cached = trackPathCache.get(tile.id);
           const pathData = cached?.pathData ?? '';
@@ -676,8 +678,8 @@ export default function GameBoard() {
 
         {/* 끊어진 트랙 연결 경고 표시 */}
         {disconnectedConnections.map((conn, index) => {
-          const { x: x1, y: y1 } = hexToPixel(conn.from.col, conn.from.row);
-          const { x: x2, y: y2 } = hexToPixel(conn.to.col, conn.to.row);
+          const { x: x1, y: y1 } = hexToPixel(conn.from.col, conn.from.row, undefined, undefined, undefined, isFlat);
+          const { x: x2, y: y2 } = hexToPixel(conn.to.col, conn.to.row, undefined, undefined, undefined, isFlat);
 
           // 두 트랙 중간 지점
           const midX = (x1 + x2) / 2;
@@ -714,7 +716,7 @@ export default function GameBoard() {
 
         {/* 마을 (Town) - 흰색 디스크 */}
         {board.towns.map((town) => {
-          const { x, y } = hexToPixel(town.coord.col, town.coord.row);
+          const { x, y } = hexToPixel(town.coord.col, town.coord.row, undefined, undefined, undefined, isFlat);
           const isUrbanized = town.newCityColor !== null;
           const townColor = isUrbanized ? CITY_COLORS[town.newCityColor!] : '#ffffff';
           const isSourceSelected = ui.sourceHex && hexCoordsEqual(ui.sourceHex, town.coord);
@@ -741,7 +743,7 @@ export default function GameBoard() {
             <g key={`town-${town.id}`}>
               {/* 마을 배경 헥스 */}
               <polygon
-                points={getHexPoints(x, y, HEX_SIZE - 2)}
+                points={getHexPoints(x, y, HEX_SIZE - 2, isFlat)}
                 fill={terrainColors.plain}
                 stroke={
                   isUrbanizationClickable
@@ -846,7 +848,7 @@ export default function GameBoard() {
 
         {/* 도시 */}
         {board.cities.map((city) => {
-          const { x, y } = hexToPixel(city.coord.col, city.coord.row);
+          const { x, y } = hexToPixel(city.coord.col, city.coord.row, undefined, undefined, undefined, isFlat);
           const cityColor = CITY_COLORS[city.color];
           const isSourceSelected = ui.sourceHex && hexCoordsEqual(ui.sourceHex, city.coord);
           const isCityClickable = currentPhase === 'buildTrack';
@@ -868,7 +870,7 @@ export default function GameBoard() {
             <g key={`city-${city.id}`}>
               {/* 도시 헥사곤 */}
               <polygon
-                points={getHexPoints(x, y, HEX_SIZE - 2)}
+                points={getHexPoints(x, y, HEX_SIZE - 2, isFlat)}
                 fill={cityColor}
                 stroke={
                   isReachableDestination
@@ -963,14 +965,16 @@ export default function GameBoard() {
             {(() => {
               const { x, y } = hexToPixel(
                 ui.previewTrack.coord.col,
-                ui.previewTrack.coord.row
+                ui.previewTrack.coord.row,
+                undefined, undefined, undefined, isFlat
               );
               const pathData = getTrackPath(
                 x,
                 y,
                 ui.previewTrack.edges[0],
                 ui.previewTrack.edges[1],
-                HEX_SIZE - 2
+                HEX_SIZE - 2,
+                isFlat
               );
               return (
                 <path

@@ -2380,15 +2380,14 @@ export const useGameStore = create<GameStore>()(
         }
 
         const newTurnBase = {
-          ...state,
           currentPhase: nextPhaseName,
           currentTurn: state.currentTurn + 1,
           currentPlayer: playerOrder[0],
           phaseState: {
             builtTracksThisTurn: 0,
             maxTracksThisTurn: GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
-            lastBuiltCoords: [],
-            moveGoodsRound: 1,
+            lastBuiltCoords: [] as HexCoord[],
+            moveGoodsRound: 1 as const,
             playerMoves: createPlayerMoves(activePlayers),
             productionUsed: false,
             locomotiveUsed: false,

@@ -21,7 +21,8 @@ import {
   getMovementPathSVG,
   getAnimationPoints,
 } from '@/utils/hexGrid';
-import { TUTORIAL_MAP, TUTORIAL_COLORS, TUTORIAL_LAKE_TILES } from '@/utils/tutorialMap';
+import { TUTORIAL_COLORS } from '@/utils/tutorialMap';
+import { getMapData } from '@/utils/mapRegistry';
 import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId } from '@/types/game';
 
 export default function GameBoard() {
@@ -41,6 +42,10 @@ export default function GameBoard() {
       ui: state.ui,
     }))
   );
+  const mapId = useGameStore((state) => state.mapId);
+  // 맵 데이터(그리드 크기/지형 색): mapRegistry에서 주입 — 튜토리얼 하드코딩 금지
+  const mapData = useMemo(() => getMapData(mapId), [mapId]);
+  const terrainColors = mapData.colors.terrain;
 
   // Actions (참조가 변하지 않으므로 별도 selector)
   const {
@@ -59,8 +64,8 @@ export default function GameBoard() {
   } = useGameStore();
 
   const { width: boardWidth, height: boardHeight } = useMemo(
-    () => calculateBoardDimensions(TUTORIAL_MAP.cols, TUTORIAL_MAP.rows),
-    []
+    () => calculateBoardDimensions(mapData.cols, mapData.rows),
+    [mapData]
   );
 
   // 터치 제스처 (핀치 줌, 팬) 지원
@@ -376,17 +381,17 @@ export default function GameBoard() {
           }}
         >
         {/* 배경 헥스 그리드 */}
-        {[...Array(TUTORIAL_MAP.rows)].map((_, row) =>
-          [...Array(TUTORIAL_MAP.cols - TUTORIAL_MAP.startCol)].map((_, colIndex) => {
-            const col = colIndex + TUTORIAL_MAP.startCol;
+        {[...Array(mapData.rows)].map((_, row) =>
+          [...Array(mapData.cols - mapData.startCol)].map((_, colIndex) => {
+            const col = colIndex + mapData.startCol;
             const { x, y } = hexToPixel(col, row);
 
             if (!shouldRenderHex(col, row)) return null;
 
             const coord = { col, row };
-            const isLake = TUTORIAL_LAKE_TILES.some(
-              (l) => l.col === col && l.row === row
-            );
+            const hexTile = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
+            const terrain = hexTile?.terrain ?? 'plain';
+            const isLake = terrain === 'lake';
             const isSourceSelected = ui.sourceHex && hexCoordsEqual(ui.sourceHex, coord);
             const isHighlighted = ui.highlightedHexes.some(h => hexCoordsEqual(h, coord));
             const hasPlayerTrack = board.trackTiles.some(
@@ -403,9 +408,7 @@ export default function GameBoard() {
                   fill={
                     isHighlighted
                       ? 'rgba(212, 168, 83, 0.3)' // 건설 가능 헥스 하이라이트
-                      : isLake
-                      ? TUTORIAL_COLORS.terrain.lake
-                      : TUTORIAL_COLORS.terrain.plain
+                      : terrainColors[terrain] ?? terrainColors.plain
                   }
                   stroke={
                     isSourceSelected
@@ -427,6 +430,20 @@ export default function GameBoard() {
                   onClick={() => isClickable && handleHexClick(coord)}
                   onMouseEnter={() => handleHexHover(coord)}
                 />
+                {/* 헥스 위 물품 큐브 (St. Lucia 셋업) */}
+                {hexTile?.cube && (
+                  <rect
+                    x={x - 5}
+                    y={y - 5}
+                    width="10"
+                    height="10"
+                    fill={CUBE_COLORS[hexTile.cube]}
+                    stroke="rgba(0,0,0,0.4)"
+                    strokeWidth="1"
+                    rx="1.5"
+                    pointerEvents="none"
+                  />
+                )}
               </g>
             );
           })
@@ -608,6 +625,29 @@ export default function GameBoard() {
                   fill={secondaryOwnerColor}
                   stroke="#1a1a1a"
                   strokeWidth="1"
+                />
+              )}
+              {/* 트랙 위 물품 큐브 (St. Lucia — 클릭하면 배달 출발지 선택) */}
+              {tile.cube && (
+                <rect
+                  x={x - 6}
+                  y={y - 18}
+                  width="12"
+                  height="12"
+                  fill={CUBE_COLORS[tile.cube]}
+                  stroke={
+                    ui.selectedCube?.cityId === `track:${tile.id}`
+                      ? '#ffffff'
+                      : 'rgba(0,0,0,0.4)'
+                  }
+                  strokeWidth={ui.selectedCube?.cityId === `track:${tile.id}` ? 2.5 : 1}
+                  rx="2"
+                  className={currentPhase === 'moveGoods' ? 'cursor-pointer hover:opacity-80' : ''}
+                  onClick={(e) => {
+                    if (currentPhase !== 'moveGoods') return;
+                    e.stopPropagation();
+                    selectCube(`track:${tile.id}`, 0);
+                  }}
                 />
               )}
             </g>

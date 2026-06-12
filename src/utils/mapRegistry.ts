@@ -41,6 +41,9 @@ export interface MapRuleConfig {
   firstSeatCost: number;
   /** 선택할 수 없는 특수 행동 목록 (St. Lucia: production 불가) */
   disabledActions: SpecialAction[];
+  /** 셋업: 도시 큐브 대신 평지/강 헥스마다 큐브 1개 배치 (St. Lucia).
+   *  건설 시 그 큐브는 트랙 위로 올라가며, 미완성 링크여도 배달 가능. */
+  hexCubeSetup: boolean;
 }
 
 export const DEFAULT_MAP_RULES: MapRuleConfig = {
@@ -48,6 +51,7 @@ export const DEFAULT_MAP_RULES: MapRuleConfig = {
   alternateTurnOrder: false,
   firstSeatCost: 0,
   disabledActions: [],
+  hexCubeSetup: false,
 };
 
 /**
@@ -130,6 +134,7 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
       alternateTurnOrder: true,    // 경매 대신 교대 선공권($5)
       firstSeatCost: 5,
       disabledActions: ['production'], // Production 선택 불가
+      hexCubeSetup: true,          // 평지/강 헥스마다 큐브 1개 (도시 큐브 없음)
     },
     createBoardState: createStLuciaBoardState,
   },

@@ -1348,3 +1348,85 @@ export function getAnimationPoints(
 
   return points;
 }
+
+// ============================================================
+// St. Lucia: 트랙 위 큐브 배달 (미완성 링크 허용)
+// ============================================================
+
+/** 트랙 큐브 배달 후보: 도달 도시와 경유 트랙 구간 소유자 */
+export interface TrackCubeDelivery {
+  /** 배달 목적지 도시 */
+  city: City;
+  /** 큐브 위치에서 도시까지 경유한 트랙 좌표 순서 */
+  pathCoords: HexCoord[];
+  /** 이 구간(체인)의 소유자 — 보너스 수입 1을 받음 (룰북: the player who owns the track section) */
+  sectionOwner: PlayerId | null;
+}
+
+/**
+ * 트랙 위 큐브의 배달 가능 도시 탐색 (St. Lucia)
+ *
+ * 룰북: 트랙 건설 시 헥스 큐브가 트랙 위로 올라가며, 그 큐브는 트랙이
+ * 미완성 링크여도 도시로 배달할 수 있다. 미완성 구간도 소유자에게 수입 1.
+ *
+ * 큐브가 놓인 트랙에서 엣지 연결을 따라 양방향으로 체인을 추적해,
+ * 체인이 닿는 도시 중 큐브 색상과 일치하는 도시를 반환한다.
+ */
+export function findTrackCubeDeliveries(
+  board: BoardState,
+  trackId: string,
+): TrackCubeDelivery[] {
+  const startTrack = board.trackTiles.find(t => t.id === trackId);
+  if (!startTrack || !startTrack.cube) return [];
+
+  const cubeColor = startTrack.cube;
+  const deliveries: TrackCubeDelivery[] = [];
+  const visited = new Set<string>([hexToKey(startTrack.coord)]);
+
+  // 시작 트랙의 두 엣지 방향으로 각각 체인 추적
+  for (const startEdge of startTrack.edges) {
+    const pathCoords: HexCoord[] = [startTrack.coord];
+    let current = startTrack.coord;
+    let exitEdge = startEdge;
+    let sectionOwner: PlayerId | null = startTrack.owner;
+
+    for (let steps = 0; steps < 32; steps++) {
+      const nextCoord = getNeighborHex(current, exitEdge);
+
+      // 도시 도달 → 색 일치하면 배달 후보
+      const city = board.cities.find(c => hexCoordsEqual(c.coord, nextCoord));
+      if (city) {
+        if (city.color === cubeColor && !deliveries.some(d => d.city.id === city.id)) {
+          deliveries.push({ city, pathCoords: [...pathCoords], sectionOwner });
+        }
+        break;
+      }
+
+      // 다음 트랙으로 연결 확인 (마주보는 엣지 보유 필요)
+      const nextTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, nextCoord));
+      const entryEdge = getOppositeEdge(exitEdge);
+      if (!nextTrack) break;
+
+      // 어느 경로(주/보조)로 들어왔는지 판단해 반대쪽 출구 결정
+      let edges: [number, number] | undefined;
+      if (nextTrack.edges.includes(entryEdge)) {
+        edges = nextTrack.edges;
+        sectionOwner = nextTrack.owner ?? sectionOwner;
+      } else if (nextTrack.secondaryEdges?.includes(entryEdge)) {
+        edges = nextTrack.secondaryEdges;
+        sectionOwner = nextTrack.secondaryOwner ?? sectionOwner;
+      }
+      if (!edges) break;
+
+      const key = hexToKey(nextCoord);
+      if (visited.has(key)) break;
+      visited.add(key);
+
+      pathCoords.push(nextCoord);
+      current = nextCoord;
+      exitEdge = edges[0] === entryEdge ? edges[1] : edges[0];
+    }
+  }
+
+  return deliveries;
+}

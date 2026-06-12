@@ -159,6 +159,7 @@ export function createMockGameState(
 
     auction: null,
     turnOrderOffer: null,
+    nextFirstSeatOption: null,
     phaseState: {
       builtTracksThisTurn: 0,
       maxTracksThisTurn: GAME_CONSTANTS.NORMAL_TRACK_LIMIT,

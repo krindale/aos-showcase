@@ -71,6 +71,8 @@ export interface TrackTile {
   trackType: TrackType;           // 트랙 유형 (기본: simple)
   secondaryEdges?: [number, number];  // 복합 트랙의 두 번째 경로 (crossing, coexist)
   secondaryOwner?: PlayerId | null;   // 두 번째 경로 소유자
+  /** 트랙 위 물품 큐브 (St. Lucia — 미완성 링크여도 배달 가능) */
+  cube?: CubeColor | null;
 }
 
 // 도시
@@ -97,6 +99,8 @@ export type TerrainType = 'plain' | 'river' | 'mountain' | 'lake';
 export interface HexTile {
   coord: HexCoord;
   terrain: TerrainType;
+  /** 헥스 위 물품 큐브 (St. Lucia 셋업 — 건설 시 트랙 위로 이동) */
+  cube?: CubeColor | null;
 }
 
 // === 플레이어 상태 ===
@@ -313,6 +317,9 @@ export interface GameState {
 
   // 교대 선공권 제안 (alternateTurnOrder 맵 전용, 그 외 항상 null)
   turnOrderOffer: TurnOrderOfferState | null;
+
+  // 다음 턴 선공권 제안 차례 (alternateTurnOrder 맵 전용 — 룰북: 차례는 두 플레이어 간 엄격 교대)
+  nextFirstSeatOption: PlayerId | null;
 
   // 현재 단계 관련 임시 상태
   phaseState: PhaseState;

@@ -179,6 +179,7 @@ export function createTestGameState(options: TestGameStateOptions = {}): GameSta
     // 경매
     auction: null,
     turnOrderOffer: null,
+    nextFirstSeatOption: null,
 
     // 단계 상태
     phaseState: {

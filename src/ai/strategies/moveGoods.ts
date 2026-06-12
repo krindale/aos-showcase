@@ -10,7 +10,7 @@
  */
 
 import { GameState, PlayerId, HexCoord, CubeColor, City } from '@/types/game';
-import { findReachableDestinations, findLongestPath, hexCoordsEqual, countPathLinks } from '@/utils/hexGrid';
+import { findReachableDestinations, findLongestPath, hexCoordsEqual, countPathLinks, findTrackCubeDeliveries } from '@/utils/hexGrid';
 import { getSelectedStrategy, getCurrentRoute } from '../strategy/state';
 import { getConnectedCities } from '../strategy/analyzer';
 import { getMapAIConfig } from '../strategy/mapConfig';
@@ -26,6 +26,7 @@ import { debugLog } from '@/utils/debugConfig';
 
 export type MoveGoodsDecision =
   | { action: 'move'; sourceCityId: string; cubeIndex: number; destinationCoord: HexCoord; cubeColor: CubeColor }
+  | { action: 'moveTrackCube'; trackId: string; destCityId: string } // St. Lucia: 트랙 위 큐브 배달
   | { action: 'upgradeEngine' }
   | { action: 'skip' };
 
@@ -142,6 +143,20 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
     }
   }
 
+  // St. Lucia: 트랙 위 큐브 배달 후보 (미완성 링크 허용 — 구간 소유자 수입 +1)
+  let bestTrackCube: { trackId: string; destCityId: string; deltaVP: number } | null = null;
+  for (const track of board.trackTiles) {
+    if (!track.cube) continue;
+    for (const delivery of findTrackCubeDeliveries(board, track.id)) {
+      const own = delivery.sectionOwner === playerId ? 1 : 0;
+      const opp = delivery.sectionOwner && delivery.sectionOwner !== playerId ? 1 : 0;
+      const vp = deliveryDeltaVP(state, playerId, own, opp);
+      if (!bestTrackCube || vp > bestTrackCube.deltaVP) {
+        bestTrackCube = { trackId: track.id, destCityId: delivery.city.id, deltaVP: vp };
+      }
+    }
+  }
+
   // 총 ΔVP 기준 정렬
   candidates.sort((a, b) => (b.deltaVP + b.routeScore) - (a.deltaVP + a.routeScore));
   const best = candidates.length > 0 ? candidates[0] : null;
@@ -154,7 +169,12 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
     `[Phase V: 물품 이동] ${player.name}: 옵션 비교 — 배달 ΔVP=${bestMoveVP === -Infinity ? '없음' : bestMoveVP.toFixed(2)}, 업그레이드 ΔVP=${upgradeVP === -Infinity ? '불가' : upgradeVP.toFixed(2)}`
   );
 
-  // 최대 ΔVP 선택: 배달 vs 업그레이드 vs 스킵(0)
+  // 최대 ΔVP 선택: 트랙 큐브 배달 vs 도시 배달 vs 업그레이드 vs 스킵(0)
+  if (bestTrackCube && bestTrackCube.deltaVP > bestMoveVP && bestTrackCube.deltaVP > upgradeVP && bestTrackCube.deltaVP > 0) {
+    debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 트랙 큐브 배달 → ${bestTrackCube.destCityId}, ΔVP=${bestTrackCube.deltaVP.toFixed(2)}`);
+    return { action: 'moveTrackCube', trackId: bestTrackCube.trackId, destCityId: bestTrackCube.destCityId };
+  }
+
   if (upgradeVP > bestMoveVP && upgradeVP > 0) {
     debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 엔진 업그레이드 (${player.engineLevel}→${player.engineLevel + 1}), ΔVP=${upgradeVP.toFixed(2)}`);
     return { action: 'upgradeEngine' };

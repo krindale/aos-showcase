@@ -43,7 +43,7 @@ import {
   hexCoordsEqual,
   findLongestPath,
   findReachableDestinations,
-} from '@/utils/hexGrid';
+  findTrackCubeDeliveries } from '@/utils/hexGrid';
 import {
   getNextPlayerId,
   createPlayerMoves,
@@ -83,9 +83,12 @@ export function createInitialGameState(
   const boardState = mapData.createBoardState();
   const goodsDisplay = initializeGoodsDisplay();
 
-  // 도시에 물품 배치
+  const setupRules = getMapRules(mapId);
   const bag = [...goodsDisplay.bag];
+
+  // 도시에 물품 배치 (헥스 큐브 셋업 맵은 도시 큐브 없음 — 룰북 St. Lucia)
   const citiesWithCubes = boardState.cities.map((city) => {
+    if (setupRules.hexCubeSetup) return { ...city, cubes: [] };
     const cubes: CubeColor[] = [];
     for (let i = 0; i < GAME_CONSTANTS.INITIAL_CUBES_PER_CITY; i++) {
       if (bag.length > 0) {
@@ -95,6 +98,20 @@ export function createInitialGameState(
     }
     return { ...city, cubes };
   });
+
+  // 헥스 큐브 셋업 (룰북 St. Lucia): 각 평지/강 헥스에 큐브 1개 무작위 배치
+  const hexTilesWithCubes = setupRules.hexCubeSetup
+    ? boardState.hexTiles.map((hex) => {
+      if (hex.terrain !== 'plain' && hex.terrain !== 'river') return hex;
+      // 마을 헥스는 제외 (도시화 대상)
+      const isTown = boardState.towns.some(
+        t => t.coord.col === hex.coord.col && t.coord.row === hex.coord.row
+      );
+      if (isTown) return hex;
+      const cube = bag.length > 0 ? bag.pop() : null;
+      return { ...hex, cube: cube ?? null };
+    })
+    : boardState.hexTiles;
 
   // 동적 플레이어 초기화
   const playerCount = playerNames.length;
@@ -122,6 +139,13 @@ export function createInitialGameState(
   // 맵별 턴 수 (튜토리얼 3턴, St. Lucia 8턴 등 - mapRegistry에서 정의)
   const maxTurns = mapData.maxTurns || (TURNS_BY_PLAYER_COUNT[playerCount] || 6);
 
+  // 교대 선공권 맵: 첫 턴 1번 플레이어를 무작위 결정 (룰북: randomly determine the first player)
+  const mapRules = getMapRules(mapId);
+  const initialPlayerOrder = [...activePlayers];
+  if (mapRules.alternateTurnOrder && initialPlayerOrder.length >= 2 && Math.random() < 0.5) {
+    [initialPlayerOrder[0], initialPlayerOrder[1]] = [initialPlayerOrder[1], initialPlayerOrder[0]];
+  }
+
   return {
     // 메타 정보
     gameId: `game-${Date.now()}`,
@@ -131,10 +155,11 @@ export function createInitialGameState(
     maxTurns,
 
     // 턴 진행
+    // 룰북(St. Lucia): 첫 턴 1번은 무작위 결정 (선공권 제안 없음), 이후 턴부터 교대 제안
     currentTurn: 1,
     currentPhase: 'issueShares',
-    currentPlayer: 'player1',
-    playerOrder: [...activePlayers],
+    currentPlayer: initialPlayerOrder[0],
+    playerOrder: initialPlayerOrder,
 
     // 플레이어
     players: players as Record<PlayerId, PlayerState>,
@@ -143,6 +168,7 @@ export function createInitialGameState(
     board: {
       ...boardState,
       cities: citiesWithCubes,
+      hexTiles: hexTilesWithCubes,
     },
     goodsDisplay: {
       slots: goodsDisplay.slots,
@@ -155,6 +181,8 @@ export function createInitialGameState(
 
     // 교대 선공권 제안 (alternateTurnOrder 맵 전용)
     turnOrderOffer: null,
+    // 다음 턴(2턴) 선공권 제안 차례: 첫 턴 1번이 아닌 플레이어 (엄격 교대)
+    nextFirstSeatOption: mapRules.alternateTurnOrder ? (initialPlayerOrder[1] ?? null) : null,
 
     // 단계 상태
     phaseState: {
@@ -348,6 +376,9 @@ interface GameStore extends GameState {
   resolveAuction: () => void;
   /** 교대 선공권 응답 (alternateTurnOrder 맵 전용) - 수락 시 firstSeatCost 지불 후 선공 */
   respondTurnOrderOffer: (playerId: PlayerId, accept: boolean) => void;
+
+  /** 트랙 위 큐브 배달 (St. Lucia — 미완성 링크여도 배달 가능, 구간 소유자 보너스 수입 1) */
+  moveTrackCube: (trackId: string, destCityId: string) => boolean;
 
   // --- Phase III: 행동 선택 ---
   /** 특수 행동 선택 */
@@ -712,6 +743,15 @@ export const useGameStore = create<GameStore>()(
             store.selectDestinationCity(moveDecision.destinationCoord);
             // move 액션: 애니메이션이 완료될 때까지 락 유지
             // completeCubeMove에서 releaseAILock 호출됨
+            return;
+          } else if (moveDecision.action === 'moveTrackCube') {
+            // St. Lucia: 트랙 위 큐브 배달 (moveTrackCube가 nextPhase 호출)
+            const ok = store.moveTrackCube(moveDecision.trackId, moveDecision.destCityId);
+            if (!ok) {
+              store.nextPhase(); // 배달 실패 시 스킵으로 처리
+            }
+            releaseAILock(executionId, get, set);
+            scheduleAICheck(get);
             return;
           } else if (moveDecision.action === 'upgradeEngine') {
             // 중요: captured currentPlayer를 사용 (레이스 컨디션 방지)
@@ -1088,6 +1128,71 @@ export const useGameStore = create<GameStore>()(
   },
 
   // ============================================================
+  // St. Lucia: 트랙 위 큐브 배달 (미완성 링크 허용 + 보너스 수입)
+  // ============================================================
+  moveTrackCube: (trackId, destCityId) => {
+    const state = get();
+    const currentPlayer = state.currentPlayer;
+
+    if (state.phaseState.playerMoves[currentPlayer]) {
+      console.warn('[moveTrackCube] 이미 이번 라운드에 이동함');
+      return false;
+    }
+
+    const delivery = findTrackCubeDeliveries(state.board, trackId)
+      .find(d => d.city.id === destCityId);
+    if (!delivery) {
+      console.warn(`[moveTrackCube] 배달 불가: track=${trackId} → ${destCityId}`);
+      return false;
+    }
+
+    const track = state.board.trackTiles.find(t => t.id === trackId);
+    if (!track || !track.cube) return false;
+    const cubeColor = track.cube;
+
+    // 큐브 제거 + 구간 소유자 수입 1 (룰북: one Bonus income)
+    const newTrackTiles = state.board.trackTiles.map(t =>
+      t.id === trackId ? { ...t, cube: null } : t
+    );
+    const ownerId = delivery.sectionOwner;
+    const ownerPlayer = ownerId ? state.players[ownerId] : null;
+    const newPlayers = (ownerId && ownerPlayer && !ownerPlayer.eliminated)
+      ? {
+        ...state.players,
+        [ownerId]: { ...ownerPlayer, income: ownerPlayer.income + 1 },
+      }
+      : state.players;
+
+    set({
+      board: { ...state.board, trackTiles: newTrackTiles },
+      players: newPlayers,
+      phaseState: {
+        ...state.phaseState,
+        playerMoves: { ...state.phaseState.playerMoves, [currentPlayer]: true },
+      },
+      ui: {
+        ...state.ui,
+        selectedCube: null,
+        reachableDestinations: [],
+      },
+      logs: [
+        ...state.logs,
+        {
+          turn: state.currentTurn,
+          phase: state.currentPhase,
+          player: currentPlayer,
+          action: `${cubeColor} 트랙 큐브 배달 → ${destCityId} (구간 소유 ${ownerId ?? '없음'} 수입 +1)`,
+          timestamp: Date.now(),
+        },
+      ],
+    });
+
+    console.log(`[moveTrackCube] ${currentPlayer}: ${cubeColor} → ${destCityId}, 수입 +1 to ${ownerId}`);
+    get().nextPhase();
+    return true;
+  },
+
+  // ============================================================
   // Phase II (대체): 교대 선공권 (alternateTurnOrder 맵 전용)
   // ============================================================
   respondTurnOrderOffer: (playerId, accept) => {
@@ -1363,6 +1468,12 @@ export const useGameStore = create<GameStore>()(
       return false;
     }
 
+    // 헥스 위 큐브 (St. Lucia 셋업): 건설 시 트랙 위로 이동 (룰북: place the cube on top of the just-built track)
+    const hexTileHere = state.board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
+    const hexCube = hexTileHere?.cube ?? null;
+    // 기존 트랙 교체(방향 전환 등) 시에는 기존 트랙의 큐브 유지
+    const carriedCube = existingTrack?.cube ?? hexCube;
+
     // 트랙 데이터 생성/수정
     const trackId = existingTrack ? existingTrack.id : `track-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const newTrack: TrackTile = {
@@ -1371,11 +1482,17 @@ export const useGameStore = create<GameStore>()(
       edges,
       owner: currentPlayer,
       trackType: 'simple',
+      ...(carriedCube ? { cube: carriedCube } : {}),
     };
 
     const newTrackTiles = existingTrack
       ? state.board.trackTiles.map(t => hexCoordsEqual(t.coord, coord) ? newTrack : t)
       : [...state.board.trackTiles, newTrack];
+
+    // 큐브가 트랙 위로 이동했으면 헥스에서 제거
+    const newHexTiles = (hexCube && !existingTrack)
+      ? state.board.hexTiles.map(h => hexCoordsEqual(h.coord, coord) ? { ...h, cube: null } : h)
+      : state.board.hexTiles;
 
     const newBuiltCount = state.phaseState.builtTracksThisTurn + 1;
 
@@ -1389,6 +1506,7 @@ export const useGameStore = create<GameStore>()(
       board: {
         ...state.board,
         trackTiles: newTrackTiles,
+        hexTiles: newHexTiles,
       },
       players: {
         ...state.players,
@@ -2019,18 +2137,33 @@ export const useGameStore = create<GameStore>()(
         console.log('[nextPhase set] 게임 오버 상태 - 변경 없음');
         return state;
       }
-      const phases: GamePhase[] = [
-        'issueShares',
-        'determinePlayerOrder',
-        'selectActions',
-        'buildTrack',
-        'moveGoods',
-        'collectIncome',
-        'payExpenses',
-        'incomeReduction',
-        'goodsGrowth',
-        'advanceTurn',
-      ];
+      const mapRules = getMapRules(state.mapId);
+      // 룰북(St. Lucia): 선공권 결정(Determine Player Order)이 Issue Shares보다 먼저
+      const phases: GamePhase[] = mapRules.alternateTurnOrder
+        ? [
+          'determinePlayerOrder',
+          'issueShares',
+          'selectActions',
+          'buildTrack',
+          'moveGoods',
+          'collectIncome',
+          'payExpenses',
+          'incomeReduction',
+          'goodsGrowth',
+          'advanceTurn',
+        ]
+        : [
+          'issueShares',
+          'determinePlayerOrder',
+          'selectActions',
+          'buildTrack',
+          'moveGoods',
+          'collectIncome',
+          'payExpenses',
+          'incomeReduction',
+          'goodsGrowth',
+          'advanceTurn',
+        ];
 
       const currentIndex = phases.indexOf(state.currentPhase);
       const playerOrder = state.playerOrder;
@@ -2051,25 +2184,12 @@ export const useGameStore = create<GameStore>()(
       if (state.currentPhase === 'issueShares') {
         // 마지막 플레이어까지 완료했으면 다음 단계로
         if (isLast) {
-          // 교대 선공권 맵 (St. Lucia): 경매 대신 선공권 제안 초기화
-          // 제안 대상은 턴마다 교대 (턴1: player1, 턴2: player2, ...)
-          const rules = getMapRules(state.mapId);
-          if (rules.alternateTurnOrder) {
-            const firstOption = activePlayers[(state.currentTurn - 1) % activePlayers.length];
-            console.log(`[nextPhase] 교대 선공권 시작: 제안 대상=${firstOption} (턴 ${state.currentTurn})`);
-            return {
-              currentPhase: 'determinePlayerOrder' as GamePhase,
-              currentPlayer: firstOption,
-              turnOrderOffer: {
-                offerPlayer: firstOption,
-                firstOptionPlayer: firstOption,
-                declined: [],
-              },
-            };
-          }
-
+          // 교대 선공권 맵(St. Lucia): 선공권은 이미 턴 시작에 끝남 → 행동 선택으로
+          const nextAfterShares: GamePhase = mapRules.alternateTurnOrder
+            ? 'selectActions'
+            : 'determinePlayerOrder';
           return {
-            currentPhase: 'determinePlayerOrder' as GamePhase,
+            currentPhase: nextAfterShares,
             currentPlayer: playerOrder[0],
           };
         }
@@ -2081,9 +2201,13 @@ export const useGameStore = create<GameStore>()(
 
       // === II. 플레이어 순서 결정 ===
       if (state.currentPhase === 'determinePlayerOrder') {
-        console.log(`[nextPhase] determinePlayerOrder → selectActions: playerOrder=[${playerOrder.join(', ')}], 새 currentPlayer=${playerOrder[0]} (isAI: ${state.players[playerOrder[0]]?.isAI})`);
+        // 교대 선공권 맵(St. Lucia): 선공권이 턴 첫 단계 → 주식 발행으로
+        const nextAfterOrder: GamePhase = mapRules.alternateTurnOrder
+          ? 'issueShares'
+          : 'selectActions';
+        console.log(`[nextPhase] determinePlayerOrder → ${nextAfterOrder}: playerOrder=[${playerOrder.join(', ')}], 새 currentPlayer=${playerOrder[0]} (isAI: ${state.players[playerOrder[0]]?.isAI})`);
         return {
-          currentPhase: 'selectActions' as GamePhase,
+          currentPhase: nextAfterOrder,
           currentPlayer: playerOrder[0],
           turnOrderOffer: null, // 미해결 선공권 제안 정리 (안전장치)
         };
@@ -2247,7 +2371,7 @@ export const useGameStore = create<GameStore>()(
       const nextPhaseName = phases[nextIndex];
 
       // advanceTurn 후에는 새 턴 시작
-      if (nextPhaseName === 'issueShares' && currentIndex === phases.length - 1) {
+      if (currentIndex === phases.length - 1) {
         // 게임 종료 확인
         if (state.currentTurn >= state.maxTurns) {
           return {
@@ -2255,7 +2379,7 @@ export const useGameStore = create<GameStore>()(
           };
         }
 
-        return {
+        const newTurnBase = {
           ...state,
           currentPhase: nextPhaseName,
           currentTurn: state.currentTurn + 1,
@@ -2271,6 +2395,31 @@ export const useGameStore = create<GameStore>()(
           },
           players: resetPlayerActions(state.players, activePlayers),
         };
+
+        // 교대 선공권 맵(St. Lucia): 새 턴은 선공권 제안으로 시작
+        // 차례: Turn Order 행동 보유자(룰북: 다음 선공권 단계에서 1번으로 간주)가 있으면 선점,
+        //       없으면 엄격 교대(nextFirstSeatOption). 어느 쪽이든 교대 시퀀스는 계속 진행.
+        if (mapRules.alternateTurnOrder) {
+          const turnOrderHolder = activePlayers.find(
+            p => state.players[p]?.selectedAction === 'turnOrder'
+          );
+          const alternation = state.nextFirstSeatOption ?? playerOrder[0];
+          const firstOption = turnOrderHolder ?? alternation;
+          const nextAlternation = activePlayers.find(p => p !== alternation) ?? alternation;
+          console.log(`[nextPhase] 턴 ${state.currentTurn + 1} 교대 선공권 시작: 제안 대상=${firstOption}${turnOrderHolder ? ' (Turn Order 행동 선점)' : ''}`);
+          return {
+            ...newTurnBase,
+            currentPlayer: firstOption,
+            turnOrderOffer: {
+              offerPlayer: firstOption,
+              firstOptionPlayer: firstOption,
+              declined: [],
+            },
+            nextFirstSeatOption: nextAlternation,
+          };
+        }
+
+        return newTurnBase;
       }
 
       // 단계 전환 로깅
@@ -2350,6 +2499,22 @@ export const useGameStore = create<GameStore>()(
     // 이미 이번 라운드에 이동했으면 리턴
     if (state.phaseState.playerMoves[state.currentPlayer]) {
       console.log('이미 이번 라운드에 이동했습니다.');
+      return;
+    }
+
+    // 트랙 위 큐브 선택 (St. Lucia — 'track:<trackId>' 컨벤션, 미완성 링크여도 배달 가능)
+    if (cityId.startsWith('track:')) {
+      const trackId = cityId.slice('track:'.length);
+      const deliveries = findTrackCubeDeliveries(state.board, trackId);
+      console.log(`[selectCube] 트랙 큐브 선택: ${trackId}, 배달 가능 도시=${deliveries.map(d => d.city.id).join(',') || '없음'}`);
+      if (deliveries.length === 0) return;
+      set({
+        ui: {
+          ...state.ui,
+          selectedCube: { cityId, cubeIndex: 0 },
+          reachableDestinations: deliveries.map(d => d.city.coord),
+        },
+      });
       return;
     }
 
@@ -3109,6 +3274,16 @@ export const useGameStore = create<GameStore>()(
     // 출발 도시 정보
     const sourceCityId = state.ui.selectedCube.cityId;
     const cubeIndex = state.ui.selectedCube.cubeIndex;
+
+    // 트랙 위 큐브 배달 (St. Lucia)
+    if (sourceCityId.startsWith('track:')) {
+      const destCity = state.board.cities.find(c => hexCoordsEqual(c.coord, coord));
+      if (destCity) {
+        state.moveTrackCube(sourceCityId.slice('track:'.length), destCity.id);
+      }
+      return;
+    }
+
     const sourceCity = state.board.cities.find(c => c.id === sourceCityId);
     if (!sourceCity) return;
 

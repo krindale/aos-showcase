@@ -22,7 +22,6 @@ import {
   getMovementPathSVG,
   getAnimationPoints,
 } from '@/utils/hexGrid';
-import { TUTORIAL_COLORS } from '@/utils/tutorialMap';
 import { getMapData } from '@/utils/mapRegistry';
 import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId } from '@/types/game';
 
@@ -337,7 +336,7 @@ export default function GameBoard() {
       transition={{ duration: 0.3, ease: 'easeOut' }}
       className="rounded-xl overflow-hidden border border-foreground/10"
       style={{
-        backgroundColor: TUTORIAL_COLORS.background,
+        backgroundColor: mapData.colors.background,
         contain: 'layout style paint', // Performance optimization
         transform: 'translateZ(0)', // GPU acceleration
       }}
@@ -547,7 +546,7 @@ export default function GameBoard() {
               <path
                 d={pathData}
                 fill="none"
-                stroke={TUTORIAL_COLORS.terrain.plain}
+                stroke={terrainColors.plain}
                 strokeWidth="6"
                 strokeLinecap="round"
                 shapeRendering="geometricPrecision"
@@ -598,7 +597,7 @@ export default function GameBoard() {
                   <path
                     d={secondaryPathData}
                     fill="none"
-                    stroke={TUTORIAL_COLORS.terrain.plain}
+                    stroke={terrainColors.plain}
                     strokeWidth="6"
                     strokeLinecap="round"
                     shapeRendering="geometricPrecision"
@@ -926,20 +925,6 @@ export default function GameBoard() {
           );
           const isMoveGoodsPhase = currentPhase === 'moveGoods';
 
-          // 도시로 들어오는 철길 (도시는 모든 변이 연결 — 진입 트랙 변마다 시각화)
-          const cityIncoming: { edge: number; color: string }[] = [];
-          for (let edge = 0; edge < 6; edge++) {
-            const neighbor = getNeighborHex(city.coord, edge);
-            const nTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor));
-            if (!nTrack) continue;
-            const opp = getOppositeEdge(edge);
-            let ownerId: PlayerId | null = null;
-            if (nTrack.edges.includes(opp)) ownerId = nTrack.owner;
-            else if (nTrack.secondaryEdges?.includes(opp)) ownerId = nTrack.secondaryOwner ?? null;
-            else continue;
-            cityIncoming.push({ edge, color: ownerId ? PLAYER_COLORS[players[ownerId].color] : '#888' });
-          }
-
           // 도시 클릭 핸들러
           const handleCityClick = () => {
             if (currentPhase === 'buildTrack') {
@@ -970,16 +955,6 @@ export default function GameBoard() {
                 }
                 onClick={handleCityClick}
               />
-              {/* 도시로 들어오는 철길 스텁 */}
-              {cityIncoming.map(({ edge, color }) => {
-                const mid = getEdgeMidpoint(x, y, edge, HEX_SIZE - 2, isFlat);
-                return (
-                  <g key={`city-rail-${city.id}-${edge}`} style={{ pointerEvents: 'none' }}>
-                    <line x1={x + (mid.x - x) * 0.45} y1={y + (mid.y - y) * 0.45} x2={mid.x} y2={mid.y} stroke={color} strokeWidth="10" strokeLinecap="round" />
-                    <line x1={x + (mid.x - x) * 0.45} y1={y + (mid.y - y) * 0.45} x2={mid.x} y2={mid.y} stroke="rgba(255,255,255,0.55)" strokeWidth="5" strokeLinecap="round" />
-                  </g>
-                );
-              })}
 
               {/* 도시 ID 원 */}
               <circle
@@ -1188,14 +1163,14 @@ export default function GameBoard() {
         <div className="flex items-center gap-2">
           <div
             className="w-5 h-5 rounded"
-            style={{ backgroundColor: TUTORIAL_COLORS.terrain.plain }}
+            style={{ backgroundColor: terrainColors.plain }}
           />
           <span className="text-xs text-foreground-secondary">평지</span>
         </div>
         <div className="flex items-center gap-2">
           <div
             className="w-5 h-5 rounded"
-            style={{ backgroundColor: TUTORIAL_COLORS.terrain.lake }}
+            style={{ backgroundColor: terrainColors.lake }}
           />
           <span className="text-xs text-foreground-secondary">호수</span>
         </div>

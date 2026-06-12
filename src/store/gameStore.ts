@@ -3501,6 +3501,10 @@ export const useGameStore = create<GameStore>()(
     }),
     {
       name: 'age-of-steam-game',
+      // 보드 구조가 바뀌면 버전을 올려 이전 저장 상태를 폐기
+      // (v2: St. Lucia 공식 맵 재구성 — 옛 보드가 복원되어 화면이 깨지는 문제 방지)
+      version: 2,
+      migrate: () => ({}) as never,
     }
   )
 );

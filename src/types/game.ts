@@ -126,6 +126,17 @@ export interface BoardState {
   towns: Town[];
   trackTiles: TrackTile[];     // 모든 트랙 (소유자 정보 포함)
   hexTiles: HexTile[];         // 모든 헥스 타일 (지형 정보)
+  /** 마을 안 철길 가닥 (원→변). 노선이 마을에 연결될 때 함께 건설되며 건설 1회로 카운트 */
+  townSpurs?: TownSpur[];
+}
+
+/** 마을 안 철길 가닥: 마을 원에서 특정 변까지. 실제 건설물 (비용/카운트 발생) */
+export interface TownSpur {
+  id: string;
+  townCoord: HexCoord;
+  edge: number;            // 가닥이 닿는 마을 헥스의 변 (0~5)
+  owner: PlayerId;
+  builtTurn?: number;      // 이번 턴 건설 표시용
 }
 
 // === 물품 디스플레이 ===

@@ -30,22 +30,21 @@ export function playerConnectsToTown(
   const isTown = board.towns.some(t => hexCoordsEqual(t.coord, townCoord));
   if (!isTown) return false;
 
-  // 마을 헥스 위 타일이 내 소유 (전용 마을 트랙에 해당)
-  const trackHere = board.trackTiles.find(t => hexCoordsEqual(t.coord, townCoord));
-  if (trackHere && (trackHere.owner === playerId || trackHere.secondaryOwner === playerId)) {
-    return true;
-  }
+  // 내 가닥(스퍼)이 마을 안에 있으면 진입 완료 — 마을 원이 모든 가닥을 연결
+  return (board.townSpurs ?? []).some(
+    sp => hexCoordsEqual(sp.townCoord, townCoord) && sp.owner === playerId
+  );
+}
 
-  // 인접 헥스의 내 타일이 마을 쪽 변에 닿음 (= 마을로 진입한 트랙)
-  for (let edge = 0; edge < 6; edge++) {
-    const neighbor = getNeighborHex(townCoord, edge);
-    const nTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor));
-    if (!nTrack) continue;
-    const opp = getOppositeEdge(edge);
-    if (nTrack.owner === playerId && nTrack.edges.includes(opp)) return true;
-    if (nTrack.secondaryOwner === playerId && nTrack.secondaryEdges?.includes(opp)) return true;
-  }
-  return false;
+/** 마을의 특정 변에 가닥(스퍼)이 있는지 (소유 무관 — 이동/링크용) */
+export function townSpurAt(
+  townCoord: HexCoord,
+  edge: number,
+  board: BoardState
+) {
+  return (board.townSpurs ?? []).find(
+    sp => hexCoordsEqual(sp.townCoord, townCoord) && sp.edge === edge
+  );
 }
 
 export function isValidConnectionPoint(

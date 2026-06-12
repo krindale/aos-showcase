@@ -155,6 +155,7 @@ export function createStLuciaBoardState(): BoardState {
     cities: ST_LUCIA_CITIES.map((c) => ({ ...c, cubes: [] })),
     towns: ST_LUCIA_TOWNS.map((t) => ({ ...t, cubes: [] })),
     trackTiles: [],
+    townSpurs: [],
     hexTiles: generateStLuciaHexTiles(),
   };
 }

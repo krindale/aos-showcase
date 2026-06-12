@@ -449,22 +449,10 @@ export function getBuildableNeighbors(
   // sourceCoord가 도시인지 확인
   const isCity = board.cities.some(c => hexCoordsEqual(c.coord, sourceCoord));
 
-  // sourceCoord가 내 트랙이 진입해 있는 마을인지 확인 (마을은 진입 트랙을 모두 연결하는 허브)
-  const isConnectedTown = !isCity && (() => {
-    const isTown = board.towns.some(t => hexCoordsEqual(t.coord, sourceCoord));
-    if (!isTown) return false;
-    const here = board.trackTiles.find(t => hexCoordsEqual(t.coord, sourceCoord));
-    if (here && (here.owner === currentPlayer || here.secondaryOwner === currentPlayer)) return true;
-    for (let edge = 0; edge < 6; edge++) {
-      const nb = getNeighborHex(sourceCoord, edge);
-      const nt = board.trackTiles.find(t => hexCoordsEqual(t.coord, nb));
-      if (!nt) continue;
-      const opp = getOppositeEdge(edge);
-      if (nt.owner === currentPlayer && nt.edges.includes(opp)) return true;
-      if (nt.secondaryOwner === currentPlayer && nt.secondaryEdges?.includes(opp)) return true;
-    }
-    return false;
-  })();
+  // sourceCoord가 내 가닥(스퍼)이 있는 마을인지 확인 — 마을 원이 모든 가닥을 연결하는 허브
+  const isConnectedTown = !isCity &&
+    board.towns.some(t => hexCoordsEqual(t.coord, sourceCoord)) &&
+    (board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, sourceCoord) && sp.owner === currentPlayer);
 
   // sourceCoord에 트랙이 있는지 확인 (소유권 필터 없이)
   const trackAtSource = board.trackTiles.find(t => hexCoordsEqual(t.coord, sourceCoord));
@@ -617,8 +605,12 @@ export function getConnectedNeighbors(
 
 
   if (isCurrentCity || isCurrentTown) {
-    // 도시/마을에서: 6방향 모두에서 완성된 트랙이 연결되어 있는지 확인
+    // 도시: 6방향 모두 / 마을: 가닥(스퍼)이 있는 변으로만 연결
+    const townSpurEdges = isCurrentTown
+      ? new Set((board.townSpurs ?? []).filter(sp => hexCoordsEqual(sp.townCoord, currentCoord)).map(sp => sp.edge))
+      : null;
     for (let edge = 0; edge < 6; edge++) {
+      if (townSpurEdges && !townSpurEdges.has(edge)) continue;
       const neighbor = getNeighborHex(currentCoord, edge);
       const neighborKey = hexToKey(neighbor);
       if (visitedKey.has(neighborKey)) {
@@ -706,11 +698,18 @@ export function getConnectedNeighbors(
         continue;
       }
 
-      // 이웃이 도시/마을인지 확인 (마을도 허브 — 타일 없이 변에 닿으면 연결)
+      // 이웃이 도시면 연결, 마을이면 그 변에 가닥(스퍼)이 있어야 연결
       const isNeighborCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
-      const isNeighborTown = board.towns.some(t => hexCoordsEqual(t.coord, neighbor));
-      if (isNeighborCity || isNeighborTown) {
+      if (isNeighborCity) {
         neighbors.push(neighbor);
+        continue;
+      }
+      const isNeighborTown = board.towns.some(t => hexCoordsEqual(t.coord, neighbor));
+      if (isNeighborTown) {
+        const spurEdge = getOppositeEdge(edge);
+        if ((board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, neighbor) && sp.edge === spurEdge)) {
+          neighbors.push(neighbor);
+        }
         continue;
       }
 
@@ -971,8 +970,14 @@ export function findCompletedLinks(board: BoardState): CompletedLink[] {
   ];
 
   for (const startPoint of startPoints) {
+    // 마을이면 가닥(스퍼)이 있는 변으로만 링크 시작 (도시는 모든 변)
+    const isStartTown = board.towns.some(t => hexCoordsEqual(t.coord, startPoint));
+
     // 이 도시/마을에 연결된 트랙 찾기
     for (let edge = 0; edge < 6; edge++) {
+      if (isStartTown && !(board.townSpurs ?? []).some(
+        sp => hexCoordsEqual(sp.townCoord, startPoint) && sp.edge === edge
+      )) continue;
       const neighbor = getNeighborHex(startPoint, edge);
       const track = board.trackTiles.find(
         t => hexCoordsEqual(t.coord, neighbor) && t.owner !== null
@@ -1062,9 +1067,19 @@ function traceLinkFromTrack(
     const isCity = board.cities.some(c => hexCoordsEqual(c.coord, nextNeighbor));
     const isTown = board.towns.some(t => hexCoordsEqual(t.coord, nextNeighbor));
 
-    if (isCity || isTown) {
+    if (isCity) {
       // 완성된 링크!
       return { trackTiles, endCity: nextNeighbor };
+    }
+    if (isTown) {
+      // 마을: 진입 변에 가닥(스퍼)이 있어야 링크 완성
+      const spurEdge = getOppositeEdge(exitEdge);
+      if ((board.townSpurs ?? []).some(
+        sp => hexCoordsEqual(sp.townCoord, nextNeighbor) && sp.edge === spurEdge
+      )) {
+        return { trackTiles, endCity: nextNeighbor };
+      }
+      return null; // 가닥 없으면 미완성 구간
     }
 
     // 다음 트랙으로 이동
@@ -1456,21 +1471,25 @@ export function findTrackCubeDeliveries(
         break;
       }
 
-      // 마을 도달 → 허브: 마을에 닿은 다른 타일들로 분기 계속 (구간 소유자는 여기서 고정)
+      // 마을 도달 → 진입 변에 가닥(스퍼)이 있어야 통과 가능. 가닥 있는 다른 변들로 분기 계속
       const isTownHere = board.towns.some(t => hexCoordsEqual(t.coord, nextCoord));
       if (isTownHere) {
+        const entrySpurEdge = getOppositeEdge(exitEdge);
+        const spurs = (board.townSpurs ?? []).filter(sp => hexCoordsEqual(sp.townCoord, nextCoord));
+        if (!spurs.some(sp => sp.edge === entrySpurEdge)) break; // 진입 변에 가닥 없음 — 연결 안 됨
         if (visited.has(key)) break;
         visited.add(key);
         const townPath = [...pathCoords, nextCoord];
-        for (let edge = 0; edge < 6; edge++) {
-          const beyond = getNeighborHex(nextCoord, edge);
+        for (const sp of spurs) {
+          if (sp.edge === entrySpurEdge) continue;
+          const beyond = getNeighborHex(nextCoord, sp.edge);
           if (visited.has(hexToKey(beyond))) continue;
           const bTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, beyond));
-          const opp = getOppositeEdge(edge);
+          const opp = getOppositeEdge(sp.edge);
           if (bTrack?.edges.includes(opp) || bTrack?.secondaryEdges?.includes(opp)) {
             stack.push({
               current: nextCoord,
-              exitEdge: edge,
+              exitEdge: sp.edge,
               pathCoords: townPath,
               sectionOwner,
               ownerLocked: true,

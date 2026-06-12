@@ -303,39 +303,33 @@ export default function GameBoard() {
   );
 
   // 큐브 클릭 핸들러
-  // 도시/마을로 들어오는 철길 스텁 — 일반 트랙과 동일한 스타일 (어두운 레일 + 바닥색 + 침목)
-  // 마을/도시는 타일 없는 연결점이므로, 인접 타일이 변에 닿으면 중심 쪽으로 철길을 이어 그린다
-  const renderIncomingRails = useCallback(
-    (coord: HexCoord, x: number, y: number, keyPrefix: string, depth: number = 1) => {
-      const rails: React.ReactNode[] = [];
-      for (let edge = 0; edge < 6; edge++) {
-        const neighbor = getNeighborHex(coord, edge);
-        const nTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor));
-        if (!nTrack) continue;
-        const opp = getOppositeEdge(edge);
-        if (!nTrack.edges.includes(opp) && !nTrack.secondaryEdges?.includes(opp)) continue;
-        const mid = getEdgeMidpoint(x, y, edge, HEX_SIZE - 2, isFlat);
-        const ex = mid.x + (x - mid.x) * depth;
-        const ey = mid.y + (y - mid.y) * depth;
-        // 침목 1개 (변에서 35% 지점)
-        const tx = mid.x + (x - mid.x) * 0.35;
-        const ty = mid.y + (y - mid.y) * 0.35;
+  // 마을 안 철길 가닥(스퍼) 렌더 — 실제 건설물 (일반 트랙과 동일 스타일: 레일 + 침목)
+  const renderTownSpurs = useCallback(
+    (townCoord: HexCoord, x: number, y: number) => {
+      const spurs = (board.townSpurs ?? []).filter(sp => hexCoordsEqual(sp.townCoord, townCoord));
+      return spurs.map(sp => {
+        const mid = getEdgeMidpoint(x, y, sp.edge, HEX_SIZE - 2, isFlat);
+        const tx = mid.x + (x - mid.x) * 0.4;
+        const ty = mid.y + (y - mid.y) * 0.4;
         const ang = Math.atan2(y - mid.y, x - mid.x) + Math.PI / 2;
-        rails.push(
-          <g key={`${keyPrefix}-rail-${edge}`} style={{ pointerEvents: 'none' }}>
-            <line x1={mid.x} y1={mid.y} x2={ex} y2={ey} stroke="#3A3A32" strokeWidth="12" strokeLinecap="round" />
-            <line x1={mid.x} y1={mid.y} x2={ex} y2={ey} stroke={terrainColors.plain} strokeWidth="6" strokeLinecap="round" />
+        return (
+          <g key={`spur-${sp.id}`} style={{ pointerEvents: 'none' }}>
+            <line x1={mid.x} y1={mid.y} x2={x} y2={y} stroke="#3A3A32" strokeWidth="12" strokeLinecap="round" />
+            <line x1={mid.x} y1={mid.y} x2={x} y2={y} stroke={terrainColors.plain} strokeWidth="6" strokeLinecap="round" />
             <line
               x1={tx - 8 * Math.cos(ang)} y1={ty - 8 * Math.sin(ang)}
               x2={tx + 8 * Math.cos(ang)} y2={ty + 8 * Math.sin(ang)}
               stroke="#4A4A42" strokeWidth="3" strokeLinecap="round"
             />
+            {/* 이번 턴에 건설한 가닥 표시 */}
+            {sp.builtTurn === currentTurn && (
+              <circle cx={(mid.x + x) / 2} cy={(mid.y + y) / 2} r="6" fill="none" stroke="#ffffff" strokeWidth="1.5" strokeDasharray="3 2" opacity="0.9" />
+            )}
           </g>
         );
-      }
-      return rails;
+      });
     },
-    [board.trackTiles, isFlat, terrainColors.plain]
+    [board.townSpurs, isFlat, terrainColors.plain, currentTurn]
   );
 
   const handleCubeClick = useCallback(
@@ -822,8 +816,8 @@ export default function GameBoard() {
                   ))}
                 </g>
               )}
-              {/* 마을로 들어오는 철길 (일반 트랙과 동일 스타일, 디스크 중심까지) */}
-              {renderIncomingRails(town.coord, x, y, `town-${town.id}`, 1)}
+              {/* 마을 안 철길 가닥 (실제 건설물 — 원에서 변까지) */}
+              {renderTownSpurs(town.coord, x, y)}
 
               {/* 도시화 가능 표시 - 글로우 효과 */}
               {canUrbanize && !isUrbanized && (

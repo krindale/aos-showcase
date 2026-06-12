@@ -22,6 +22,7 @@ import {
   AIExecutionQueue,
   CapturedAIContext,
   MovingCubeContext,
+  BoardState,
 } from '@/types/game';
 import { getAIDecision, AI_TURN_DELAY, isCurrentPlayerAI, aiPlayerManager } from '@/ai';
 import { addFailedBuildCoord } from '@/ai/strategies/buildTrack';
@@ -43,7 +44,9 @@ import {
   hexCoordsEqual,
   findLongestPath,
   findReachableDestinations,
-  findTrackCubeDeliveries } from '@/utils/hexGrid';
+  findTrackCubeDeliveries,
+  getNeighborHex,
+  getOppositeEdge } from '@/utils/hexGrid';
 import {
   getNextPlayerId,
   createPlayerMoves,
@@ -74,6 +77,30 @@ export const TUTORIAL_GAME_CONFIG = {
 };
 
 // 테스트에서 사용할 수 있도록 export
+/**
+ * 새 트랙(edges)이 마을 변에 닿을 때 함께 건설해야 하는 가닥(스퍼) 목록
+ * (해당 변에 가닥이 아직 없는 경우만 — 가닥도 건설 1회로 카운트, $1)
+ */
+const TOWN_SPUR_COST = 1;
+function computeNewTownSpurs(
+  coord: HexCoord,
+  edges: number[],
+  board: BoardState
+): { townCoord: HexCoord; edge: number }[] {
+  const spurs: { townCoord: HexCoord; edge: number }[] = [];
+  for (const edge of edges) {
+    const nb = getNeighborHex(coord, edge);
+    const isTown = board.towns.some(t => hexCoordsEqual(t.coord, nb));
+    if (!isTown) continue;
+    const spurEdge = getOppositeEdge(edge);
+    const exists = (board.townSpurs ?? []).some(
+      sp => hexCoordsEqual(sp.townCoord, nb) && sp.edge === spurEdge
+    );
+    if (!exists) spurs.push({ townCoord: nb, edge: spurEdge });
+  }
+  return spurs;
+}
+
 export function createInitialGameState(
   mapId: string,
   playerNames: string[],
@@ -1393,8 +1420,9 @@ export const useGameStore = create<GameStore>()(
     const state = get();
     const currentPlayer = state.currentPlayer;
 
-    // 트랙 제한 확인
-    if (state.phaseState.builtTracksThisTurn >= state.phaseState.maxTracksThisTurn) {
+    // 트랙 제한 확인 (마을 연결 시 함께 건설되는 가닥도 카운트에 포함)
+    const spursNeeded = computeNewTownSpurs(coord, edges, state.board).length;
+    if (state.phaseState.builtTracksThisTurn + 1 + spursNeeded > state.phaseState.maxTracksThisTurn) {
       return false;
     }
 
@@ -1466,8 +1494,11 @@ export const useGameStore = create<GameStore>()(
       return false;
     }
 
+    // 마을 연결 가닥(스퍼): 새 트랙이 마을 변에 닿으면 함께 건설 (가닥도 건설 1회 + $1)
+    const newSpurs = computeNewTownSpurs(coord, edges, state.board);
+
     // 최종 하드 가드: 어떤 경로로도 턴당 제한을 초과한 건설은 불가 (위반 시도는 박제)
-    if (state.phaseState.builtTracksThisTurn >= state.phaseState.maxTracksThisTurn) {
+    if (state.phaseState.builtTracksThisTurn + newSpurs.length >= state.phaseState.maxTracksThisTurn) {
       console.error(
         `[제한 위반 차단] ${state.currentPlayer} 트랙 건설 시도: ` +
         `built=${state.phaseState.builtTracksThisTurn} >= max=${state.phaseState.maxTracksThisTurn}, turn=${state.currentTurn}`
@@ -1493,6 +1524,8 @@ export const useGameStore = create<GameStore>()(
       if (terrain === 'river') cost = GAME_CONSTANTS.RIVER_TRACK_COST;
       if (terrain === 'mountain') cost = GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
     }
+    // 마을 안 가닥 비용 (가닥당 $1)
+    cost += newSpurs.length * TOWN_SPUR_COST;
 
     const player = state.players[currentPlayer];
     if (!player) {
@@ -1531,7 +1564,17 @@ export const useGameStore = create<GameStore>()(
       ? state.board.hexTiles.map(h => hexCoordsEqual(h.coord, coord) ? { ...h, cube: null } : h)
       : state.board.hexTiles;
 
-    const newBuiltCount = state.phaseState.builtTracksThisTurn + 1;
+    const newBuiltCount = state.phaseState.builtTracksThisTurn + 1 + newSpurs.length;
+    const newTownSpurs = [
+      ...(state.board.townSpurs ?? []),
+      ...newSpurs.map((sp, i) => ({
+        id: `spur-${trackId}-${i}`,
+        townCoord: sp.townCoord,
+        edge: sp.edge,
+        owner: currentPlayer,
+        builtTurn: state.currentTurn,
+      })),
+    ];
 
     // 상세 건설 로그
     debugLog.trackBuilding(`[buildTrack 성공] ${player.name} (${currentPlayer}): Turn ${state.currentTurn}, ` +
@@ -1544,6 +1587,7 @@ export const useGameStore = create<GameStore>()(
         ...state.board,
         trackTiles: newTrackTiles,
         hexTiles: newHexTiles,
+        townSpurs: newTownSpurs,
       },
       players: {
         ...state.players,
@@ -1563,7 +1607,7 @@ export const useGameStore = create<GameStore>()(
           turn: state.currentTurn,
           phase: state.currentPhase,
           player: currentPlayer,
-          action: `트랙 건설 (${coord.col}, ${coord.row}) - $${cost} [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`,
+          action: `트랙 건설 (${coord.col}, ${coord.row})${newSpurs.length > 0 ? ` + 마을 가닥 ${newSpurs.length}개` : ''} - $${cost} [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`,
           timestamp: Date.now(),
         },
       ],
@@ -1580,8 +1624,9 @@ export const useGameStore = create<GameStore>()(
     const state = get();
     const currentPlayer = state.currentPlayer;
 
-    // 트랙 제한 확인
-    if (state.phaseState.builtTracksThisTurn >= state.phaseState.maxTracksThisTurn) {
+    // 트랙 제한 확인 (마을 연결 가닥 포함)
+    const cxSpursNeeded = computeNewTownSpurs(coord, newEdges, state.board).length;
+    if (state.phaseState.builtTracksThisTurn + 1 + cxSpursNeeded > state.phaseState.maxTracksThisTurn) {
       return false;
     }
 
@@ -1660,7 +1705,8 @@ export const useGameStore = create<GameStore>()(
       hexCoordsEqual(t.coord, coord) ? updatedTrack : t
     );
 
-    const newBuiltCount = state.phaseState.builtTracksThisTurn + 1;
+    const complexSpurs = computeNewTownSpurs(coord, newEdges, state.board);
+    const newBuiltCount = state.phaseState.builtTracksThisTurn + 1 + complexSpurs.length;
 
     // 상세 복합 트랙 건설 로그
     debugLog.trackBuilding(`[buildComplexTrack 성공] ${player.name} (${currentPlayer}): Turn ${state.currentTurn}, ` +
@@ -1673,12 +1719,22 @@ export const useGameStore = create<GameStore>()(
       board: {
         ...state.board,
         trackTiles: updatedTrackTiles,
+        townSpurs: [
+          ...(state.board.townSpurs ?? []),
+          ...complexSpurs.map((sp, i) => ({
+            id: `spur-cx-${Date.now()}-${i}`,
+            townCoord: sp.townCoord,
+            edge: sp.edge,
+            owner: currentPlayer,
+            builtTurn: state.currentTurn,
+          })),
+        ],
       },
       players: {
         ...state.players,
         [currentPlayer]: {
           ...player,
-          cash: player.cash - cost,
+          cash: player.cash - cost - complexSpurs.length * TOWN_SPUR_COST,
         },
       },
       phaseState: {
@@ -2959,6 +3015,12 @@ export const useGameStore = create<GameStore>()(
     // 새 엣지 설정
     const newEdges: [number, number] = [connectedEdge, newExitEdge];
 
+    // 새 방향이 마을 변에 닿으면 가닥(스퍼) 동시 건설
+    const redirectSpurs = computeNewTownSpurs(coord, [newExitEdge], state.board);
+    if (state.phaseState.builtTracksThisTurn + 1 + redirectSpurs.length > state.phaseState.maxTracksThisTurn) {
+      return false;
+    }
+
     // 트랙 업데이트
     const updatedTrack: TrackTile = {
       ...track,
@@ -2974,17 +3036,27 @@ export const useGameStore = create<GameStore>()(
       board: {
         ...state.board,
         trackTiles: updatedTrackTiles,
+        townSpurs: [
+          ...(state.board.townSpurs ?? []),
+          ...redirectSpurs.map((sp, i) => ({
+            id: `spur-rd-${Date.now()}-${i}`,
+            townCoord: sp.townCoord,
+            edge: sp.edge,
+            owner: currentPlayer,
+            builtTurn: state.currentTurn,
+          })),
+        ],
       },
       players: {
         ...state.players,
         [currentPlayer]: {
           ...player,
-          cash: player.cash - cost,
+          cash: player.cash - cost - redirectSpurs.length * TOWN_SPUR_COST,
         },
       },
       phaseState: {
         ...state.phaseState,
-        builtTracksThisTurn: state.phaseState.builtTracksThisTurn + 1,
+        builtTracksThisTurn: state.phaseState.builtTracksThisTurn + 1 + redirectSpurs.length,
         lastBuiltCoords: [...state.phaseState.lastBuiltCoords, coord],
       },
       ui: {
@@ -3130,6 +3202,10 @@ export const useGameStore = create<GameStore>()(
     const updatedTrackTiles = state.board.trackTiles.filter(
       track => !hexCoordsEqual(track.coord, townCoord)
     );
+    // 도시는 모든 변이 연결되므로 마을 안 가닥은 제거
+    const updatedTownSpurs = (state.board.townSpurs ?? []).filter(
+      sp => !hexCoordsEqual(sp.townCoord, townCoord)
+    );
 
     // 4. 신규 도시 타일 사용 표시
     const updatedNewCityTiles = state.newCityTiles.map(t => {
@@ -3149,6 +3225,7 @@ export const useGameStore = create<GameStore>()(
         towns: updatedTowns,
         cities: [...state.board.cities, newCity],
         trackTiles: updatedTrackTiles,
+        townSpurs: updatedTownSpurs,
       },
       newCityTiles: updatedNewCityTiles,
       ui: {
@@ -3562,7 +3639,8 @@ export const useGameStore = create<GameStore>()(
       name: 'age-of-steam-game',
       // 보드 구조가 바뀌면 버전을 올려 이전 저장 상태를 폐기
       // (v2: St. Lucia 공식 맵 재구성 — 옛 보드가 복원되어 화면이 깨지는 문제 방지)
-      version: 2,
+      // (v3: 마을 허브 재설계 — 마을 헥스 안에 타일이 깔린 옛 보드 폐기)
+      version: 3,
       migrate: () => ({}) as never,
     }
   )

@@ -208,6 +208,7 @@ export function createInitialBoardState(): BoardState {
     cities,
     towns: TUTORIAL_TOWNS,
     trackTiles: [],
+    townSpurs: [],
     hexTiles: generateTutorialHexTiles(),
   };
 }

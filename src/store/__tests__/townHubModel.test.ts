@@ -1,27 +1,29 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useGameStore } from '../gameStore';
-import { getBuildableNeighbors, findTrackCubeDeliveries, getConnectedNeighbors } from '@/utils/hexGrid';
-import { validateTrackConnection, playerConnectsToTown } from '@/utils/trackValidation';
-import { TrackTile } from '@/types/game';
+import { getBuildableNeighbors, findTrackCubeDeliveries, getConnectedNeighbors, findCompletedLinks } from '@/utils/hexGrid';
+import { playerConnectsToTown } from '@/utils/trackValidation';
+import { TrackTile, TownSpur } from '@/types/game';
 
-// 마을 허브 모델: 마을은 도시처럼 "타일 없는 연결점"
-// - 마을 헥스에는 트랙 타일을 배치할 수 없다
-// - 인접 타일이 마을 변에 닿으면 진입(연결)으로 인정
-// - 진입한 플레이어는 마을의 6방향 어디로든 새 트랙을 시작할 수 있다
-// - 이동/배달은 마을을 경유(허브)할 수 있다
-describe('마을 허브 모델', () => {
+// 마을 가닥(스퍼) 모델:
+// - 마을 헥스 안에는 트랙 "타일"이 아니라 "가닥(원→변)"이 존재
+// - 노선이 마을에 연결될 때 가닥이 함께 건설되며, 가닥도 건설 1회로 카운트 (+$1)
+// - 연결된 노선이 3개면 마을 안 가닥도 3개
+// - 이동/배달/완성 링크는 가닥이 있는 변으로만
+describe('마을 가닥(스퍼) 모델', () => {
   const track = (id: string, col: number, row: number, edges: [number, number], owner: 'player1' | 'player2', cube?: string): TrackTile => ({
     id, coord: { col, row }, edges, owner, trackType: 'simple',
     ...(cube ? { cube: cube as TrackTile['cube'] } : {}),
+  });
+  const spur = (id: string, col: number, row: number, edge: number, owner: 'player1' | 'player2'): TownSpur => ({
+    id, townCoord: { col, row }, edge, owner,
   });
 
   beforeEach(() => {
     useGameStore.getState().initGame('st-lucia', ['Human', 'AI-2'], [{ playerIndex: 1, name: 'AI-2' }]);
   });
 
-  it('마을 헥스에는 트랙을 배치할 수 없다', () => {
+  it('마을 헥스에는 트랙 타일을 배치할 수 없다', () => {
     const s0 = useGameStore.getState();
-    // BI(5,3) 마을 헥스에 직접 배치 시도 — 인접 (6,3)에 내 트랙이 있어 연결은 충족돼도 배치 불가
     useGameStore.setState({
       currentPhase: 'buildTrack',
       currentPlayer: 'player1',
@@ -31,73 +33,113 @@ describe('마을 허브 모델', () => {
     expect(useGameStore.getState().canBuildTrack({ col: 5, row: 3 }, [0, 3])).toBe(false);
   });
 
-  it('마을에 진입한 플레이어는 마을에서 6방향으로 새 트랙을 시작할 수 있다', () => {
+  it('마을 변에 닿는 건설은 가닥이 함께 건설된다 (카운트 2, 비용 +$1)', () => {
+    const s0 = useGameStore.getState();
+    // 첫 트랙: 마을 BI(5,3) 북서쪽 (5,2)에 [1,4] — edge 1(SE)이 마을 변에 닿음 (townsAnchorFirstTrack)
+    useGameStore.setState({
+      currentPhase: 'buildTrack',
+      currentPlayer: 'player1',
+      players: { ...s0.players, player1: { ...s0.players.player1, cash: 20 } },
+      phaseState: { ...s0.phaseState, builtTracksThisTurn: 0, maxTracksThisTurn: 3 },
+      board: { ...s0.board, trackTiles: [] },
+    });
+    const ok = useGameStore.getState().buildTrack({ col: 5, row: 2 }, [1, 4]);
+    expect(ok).toBe(true);
+    const f = useGameStore.getState();
+    expect(f.phaseState.builtTracksThisTurn).toBe(2); // 타일 1 + 가닥 1
+    expect((f.board.townSpurs ?? []).length).toBe(1);
+    expect(f.players.player1.cash).toBe(20 - 2 - 1); // 평지 $2 + 가닥 $1
+    expect(playerConnectsToTown({ col: 5, row: 3 }, f.board, 'player1')).toBe(true);
+  });
+
+  it('잔여 카운트가 1뿐이면 마을 연결 건설(2 필요)은 거부된다', () => {
     const s0 = useGameStore.getState();
     useGameStore.setState({
       currentPhase: 'buildTrack',
       currentPlayer: 'player1',
       players: { ...s0.players, player1: { ...s0.players.player1, cash: 20 } },
-      board: { ...s0.board, trackTiles: [track('t1', 6, 3, [3, 0], 'player1')] },
+      phaseState: { ...s0.phaseState, builtTracksThisTurn: 2, maxTracksThisTurn: 3 },
+      board: { ...s0.board, trackTiles: [] },
     });
-    const s = useGameStore.getState();
-    const town = { col: 5, row: 3 };
-
-    expect(playerConnectsToTown(town, s.board, 'player1')).toBe(true);
-
-    const neighbors = getBuildableNeighbors(town, s.board, 'player1', true);
-    expect(neighbors.length).toBeGreaterThanOrEqual(3);
-    // 마을 헥스 자신은 후보가 아니어야 함
-    expect(neighbors.every(n => !(n.coord.col === 5 && n.coord.row === 3))).toBe(true);
-
-    // 3번째 방향(서쪽 이웃)에 건설: 마을 변에 닿는 엣지 → 연결 인정 + 실제 건설 성공
-    expect(validateTrackConnection({ col: 4, row: 3 }, [0, 3], s.board, 'player1')).toBe(true);
-    expect(useGameStore.getState().buildTrack({ col: 4, row: 3 }, [0, 3])).toBe(true);
+    expect(useGameStore.getState().canBuildTrack({ col: 6, row: 3 }, [3, 0])).toBe(false);
   });
 
-  it('트랙 큐브는 마을을 경유해 같은 색 도시로 배달할 수 있다', () => {
+  it('가닥이 있는 마을에서 6방향으로 새 노선을 시작할 수 있다', () => {
     const s0 = useGameStore.getState();
-    // 구조: [큐브 트랙 (6,3)] - [마을 BI(5,3)] - [트랙 (4,3)] - [red 도시 (3,3)]
     useGameStore.setState({
       board: {
         ...s0.board,
-        cities: [{ id: 'D', name: 'New City D', coord: { col: 3, row: 3 }, color: 'red', cubes: [] }],
-        trackTiles: [
-          track('t-cube', 6, 3, [3, 0], 'player1', 'red'),
-          track('t-mid', 4, 3, [0, 3], 'player1'),
-        ],
+        trackTiles: [track('t1', 6, 3, [3, 0], 'player1')],
+        townSpurs: [spur('sp1', 5, 3, 0, 'player1')], // 마을 동쪽 변 가닥
       },
     });
     const s = useGameStore.getState();
-    const deliveries = findTrackCubeDeliveries(s.board, 't-cube');
-    expect(deliveries.map(d => d.city.id)).toContain('D');
-    const d = deliveries.find(x => x.city.id === 'D')!;
-    // 경로에 마을 헥스(5,3)가 포함
-    expect(d.pathCoords.some(c => c.col === 5 && c.row === 3)).toBe(true);
-    // 구간 소유자 = 큐브가 있는 구간(마을 도달 전)의 소유자
-    expect(d.sectionOwner).toBe('player1');
+    const neighbors = getBuildableNeighbors({ col: 5, row: 3 }, s.board, 'player1', true);
+    expect(neighbors.length).toBeGreaterThanOrEqual(3);
   });
 
-  it('이동 경로 탐색이 타일 없는 마을을 허브로 통과한다', () => {
+  it('이동: 가닥이 있는 변으로만 마을을 통과한다', () => {
     const s0 = useGameStore.getState();
     useGameStore.setState({
       board: {
         ...s0.board,
-        cities: [
-          { id: 'A', name: 'A', coord: { col: 7, row: 3 }, color: 'red', cubes: [] },
-          { id: 'D', name: 'D', coord: { col: 3, row: 3 }, color: 'red', cubes: [] },
-        ],
         trackTiles: [
           track('t-e', 6, 3, [3, 0], 'player1'),
           track('t-w', 4, 3, [0, 3], 'player1'),
         ],
+        // 동쪽 변(0)에만 가닥 — 서쪽(3)은 가닥 없음
+        townSpurs: [spur('sp1', 5, 3, 0, 'player1')],
       },
     });
     const s = useGameStore.getState();
-    // 마을(5,3)에서 양쪽 트랙이 이웃으로 잡혀야 함 (마을 헥스에 타일 없음)
     const fromTown = getConnectedNeighbors({ col: 5, row: 3 }, s.board, 'player1');
-    expect(fromTown.length).toBe(2);
-    // 트랙(6,3)에서 마을 방향이 이웃으로 잡혀야 함
-    const fromTrack = getConnectedNeighbors({ col: 6, row: 3 }, s.board, 'player1', new Set(), 0);
-    expect(fromTrack.some(c => c.col === 5 && c.row === 3)).toBe(true);
+    expect(fromTown.length).toBe(1); // 동쪽만
+
+    // 서쪽 가닥 추가 → 양쪽 통과
+    useGameStore.setState({
+      board: { ...s.board, townSpurs: [spur('sp1', 5, 3, 0, 'player1'), spur('sp2', 5, 3, 3, 'player1')] },
+    });
+    const both = getConnectedNeighbors({ col: 5, row: 3 }, useGameStore.getState().board, 'player1');
+    expect(both.length).toBe(2);
+  });
+
+  it('완성 링크: 마을 도달 변에 가닥이 있어야 링크가 완성된다', () => {
+    const s0 = useGameStore.getState();
+    const base = {
+      ...s0.board,
+      cities: [{ id: 'D', name: 'D', coord: { col: 7, row: 3 }, color: 'red' as const, cubes: [] }],
+      trackTiles: [track('t-e', 6, 3, [3, 0], 'player1')], // 도시 D(7,3) ↔ 마을 BI(5,3) 사이 타일
+    };
+    // 가닥 없음 → 미완성
+    useGameStore.setState({ board: { ...base, townSpurs: [] } });
+    expect(findCompletedLinks(useGameStore.getState().board).length).toBe(0);
+    // 가닥 추가 → 완성
+    useGameStore.setState({ board: { ...base, townSpurs: [spur('sp1', 5, 3, 0, 'player1')] } });
+    expect(findCompletedLinks(useGameStore.getState().board).length).toBe(1);
+  });
+
+  it('트랙 큐브 배달: 가닥이 있는 변으로 마을을 경유해 도시로 배달한다', () => {
+    const s0 = useGameStore.getState();
+    useGameStore.setState({
+      board: {
+        ...s0.board,
+        cities: [{ id: 'D', name: 'D', coord: { col: 3, row: 3 }, color: 'red' as const, cubes: [] }],
+        trackTiles: [
+          track('t-cube', 6, 3, [3, 0], 'player1', 'red'),
+          track('t-mid', 4, 3, [0, 3], 'player1'),
+        ],
+        townSpurs: [spur('sp1', 5, 3, 0, 'player1'), spur('sp2', 5, 3, 3, 'player1')],
+      },
+    });
+    const deliveries = findTrackCubeDeliveries(useGameStore.getState().board, 't-cube');
+    expect(deliveries.map(d => d.city.id)).toContain('D');
+
+    // 서쪽 가닥 제거 → 배달 불가
+    const s = useGameStore.getState();
+    useGameStore.setState({
+      board: { ...s.board, townSpurs: [spur('sp1', 5, 3, 0, 'player1')] },
+    });
+    const blocked = findTrackCubeDeliveries(useGameStore.getState().board, 't-cube');
+    expect(blocked.map(d => d.city.id)).not.toContain('D');
   });
 });

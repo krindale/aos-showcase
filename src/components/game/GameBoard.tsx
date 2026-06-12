@@ -180,7 +180,7 @@ export default function GameBoard() {
     }
 
     return disconnected;
-  }, [board.trackTiles]);
+  }, [board.trackTiles, isFlat]);
 
   // 트랙 경로 계산 캐시 (SVG 경로 계산은 비용이 큼)
   const trackPathCache = useMemo(() => {

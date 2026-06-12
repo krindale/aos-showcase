@@ -27,7 +27,7 @@ import {
   TURNS_BY_PLAYER_COUNT,
   ACTION_INFO,
 } from '@/types/game';
-import { TUTORIAL_MAP } from '@/utils/tutorialMap';
+import { getMapData } from '@/utils/mapRegistry';
 
 interface GamePageClientProps {
   mapId: string;
@@ -49,8 +49,8 @@ const COLOR_NAMES: Record<string, string> = {
 export default function GamePageClient({ mapId }: GamePageClientProps) {
   const router = useRouter();
 
-  // 맵 설정 (현재는 Tutorial만 지원)
-  const mapConfig = TUTORIAL_MAP;
+  // 맵 설정 (mapRegistry에서 맵별 주입)
+  const mapConfig = getMapData(mapId);
   const supportedPlayers = mapConfig.supportedPlayers;
 
   const [showSetup, setShowSetup] = useState(true);
@@ -58,9 +58,9 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   const [playerNames, setPlayerNames] = useState<string[]>(DEFAULT_NAMES);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
   const [isLandscape, setIsLandscape] = useState(false);
-  // 튜토리얼 맵에서 플레이어 2는 기본적으로 AI
+  // 플레이어 2는 기본적으로 AI (모든 맵)
   const [aiPlayerIndexes, setAiPlayerIndexes] = useState<Set<number>>(
-    mapId === 'tutorial' ? new Set([1]) : new Set()
+    new Set([1])
   );
   const [showAIDebug, setShowAIDebug] = useState(false);
 

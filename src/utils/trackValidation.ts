@@ -27,7 +27,7 @@ export function playerConnectsToTown(
   board: BoardState,
   playerId: PlayerId
 ): boolean {
-  const isTown = board.towns.some(t => hexCoordsEqual(t.coord, townCoord));
+  const isTown = board.towns.some(t => hexCoordsEqual(t.coord, townCoord) && t.newCityColor === null);
   if (!isTown) return false;
 
   // 내 가닥(스퍼)이 마을 안에 있으면 진입 완료 — 마을 원이 모든 가닥을 연결

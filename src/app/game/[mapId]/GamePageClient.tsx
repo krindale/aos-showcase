@@ -7,6 +7,32 @@ import { useGameStore, TUTORIAL_GAME_CONFIG } from '@/store/gameStore';
 
 // 개발 모드에서 AI 디버거 활성화
 import '@/ai/debug';
+
+// [개발 전용] 브라우저 콘솔/게임 로그를 로컬 수신 서버(:3999)로 미러링 — 디버깅용
+if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
+  const w = window as unknown as { __logMirrorInstalled?: boolean };
+  if (!w.__logMirrorInstalled) {
+    w.__logMirrorInstalled = true;
+    const send = (level: string, args: unknown[]) => {
+      try {
+        const msg = args.map(a => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
+        fetch('http://localhost:3999/', {
+          method: 'POST',
+          body: JSON.stringify({ level, msg }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch { /* noop */ }
+    };
+    (['log', 'warn', 'error'] as const).forEach(level => {
+      const orig = console[level].bind(console);
+      console[level] = (...args: unknown[]) => {
+        orig(...args);
+        send(level, args);
+      };
+    });
+    send('log', ['=== 콘솔 미러 연결됨 ===']);
+  }
+}
 import GameBoard from '@/components/game/GameBoard';
 import PlayerPanel from '@/components/game/PlayerPanel';
 import PhasePanel from '@/components/game/PhasePanel';

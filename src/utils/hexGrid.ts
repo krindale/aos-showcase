@@ -362,7 +362,7 @@ export function isValidBuildTarget(coord: HexCoord, board: BoardState): boolean 
   if (isCity) return false;
 
   // 마을인 경우 건설 불가 (마을은 도시처럼 타일 없는 연결점 — 인접 트랙이 변에 닿으면 연결)
-  if (board.towns.some(t => hexCoordsEqual(t.coord, coord))) return false;
+  if (board.towns.some(t => hexCoordsEqual(t.coord, coord) && t.newCityColor === null)) return false;
 
   // 호수인 경우 건설 불가
   if (hexTile && hexTile.terrain === 'lake') return false;
@@ -393,7 +393,7 @@ export function isValidBuildTargetWithReplace(
     return false;
   }
   // 마을인 경우 건설 불가 (마을은 타일 없는 연결점)
-  if (board.towns.some(t => hexCoordsEqual(t.coord, coord))) {
+  if (board.towns.some(t => hexCoordsEqual(t.coord, coord) && t.newCityColor === null)) {
     return false;
   }
   if (hexTile && hexTile.terrain === 'lake') {
@@ -451,7 +451,7 @@ export function getBuildableNeighbors(
 
   // sourceCoord가 내 가닥(스퍼)이 있는 마을인지 확인 — 마을 원이 모든 가닥을 연결하는 허브
   const isConnectedTown = !isCity &&
-    board.towns.some(t => hexCoordsEqual(t.coord, sourceCoord)) &&
+    board.towns.some(t => hexCoordsEqual(t.coord, sourceCoord) && t.newCityColor === null) &&
     (board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, sourceCoord) && sp.owner === currentPlayer);
 
   // sourceCoord에 트랙이 있는지 확인 (소유권 필터 없이)
@@ -506,7 +506,7 @@ export function getBuildableNeighbors(
     } else {
       // 기존 단순 트랙이 있는 헥스 → 복합 트랙(교차/공존) 건설 가능 대상
       // 자기 트랙(완성된 링크)이든 상대 트랙이든 교차/공존 가능 (마을 헥스 제외)
-      const isNeighborTownHex = board.towns.some(t => hexCoordsEqual(t.coord, neighbor));
+      const isNeighborTownHex = board.towns.some(t => hexCoordsEqual(t.coord, neighbor) && t.newCityColor === null);
       const existingTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor));
       if (!isNeighborTownHex && existingTrack && existingTrack.trackType === 'simple') {
         const targetEdge = getOppositeEdge(sourceEdge);
@@ -598,7 +598,7 @@ export function getConnectedNeighbors(
 
   // 현재 위치가 도시/마을인지 확인 (마을도 도시처럼 모든 진입 트랙을 연결하는 허브)
   const isCurrentCity = board.cities.some(c => hexCoordsEqual(c.coord, currentCoord));
-  const isCurrentTown = board.towns.some(t => hexCoordsEqual(t.coord, currentCoord));
+  const isCurrentTown = !isCurrentCity && board.towns.some(t => hexCoordsEqual(t.coord, currentCoord) && t.newCityColor === null);
 
   // 현재 위치가 트랙인지 확인 (소유자 무관)
   const currentTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, currentCoord));
@@ -704,7 +704,7 @@ export function getConnectedNeighbors(
         neighbors.push(neighbor);
         continue;
       }
-      const isNeighborTown = board.towns.some(t => hexCoordsEqual(t.coord, neighbor));
+      const isNeighborTown = board.towns.some(t => hexCoordsEqual(t.coord, neighbor) && t.newCityColor === null);
       if (isNeighborTown) {
         const spurEdge = getOppositeEdge(edge);
         if ((board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, neighbor) && sp.edge === spurEdge)) {
@@ -970,8 +970,9 @@ export function findCompletedLinks(board: BoardState): CompletedLink[] {
   ];
 
   for (const startPoint of startPoints) {
-    // 마을이면 가닥(스퍼)이 있는 변으로만 링크 시작 (도시는 모든 변)
-    const isStartTown = board.towns.some(t => hexCoordsEqual(t.coord, startPoint));
+    // 마을이면 가닥(스퍼)이 있는 변으로만 링크 시작 (도시/도시화된 마을은 모든 변)
+    const isStartTown = !board.cities.some(c => hexCoordsEqual(c.coord, startPoint))
+      && board.towns.some(t => hexCoordsEqual(t.coord, startPoint) && t.newCityColor === null);
 
     // 이 도시/마을에 연결된 트랙 찾기
     for (let edge = 0; edge < 6; edge++) {
@@ -1065,7 +1066,7 @@ function traceLinkFromTrack(
 
     // 다음이 도시/마을인지 확인
     const isCity = board.cities.some(c => hexCoordsEqual(c.coord, nextNeighbor));
-    const isTown = board.towns.some(t => hexCoordsEqual(t.coord, nextNeighbor));
+    const isTown = !isCity && board.towns.some(t => hexCoordsEqual(t.coord, nextNeighbor) && t.newCityColor === null);
 
     if (isCity) {
       // 완성된 링크!
@@ -1472,7 +1473,7 @@ export function findTrackCubeDeliveries(
       }
 
       // 마을 도달 → 진입 변에 가닥(스퍼)이 있어야 통과 가능. 가닥 있는 다른 변들로 분기 계속
-      const isTownHere = board.towns.some(t => hexCoordsEqual(t.coord, nextCoord));
+      const isTownHere = board.towns.some(t => hexCoordsEqual(t.coord, nextCoord) && t.newCityColor === null);
       if (isTownHere) {
         const entrySpurEdge = getOppositeEdge(exitEdge);
         const spurs = (board.townSpurs ?? []).filter(sp => hexCoordsEqual(sp.townCoord, nextCoord));

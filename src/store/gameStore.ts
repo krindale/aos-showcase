@@ -90,7 +90,8 @@ function computeNewTownSpurs(
   const spurs: { townCoord: HexCoord; edge: number }[] = [];
   for (const edge of edges) {
     const nb = getNeighborHex(coord, edge);
-    const isTown = board.towns.some(t => hexCoordsEqual(t.coord, nb));
+    // 도시화된 마을은 도시 — 가닥 불필요 (모든 변 연결)
+    const isTown = board.towns.some(t => hexCoordsEqual(t.coord, nb) && t.newCityColor === null);
     if (!isTown) continue;
     const spurEdge = getOppositeEdge(edge);
     const exists = (board.townSpurs ?? []).some(
@@ -1432,7 +1433,7 @@ export const useGameStore = create<GameStore>()(
     // 마을은 도시처럼 타일 없는 연결점 — 인접 트랙이 변에 닿으면 연결됨
     const isCity = board.cities.some(c => hexCoordsEqual(c.coord, coord));
     if (isCity) return false;
-    const isTownHex = board.towns.some(t => hexCoordsEqual(t.coord, coord));
+    const isTownHex = board.towns.some(t => hexCoordsEqual(t.coord, coord) && t.newCityColor === null);
     if (isTownHex) return false;
 
     const hexTile = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));

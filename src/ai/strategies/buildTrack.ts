@@ -11,7 +11,7 @@ import {
   validateTrackConnection,
   isTrackPartOfCompletedLink,
 } from '@/utils/trackValidation';
-import { hexCoordsEqual, hexDistance } from '@/utils/hexGrid';
+import { hexCoordsEqual, hexDistance, getNeighborHex, getOppositeEdge } from '@/utils/hexGrid';
 import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, incrementInvestedTracks } from '../strategy/state';
 import { getNextTargetRoute, findNextTargetRoute, getTopPriorityRoutes } from '../strategy/selector';
 import {
@@ -29,6 +29,7 @@ import { getMapRules } from '@/utils/mapRegistry';
 export type TrackBuildDecision =
   | { action: 'build'; coord: HexCoord; edges: [number, number] }
   | { action: 'buildComplex'; coord: HexCoord; edges: [number, number]; trackType: 'crossing' | 'coexist' }
+  | { action: 'buildSpur'; townCoord: HexCoord } // 마을 가닥 단독 건설 (미연결 트랙의 연결 완성)
   | { action: 'skip' }; // 건설 스킵
 
 // ===== 모듈 레벨: 건설 실패 좌표 추적 (턴 기반 자동 초기화) =====
@@ -71,6 +72,17 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   if (state.phaseState.builtTracksThisTurn >= state.phaseState.maxTracksThisTurn) {
     debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 이번 턴 건설 완료`);
     return { action: 'skip' };
+  }
+
+  // ===== 0. 미연결 마을 가닥 완성 최우선 =====
+  // 지난 턴 카운트 부족으로 타일만 짓고 마을과 미연결된 트랙이 있으면
+  // $1 + 1카운트로 링크를 완성한다 (미완성 트랙 = 0VP이므로 거의 항상 최선)
+  if (player.cash >= 1 /* TOWN_SPUR_COST */) {
+    const danglingTown = findDanglingTownConnection(state, playerId);
+    if (danglingTown) {
+      debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 미연결 마을 가닥 완성 (${danglingTown.col},${danglingTown.row})`);
+      return { action: 'buildSpur', townCoord: danglingTown };
+    }
   }
 
   // 현금이 최소 비용보다 적으면 스킵
@@ -126,6 +138,33 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   // ===== 4. 모든 후보 실패 → 스킵 (미완성 트랙 = 0VP, 무리한 건설은 돈 낭비) =====
   debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 가능한 경로 없음 → 스킵`);
   return { action: 'skip' };
+}
+
+/**
+ * 내 트랙이 마을 변에 닿아 있으나 가닥이 없는 마을 찾기
+ * (카운트 부족으로 타일만 지어진 미연결 상태 — buildTownSpur 대상)
+ */
+function findDanglingTownConnection(state: GameState, playerId: PlayerId): HexCoord | null {
+  const board = state.board;
+  for (const tile of board.trackTiles) {
+    const myEdgeSets: number[][] = [];
+    if (tile.owner === playerId) myEdgeSets.push(tile.edges);
+    if (tile.secondaryOwner === playerId && tile.secondaryEdges) myEdgeSets.push(tile.secondaryEdges);
+
+    for (const edges of myEdgeSets) {
+      for (const e of edges) {
+        const nb = getNeighborHex(tile.coord, e);
+        const isTown = board.towns.some(t => hexCoordsEqual(t.coord, nb) && t.newCityColor === null);
+        if (!isTown) continue;
+        const spurEdge = getOppositeEdge(e);
+        const hasSpur = (board.townSpurs ?? []).some(
+          sp => hexCoordsEqual(sp.townCoord, nb) && sp.edge === spurEdge
+        );
+        if (!hasSpur) return nb;
+      }
+    }
+  }
+  return null;
 }
 
 /**

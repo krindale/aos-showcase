@@ -442,17 +442,23 @@ export function getBuildableNeighbors(
   sourceCoord: HexCoord,
   board: BoardState,
   currentPlayer: PlayerId,
-  allowReplace: boolean = false
+  allowReplace: boolean = false,
+  allowTownAnchor: boolean = false
 ): { coord: HexCoord; sourceEdge: number; targetEdge: number }[] {
   const buildableNeighbors: { coord: HexCoord; sourceEdge: number; targetEdge: number }[] = [];
 
   // sourceCoord가 도시인지 확인
   const isCity = board.cities.some(c => hexCoordsEqual(c.coord, sourceCoord));
 
+  const isTownHere = !isCity &&
+    board.towns.some(t => hexCoordsEqual(t.coord, sourceCoord) && t.newCityColor === null);
+
   // sourceCoord가 내 가닥(스퍼)이 있는 마을인지 확인 — 마을 원이 모든 가닥을 연결하는 허브
-  const isConnectedTown = !isCity &&
-    board.towns.some(t => hexCoordsEqual(t.coord, sourceCoord) && t.newCityColor === null) &&
-    (board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, sourceCoord) && sp.owner === currentPlayer);
+  // 첫 트랙 마을 앵커 맵(도시 0, St. Lucia): 아직 트랙이 없으면 아무 마을이나 허브로 취급
+  const isConnectedTown = isTownHere && (
+    (board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, sourceCoord) && sp.owner === currentPlayer) ||
+    (allowTownAnchor && !board.trackTiles.some(t => t.owner === currentPlayer))
+  );
 
   // sourceCoord에 트랙이 있는지 확인 (소유권 필터 없이)
   const trackAtSource = board.trackTiles.find(t => hexCoordsEqual(t.coord, sourceCoord));

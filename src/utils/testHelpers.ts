@@ -220,6 +220,9 @@ export function createTestGameState(options: TestGameStateOptions = {}): GameSta
     // 로그
     logs: [],
 
+    // 실행 취소
+    undoCount: 0,
+
     // 결과
     winner: null,
     finalScores: null,

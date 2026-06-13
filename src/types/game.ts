@@ -347,6 +347,9 @@ export interface GameState {
   // 게임 로그
   logs: GameLog[];
 
+  // 실행 취소 가능한 행동 수 (스냅샷은 스토어 모듈에 보관 — 단계/차례 전환 시 0)
+  undoCount: number;
+
   // 게임 결과
   winner: PlayerId | null;
   finalScores: Record<PlayerId, number> | null;

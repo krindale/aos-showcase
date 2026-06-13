@@ -22,7 +22,7 @@ import {
   getMovementPathSVG,
   getAnimationPoints,
 } from '@/utils/hexGrid';
-import { getMapData } from '@/utils/mapRegistry';
+import { getMapData, getMapRules } from '@/utils/mapRegistry';
 import { isValidConnectionPoint as isValidConnectionPointUtil } from '@/utils/trackValidation';
 import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId } from '@/types/game';
 
@@ -65,6 +65,8 @@ export default function GameBoard() {
     selectTrackToRedirect,
     canPlaceNewCity,
     placeNewCity,
+    canBuildTownSpur,
+    buildTownSpur,
   } = useGameStore();
 
   const { width: boardWidth, height: boardHeight } = useMemo(
@@ -212,12 +214,12 @@ export default function GameBoard() {
     return cache;
   }, [board.trackTiles, isFlat]);
 
-  // 헥스가 유효한 연결점인지 확인 (도시, 내 트랙, 또는 내 트랙이 진입한 마을)
+  // 헥스가 유효한 연결점인지 확인 (도시, 내 트랙, 내 트랙이 진입한 마을, 또는 첫 트랙 마을 앵커)
   const isValidConnectionPoint = useCallback(
     (coord: HexCoord) => {
-      return isValidConnectionPointUtil(coord, board, currentPlayer);
+      return isValidConnectionPointUtil(coord, board, currentPlayer, getMapRules(mapId).townsAnchorFirstTrack);
     },
-    [board, currentPlayer]
+    [board, currentPlayer, mapId]
   );
 
   // 헥스가 하이라이트된 건설 대상인지 확인 (source_selected 모드)
@@ -241,6 +243,12 @@ export default function GameBoard() {
   const handleHexClick = useCallback(
     (coord: HexCoord) => {
       if (currentPhase === 'buildTrack') {
+        // 미연결 가닥 완성: 내 트랙이 변에 닿아 있으나 가닥이 없는 마을 클릭 → 가닥 건설 (1카운트 + $1)
+        if ((ui.buildMode === 'idle' || ui.buildMode === 'source_selected') && canBuildTownSpur(coord)) {
+          buildTownSpur(coord);
+          return;
+        }
+
         if (ui.buildMode === 'idle') {
           // 유효한 연결점(도시 또는 기존 트랙) 클릭 → 선택
           if (isValidConnectionPoint(coord)) {
@@ -289,7 +297,7 @@ export default function GameBoard() {
         }
       }
     },
-    [currentPhase, ui.buildMode, ui.sourceHex, ui.targetHex, isValidConnectionPoint, isBuildableTarget, getExitEdgeForCoord, selectSourceHex, selectTargetHex, selectExitDirection, resetBuildMode]
+    [currentPhase, ui.buildMode, ui.sourceHex, ui.targetHex, isValidConnectionPoint, isBuildableTarget, getExitEdgeForCoord, selectSourceHex, selectTargetHex, selectExitDirection, resetBuildMode, canBuildTownSpur, buildTownSpur]
   );
 
   // 헥스 호버 핸들러
@@ -762,6 +770,9 @@ export default function GameBoard() {
           const canUrbanize = ui.urbanizationMode && ui.selectedNewCityTile && !isUrbanized;
           const isUrbanizationClickable = canPlaceNewCity(town.coord);
 
+          // 미연결 가닥 완성 가능 여부 (내 트랙이 변에 닿아 있으나 가닥 없음 → 클릭으로 건설)
+          const canCompleteSpur = currentPhase === 'buildTrack' && !ui.urbanizationMode && canBuildTownSpur(town.coord);
+
           // 마을 헥스 자체에 깔린 트랙 (마을 디스크 아래 트랙 타일)
           const townTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, town.coord));
           const townTrackCache = townTrack ? trackPathCache.get(townTrack.id) : undefined;
@@ -788,14 +799,19 @@ export default function GameBoard() {
                 stroke={
                   isUrbanizationClickable
                     ? '#3B82F6'  // 도시화 가능: 파란색 테두리
+                    : canCompleteSpur
+                    ? '#f4a261'  // 미연결 가닥 완성 가능: 주황 점선 테두리
                     : isSourceSelected
                     ? '#ffffff'
                     : '#3D5A3D'
                 }
-                strokeWidth={isUrbanizationClickable ? 4 : isSourceSelected ? 3 : 2}
+                strokeWidth={isUrbanizationClickable ? 4 : canCompleteSpur ? 3 : isSourceSelected ? 3 : 2}
+                strokeDasharray={canCompleteSpur ? '6 4' : undefined}
                 className={(isTownClickable || isUrbanizationClickable) ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''}
                 onClick={handleTownClick}
-              />
+              >
+                {canCompleteSpur && <title>클릭: 마을 가닥 건설 ($1, 건설 1회) — 미연결 노선의 연결을 완성합니다</title>}
+              </polygon>
 
               {/* 마을 헥스 위 트랙 타일 (마을 디스크 아래 깔린 철길) */}
               {townTrack && townTrackCache && (

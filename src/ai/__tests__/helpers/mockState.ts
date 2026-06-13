@@ -202,6 +202,7 @@ export function createMockGameState(
     },
 
     logs: [],
+    undoCount: 0,
     winner: null,
     finalScores: null,
   };

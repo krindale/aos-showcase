@@ -427,9 +427,12 @@ setAllDebug(true);                   // 모든 로그 on/off
 - **맵 룰 분리** (`src/utils/mapRegistry.ts`의 MapRuleConfig): `skipGoodsGrowth`,
   `alternateTurnOrder`(경매 대신 교대 선공권 $5), `firstSeatCost`, `disabledActions`
   (production/turnOrder), `hexCubeSetup`(헥스 위 큐브 38개, 마을 제외),
-  `townsAnchorFirstTrack`(도시 0 맵의 첫 트랙 마을 앵커). **게임 엔진에 mapId 분기 금지** — 플래그만
-- **트랙 큐브 배달**: 트랙 위 큐브를 미완성 링크여도 같은 색 도시로 배달 (`findTrackCubeDeliveries`,
-  구간 소유자 보너스 수입 +1). UI는 `selectCube('track:<id>')` 컨벤션
+  `townsAnchorFirstTrack`(도시 0 맵의 첫 트랙 마을 앵커 — 건설 검증과 UI 시작점 선택
+  `isValidConnectionPoint`/`getBuildableNeighbors`의 `allowTownAnchor` 파라미터 모두 지원).
+  **게임 엔진에 mapId 분기 금지** — 플래그만
+- **트랙 큐브 배달**: 트랙 위 큐브를 미완성 링크여도 같은 색 도시로 배달 (`findTrackCubeDeliveries`).
+  수입은 시작 구간(미완성이어도) 소유자 +1 **그리고** 이후 경유하는 완성 링크마다 일반 규칙대로
+  소유자 +1 (예: 구간→마을→도시 = +2). UI는 `selectCube('track:<id>')` 컨벤션
 - 튜토리얼(경매/물품성장 O)과 St. Lucia(선공권/헥스큐브 O) **양쪽 헤드리스 완주 검증 필수**
 
 #### 마을 가닥(스퍼) 모델 (2026-06-12 재설계, 모든 맵 공통)
@@ -439,7 +442,10 @@ setAllDebug(true);                   // 모든 로그 on/off
 
 - `TownSpur { townCoord, edge, owner }` — `board.townSpurs`
 - 트랙이 마을 변에 닿게 지어지면 가닥이 **자동 동시 건설**: 건설 카운트 +1, 비용 +$1
-  (마을 연결 = 타일 1 + 가닥 1 = 카운트 2. 잔여 카운트 부족 시 건설 거부)
+  (마을 연결 = 타일 1 + 가닥 1 = 카운트 2)
+- **잔여 카운트 부족 시 타일만 건설** (마을 미연결) — 다음 턴에 마을 클릭(`buildTownSpur`,
+  1카운트 + $1)으로 가닥을 완성해 연결. UI는 완성 가능한 마을에 주황 점선 테두리 표시,
+  AI는 `decideBuildTrack` 최우선 단계에서 미연결 가닥부터 완성
 - 연결된 노선 수 = 마을 안 가닥 수 (화면의 철길 토막 수 = 건설 카운트 일치)
 - 이동/배달/완성 링크 판정 모두 **가닥이 있는 변으로만** 마을 통과/도달 인정
 - 내 가닥이 있는 마을 = 내 네트워크 → 6방향 어디로든 새 노선 시작 가능
@@ -452,11 +458,28 @@ setAllDebug(true);                   // 모든 로그 on/off
 #### 건설 제한 시스템
 
 - 턴당 3개(Engineer 4개) — `builtTracksThisTurn`/`maxTracksThisTurn`
-- 모든 건설 경로(buildTrack/buildComplexTrack/redirectTrack)가 카운트 검사,
+- 모든 건설 경로(buildTrack/buildComplexTrack/redirectTrack/buildTownSpur)가 카운트 검사,
   buildTrack에는 canBuildTrack과 별개의 최종 하드 가드 (`[제한 위반 차단]` 콘솔 박제)
+- 카운트 검사는 **타일 1개 기준** — 마을 가닥은 잔여 카운트만큼만 함께 건설 (마을 가닥 모델 참조)
 - 게임 로그에 `[N/max]` 카운트 병기, 이번 턴 건설 트랙에 흰 점선 링 표시
 - 디버깅: dev 모드에서 브라우저 콘솔 로그를 localhost:3999로 미러링하는 코드가
   GamePageClient에 있음 (수신 서버는 별도 실행 필요 — 없어도 무해, fetch 실패 무시)
+
+#### 실행 취소 / 선택 취소 (2026-06-13)
+
+사람 플레이어의 행동을 **다음 단계로 넘어가기 전까지** 되돌리는 두 층위의 취소:
+
+- **선택 취소** (`cancelSelection`): 커밋 전 UI 선택만 초기화 — 건설 출발지/방향,
+  큐브 선택, 복합/방향전환 패널, 도시화 모드. 진행 중 큐브 애니메이션(`movingCube`)은 보존
+- **실행 취소** (`undoLastAction` + `undoCount`): 확정 행동의 스냅샷 복원.
+  대상: 주식 발행, 행동 선택(locomotive 즉시 엔진업 포함 복원), buildTrack/복합/방향전환/
+  마을 가닥/도시화. 스냅샷(`board`/`players`/`phaseState`/`newCityTiles`/`logs`)은
+  gameStore 모듈 레벨 스택에 보관(비영속), **`nextPhase`마다 초기화** = 단계/차례 전환 시 확정
+- `captureUndo`는 AI 차례면 저장 안 함 (사람 전용). 취소 내역은 게임 로그에 `↩ 취소: ...`
+- 새 커밋 액션을 추가하면 검증 통과 직후 `captureUndo(state, label)` + set에
+  `undoCount: undoSnapshots.length` 포함할 것
+- UI: PhasePanel에 단계별 버튼 (`getUndoLabel()`로 취소 대상 표시)
+- 테스트: `townHubModel.test.ts`의 실행 취소 케이스 3건
 
 #### 알려진 이슈 (미해결)
 

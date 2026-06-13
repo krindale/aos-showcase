@@ -23,6 +23,7 @@ import {
   CapturedAIContext,
   MovingCubeContext,
   BoardState,
+  ACTION_INFO,
 } from '@/types/game';
 import { getAIDecision, AI_TURN_DELAY, isCurrentPlayerAI, aiPlayerManager } from '@/ai';
 import { addFailedBuildCoord } from '@/ai/strategies/buildTrack';
@@ -100,6 +101,77 @@ function computeNewTownSpurs(
     if (!exists) spurs.push({ townCoord: nb, edge: spurEdge });
   }
   return spurs;
+}
+
+// ============================================================
+// 실행 취소(Undo): 사람 플레이어의 커밋 행동 스냅샷
+// 단계/차례 전환(nextPhase) 시 초기화 — "다음으로 넘어가기 전"까지만 취소 가능
+// ============================================================
+interface UndoSnapshot {
+  label: string;
+  board: BoardState;
+  players: GameState['players'];
+  phaseState: GameState['phaseState'];
+  newCityTiles: GameState['newCityTiles'];
+  logs: GameState['logs'];
+}
+const undoSnapshots: UndoSnapshot[] = [];
+
+/** 현재 상태를 스냅샷으로 저장 (AI 차례는 저장 안 함 — 사람의 취소 버튼 전용) */
+function captureUndo(state: GameState, label: string) {
+  const player = state.players[state.currentPlayer];
+  if (!player || player.isAI) return;
+  undoSnapshots.push({
+    label,
+    board: structuredClone(state.board),
+    players: structuredClone(state.players),
+    phaseState: structuredClone(state.phaseState),
+    newCityTiles: structuredClone(state.newCityTiles),
+    logs: state.logs, // 로그 배열은 불변 갱신이므로 참조 보관으로 충분
+  });
+  if (undoSnapshots.length > 30) undoSnapshots.shift();
+}
+
+function clearUndo() {
+  undoSnapshots.length = 0;
+}
+
+/** 다음에 취소될 행동의 라벨 (UI 버튼 표시용) */
+export function getUndoLabel(): string | null {
+  return undoSnapshots[undoSnapshots.length - 1]?.label ?? null;
+}
+
+/**
+ * 마을에서 빠져 있는 가닥(스퍼) 찾기 — 내 트랙이 마을 변에 닿아 있으나 가닥이 없는 변.
+ * (카운트 부족으로 타일만 짓고 미연결된 트랙을 다음 턴에 buildTownSpur로 완성하는 용도)
+ */
+function findMissingTownSpurs(
+  townCoord: HexCoord,
+  board: BoardState,
+  playerId: PlayerId
+): { townCoord: HexCoord; edge: number }[] {
+  const isTown = board.towns.some(t => hexCoordsEqual(t.coord, townCoord) && t.newCityColor === null);
+  if (!isTown) return [];
+
+  const missing: { townCoord: HexCoord; edge: number }[] = [];
+  for (let edge = 0; edge < 6; edge++) {
+    // 이미 가닥이 있는 변은 (소유자 무관) 연결 완료
+    const hasSpur = (board.townSpurs ?? []).some(
+      sp => hexCoordsEqual(sp.townCoord, townCoord) && sp.edge === edge
+    );
+    if (hasSpur) continue;
+
+    // 이 변 너머 이웃 타일에 내 트랙이 마을 쪽 엣지로 닿아 있는지
+    const nb = getNeighborHex(townCoord, edge);
+    const facingEdge = getOppositeEdge(edge);
+    const tile = board.trackTiles.find(t => hexCoordsEqual(t.coord, nb));
+    if (!tile) continue;
+    const mineFacing =
+      (tile.owner === playerId && tile.edges.includes(facingEdge)) ||
+      (tile.secondaryOwner === playerId && tile.secondaryEdges?.includes(facingEdge));
+    if (mineFacing) missing.push({ townCoord, edge });
+  }
+  return missing;
 }
 
 export function createInitialGameState(
@@ -264,6 +336,9 @@ export function createInitialGameState(
 
     // 로그
     logs: [],
+
+    // 실행 취소
+    undoCount: 0,
 
     // 결과
     winner: null,
@@ -438,6 +513,10 @@ interface GameStore extends GameState {
     newEdges: [number, number],
     trackType: 'crossing' | 'coexist'
   ) => boolean;
+  /** 마을 가닥(스퍼) 단독 건설 — 마을 변에 닿아 있으나 미연결인 내 트랙을 연결 (1카운트 + $1) */
+  buildTownSpur: (townCoord: HexCoord) => boolean;
+  /** 마을 가닥 단독 건설 가능 여부 */
+  canBuildTownSpur: (townCoord: HexCoord) => boolean;
 
   // --- Phase V: 물품 이동 ---
   /** 물품 이동 */
@@ -470,6 +549,10 @@ interface GameStore extends GameState {
   selectCube: (cityId: string, cubeIndex: number) => void;
   /** 선택 초기화 */
   clearSelection: () => void;
+  /** 현재 선택 취소 — 커밋 전 선택(건설 위치/방향, 큐브, 패널)만 되돌림 (진행 중 애니메이션은 유지) */
+  cancelSelection: () => void;
+  /** 마지막 확정 행동 실행 취소 (주식 발행/행동 선택/트랙 건설 등 — 단계 전환 전까지) */
+  undoLastAction: () => void;
   /** 트랙 미리보기 설정 */
   setPreviewTrack: (track: { coord: HexCoord; edges: [number, number] } | null) => void;
   /** 하이라이트 헥스 설정 */
@@ -562,6 +645,7 @@ export const useGameStore = create<GameStore>()(
   initGame: (mapId, playerNames, aiPlayers = []) => {
     // 기존 AI 인스턴스 정리
     aiPlayerManager.clear();
+    clearUndo();
 
     // 새 게임 상태 설정
     set({
@@ -598,6 +682,7 @@ export const useGameStore = create<GameStore>()(
 
     // AI 인스턴스 상태 리셋 (인스턴스는 유지, 전략만 초기화)
     aiPlayerManager.resetAll();
+    clearUndo();
 
     set({
       ...createInitialGameState(state.mapId, playerNames, aiPlayers),
@@ -755,6 +840,24 @@ export const useGameStore = create<GameStore>()(
               scheduleAICheck(get);
               return; // nextPhase 호출하지 않음
             }
+          } else if (buildDecision.action === 'buildSpur') {
+            // 마을 가닥 단독 건설 (지난 턴 카운트 부족으로 미연결된 트랙의 연결 완성)
+            const beforeState = get();
+            const buildNum = beforeState.phaseState.builtTracksThisTurn + 1;
+            console.log(`[AI 트랙 건설] Turn ${beforeState.currentTurn}, ${player.name}: ${buildNum}/${beforeState.phaseState.maxTracksThisTurn}번째 마을 가닥 (${buildDecision.townCoord.col},${buildDecision.townCoord.row})`);
+            const spurSuccess = store.buildTownSpur(buildDecision.townCoord);
+
+            if (spurSuccess) {
+              const afterSpurState = get();
+              if (afterSpurState.phaseState.builtTracksThisTurn < afterSpurState.phaseState.maxTracksThisTurn) {
+                releaseAILock(executionId, get, set);
+                scheduleAICheck(get);
+                return; // 남은 카운트로 계속 건설
+              }
+            } else {
+              // 실패 시 재시도하지 않고 단계 종료 (무한 루프 방지)
+              console.warn(`[AI 트랙 건설] 마을 가닥 실패: (${buildDecision.townCoord.col},${buildDecision.townCoord.row}) → 건설 단계 종료`);
+            }
           } else if (buildDecision.action === 'buildComplex') {
             // 복합 트랙 건설 (교차 또는 공존)
             const beforeState = get();
@@ -850,40 +953,42 @@ export const useGameStore = create<GameStore>()(
   // Phase I: 주식 발행
   // ============================================================
   issueShare: (playerId, amount) => {
-    set((state) => {
-      const player = state.players[playerId];
-      if (!player) {
-        console.error(`[ERROR] issueShare: 플레이어 없음 - playerId: ${playerId}`);
-        return state;
-      }
-      const maxShares = GAME_CONSTANTS.MAX_SHARES - player.issuedShares;
-      const actualAmount = Math.min(amount, maxShares);
+    const state = get();
+    const player = state.players[playerId];
+    if (!player) {
+      console.error(`[ERROR] issueShare: 플레이어 없음 - playerId: ${playerId}`);
+      return;
+    }
+    const maxShares = GAME_CONSTANTS.MAX_SHARES - player.issuedShares;
+    const actualAmount = Math.min(amount, maxShares);
 
-      if (actualAmount <= 0) {
-        console.warn(`[WARN] issueShare: 발행 불가 - playerId: ${playerId}, 요청: ${amount}, 최대 가능: ${maxShares}`);
-        return state;
-      }
+    if (actualAmount <= 0) {
+      console.warn(`[WARN] issueShare: 발행 불가 - playerId: ${playerId}, 요청: ${amount}, 최대 가능: ${maxShares}`);
+      return;
+    }
 
-      return {
-        players: {
-          ...state.players,
-          [playerId]: {
-            ...player,
-            issuedShares: player.issuedShares + actualAmount,
-            cash: player.cash + actualAmount * GAME_CONSTANTS.SHARE_VALUE,
-          },
+    captureUndo(state, `주식 ${actualAmount}주 발행`);
+
+    set({
+      players: {
+        ...state.players,
+        [playerId]: {
+          ...player,
+          issuedShares: player.issuedShares + actualAmount,
+          cash: player.cash + actualAmount * GAME_CONSTANTS.SHARE_VALUE,
         },
-        logs: [
-          ...state.logs,
-          {
-            turn: state.currentTurn,
-            phase: state.currentPhase,
-            player: playerId,
-            action: `주식 ${actualAmount}주 발행 (+$${actualAmount * GAME_CONSTANTS.SHARE_VALUE})`,
-            timestamp: Date.now(),
-          },
-        ],
-      };
+      },
+      undoCount: undoSnapshots.length,
+      logs: [
+        ...state.logs,
+        {
+          turn: state.currentTurn,
+          phase: state.currentPhase,
+          player: playerId,
+          action: `주식 ${actualAmount}주 발행 (+$${actualAmount * GAME_CONSTANTS.SHARE_VALUE})`,
+          timestamp: Date.now(),
+        },
+      ],
     });
   },
 
@@ -1336,6 +1441,19 @@ export const useGameStore = create<GameStore>()(
   // Phase III: 행동 선택
   // ============================================================
   selectAction: (playerId, action) => {
+    // 성공 조건을 미리 확인하고 스냅샷 저장 (취소 버튼용 — locomotive 즉시 효과까지 되돌리기 위함)
+    {
+      const pre = get();
+      const prePlayer = pre.players[playerId];
+      if (
+        prePlayer &&
+        !getMapRules(pre.mapId).disabledActions.includes(action) &&
+        !Object.values(pre.players).some((p) => p.selectedAction === action)
+      ) {
+        captureUndo(pre, `행동 선택 (${ACTION_INFO[action]?.name ?? action})`);
+      }
+    }
+
     set((state) => {
       // 플레이어 존재 검증
       const player = state.players[playerId];
@@ -1410,6 +1528,8 @@ export const useGameStore = create<GameStore>()(
         },
       ];
 
+      newState.undoCount = undoSnapshots.length;
+
       return newState as GameState;
     });
   },
@@ -1421,9 +1541,10 @@ export const useGameStore = create<GameStore>()(
     const state = get();
     const currentPlayer = state.currentPlayer;
 
-    // 트랙 제한 확인 (마을 연결 시 함께 건설되는 가닥도 카운트에 포함)
-    const spursNeeded = computeNewTownSpurs(coord, edges, state.board).length;
-    if (state.phaseState.builtTracksThisTurn + 1 + spursNeeded > state.phaseState.maxTracksThisTurn) {
+    // 트랙 제한 확인 — 타일 자체(1카운트)만 요구.
+    // 마을 가닥은 잔여 카운트만큼만 함께 건설되며, 부족하면 타일만 배치(마을 미연결).
+    // 미연결 가닥은 다음 턴에 마을 클릭(buildTownSpur)으로 완성한다.
+    if (state.phaseState.builtTracksThisTurn + 1 > state.phaseState.maxTracksThisTurn) {
       return false;
     }
 
@@ -1495,11 +1616,15 @@ export const useGameStore = create<GameStore>()(
       return false;
     }
 
-    // 마을 연결 가닥(스퍼): 새 트랙이 마을 변에 닿으면 함께 건설 (가닥도 건설 1회 + $1)
-    const newSpurs = computeNewTownSpurs(coord, edges, state.board);
+    // 마을 연결 가닥(스퍼): 새 트랙이 마을 변에 닿으면 잔여 카운트만큼만 함께 건설 (가닥도 건설 1회 + $1)
+    // 카운트 부족 시 타일만 배치 — 마을과는 미연결 상태, 다음 턴 buildTownSpur로 연결
+    const wantedSpurs = computeNewTownSpurs(coord, edges, state.board);
+    const spurBudget = Math.max(0, state.phaseState.maxTracksThisTurn - state.phaseState.builtTracksThisTurn - 1);
+    const newSpurs = wantedSpurs.slice(0, spurBudget);
+    const skippedSpurCount = wantedSpurs.length - newSpurs.length;
 
     // 최종 하드 가드: 어떤 경로로도 턴당 제한을 초과한 건설은 불가 (위반 시도는 박제)
-    if (state.phaseState.builtTracksThisTurn + newSpurs.length >= state.phaseState.maxTracksThisTurn) {
+    if (state.phaseState.builtTracksThisTurn >= state.phaseState.maxTracksThisTurn) {
       console.error(
         `[제한 위반 차단] ${state.currentPlayer} 트랙 건설 시도: ` +
         `built=${state.phaseState.builtTracksThisTurn} >= max=${state.phaseState.maxTracksThisTurn}, turn=${state.currentTurn}`
@@ -1537,6 +1662,8 @@ export const useGameStore = create<GameStore>()(
       console.warn(`[WARN] buildTrack: 현금 부족 - 필요: $${cost}, 보유: $${player.cash}`);
       return false;
     }
+
+    captureUndo(state, `트랙 건설 (${coord.col},${coord.row})`);
 
     // 헥스 위 큐브 (St. Lucia 셋업): 건설 시 트랙 위로 이동 (룰북: place the cube on top of the just-built track)
     const hexTileHere = state.board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
@@ -1597,6 +1724,7 @@ export const useGameStore = create<GameStore>()(
           cash: player.cash - cost,
         },
       },
+      undoCount: undoSnapshots.length,
       phaseState: {
         ...state.phaseState,
         builtTracksThisTurn: newBuiltCount,
@@ -1608,7 +1736,7 @@ export const useGameStore = create<GameStore>()(
           turn: state.currentTurn,
           phase: state.currentPhase,
           player: currentPlayer,
-          action: `트랙 건설 (${coord.col}, ${coord.row})${newSpurs.length > 0 ? ` + 마을 가닥 ${newSpurs.length}개` : ''} - $${cost} [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`,
+          action: `트랙 건설 (${coord.col}, ${coord.row})${newSpurs.length > 0 ? ` + 마을 가닥 ${newSpurs.length}개` : ''}${skippedSpurCount > 0 ? ' (마을 미연결 — 다음 턴 마을 클릭으로 가닥 건설)' : ''} - $${cost} [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`,
           timestamp: Date.now(),
         },
       ],
@@ -1625,9 +1753,8 @@ export const useGameStore = create<GameStore>()(
     const state = get();
     const currentPlayer = state.currentPlayer;
 
-    // 트랙 제한 확인 (마을 연결 가닥 포함)
-    const cxSpursNeeded = computeNewTownSpurs(coord, newEdges, state.board).length;
-    if (state.phaseState.builtTracksThisTurn + 1 + cxSpursNeeded > state.phaseState.maxTracksThisTurn) {
+    // 트랙 제한 확인 — 타일 자체만 요구 (마을 가닥은 잔여 카운트만큼만 함께 건설)
+    if (state.phaseState.builtTracksThisTurn + 1 > state.phaseState.maxTracksThisTurn) {
       return false;
     }
 
@@ -1694,6 +1821,8 @@ export const useGameStore = create<GameStore>()(
       return false;
     }
 
+    captureUndo(state, `복합 트랙 건설 (${coord.col},${coord.row})`);
+
     // 기존 트랙 업데이트 (복합 트랙으로 변환)
     const updatedTrack: TrackTile = {
       ...existingTrack,
@@ -1706,7 +1835,10 @@ export const useGameStore = create<GameStore>()(
       hexCoordsEqual(t.coord, coord) ? updatedTrack : t
     );
 
-    const complexSpurs = computeNewTownSpurs(coord, newEdges, state.board);
+    // 마을 가닥은 잔여 카운트만큼만 함께 건설 (부족 시 미연결 — buildTownSpur로 완성)
+    const wantedCxSpurs = computeNewTownSpurs(coord, newEdges, state.board);
+    const cxSpurBudget = Math.max(0, state.phaseState.maxTracksThisTurn - state.phaseState.builtTracksThisTurn - 1);
+    const complexSpurs = wantedCxSpurs.slice(0, cxSpurBudget);
     const newBuiltCount = state.phaseState.builtTracksThisTurn + 1 + complexSpurs.length;
 
     // 상세 복합 트랙 건설 로그
@@ -1738,6 +1870,7 @@ export const useGameStore = create<GameStore>()(
           cash: player.cash - cost - complexSpurs.length * TOWN_SPUR_COST,
         },
       },
+      undoCount: undoSnapshots.length,
       phaseState: {
         ...state.phaseState,
         builtTracksThisTurn: newBuiltCount,
@@ -1757,6 +1890,84 @@ export const useGameStore = create<GameStore>()(
 
     // 참고: nextPhase()는 호출자(UI 버튼 또는 AI)가 직접 호출함
     // 여기서 자동 호출하면 중복 호출로 버그 발생
+
+    return true;
+  },
+
+  // === 마을 가닥(스퍼) 단독 건설 ===
+  canBuildTownSpur: (townCoord) => {
+    const state = get();
+    if (state.currentPhase !== 'buildTrack') return false;
+    if (state.phaseState.builtTracksThisTurn + 1 > state.phaseState.maxTracksThisTurn) return false;
+    const player = state.players[state.currentPlayer];
+    if (!player || player.cash < TOWN_SPUR_COST) return false;
+    return findMissingTownSpurs(townCoord, state.board, state.currentPlayer).length > 0;
+  },
+
+  buildTownSpur: (townCoord) => {
+    const state = get();
+    if (!state.canBuildTownSpur(townCoord)) return false;
+
+    captureUndo(state, `마을 가닥 건설 (${townCoord.col},${townCoord.row})`);
+
+    const currentPlayer = state.currentPlayer;
+    const player = state.players[currentPlayer];
+    // 한 번에 가닥 1개 — 빠진 변이 여럿이면 클릭마다 1개씩 (각각 1카운트 + $1)
+    const sp = findMissingTownSpurs(townCoord, state.board, currentPlayer)[0];
+    const newBuiltCount = state.phaseState.builtTracksThisTurn + 1;
+
+    debugLog.trackBuilding(`[buildTownSpur 성공] ${player.name} (${currentPlayer}): Turn ${state.currentTurn}, ` +
+      `마을 (${townCoord.col},${townCoord.row}) edge=${sp.edge}, ` +
+      `${newBuiltCount}/${state.phaseState.maxTracksThisTurn}번째, 비용=$${TOWN_SPUR_COST}`);
+
+    set({
+      board: {
+        ...state.board,
+        townSpurs: [
+          ...(state.board.townSpurs ?? []),
+          {
+            id: `spur-solo-${Date.now()}-${sp.edge}`,
+            townCoord: sp.townCoord,
+            edge: sp.edge,
+            owner: currentPlayer,
+            builtTurn: state.currentTurn,
+          },
+        ],
+      },
+      players: {
+        ...state.players,
+        [currentPlayer]: {
+          ...player,
+          cash: player.cash - TOWN_SPUR_COST,
+        },
+      },
+      undoCount: undoSnapshots.length,
+      phaseState: {
+        ...state.phaseState,
+        builtTracksThisTurn: newBuiltCount,
+      },
+      // 건설 선택 중이었다면 선택 UI 정리
+      ui: {
+        ...state.ui,
+        buildMode: 'idle',
+        sourceHex: null,
+        buildableNeighbors: [],
+        previewTrack: null,
+        targetHex: null,
+        entryEdge: null,
+        exitDirections: [],
+      },
+      logs: [
+        ...state.logs,
+        {
+          turn: state.currentTurn,
+          phase: state.currentPhase,
+          player: currentPlayer,
+          action: `마을 가닥 건설 (${townCoord.col}, ${townCoord.row}) — 노선 연결 완성 - $${TOWN_SPUR_COST} [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`,
+          timestamp: Date.now(),
+        },
+      ],
+    });
 
     return true;
   },
@@ -2213,6 +2424,12 @@ export const useGameStore = create<GameStore>()(
       return;
     }
 
+    // 단계/차례가 넘어가면 이전 행동은 확정 — 실행 취소 스택 비움
+    clearUndo();
+    if (currentState.undoCount !== 0) {
+      set({ undoCount: 0 });
+    }
+
     // 자동 단계 로직 실행 (단계 전환 전에 실행)
     if (currentState.currentPhase === 'collectIncome') {
       get().collectIncome();
@@ -2396,6 +2613,19 @@ export const useGameStore = create<GameStore>()(
               moveGoodsRound: 1,
               playerMoves: createPlayerMoves(activePlayers),
             },
+            // 건설 단계 UI 잔재 제거 (선택 중이던 하이라이트가 물품 이동을 가리는 버그 방지)
+            ui: {
+              ...state.ui,
+              buildMode: 'idle' as const,
+              sourceHex: null,
+              buildableNeighbors: [],
+              highlightedHexes: [],
+              previewTrack: null,
+              selectedHex: null,
+              targetHex: null,
+              entryEdge: null,
+              exitDirections: [],
+            },
           };
         }
 
@@ -2411,6 +2641,19 @@ export const useGameStore = create<GameStore>()(
               ? GAME_CONSTANTS.ENGINEER_TRACK_LIMIT
               : GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
             playerMoves: updatedPlayerMoves,
+          },
+          // 이전 플레이어의 건설 선택 UI 잔재 제거
+          ui: {
+            ...state.ui,
+            buildMode: 'idle' as const,
+            sourceHex: null,
+            buildableNeighbors: [],
+            highlightedHexes: [],
+            previewTrack: null,
+            selectedHex: null,
+            targetHex: null,
+            entryEdge: null,
+            exitDirections: [],
           },
           logs: [
             ...state.logs,
@@ -2703,6 +2946,77 @@ export const useGameStore = create<GameStore>()(
     }));
   },
 
+  undoLastAction: () => {
+    const snap = undoSnapshots.pop();
+    if (!snap) {
+      set({ undoCount: 0 });
+      return;
+    }
+    const state = get();
+    set({
+      board: snap.board,
+      players: snap.players,
+      phaseState: snap.phaseState,
+      newCityTiles: snap.newCityTiles,
+      undoCount: undoSnapshots.length,
+      logs: [
+        ...snap.logs,
+        {
+          turn: state.currentTurn,
+          phase: state.currentPhase,
+          player: state.currentPlayer,
+          action: `↩ 취소: ${snap.label}`,
+          timestamp: Date.now(),
+        },
+      ],
+      // 진행 중이던 선택 UI도 함께 정리
+      ui: {
+        ...state.ui,
+        buildMode: 'idle',
+        sourceHex: null,
+        buildableNeighbors: [],
+        targetHex: null,
+        entryEdge: null,
+        exitDirections: [],
+        previewTrack: null,
+        highlightedHexes: [],
+        selectedHex: null,
+        complexTrackSelection: null,
+        redirectTrackSelection: null,
+        selectedCube: null,
+        reachableDestinations: [],
+      },
+    });
+  },
+
+  cancelSelection: () => {
+    set((state) => ({
+      ui: {
+        ...state.ui,
+        // 트랙 건설 선택 취소
+        buildMode: 'idle',
+        sourceHex: null,
+        buildableNeighbors: [],
+        targetHex: null,
+        entryEdge: null,
+        exitDirections: [],
+        previewTrack: null,
+        highlightedHexes: [],
+        selectedHex: null,
+        // 복합 트랙 / 방향 전환 패널 닫기
+        complexTrackSelection: null,
+        redirectTrackSelection: null,
+        // 도시화 선택 취소 (행동 자체는 유지 — 패널에서 다시 진입 가능)
+        urbanizationMode: false,
+        selectedNewCityTile: null,
+        // 물품 이동 큐브 선택 취소 (진행 중 애니메이션 movingCube는 건드리지 않음)
+        selectedCube: null,
+        reachableDestinations: [],
+        ...(state.ui.movingCube ? {} : { movePath: [] }),
+      },
+    }));
+  },
+
   setPreviewTrack: (track) => {
     set((state) => ({
       ui: { ...state.ui, previewTrack: track },
@@ -2726,13 +3040,14 @@ export const useGameStore = create<GameStore>()(
     const state = get();
     const currentPlayer = state.currentPlayer;
 
-    // 유효한 연결점인지 확인 (도시 또는 플레이어의 트랙)
-    if (!isValidConnectionPoint(coord, state.board, currentPlayer)) {
+    // 유효한 연결점인지 확인 (도시, 플레이어의 트랙, 또는 첫 트랙 마을 앵커)
+    const allowTownAnchor = getMapRules(state.mapId).townsAnchorFirstTrack;
+    if (!isValidConnectionPoint(coord, state.board, currentPlayer, allowTownAnchor)) {
       return;
     }
 
     // 건설 가능한 이웃 헥스 계산 (교체/방향전환 포함)
-    const neighbors = getBuildableNeighbors(coord, state.board, currentPlayer, true);
+    const neighbors = getBuildableNeighbors(coord, state.board, currentPlayer, true, allowTownAnchor);
 
     // 하이라이트할 헥스 목록
     const highlightedHexes = neighbors.map(n => n.coord);
@@ -3016,11 +3331,12 @@ export const useGameStore = create<GameStore>()(
     // 새 엣지 설정
     const newEdges: [number, number] = [connectedEdge, newExitEdge];
 
-    // 새 방향이 마을 변에 닿으면 가닥(스퍼) 동시 건설
-    const redirectSpurs = computeNewTownSpurs(coord, [newExitEdge], state.board);
-    if (state.phaseState.builtTracksThisTurn + 1 + redirectSpurs.length > state.phaseState.maxTracksThisTurn) {
-      return false;
-    }
+    // 새 방향이 마을 변에 닿으면 가닥(스퍼) 동시 건설 — 잔여 카운트만큼만 (부족 시 미연결)
+    const wantedRdSpurs = computeNewTownSpurs(coord, [newExitEdge], state.board);
+    const rdSpurBudget = Math.max(0, state.phaseState.maxTracksThisTurn - state.phaseState.builtTracksThisTurn - 1);
+    const redirectSpurs = wantedRdSpurs.slice(0, rdSpurBudget);
+
+    captureUndo(state, `트랙 방향 전환 (${coord.col},${coord.row})`);
 
     // 트랙 업데이트
     const updatedTrack: TrackTile = {
@@ -3055,6 +3371,7 @@ export const useGameStore = create<GameStore>()(
           cash: player.cash - cost - redirectSpurs.length * TOWN_SPUR_COST,
         },
       },
+      undoCount: undoSnapshots.length,
       phaseState: {
         ...state.phaseState,
         builtTracksThisTurn: state.phaseState.builtTracksThisTurn + 1 + redirectSpurs.length,
@@ -3178,6 +3495,8 @@ export const useGameStore = create<GameStore>()(
     const town = state.board.towns.find(t => hexCoordsEqual(t.coord, townCoord));
     if (!town) return false;
 
+    captureUndo(state, `도시화 (${townCoord.col},${townCoord.row})`);
+
     // 1. 마을을 신규 도시로 변환
     const updatedTowns = state.board.towns.map(t => {
       if (hexCoordsEqual(t.coord, townCoord)) {
@@ -3229,6 +3548,7 @@ export const useGameStore = create<GameStore>()(
         townSpurs: updatedTownSpurs,
       },
       newCityTiles: updatedNewCityTiles,
+      undoCount: undoSnapshots.length,
       ui: {
         ...state.ui,
         urbanizationMode: false,
@@ -3531,24 +3851,30 @@ export const useGameStore = create<GameStore>()(
     const incomeChanges: Partial<Record<PlayerId, number>> = {};
     state.activePlayers.forEach(p => { incomeChanges[p] = 0; });
 
-    // 트랙 큐브 배달(St. Lucia): 링크 수입 대신 구간 소유자에게 보너스 수입 1
+    const { cities, towns, trackTiles } = state.board;
+    const isStopAt = (coord: HexCoord) =>
+      cities.some(c => hexCoordsEqual(c.coord, coord)) ||
+      towns.some(t => hexCoordsEqual(t.coord, coord));
+
+    // 링크 계산 시작점: 일반 큐브는 출발 도시(path[0]),
+    // 트랙 큐브(St. Lucia)는 첫 도착 정거장 — 시작 구간은 아래에서 별도 +1
+    let linkStartIndex = 0;
+
     if (context.trackCubeSectionOwner !== undefined) {
+      // 룰북(St. Lucia): 큐브가 놓인 시작 구간은 미완성 링크여도 소유자에게 수입 1 제공
+      // (이후 지나가는 완성 링크들은 일반 규칙대로 각각 +1)
       const owner = context.trackCubeSectionOwner;
       if (owner && state.activePlayers.includes(owner)) {
-        incomeChanges[owner] = 1;
+        incomeChanges[owner] = (incomeChanges[owner] || 0) + 1;
       }
-    } else {
+      const firstStop = path.findIndex((coord, idx) => idx > 0 && isStopAt(coord));
+      linkStartIndex = firstStop === -1 ? path.length : firstStop;
+    }
+
     // 링크별로 수입 계산 (도시/마을 → 다음 도시/마을 = 1 링크)
     // 룰북: "물품이 지나가는 각 완성된 철도 링크마다 해당 링크 소유자의 수입이 1 증가"
-    let linkStartIndex = 0;
-    const { cities, towns, trackTiles } = state.board;
-
-    for (let i = 1; i < path.length; i++) {
-      const coord = path[i];
-      const isCity = cities.some(c => hexCoordsEqual(c.coord, coord));
-      const isTown = towns.some(t => hexCoordsEqual(t.coord, coord));
-
-      if (isCity || isTown) {
+    for (let i = linkStartIndex + 1; i < path.length; i++) {
+      if (isStopAt(path[i])) {
         // 이 링크(linkStartIndex → i) 구간의 트랙 소유자 찾기
         for (let j = linkStartIndex + 1; j < i; j++) {
           const track = trackTiles.find(t => hexCoordsEqual(t.coord, path[j]));
@@ -3559,7 +3885,6 @@ export const useGameStore = create<GameStore>()(
         }
         linkStartIndex = i; // 다음 링크 시작점 업데이트
       }
-    }
     }
 
     const newPlayers = { ...state.players };
@@ -3603,7 +3928,7 @@ export const useGameStore = create<GameStore>()(
           phase: context.phase,  // 캡처된 phase 사용
           player: movingPlayerId,  // 캡처된 플레이어 ID 사용
           action: context.trackCubeSectionOwner !== undefined
-            ? `${color} 트랙 큐브 배달 (구간 소유 ${context.trackCubeSectionOwner ?? '없음'} 수입 +1)`
+            ? `${color} 트랙 큐브 배달 (${totalLinks} 링크 수입, 시작 구간 소유 ${context.trackCubeSectionOwner ?? '없음'})`
             : `${color} 물품 배달 (${totalLinks} 링크, +${incomeChanges[movingPlayerId] ?? 0} 수입)`,
           timestamp: Date.now(),
         },

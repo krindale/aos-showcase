@@ -108,6 +108,16 @@ function evaluateActionDeltaVP(
   action: SpecialAction,
   plan: TurnPlan,
 ): number {
+  // 도시가 하나도 없으면(St. Lucia 1턴, 도시화 전) 첫 트랙은 도시 인접만 허용되므로 건설 자체가 불가능하고,
+  // 완성 링크가 없어 배달도 불가능하다. 건설/이동 행동(firstBuild·firstMove·engineer)은 무의미 → ΔVP 0.
+  // (urbanization=도시 생성, locomotive=미래 엔진 자산만 의미 있음)
+  if (
+    state.board.cities.length === 0 &&
+    (action === 'firstBuild' || action === 'firstMove' || action === 'engineer')
+  ) {
+    return 0;
+  }
+
   switch (action) {
     case 'engineer': return evaluateEngineer(state, playerId, plan);
     case 'locomotive': return evaluateLocomotive(state, playerId, plan);
@@ -188,9 +198,17 @@ function evaluateEngineer(state: GameState, playerId: PlayerId, plan: TurnPlan):
  */
 function evaluateLocomotive(state: GameState, playerId: PlayerId, plan: TurnPlan): number {
   const player = state.players[playerId];
-  if (!player || !plan.targetRoute) return 0;
+  if (!player) return 0;
 
   const config = getMapAIConfig(state);
+
+  // 도시가 0개라 이번 턴 건설 자체가 불가능할 때(St. Lucia 1턴, 도시화 빼앗김) —
+  // 건설 행동은 모두 0이므로, 엔진 업그레이드를 다음 턴 이후 배달을 위한 영구 자산으로 평가한다.
+  if (state.board.cities.length === 0) {
+    const turnsLeft = config.totalTurns - state.currentTurn;
+    return player.engineLevel < 6 && turnsLeft > 0 ? 0.5 : 0;
+  }
+
   if (plan.routeLinks <= player.engineLevel) return 0; // 현재 엔진으로 충분
 
   // 실현 시점: 이번 턴 완성 가능하면 같은 턴 배달, 아니면 미래

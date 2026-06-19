@@ -442,8 +442,7 @@ export function getBuildableNeighbors(
   sourceCoord: HexCoord,
   board: BoardState,
   currentPlayer: PlayerId,
-  allowReplace: boolean = false,
-  allowTownAnchor: boolean = false
+  allowReplace: boolean = false
 ): { coord: HexCoord; sourceEdge: number; targetEdge: number }[] {
   const buildableNeighbors: { coord: HexCoord; sourceEdge: number; targetEdge: number }[] = [];
 
@@ -454,11 +453,8 @@ export function getBuildableNeighbors(
     board.towns.some(t => hexCoordsEqual(t.coord, sourceCoord) && t.newCityColor === null);
 
   // sourceCoord가 내 가닥(스퍼)이 있는 마을인지 확인 — 마을 원이 모든 가닥을 연결하는 허브
-  // 첫 트랙 마을 앵커 맵(도시 0, St. Lucia): 아직 트랙이 없으면 아무 마을이나 허브로 취급
-  const isConnectedTown = isTownHere && (
-    (board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, sourceCoord) && sp.owner === currentPlayer) ||
-    (allowTownAnchor && !board.trackTiles.some(t => t.owner === currentPlayer))
-  );
+  const isConnectedTown = isTownHere &&
+    (board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, sourceCoord) && sp.owner === currentPlayer);
 
   // sourceCoord에 트랙이 있는지 확인 (소유권 필터 없이)
   const trackAtSource = board.trackTiles.find(t => hexCoordsEqual(t.coord, sourceCoord));
@@ -1417,6 +1413,8 @@ export interface TrackCubeDelivery {
   pathCoords: HexCoord[];
   /** 이 구간(체인)의 소유자 — 보너스 수입 1을 받음 (룰북: the player who owns the track section) */
   sectionOwner: PlayerId | null;
+  /** 경로에서 상대(배달자 외) 소유 트랙을 경유한 수 — 적을수록 자기 철도 위주 경로 (경로 선택 우선용) */
+  oppLinks: number;
 }
 
 /**
@@ -1431,6 +1429,8 @@ export interface TrackCubeDelivery {
 export function findTrackCubeDeliveries(
   board: BoardState,
   trackId: string,
+  engineLevel: number = Infinity, // 이동 가능 링크 수 상한 (미지정 시 무제한)
+  playerId: PlayerId | null = null, // 배달자 — 지정 시 상대 철도 경유 적은 경로 우선 (미지정 시 우선 안 함)
 ): TrackCubeDelivery[] {
   const startTrack = board.trackTiles.find(t => t.id === trackId);
   if (!startTrack || !startTrack.cube) return [];
@@ -1447,6 +1447,7 @@ export function findTrackCubeDeliveries(
     pathCoords: HexCoord[];
     sectionOwner: PlayerId | null;
     ownerLocked: boolean;
+    linkCount: number; // 큐브 시작 구간부터 통과한 도시/마을(=링크) 수 — 엔진 레벨 제한용
   }
   const stack: TrackWalkState[] = startTrack.edges.map(startEdge => ({
     current: startTrack.coord,
@@ -1454,6 +1455,7 @@ export function findTrackCubeDeliveries(
     pathCoords: [startTrack.coord],
     sectionOwner: startTrack.owner,
     ownerLocked: false,
+    linkCount: 1, // 큐브가 놓인 시작 구간이 첫 링크
   }));
 
   let guard = 0;
@@ -1463,17 +1465,52 @@ export function findTrackCubeDeliveries(
     let exitEdge = st.exitEdge;
     let sectionOwner = st.sectionOwner;
     const ownerLocked = st.ownerLocked;
+    const linkCount = st.linkCount;
     const pathCoords = [...st.pathCoords];
 
     for (let steps = 0; steps < 64; steps++) {
       const nextCoord = getNeighborHex(current, exitEdge);
       const key = hexToKey(nextCoord);
 
-      // 도시 도달 → 색 일치하면 배달 후보
+      // 도시 도달
       const city = board.cities.find(c => hexCoordsEqual(c.coord, nextCoord));
       if (city) {
-        if (city.color === cubeColor && !deliveries.some(d => d.city.id === city.id)) {
-          deliveries.push({ city, pathCoords: [...pathCoords], sectionOwner });
+        // 같은 색 도시 → 배달 후보 + 종료 (룰: 같은 색 도시 도착 시 이동 멈춤).
+        // 단 링크 수가 엔진 레벨 이하여야 배달 가능 (엔진 = 이동 가능 링크 수)
+        if (city.color === cubeColor) {
+          if (linkCount <= engineLevel) {
+            // 경로의 상대 철도 경유 수 — 적을수록 자기 철도 위주 (배달자 지정 시에만 의미)
+            const oppLinks = playerId === null ? 0 : pathCoords.filter(pc => {
+              const t = board.trackTiles.find(tt => hexCoordsEqual(tt.coord, pc));
+              return t && t.owner !== null && t.owner !== playerId;
+            }).length;
+            const existing = deliveries.find(d => d.city.id === city.id);
+            if (!existing) {
+              deliveries.push({ city, pathCoords: [...pathCoords], sectionOwner, oppLinks });
+            } else if (oppLinks < existing.oppLinks) {
+              // 같은 도시에 상대 철도 경유가 더 적은 경로 발견 → 교체 (자기 철도 우선)
+              existing.pathCoords = [...pathCoords];
+              existing.sectionOwner = sectionOwner;
+              existing.oppLinks = oppLinks;
+            }
+          }
+          break;
+        }
+        // 다른 색 도시 → 통과 (도시는 모든 변이 연결됨, 한 번만 방문). 너머 같은 색 도시로 계속 탐색.
+        // 엔진 레벨을 이미 넘었으면 더 통과해봐야 배달 불가 → 중단
+        if (linkCount >= engineLevel) break;
+        if (visited.has(key)) break;
+        visited.add(key);
+        const cityPath = [...pathCoords, nextCoord];
+        for (let e = 0; e < 6; e++) {
+          if (e === getOppositeEdge(exitEdge)) continue; // 들어온 변 제외
+          const beyond = getNeighborHex(nextCoord, e);
+          if (visited.has(hexToKey(beyond))) continue;
+          const bTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, beyond));
+          const opp = getOppositeEdge(e);
+          if (bTrack?.edges.includes(opp) || bTrack?.secondaryEdges?.includes(opp)) {
+            stack.push({ current: nextCoord, exitEdge: e, pathCoords: cityPath, sectionOwner, ownerLocked: true, linkCount: linkCount + 1 });
+          }
         }
         break;
       }
@@ -1484,6 +1521,7 @@ export function findTrackCubeDeliveries(
         const entrySpurEdge = getOppositeEdge(exitEdge);
         const spurs = (board.townSpurs ?? []).filter(sp => hexCoordsEqual(sp.townCoord, nextCoord));
         if (!spurs.some(sp => sp.edge === entrySpurEdge)) break; // 진입 변에 가닥 없음 — 연결 안 됨
+        if (linkCount >= engineLevel) break; // 엔진 레벨 초과 — 더 통과 불가
         if (visited.has(key)) break;
         visited.add(key);
         const townPath = [...pathCoords, nextCoord];
@@ -1500,6 +1538,7 @@ export function findTrackCubeDeliveries(
               pathCoords: townPath,
               sectionOwner,
               ownerLocked: true,
+              linkCount: linkCount + 1,
             });
           }
         }

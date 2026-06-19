@@ -45,8 +45,9 @@ export interface MapRuleConfig {
   /** 셋업: 도시 큐브 대신 평지/강 헥스마다 큐브 1개 배치 (St. Lucia).
    *  건설 시 그 큐브는 트랙 위로 올라가며, 미완성 링크여도 배달 가능. */
   hexCubeSetup: boolean;
-  /** 첫 트랙을 마을 인접에도 허용 (도시가 없는 맵 — St. Lucia는 도시화 전까지 도시 0개) */
-  townsAnchorFirstTrack: boolean;
+  /** AI가 1턴에 무조건 도시화를 선택 (도시 0개로 시작하는 맵 — St. Lucia는
+   *  도시화한 도시에 인접해야 첫 트랙 건설 가능하므로 1턴 도시화가 건설의 전제). */
+  forceFirstTurnUrbanization: boolean;
 }
 
 export const DEFAULT_MAP_RULES: MapRuleConfig = {
@@ -55,7 +56,7 @@ export const DEFAULT_MAP_RULES: MapRuleConfig = {
   firstSeatCost: 0,
   disabledActions: [],
   hexCubeSetup: false,
-  townsAnchorFirstTrack: false,
+  forceFirstTurnUrbanization: false,
 };
 
 /**
@@ -149,7 +150,7 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
       // 공식 맵 시트: "Turn Order Action: Not available" / "Production Action: Not available"
       disabledActions: ['production', 'turnOrder'],
       hexCubeSetup: true,          // 평지/강 헥스마다 큐브 1개 (도시 큐브 없음)
-      townsAnchorFirstTrack: true, // 도시가 없는 맵 — 첫 트랙은 마을 인접 허용
+      forceFirstTurnUrbanization: true, // 첫 트랙은 도시 인접만 — 1턴엔 도시화 선택자만 건설 가능
     },
     createBoardState: createStLuciaBoardState,
   },

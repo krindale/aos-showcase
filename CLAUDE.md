@@ -411,6 +411,9 @@ setAllDebug(true);                   // 모든 로그 on/off
 
 - `tryDirectPathBuild` (buildTrack.ts): A* 최적 경로(상대 트랙 회피, 자사 트랙 0.1 우대)를 따라
   frontier(출발지에서 연속된 자사 트랙 끝) 다음 칸에 정확한 엣지로 건설
+- **첫 트랙 방향(2026-06-18)**: 자사 트랙이 없을 때 경로가 `마을→도시` 방향이면 source/target을
+  교환해 **도시 끝에서부터** 건설한다. 첫 트랙은 도시 인접만 허용되므로(정규 룰), 마을 쪽부터
+  깔면 `validateFirstTrackRule` 실패로 skip된다 (St. Lucia 1턴 도시화 후 건설 안 되던 버그)
 - 엣지 비호환/실패 좌표는 avoidCoords에 넣어 최대 3회 재탐색
 - 상대 단순 트랙 위 복합 트랙(교차/공존) 건설 처리 포함
 - 점수 기반 후보 평가 시스템(evaluateTrackForRoute 매직넘버 체계)은 2026-06 재설계에서 제거됨
@@ -427,9 +430,13 @@ setAllDebug(true);                   // 모든 로그 on/off
 - **맵 룰 분리** (`src/utils/mapRegistry.ts`의 MapRuleConfig): `skipGoodsGrowth`,
   `alternateTurnOrder`(경매 대신 교대 선공권 $5), `firstSeatCost`, `disabledActions`
   (production/turnOrder), `hexCubeSetup`(헥스 위 큐브 38개, 마을 제외),
-  `townsAnchorFirstTrack`(도시 0 맵의 첫 트랙 마을 앵커 — 건설 검증과 UI 시작점 선택
-  `isValidConnectionPoint`/`getBuildableNeighbors`의 `allowTownAnchor` 파라미터 모두 지원).
+  `forceFirstTurnUrbanization`(AI가 1턴에 무조건 도시화 — 아래 첫 트랙 규칙의 전제).
   **게임 엔진에 mapId 분기 금지** — 플래그만
+- **첫 트랙은 도시 인접만** (정규 룰, BGG 디자이너 Ted Alspach 공식 답변): St. Lucia는
+  시작 도시 0개라 **1턴엔 Urbanization을 선택해 도시를 만든 플레이어만 (그 도시 인접) 건설** 가능.
+  도시화 못한 플레이어는 1턴 건설 불가(룰상 정상, 의도된 불이익). 2턴부터 도시 존재 → 정상.
+  → AI는 `forceFirstTurnUrbanization && currentTurn===1`이면 `selectAction`에서 도시화 강제.
+  (구 `townsAnchorFirstTrack`/`allowTownAnchor` 마을 앵커 허용은 룰 위반이라 **제거됨**)
 - **트랙 큐브 배달**: 트랙 위 큐브를 미완성 링크여도 같은 색 도시로 배달 (`findTrackCubeDeliveries`).
   수입은 시작 구간(미완성이어도) 소유자 +1 **그리고** 이후 경유하는 완성 링크마다 일반 규칙대로
   소유자 +1 (예: 구간→마을→도시 = +2). UI는 `selectCube('track:<id>')` 컨벤션
@@ -441,19 +448,24 @@ setAllDebug(true);                   // 모든 로그 on/off
 노선이 마을에 연결되려면 **원→변 가닥(TownSpur)** 이 있어야 하며, 가닥은 실제 건설물이다.
 
 - `TownSpur { townCoord, edge, owner }` — `board.townSpurs`
-- 트랙이 마을 변에 닿게 지어지면 가닥이 **자동 동시 건설**: 건설 카운트 +1, 비용 +$1
-  (마을 연결 = 타일 1 + 가닥 1 = 카운트 2)
-- **잔여 카운트 부족 시 타일만 건설** (마을 미연결) — 다음 턴에 마을 클릭(`buildTownSpur`,
-  1카운트 + $1)으로 가닥을 완성해 연결. UI는 완성 가능한 마을에 주황 점선 테두리 표시,
-  AI는 `decideBuildTrack` 최우선 단계에서 미연결 가닥부터 완성
-- 연결된 노선 수 = 마을 안 가닥 수 (화면의 철길 토막 수 = 건설 카운트 일치)
+- **카운트 규칙 (2026-06-18 확정)**: 일반 헥스 타일 1개 = +1카운트. **가닥은 타일 건설 시
+  자동 생성되지 않는다** — 타일은 항상 1카운트만 소모하므로 수익을 위해 한 턴에 타일을 온전히
+  3개(Engineer 4개) 깔 수 있다. 마을에 닿는 타일은 미연결 상태로 둔다.
+- **마을 가닥은 마을 클릭(`buildTownSpur`)으로만 별도 건설** — 그 마을의 빠진 가닥 전부를 한 번에 연결.
+  **카운트 = 이번 턴에 그 마을 타일을 처음 변경하면 1**(가닥 개수 무관 — `builtTurn === currentTurn`),
+  지난 턴 가닥은 무관, 같은 턴에 그 마을을 또 연결하면 0카운트. 비용 가닥당 $1. 같은 턴 잔여나 다음 턴에.
+  UI는 완성 가능한 마을에 주황 점선 테두리. (예: 신도시→마을 트랙을 타일 3개로 깔고, 마을 연결은 다음 턴)
+- **AI는 타일 우선** (`decideBuildTrack`): 타일 건설을 먼저 시도하고, 더 못 깔 때만 미연결 마을을
+  `buildSpur`로 연결. → 신도시에서 타일을 최대한 짓고 마을 연결은 후순위.
+- **도시화(`placeNewCity`)는 건설 카운트와 무관** — 마을→도시 전환 시 그 마을 가닥만 제거, `builtTracksThisTurn` 불변.
+- 연결된 노선 수 = 마을 안 가닥 수 (화면 토막 수). 가닥이 2개여도 마을 진입 카운트는 1.
 - 이동/배달/완성 링크 판정 모두 **가닥이 있는 변으로만** 마을 통과/도달 인정
 - 내 가닥이 있는 마을 = 내 네트워크 → 6방향 어디로든 새 노선 시작 가능
 - 도시화 시 해당 마을의 가닥 제거 (도시는 모든 변 연결)
 - **도시화된 마을(`town.newCityColor !== null`)은 모든 마을 판정에서 제외** — towns 배열에
   남아 있으므로 `t.newCityColor === null` 조건 필수 (빠뜨리면 도시 연결에 가닥을 요구하는 버그)
-- 핵심 테스트: `src/store/__tests__/townHubModel.test.ts` (7 케이스),
-  `buildLimitByLog.test.ts` (게임 로그 기반 턴당 건설 제한 검증)
+- 핵심 테스트: `src/store/__tests__/townHubModel.test.ts` (15 케이스 — 가닥 카운트/첫 트랙 도시 앵커),
+  `buildLimitByLog.test.ts` (게임 로그 기반 턴당 건설 제한 검증 — St. Lucia 1턴 도시화 선점자만 건설)
 
 #### 건설 제한 시스템
 

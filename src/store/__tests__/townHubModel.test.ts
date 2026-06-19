@@ -2,12 +2,13 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { useGameStore } from '../gameStore';
 import { getBuildableNeighbors, findTrackCubeDeliveries, getConnectedNeighbors, findCompletedLinks } from '@/utils/hexGrid';
 import { playerConnectsToTown } from '@/utils/trackValidation';
-import { TrackTile, TownSpur } from '@/types/game';
+import { TrackTile, TownSpur, City } from '@/types/game';
 
 // 마을 가닥(스퍼) 모델:
 // - 마을 헥스 안에는 트랙 "타일"이 아니라 "가닥(원→변)"이 존재
-// - 노선이 마을에 연결될 때 가닥이 함께 건설되며, 가닥도 건설 1회로 카운트 (+$1)
-// - 연결된 노선이 3개면 마을 안 가닥도 3개
+// - 노선이 마을에 연결될 때 가닥이 함께 건설된다
+// - 가닥은 비용($1)만 발생하고 턴당 건설 카운트에는 포함하지 않는다 (룰북: 카운트 단위는 헥스 트랙 타일)
+// - 첫 트랙은 도시에 인접해야 한다 (St. Lucia는 도시화한 도시 인접에만 — 테스트는 도시를 주입해 시작점 확보)
 // - 이동/배달/완성 링크는 가닥이 있는 변으로만
 describe('마을 가닥(스퍼) 모델', () => {
   const track = (id: string, col: number, row: number, edges: [number, number], owner: 'player1' | 'player2', cube?: string): TrackTile => ({
@@ -16,6 +17,10 @@ describe('마을 가닥(스퍼) 모델', () => {
   });
   const spur = (id: string, col: number, row: number, edge: number, owner: 'player1' | 'player2'): TownSpur => ({
     id, townCoord: { col, row }, edge, owner,
+  });
+  // 첫 트랙 시작점 확보용 도시 (St. Lucia는 시작 도시 0개라 테스트에서 주입)
+  const city = (id: string, col: number, row: number): City => ({
+    id, name: id, coord: { col, row }, color: 'red', cubes: [],
   });
 
   beforeEach(() => {
@@ -33,46 +38,48 @@ describe('마을 가닥(스퍼) 모델', () => {
     expect(useGameStore.getState().canBuildTrack({ col: 5, row: 3 }, [0, 3])).toBe(false);
   });
 
-  it('마을 변에 닿는 건설은 가닥이 함께 건설된다 (카운트 2, 비용 +$1)', () => {
+  it('마을 변에 닿는 건설: 가닥 자동 생성 안 함 — 타일만 1카운트 (미연결)', () => {
     const s0 = useGameStore.getState();
-    // 첫 트랙: 마을 BI(5,3) 북서쪽 (5,2)에 [1,4] — edge 1(SE)이 마을 변에 닿음 (townsAnchorFirstTrack)
+    // 첫 트랙: 도시 C(4,1)에 인접한 (5,2)에 [1,4] — edge 4(NW)가 도시에, edge 1(SE)이 마을 BI(5,3)에 닿음
     useGameStore.setState({
       currentPhase: 'buildTrack',
       currentPlayer: 'player1',
       players: { ...s0.players, player1: { ...s0.players.player1, cash: 20 } },
       phaseState: { ...s0.phaseState, builtTracksThisTurn: 0, maxTracksThisTurn: 3 },
-      board: { ...s0.board, trackTiles: [] },
+      board: { ...s0.board, cities: [...s0.board.cities, city('C', 4, 1)], trackTiles: [] },
     });
     const ok = useGameStore.getState().buildTrack({ col: 5, row: 2 }, [1, 4]);
     expect(ok).toBe(true);
     const f = useGameStore.getState();
-    expect(f.phaseState.builtTracksThisTurn).toBe(2); // 타일 1 + 가닥 1
-    expect((f.board.townSpurs ?? []).length).toBe(1);
-    expect(f.players.player1.cash).toBe(20 - 2 - 1); // 평지 $2 + 가닥 $1
-    expect(playerConnectsToTown({ col: 5, row: 3 }, f.board, 'player1')).toBe(true);
+    expect(f.phaseState.builtTracksThisTurn).toBe(1); // 타일만 (가닥 자동 생성 없음)
+    expect((f.board.townSpurs ?? []).length).toBe(0); // 가닥 미생성 = 마을 미연결
+    expect(f.players.player1.cash).toBe(20 - 2); // 평지 $2만 (가닥 비용 없음)
+    expect(playerConnectsToTown({ col: 5, row: 3 }, f.board, 'player1')).toBe(false); // 미연결
+    // 마을 클릭(buildTownSpur)으로 별도 연결 가능
+    expect(useGameStore.getState().canBuildTownSpur({ col: 5, row: 3 })).toBe(true);
   });
 
-  it('잔여 카운트가 1뿐이면 마을 방향 타일만 건설된다 (가닥 없음 = 미연결)', () => {
+  it('잔여 카운트가 1뿐이면 마을 진입을 못 해 타일만 건설된다 (미연결)', () => {
     const s0 = useGameStore.getState();
+    // 도시 C(6,2)에 인접한 (6,3)에 [3,4] — edge 4(NW)가 도시에, edge 3(W)이 마을 BI(5,3)에 닿음
     useGameStore.setState({
       currentPhase: 'buildTrack',
       currentPlayer: 'player1',
       players: { ...s0.players, player1: { ...s0.players.player1, cash: 20 } },
-      phaseState: { ...s0.phaseState, builtTracksThisTurn: 2, maxTracksThisTurn: 3 },
-      board: { ...s0.board, trackTiles: [] },
+      phaseState: { ...s0.phaseState, builtTracksThisTurn: 2, maxTracksThisTurn: 3 }, // 잔여 1뿐
+      board: { ...s0.board, cities: [...s0.board.cities, city('C', 6, 2)], trackTiles: [] },
     });
-    // (6,3)의 edge 3(W) 이웃 = 마을 BI(5,3) — 타일은 허용, 가닥은 카운트 부족으로 미건설
-    expect(useGameStore.getState().canBuildTrack({ col: 6, row: 3 }, [3, 0])).toBe(true);
-    const ok = useGameStore.getState().buildTrack({ col: 6, row: 3 }, [3, 0]);
+    expect(useGameStore.getState().canBuildTrack({ col: 6, row: 3 }, [3, 4])).toBe(true);
+    const ok = useGameStore.getState().buildTrack({ col: 6, row: 3 }, [3, 4]);
     expect(ok).toBe(true);
     const f = useGameStore.getState();
-    expect(f.phaseState.builtTracksThisTurn).toBe(3); // 타일 1만 카운트
-    expect((f.board.townSpurs ?? []).length).toBe(0); // 가닥 없음
-    expect(f.players.player1.cash).toBe(20 - 4); // 산 $4만 (가닥 $1 없음)
+    expect(f.phaseState.builtTracksThisTurn).toBe(3); // 타일 1만 (마을 진입 슬롯 부족 → 미연결)
+    expect((f.board.townSpurs ?? []).length).toBe(0); // 가닥 미건설
+    expect(f.players.player1.cash).toBe(20 - 4); // 지형 비용만 (가닥 $1 없음)
     expect(playerConnectsToTown({ col: 5, row: 3 }, f.board, 'player1')).toBe(false); // 미연결
   });
 
-  it('미연결 타일은 다음 턴 buildTownSpur로 연결을 완성한다 (1카운트 + $1)', () => {
+  it('미연결 마을은 buildTownSpur로 연결 완성 (마을 첫 진입 1카운트 + $1)', () => {
     const s0 = useGameStore.getState();
     // 지난 턴 카운트 부족으로 타일만 지어진 상태 재현: (6,3) [3,0] — edge 3이 마을 BI(5,3) 변에 닿음
     useGameStore.setState({
@@ -86,7 +93,7 @@ describe('마을 가닥(스퍼) 모델', () => {
     const ok = useGameStore.getState().buildTownSpur({ col: 5, row: 3 });
     expect(ok).toBe(true);
     const f = useGameStore.getState();
-    expect(f.phaseState.builtTracksThisTurn).toBe(1); // 가닥 1카운트
+    expect(f.phaseState.builtTracksThisTurn).toBe(1); // 마을 첫 진입 1카운트
     expect((f.board.townSpurs ?? []).length).toBe(1);
     expect(f.players.player1.cash).toBe(20 - 1); // 가닥 $1
     expect(playerConnectsToTown({ col: 5, row: 3 }, f.board, 'player1')).toBe(true); // 연결 완성
@@ -94,17 +101,29 @@ describe('마을 가닥(스퍼) 모델', () => {
     expect(useGameStore.getState().canBuildTownSpur({ col: 5, row: 3 })).toBe(false);
   });
 
-  it('첫 트랙: 가닥 없는 마을도 시작점으로 선택할 수 있다 (마을 앵커 맵)', () => {
+  it('첫 트랙: 도시를 시작점으로 선택할 수 있다 (마을은 시작점 아님)', () => {
     const s0 = useGameStore.getState();
     useGameStore.setState({
       currentPhase: 'buildTrack',
       currentPlayer: 'player1',
-      board: { ...s0.board, trackTiles: [], townSpurs: [] },
+      board: { ...s0.board, cities: [...s0.board.cities, city('C', 5, 3)], trackTiles: [], townSpurs: [] },
     });
-    useGameStore.getState().selectSourceHex({ col: 5, row: 3 }); // 마을 BI — 트랙/가닥 없음
+    // 도시는 시작점
+    useGameStore.getState().selectSourceHex({ col: 5, row: 3 });
     const ui = useGameStore.getState().ui;
     expect(ui.buildMode).toBe('source_selected');
     expect(ui.buildableNeighbors.length).toBeGreaterThan(0);
+  });
+
+  it('첫 트랙: 가닥 없는 마을은 시작점으로 선택할 수 없다 (도시 인접만 허용)', () => {
+    const s0 = useGameStore.getState();
+    useGameStore.setState({
+      currentPhase: 'buildTrack',
+      currentPlayer: 'player1',
+      board: { ...s0.board, cities: [], trackTiles: [], townSpurs: [] },
+    });
+    useGameStore.getState().selectSourceHex({ col: 5, row: 3 }); // 마을 BI — 트랙/가닥/도시 없음
+    expect(useGameStore.getState().ui.buildMode).not.toBe('source_selected');
   });
 
   it('실행 취소: 트랙 건설을 되돌리면 보드/현금/카운트가 복원된다', () => {
@@ -114,7 +133,7 @@ describe('마을 가닥(스퍼) 모델', () => {
       currentPlayer: 'player1',
       players: { ...s0.players, player1: { ...s0.players.player1, cash: 20 } },
       phaseState: { ...s0.phaseState, builtTracksThisTurn: 0, maxTracksThisTurn: 3 },
-      board: { ...s0.board, trackTiles: [], townSpurs: [] },
+      board: { ...s0.board, cities: [...s0.board.cities, city('C', 4, 1)], trackTiles: [], townSpurs: [] },
     });
     expect(useGameStore.getState().buildTrack({ col: 5, row: 2 }, [1, 4])).toBe(true); // 타일+가닥
     expect(useGameStore.getState().undoCount).toBeGreaterThan(0);
@@ -135,7 +154,7 @@ describe('마을 가닥(스퍼) 모델', () => {
       currentPlayer: 'player1',
       players: { ...s0.players, player1: { ...s0.players.player1, cash: 20 } },
       phaseState: { ...s0.phaseState, builtTracksThisTurn: 0, maxTracksThisTurn: 3 },
-      board: { ...s0.board, trackTiles: [], townSpurs: [] },
+      board: { ...s0.board, cities: [...s0.board.cities, city('C', 4, 1)], trackTiles: [], townSpurs: [] },
     });
     useGameStore.getState().buildTrack({ col: 5, row: 2 }, [1, 4]);
     expect(useGameStore.getState().undoCount).toBeGreaterThan(0);
@@ -143,17 +162,97 @@ describe('마을 가닥(스퍼) 모델', () => {
     expect(useGameStore.getState().undoCount).toBe(0);
   });
 
-  it('카운트 소진 시 buildTownSpur도 거부된다', () => {
+  it('카운트 소진 시 마을 첫 진입 buildTownSpur는 거부된다 (마을 진입도 1카운트)', () => {
     const s0 = useGameStore.getState();
     useGameStore.setState({
       currentPhase: 'buildTrack',
       currentPlayer: 'player1',
       players: { ...s0.players, player1: { ...s0.players.player1, cash: 20 } },
-      phaseState: { ...s0.phaseState, builtTracksThisTurn: 3, maxTracksThisTurn: 3 },
+      phaseState: { ...s0.phaseState, builtTracksThisTurn: 3, maxTracksThisTurn: 3 }, // 카운트 소진
+      board: { ...s0.board, trackTiles: [track('t1', 6, 3, [3, 0], 'player1')], townSpurs: [] },
+    });
+    // 마을 BI 첫 진입은 1카운트 필요 → 소진 상태라 거부
+    expect(useGameStore.getState().canBuildTownSpur({ col: 5, row: 3 })).toBe(false);
+    expect(useGameStore.getState().buildTownSpur({ col: 5, row: 3 })).toBe(false);
+  });
+
+  it('현금이 부족하면 buildTownSpur는 거부된다', () => {
+    const s0 = useGameStore.getState();
+    useGameStore.setState({
+      currentPhase: 'buildTrack',
+      currentPlayer: 'player1',
+      players: { ...s0.players, player1: { ...s0.players.player1, cash: 0 } },
+      phaseState: { ...s0.phaseState, builtTracksThisTurn: 0, maxTracksThisTurn: 3 },
       board: { ...s0.board, trackTiles: [track('t1', 6, 3, [3, 0], 'player1')], townSpurs: [] },
     });
     expect(useGameStore.getState().canBuildTownSpur({ col: 5, row: 3 })).toBe(false);
-    expect(useGameStore.getState().buildTownSpur({ col: 5, row: 3 })).toBe(false);
+  });
+
+  it('이번 턴 한 마을에 가닥 2개를 한 번에 연결 = 카운트 1 (타일 1개 변경)', () => {
+    const s0 = useGameStore.getState();
+    // 마을 BI(5,3) 양쪽: (4,3) 동쪽 변·(6,3) 서쪽 변이 모두 마을에 닿음, 가닥 없음(미연결)
+    useGameStore.setState({
+      currentPhase: 'buildTrack',
+      currentPlayer: 'player1',
+      currentTurn: 1,
+      players: { ...s0.players, player1: { ...s0.players.player1, cash: 20 } },
+      phaseState: { ...s0.phaseState, builtTracksThisTurn: 0, maxTracksThisTurn: 3 },
+      board: {
+        ...s0.board,
+        trackTiles: [track('t-w', 4, 3, [0, 3], 'player1'), track('t-e', 6, 3, [3, 0], 'player1')],
+        townSpurs: [],
+      },
+    });
+    const ok = useGameStore.getState().buildTownSpur({ col: 5, row: 3 });
+    expect(ok).toBe(true);
+    const f = useGameStore.getState();
+    expect(f.phaseState.builtTracksThisTurn).toBe(1); // 가닥 2개여도 타일 1개 변경 = 카운트 1
+    expect((f.board.townSpurs ?? []).length).toBe(2); // 가닥은 2개 연결
+    expect(f.players.player1.cash).toBe(20 - 2); // 가닥당 $1 × 2
+  });
+
+  it('카운트 3(소진)이어도 같은 턴 이미 연결한 마을은 추가 가닥 연결 가능 (0카운트)', () => {
+    const s0 = useGameStore.getState();
+    // 마을 BI(5,3): 이번 턴(turn 1) 서쪽(edge3) 가닥 이미 연결됨. (6,3)이 동쪽 변에 닿음(미연결).
+    useGameStore.setState({
+      currentPhase: 'buildTrack',
+      currentPlayer: 'player1',
+      currentTurn: 1,
+      players: { ...s0.players, player1: { ...s0.players.player1, cash: 20 } },
+      phaseState: { ...s0.phaseState, builtTracksThisTurn: 3, maxTracksThisTurn: 3 }, // 카운트 소진
+      board: {
+        ...s0.board,
+        trackTiles: [track('t-a', 4, 3, [0, 3], 'player1'), track('t-b', 6, 3, [3, 0], 'player1')],
+        townSpurs: [{ id: 'sp-a', townCoord: { col: 5, row: 3 }, edge: 3, owner: 'player1', builtTurn: 1 }],
+      },
+    });
+    // 카운트 3이지만 이번 턴 이미 변경한 마을 → 추가 가닥 0카운트 → 가능해야 함
+    expect(useGameStore.getState().canBuildTownSpur({ col: 5, row: 3 })).toBe(true);
+    const ok = useGameStore.getState().buildTownSpur({ col: 5, row: 3 });
+    expect(ok).toBe(true);
+    expect(useGameStore.getState().phaseState.builtTracksThisTurn).toBe(3); // 0카운트 (변화 없음)
+    expect((useGameStore.getState().board.townSpurs ?? []).length).toBe(2); // 가닥 2개
+  });
+
+  it('지난 턴 가닥 있는 마을에 이번 턴 가닥 추가 = 카운트 1 (이번 턴 첫 변경)', () => {
+    const s0 = useGameStore.getState();
+    // 마을 BI(5,3): 지난 턴(turn 0) 동쪽 가닥 1개. 이번 턴(turn 1) (4,3)이 마을 변에 닿아 미연결
+    useGameStore.setState({
+      currentPhase: 'buildTrack',
+      currentPlayer: 'player1',
+      currentTurn: 1,
+      players: { ...s0.players, player1: { ...s0.players.player1, cash: 20 } },
+      phaseState: { ...s0.phaseState, builtTracksThisTurn: 0, maxTracksThisTurn: 3 },
+      board: {
+        ...s0.board,
+        trackTiles: [track('t-w', 4, 3, [0, 3], 'player1')],
+        townSpurs: [{ id: 'sp-prev', townCoord: { col: 5, row: 3 }, edge: 0, owner: 'player1', builtTurn: 0 }],
+      },
+    });
+    const ok = useGameStore.getState().buildTownSpur({ col: 5, row: 3 });
+    expect(ok).toBe(true);
+    const f = useGameStore.getState();
+    expect(f.phaseState.builtTracksThisTurn).toBe(1); // 지난 턴 가닥과 무관, 이번 턴 첫 변경 = 카운트 1
   });
 
   it('가닥이 있는 마을에서 6방향으로 새 노선을 시작할 수 있다', () => {
@@ -216,6 +315,8 @@ describe('마을 가닥(스퍼) 모델', () => {
     useGameStore.setState({
       currentPhase: 'moveGoods',
       currentPlayer: 'player1',
+      // 시작 구간 + 마을 경유 = 2링크이므로 엔진 레벨 2 필요 (엔진 = 이동 가능 링크 수)
+      players: { ...s0.players, player1: { ...s0.players.player1, engineLevel: 2 } },
       phaseState: { ...s0.phaseState, moveGoodsRound: 1, playerMoves: { ...s0.phaseState.playerMoves, player1: false, player2: false } },
       board: {
         ...s0.board,

@@ -50,8 +50,7 @@ export function townSpurAt(
 export function isValidConnectionPoint(
   coord: HexCoord,
   board: BoardState,
-  currentPlayer: PlayerId,
-  allowTownAnchor: boolean = false
+  currentPlayer: PlayerId
 ): boolean {
   // 도시인 경우 - 항상 유효한 연결점
   const isCity = board.cities.some(c => hexCoordsEqual(c.coord, coord));
@@ -68,15 +67,6 @@ export function isValidConnectionPoint(
   // 내 트랙이 진입해 있는 마을 - 마을은 진입 트랙을 모두 연결하는 허브
   if (playerConnectsToTown(coord, board, currentPlayer)) return true;
 
-  // 첫 트랙 마을 앵커 맵(도시 0, St. Lucia): 아직 트랙이 없으면 아무 마을이나 시작점
-  if (
-    allowTownAnchor &&
-    !playerHasTrack(board, currentPlayer) &&
-    board.towns.some(t => hexCoordsEqual(t.coord, coord) && t.newCityColor === null)
-  ) {
-    return true;
-  }
-
   return false;
 }
 
@@ -88,20 +78,14 @@ export function isValidConnectionPoint(
 export function validateFirstTrackRule(
   targetCoord: HexCoord,
   edges: [number, number],
-  board: BoardState,
-  allowTownAnchor: boolean = false
+  board: BoardState
 ): boolean {
-  // 타겟 헥스의 각 엣지에서 이웃 확인
+  // 타겟 헥스의 각 엣지에서 이웃 확인 — 첫 트랙은 도시에 인접해야 함
+  // (St. Lucia: 시작 도시 0개 → 1턴엔 도시화로 만든 도시 인접에만 건설 가능)
   for (const edge of edges) {
     const neighbor = getNeighborHex(targetCoord, edge);
     const isCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
     if (isCity) return true;
-
-    // 마을 앵커 허용 맵 (St. Lucia: 도시가 없어 마을이 시작점) — 트랙 변이 마을에 닿으면 연결
-    if (allowTownAnchor) {
-      const isTownNeighbor = board.towns.some(t => hexCoordsEqual(t.coord, neighbor));
-      if (isTownNeighbor) return true;
-    }
   }
   return false;
 }

@@ -24,7 +24,6 @@ import {
 } from '../strategy/analyzer';
 import type { DeliveryRoute } from '../strategy/types';
 import { debugLog } from '@/utils/debugConfig';
-import { getMapRules } from '@/utils/mapRegistry';
 
 export type TrackBuildDecision =
   | { action: 'build'; coord: HexCoord; edges: [number, number] }
@@ -74,22 +73,10 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     return { action: 'skip' };
   }
 
-  // ===== 0. 미연결 마을 가닥 완성 최우선 =====
-  // 지난 턴 카운트 부족으로 타일만 짓고 마을과 미연결된 트랙이 있으면
-  // $1 + 1카운트로 링크를 완성한다 (미완성 트랙 = 0VP이므로 거의 항상 최선)
-  if (player.cash >= 1 /* TOWN_SPUR_COST */) {
-    const danglingTown = findDanglingTownConnection(state, playerId);
-    if (danglingTown) {
-      debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 미연결 마을 가닥 완성 (${danglingTown.col},${danglingTown.row})`);
-      return { action: 'buildSpur', townCoord: danglingTown };
-    }
-  }
-
-  // 현금이 최소 비용보다 적으면 스킵
-  if (player.cash < GAME_CONSTANTS.PLAIN_TRACK_COST) {
-    debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 현금 부족 ($${player.cash})`);
-    return { action: 'skip' };
-  }
+  // ===== 1. 타일 건설 우선 (수익 위해 타일을 최대한 — 마을 가닥은 타일 후순위로) =====
+  // 마을에 닿아도 가닥은 자동 생성되지 않으므로(미연결), 가닥 연결은 타일을 다 짓고
+  // 남는 카운트나 다음 턴에 처리한다. 타일 비용 이상일 때만 타일 건설을 시도한다.
+  if (player.cash >= GAME_CONSTANTS.PLAIN_TRACK_COST) {
 
   // ===== 1. 이번 턴 목표 경로 결정 =====
   let targetRoute: DeliveryRoute | null;
@@ -134,8 +121,19 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
       return decision;
     }
   }
+  } // ===== 타일 건설 시도 끝 (현금이 타일 비용 미만이면 이 블록을 건너뛴다) =====
 
-  // ===== 4. 모든 후보 실패 → 스킵 (미완성 트랙 = 0VP, 무리한 건설은 돈 낭비) =====
+  // ===== 2. 타일을 더 못 깔면(경로 없음/현금 부족) 미연결 마을 가닥을 연결한다 (타일 후순위) =====
+  // 타일을 최대한 짓고 남는 카운트로만 마을을 연결한다. 가닥은 $1 + 마을 진입 1카운트.
+  if (player.cash >= 1 /* TOWN_SPUR_COST */) {
+    const danglingTown = findDanglingTownConnection(state, playerId);
+    if (danglingTown) {
+      debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 미연결 마을 가닥 완성 (${danglingTown.col},${danglingTown.row})`);
+      return { action: 'buildSpur', townCoord: danglingTown };
+    }
+  }
+
+  // ===== 3. 모든 시도 실패 → 스킵 (미완성 트랙 = 0VP, 무리한 건설은 돈 낭비) =====
   debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 가능한 경로 없음 → 스킵`);
   return { action: 'skip' };
 }
@@ -362,12 +360,23 @@ function tryDirectPathBuild(
 ): TrackBuildDecision | null {
   const { board } = state;
   const player = state.players[playerId];
-  const sourceCity = findStopById(board, route.from);
-  const targetCity = findStopById(board, route.to);
+  let sourceCity = findStopById(board, route.from);
+  let targetCity = findStopById(board, route.to);
   if (!sourceCity || !targetCity || !player) return null;
 
   const playerTracks = board.trackTiles.filter(t => t.owner === playerId);
   const hasExistingTrack = playerTracks.length > 0;
+
+  // 첫 트랙은 도시 인접에서만 시작할 수 있다 (정규 룰). 경로가 마을→도시 방향이면
+  // 마을 쪽 첫 칸은 도시 비인접이라 건설이 막히므로, source/target을 교환해
+  // 도시 끝에서부터 건설을 시작한다 (배달 경로는 양방향 동일 — St. Lucia 도시화 1턴 등).
+  if (!hasExistingTrack) {
+    const sourceIsCity = board.cities.some(c => hexCoordsEqual(c.coord, sourceCity!.coord));
+    const targetIsCity = board.cities.some(c => hexCoordsEqual(c.coord, targetCity!.coord));
+    if (!sourceIsCity && targetIsCity) {
+      [sourceCity, targetCity] = [targetCity, sourceCity];
+    }
+  }
 
   // 자사 트랙 엣지 비호환 시 회피 좌표를 추가하며 최대 3회 재탐색
   const avoidCoords: HexCoord[] = [];
@@ -651,7 +660,7 @@ function tryDirectPathBuild(
         return null;
       }
     } else {
-      if (!validateFirstTrackRule(nextCoord, edges, board, getMapRules(state.mapId).townsAnchorFirstTrack)) {
+      if (!validateFirstTrackRule(nextCoord, edges, board)) {
         debugLog.trackBuilding(`[직접 경로] (${nextCoord.col},${nextCoord.row}) edges=[${edges}] 첫 트랙 규칙 실패`);
         return null;
       }

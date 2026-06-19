@@ -22,7 +22,7 @@ import {
   getMovementPathSVG,
   getAnimationPoints,
 } from '@/utils/hexGrid';
-import { getMapData, getMapRules } from '@/utils/mapRegistry';
+import { getMapData } from '@/utils/mapRegistry';
 import { isValidConnectionPoint as isValidConnectionPointUtil } from '@/utils/trackValidation';
 import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId } from '@/types/game';
 
@@ -214,12 +214,12 @@ export default function GameBoard() {
     return cache;
   }, [board.trackTiles, isFlat]);
 
-  // 헥스가 유효한 연결점인지 확인 (도시, 내 트랙, 내 트랙이 진입한 마을, 또는 첫 트랙 마을 앵커)
+  // 헥스가 유효한 연결점인지 확인 (도시, 내 트랙, 내 트랙이 진입한 마을)
   const isValidConnectionPoint = useCallback(
     (coord: HexCoord) => {
-      return isValidConnectionPointUtil(coord, board, currentPlayer, getMapRules(mapId).townsAnchorFirstTrack);
+      return isValidConnectionPointUtil(coord, board, currentPlayer);
     },
-    [board, currentPlayer, mapId]
+    [board, currentPlayer]
   );
 
   // 헥스가 하이라이트된 건설 대상인지 확인 (source_selected 모드)
@@ -243,8 +243,9 @@ export default function GameBoard() {
   const handleHexClick = useCallback(
     (coord: HexCoord) => {
       if (currentPhase === 'buildTrack') {
-        // 미연결 가닥 완성: 내 트랙이 변에 닿아 있으나 가닥이 없는 마을 클릭 → 가닥 건설 (1카운트 + $1)
-        if ((ui.buildMode === 'idle' || ui.buildMode === 'source_selected') && canBuildTownSpur(coord)) {
+        // 미연결 가닥 완성: 내 트랙이 변에 닿아 있으나 가닥이 없는 마을 클릭 → 가닥 건설.
+        // buildMode와 무관하게 최우선 — 같은 턴에 이미 일부 연결된 마을의 추가 변도 연결 가능.
+        if (canBuildTownSpur(coord)) {
           buildTownSpur(coord);
           return;
         }
@@ -258,6 +259,30 @@ export default function GameBoard() {
           // 같은 헥스 클릭 → 선택 취소
           if (ui.sourceHex && hexCoordsEqual(coord, ui.sourceHex)) {
             resetBuildMode();
+            return;
+          }
+
+          // 출발점이 마을이면: 클릭한 인접 헥스 방향에 따라
+          //  - 가닥 없는 변 → 마을 가닥만 단독 건설 (트랙 없이)
+          //  - 가닥 있는 변 → 그 방향으로 트랙(노선) 이어가기
+          const src = ui.sourceHex;
+          const srcIsTown = src && board.towns.some(t => hexCoordsEqual(t.coord, src) && t.newCityColor === null);
+          if (srcIsTown && src) {
+            for (let e = 0; e < 6; e++) {
+              if (hexCoordsEqual(getNeighborHex(src, e), coord)) {
+                const spurExists = (board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, src) && sp.edge === e);
+                if (spurExists) {
+                  // 이미 가닥이 있는 변 → 그 헥스로 트랙(노선) 이어가기
+                  if (isBuildableTarget(coord)) { selectTargetHex(coord); return; }
+                } else {
+                  // 가닥 없는 변 → 가닥만 단독 건설
+                  if (buildTownSpur(src, e)) resetBuildMode();
+                  return;
+                }
+              }
+            }
+            // 인접이 아니면 다른 연결점 재선택
+            if (isValidConnectionPoint(coord)) selectSourceHex(coord);
             return;
           }
 

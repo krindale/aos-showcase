@@ -77,31 +77,9 @@ export const TUTORIAL_GAME_CONFIG = {
   defaultAI: { playerIndex: 1, name: '컴퓨터-기차' } as AIPlayerConfig,
 };
 
-// 테스트에서 사용할 수 있도록 export
-/**
- * 새 트랙(edges)이 마을 변에 닿을 때 함께 건설해야 하는 가닥(스퍼) 목록
- * (해당 변에 가닥이 아직 없는 경우만 — 가닥도 건설 1회로 카운트, $1)
- */
+// 마을 가닥(스퍼) 건설 비용 — 가닥은 타일 건설 시 자동 생성되지 않고,
+// 마을 클릭(buildTownSpur)으로만 별도 건설된다 (첫 진입 1카운트, 비용 가닥당 $1).
 const TOWN_SPUR_COST = 1;
-function computeNewTownSpurs(
-  coord: HexCoord,
-  edges: number[],
-  board: BoardState
-): { townCoord: HexCoord; edge: number }[] {
-  const spurs: { townCoord: HexCoord; edge: number }[] = [];
-  for (const edge of edges) {
-    const nb = getNeighborHex(coord, edge);
-    // 도시화된 마을은 도시 — 가닥 불필요 (모든 변 연결)
-    const isTown = board.towns.some(t => hexCoordsEqual(t.coord, nb) && t.newCityColor === null);
-    if (!isTown) continue;
-    const spurEdge = getOppositeEdge(edge);
-    const exists = (board.townSpurs ?? []).some(
-      sp => hexCoordsEqual(sp.townCoord, nb) && sp.edge === spurEdge
-    );
-    if (!exists) spurs.push({ townCoord: nb, edge: spurEdge });
-  }
-  return spurs;
-}
 
 // ============================================================
 // 실행 취소(Undo): 사람 플레이어의 커밋 행동 스냅샷
@@ -513,10 +491,11 @@ interface GameStore extends GameState {
     newEdges: [number, number],
     trackType: 'crossing' | 'coexist'
   ) => boolean;
-  /** 마을 가닥(스퍼) 단독 건설 — 마을 변에 닿아 있으나 미연결인 내 트랙을 연결 (1카운트 + $1) */
-  buildTownSpur: (townCoord: HexCoord) => boolean;
-  /** 마을 가닥 단독 건설 가능 여부 */
-  canBuildTownSpur: (townCoord: HexCoord) => boolean;
+  /** 마을 가닥(스퍼) 단독 건설. edge 지정 시 그 변 가닥만(방향 선택 — 트랙 없이도 가능),
+   *  생략 시 마을에 닿은 미연결 트랙 변 전부 연결. (이번 턴 그 마을 첫 변경 1카운트 + $1) */
+  buildTownSpur: (townCoord: HexCoord, edge?: number) => boolean;
+  /** 마을 가닥 단독 건설 가능 여부 (edge 지정 시 그 변) */
+  canBuildTownSpur: (townCoord: HexCoord, edge?: number) => boolean;
 
   // --- Phase V: 물품 이동 ---
   /** 물품 이동 */
@@ -1297,7 +1276,7 @@ export const useGameStore = create<GameStore>()(
       return false;
     }
 
-    const delivery = findTrackCubeDeliveries(state.board, trackId)
+    const delivery = findTrackCubeDeliveries(state.board, trackId, state.players[state.currentPlayer]?.engineLevel ?? 1, state.currentPlayer)
       .find(d => d.city.id === destCityId);
     if (!delivery) {
       console.warn(`[moveTrackCube] 배달 불가: track=${trackId} → ${destCityId}`);
@@ -1541,9 +1520,7 @@ export const useGameStore = create<GameStore>()(
     const state = get();
     const currentPlayer = state.currentPlayer;
 
-    // 트랙 제한 확인 — 타일 자체(1카운트)만 요구.
-    // 마을 가닥은 잔여 카운트만큼만 함께 건설되며, 부족하면 타일만 배치(마을 미연결).
-    // 미연결 가닥은 다음 턴에 마을 클릭(buildTownSpur)으로 완성한다.
+    // 트랙 제한 확인 — 타일 1개만 카운트 (마을 가닥은 자동 생성 없이 마을 클릭으로 별도 건설).
     if (state.phaseState.builtTracksThisTurn + 1 > state.phaseState.maxTracksThisTurn) {
       return false;
     }
@@ -1574,7 +1551,7 @@ export const useGameStore = create<GameStore>()(
 
     if (!hasExistingTrack) {
       // 첫 트랙: 도시에 인접해야 함
-      if (!validateFirstTrackRule(coord, edges, board, getMapRules(state.mapId).townsAnchorFirstTrack)) {
+      if (!validateFirstTrackRule(coord, edges, board)) {
         return false;
       }
     } else {
@@ -1600,7 +1577,7 @@ export const useGameStore = create<GameStore>()(
       const hasExisting = playerHasTrack(board, state.currentPlayer);
       const isConnected = hasExisting
         ? validateTrackConnection(coord, edges, board, state.currentPlayer)
-        : validateFirstTrackRule(coord, edges, board, getMapRules(state.mapId).townsAnchorFirstTrack);
+        : validateFirstTrackRule(coord, edges, board);
 
       console.error(`[buildTrack 실패] ${playerForLog?.name || state.currentPlayer}:`, {
         coord: `(${coord.col},${coord.row})`,
@@ -1616,12 +1593,12 @@ export const useGameStore = create<GameStore>()(
       return false;
     }
 
-    // 마을 연결 가닥(스퍼): 새 트랙이 마을 변에 닿으면 잔여 카운트만큼만 함께 건설 (가닥도 건설 1회 + $1)
-    // 카운트 부족 시 타일만 배치 — 마을과는 미연결 상태, 다음 턴 buildTownSpur로 연결
-    const wantedSpurs = computeNewTownSpurs(coord, edges, state.board);
-    const spurBudget = Math.max(0, state.phaseState.maxTracksThisTurn - state.phaseState.builtTracksThisTurn - 1);
-    const newSpurs = wantedSpurs.slice(0, spurBudget);
-    const skippedSpurCount = wantedSpurs.length - newSpurs.length;
+    // 가닥은 타일 건설 시 자동 생성하지 않는다 — 타일만 1카운트 소모(수익 위해 타일 우선 건설).
+    // 마을에 닿는 타일은 미연결 상태로 두고, 마을 연결(가닥)은 마을 클릭(buildTownSpur)으로
+    // 별도 건설한다 (1카운트, 비용 가닥당 $1). edges는 향후 마을 연결 판정에 사용된다.
+    const newSpurs: { townCoord: HexCoord; edge: number }[] = [];
+    const townCount = 0;
+    const skippedSpurCount = 0;
 
     // 최종 하드 가드: 어떤 경로로도 턴당 제한을 초과한 건설은 불가 (위반 시도는 박제)
     if (state.phaseState.builtTracksThisTurn >= state.phaseState.maxTracksThisTurn) {
@@ -1692,7 +1669,7 @@ export const useGameStore = create<GameStore>()(
       ? state.board.hexTiles.map(h => hexCoordsEqual(h.coord, coord) ? { ...h, cube: null } : h)
       : state.board.hexTiles;
 
-    const newBuiltCount = state.phaseState.builtTracksThisTurn + 1 + newSpurs.length;
+    const newBuiltCount = state.phaseState.builtTracksThisTurn + 1 + townCount; // 타일 1 + 마을 진입 수
     const newTownSpurs = [
       ...(state.board.townSpurs ?? []),
       ...newSpurs.map((sp, i) => ({
@@ -1753,7 +1730,7 @@ export const useGameStore = create<GameStore>()(
     const state = get();
     const currentPlayer = state.currentPlayer;
 
-    // 트랙 제한 확인 — 타일 자체만 요구 (마을 가닥은 잔여 카운트만큼만 함께 건설)
+    // 트랙 제한 확인 — 타일 1개만 카운트 (마을 가닥은 마을 클릭으로 별도 건설)
     if (state.phaseState.builtTracksThisTurn + 1 > state.phaseState.maxTracksThisTurn) {
       return false;
     }
@@ -1835,11 +1812,9 @@ export const useGameStore = create<GameStore>()(
       hexCoordsEqual(t.coord, coord) ? updatedTrack : t
     );
 
-    // 마을 가닥은 잔여 카운트만큼만 함께 건설 (부족 시 미연결 — buildTownSpur로 완성)
-    const wantedCxSpurs = computeNewTownSpurs(coord, newEdges, state.board);
-    const cxSpurBudget = Math.max(0, state.phaseState.maxTracksThisTurn - state.phaseState.builtTracksThisTurn - 1);
-    const complexSpurs = wantedCxSpurs.slice(0, cxSpurBudget);
-    const newBuiltCount = state.phaseState.builtTracksThisTurn + 1 + complexSpurs.length;
+    // 가닥은 자동 생성하지 않음 — 타일만 1카운트. 마을 연결은 마을 클릭(buildTownSpur)으로.
+    const complexSpurs: { townCoord: HexCoord; edge: number }[] = [];
+    const newBuiltCount = state.phaseState.builtTracksThisTurn + 1;
 
     // 상세 복합 트랙 건설 로그
     debugLog.trackBuilding(`[buildComplexTrack 성공] ${player.name} (${currentPlayer}): Turn ${state.currentTurn}, ` +
@@ -1895,50 +1870,74 @@ export const useGameStore = create<GameStore>()(
   },
 
   // === 마을 가닥(스퍼) 단독 건설 ===
-  canBuildTownSpur: (townCoord) => {
+  canBuildTownSpur: (townCoord, edge) => {
     const state = get();
     if (state.currentPhase !== 'buildTrack') return false;
-    if (state.phaseState.builtTracksThisTurn + 1 > state.phaseState.maxTracksThisTurn) return false;
+    // edge 지정: 그 변 가닥(방향 직접 선택, 트랙 없이도 가능 — 유효 헥스 + 미생성).
+    // 생략: 마을에 닿은 미연결 트랙 변 전부.
+    let targetCount: number;
+    if (edge !== undefined) {
+      const nb = getNeighborHex(townCoord, edge);
+      const hex = state.board.hexTiles.find(h => hexCoordsEqual(h.coord, nb));
+      const exists = (state.board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, townCoord) && sp.edge === edge);
+      if (!hex || hex.terrain === 'lake' || exists) return false;
+      targetCount = 1;
+    } else {
+      targetCount = findMissingTownSpurs(townCoord, state.board, state.currentPlayer).length;
+    }
+    if (targetCount === 0) return false;
+    // 카운트 = 이번 턴에 그 마을 타일을 변경한 적 있으면 0(같은 타일), 처음이면 1. 지난 턴 가닥은 무관.
+    const builtThisTurn = (state.board.townSpurs ?? []).some(
+      e => hexCoordsEqual(e.townCoord, townCoord) && e.builtTurn === state.currentTurn
+    );
+    const townCount = builtThisTurn ? 0 : 1;
+    if (state.phaseState.builtTracksThisTurn + townCount > state.phaseState.maxTracksThisTurn) return false;
     const player = state.players[state.currentPlayer];
-    if (!player || player.cash < TOWN_SPUR_COST) return false;
-    return findMissingTownSpurs(townCoord, state.board, state.currentPlayer).length > 0;
+    if (!player || player.cash < targetCount * TOWN_SPUR_COST) return false;
+    return true;
   },
 
-  buildTownSpur: (townCoord) => {
+  buildTownSpur: (townCoord, edge) => {
     const state = get();
-    if (!state.canBuildTownSpur(townCoord)) return false;
+    if (!state.canBuildTownSpur(townCoord, edge)) return false;
 
     captureUndo(state, `마을 가닥 건설 (${townCoord.col},${townCoord.row})`);
 
     const currentPlayer = state.currentPlayer;
     const player = state.players[currentPlayer];
-    // 한 번에 가닥 1개 — 빠진 변이 여럿이면 클릭마다 1개씩 (각각 1카운트 + $1)
-    const sp = findMissingTownSpurs(townCoord, state.board, currentPlayer)[0];
-    const newBuiltCount = state.phaseState.builtTracksThisTurn + 1;
+    // edge 지정: 그 변 가닥만(방향 직접 선택). 생략: 마을에 닿은 미연결 트랙 변 전부.
+    // 카운트 = 이번 턴 그 마을 첫 변경이면 1, 추가면 0. 비용은 가닥당 $1.
+    const missing = edge !== undefined ? [{ townCoord, edge }] : findMissingTownSpurs(townCoord, state.board, currentPlayer);
+    const builtThisTurn = (state.board.townSpurs ?? []).some(
+      e => hexCoordsEqual(e.townCoord, townCoord) && e.builtTurn === state.currentTurn
+    );
+    const townCount = builtThisTurn ? 0 : 1;
+    const cost = missing.length * TOWN_SPUR_COST;
+    const newBuiltCount = state.phaseState.builtTracksThisTurn + townCount;
 
     debugLog.trackBuilding(`[buildTownSpur 성공] ${player.name} (${currentPlayer}): Turn ${state.currentTurn}, ` +
-      `마을 (${townCoord.col},${townCoord.row}) edge=${sp.edge}, ` +
-      `${newBuiltCount}/${state.phaseState.maxTracksThisTurn}번째, 비용=$${TOWN_SPUR_COST}`);
+      `마을 (${townCoord.col},${townCoord.row}) 가닥 ${missing.length}개 연결, ` +
+      `${newBuiltCount}/${state.phaseState.maxTracksThisTurn}번째, 비용=$${cost}`);
 
     set({
       board: {
         ...state.board,
         townSpurs: [
           ...(state.board.townSpurs ?? []),
-          {
-            id: `spur-solo-${Date.now()}-${sp.edge}`,
+          ...missing.map((sp, i) => ({
+            id: `spur-solo-${Date.now()}-${i}-${sp.edge}`,
             townCoord: sp.townCoord,
             edge: sp.edge,
             owner: currentPlayer,
             builtTurn: state.currentTurn,
-          },
+          })),
         ],
       },
       players: {
         ...state.players,
         [currentPlayer]: {
           ...player,
-          cash: player.cash - TOWN_SPUR_COST,
+          cash: player.cash - cost,
         },
       },
       undoCount: undoSnapshots.length,
@@ -1963,7 +1962,7 @@ export const useGameStore = create<GameStore>()(
           turn: state.currentTurn,
           phase: state.currentPhase,
           player: currentPlayer,
-          action: `마을 가닥 건설 (${townCoord.col}, ${townCoord.row}) — 노선 연결 완성 - $${TOWN_SPUR_COST} [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`,
+          action: `마을 가닥 건설 (${townCoord.col}, ${townCoord.row}) 가닥 ${missing.length}개 — 노선 연결 완성 - $${cost} [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`,
           timestamp: Date.now(),
         },
       ],
@@ -2857,7 +2856,7 @@ export const useGameStore = create<GameStore>()(
     // 트랙 위 큐브 선택 (St. Lucia — 'track:<trackId>' 컨벤션, 미완성 링크여도 배달 가능)
     if (cityId.startsWith('track:')) {
       const trackId = cityId.slice('track:'.length);
-      const deliveries = findTrackCubeDeliveries(state.board, trackId);
+      const deliveries = findTrackCubeDeliveries(state.board, trackId, state.players[state.currentPlayer]?.engineLevel ?? 1, state.currentPlayer);
       console.log(`[selectCube] 트랙 큐브 선택: ${trackId}, 배달 가능 도시=${deliveries.map(d => d.city.id).join(',') || '없음'}`);
       if (deliveries.length === 0) {
         // 무반응으로 보이지 않게 게임 로그로 안내 (같은 색 도시가 트랙으로 연결돼야 배달 가능)
@@ -3040,14 +3039,13 @@ export const useGameStore = create<GameStore>()(
     const state = get();
     const currentPlayer = state.currentPlayer;
 
-    // 유효한 연결점인지 확인 (도시, 플레이어의 트랙, 또는 첫 트랙 마을 앵커)
-    const allowTownAnchor = getMapRules(state.mapId).townsAnchorFirstTrack;
-    if (!isValidConnectionPoint(coord, state.board, currentPlayer, allowTownAnchor)) {
+    // 유효한 연결점인지 확인 (도시, 또는 플레이어의 트랙/진입 마을)
+    if (!isValidConnectionPoint(coord, state.board, currentPlayer)) {
       return;
     }
 
     // 건설 가능한 이웃 헥스 계산 (교체/방향전환 포함)
-    const neighbors = getBuildableNeighbors(coord, state.board, currentPlayer, true, allowTownAnchor);
+    const neighbors = getBuildableNeighbors(coord, state.board, currentPlayer, true);
 
     // 하이라이트할 헥스 목록
     const highlightedHexes = neighbors.map(n => n.coord);
@@ -3331,10 +3329,8 @@ export const useGameStore = create<GameStore>()(
     // 새 엣지 설정
     const newEdges: [number, number] = [connectedEdge, newExitEdge];
 
-    // 새 방향이 마을 변에 닿으면 가닥(스퍼) 동시 건설 — 잔여 카운트만큼만 (부족 시 미연결)
-    const wantedRdSpurs = computeNewTownSpurs(coord, [newExitEdge], state.board);
-    const rdSpurBudget = Math.max(0, state.phaseState.maxTracksThisTurn - state.phaseState.builtTracksThisTurn - 1);
-    const redirectSpurs = wantedRdSpurs.slice(0, rdSpurBudget);
+    // 가닥은 자동 생성하지 않음 — 타일만 1카운트. 마을 연결은 마을 클릭(buildTownSpur)으로.
+    const redirectSpurs: { townCoord: HexCoord; edge: number }[] = [];
 
     captureUndo(state, `트랙 방향 전환 (${coord.col},${coord.row})`);
 
@@ -3374,7 +3370,7 @@ export const useGameStore = create<GameStore>()(
       undoCount: undoSnapshots.length,
       phaseState: {
         ...state.phaseState,
-        builtTracksThisTurn: state.phaseState.builtTracksThisTurn + 1 + redirectSpurs.length,
+        builtTracksThisTurn: state.phaseState.builtTracksThisTurn + 1, // 타일만 1카운트 (가닥 자동 생성 없음)
         lastBuiltCoords: [...state.phaseState.lastBuiltCoords, coord],
       },
       ui: {

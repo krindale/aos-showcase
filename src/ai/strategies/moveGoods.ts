@@ -147,7 +147,7 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
   let bestTrackCube: { trackId: string; destCityId: string; deltaVP: number } | null = null;
   for (const track of board.trackTiles) {
     if (!track.cube) continue;
-    for (const delivery of findTrackCubeDeliveries(board, track.id)) {
+    for (const delivery of findTrackCubeDeliveries(board, track.id, player.engineLevel, playerId)) {
       const own = delivery.sectionOwner === playerId ? 1 : 0;
       const opp = delivery.sectionOwner && delivery.sectionOwner !== playerId ? 1 : 0;
       const vp = deliveryDeltaVP(state, playerId, own, opp);

@@ -28,7 +28,8 @@ import {
 import { getAIDecision, AI_TURN_DELAY, isCurrentPlayerAI, aiPlayerManager } from '@/ai';
 import { addFailedBuildCoord } from '@/ai/strategies/buildTrack';
 import { initializeGoodsDisplay } from '@/utils/tutorialMap';
-import { getMapData, getMapRules } from '@/utils/mapRegistry';
+import { getMapData } from '@/utils/mapRegistry';
+import { getMapProfile } from '@/maps/getMapProfile';
 import {
   isValidConnectionPoint,
   validateFirstTrackRule,
@@ -59,7 +60,7 @@ import {
   findFirstMovePlayer,
   isLastPlayer,
 } from '@/utils/gameLogic';
-import { debugLog } from '@/utils/debugConfig';
+import { debugLog, logAction, newLogSession } from '@/utils/debugConfig';
 
 /**
  * AI 플레이어 설정
@@ -161,7 +162,7 @@ export function createInitialGameState(
   const boardState = mapData.createBoardState();
   const goodsDisplay = initializeGoodsDisplay();
 
-  const setupRules = getMapRules(mapId);
+  const setupRules = getMapProfile(mapId);
   // 헥스 큐브 맵(St. Lucia): 물품 성장이 없어 디스플레이가 불필요 →
   // 디스플레이에 깔린 큐브까지 전부 주머니로 합쳐 모든 평지/강 헥스를 채운다
   // (디스플레이 52개를 빼면 주머니가 44개뿐이라 일부 헥스가 비는 문제 방지)
@@ -226,7 +227,7 @@ export function createInitialGameState(
   const maxTurns = mapData.maxTurns || (TURNS_BY_PLAYER_COUNT[playerCount] || 6);
 
   // 교대 선공권 맵: 첫 턴 1번 플레이어를 무작위 결정 (룰북: randomly determine the first player)
-  const mapRules = getMapRules(mapId);
+  const mapRules = getMapProfile(mapId);
   const initialPlayerOrder = [...activePlayers];
   if (mapRules.alternateTurnOrder && initialPlayerOrder.length >= 2 && Math.random() < 0.5) {
     [initialPlayerOrder[0], initialPlayerOrder[1]] = [initialPlayerOrder[1], initialPlayerOrder[0]];
@@ -626,6 +627,13 @@ export const useGameStore = create<GameStore>()(
     aiPlayerManager.clear();
     clearUndo();
 
+    // 새 게임 세션ID 부여 (이후 모든 액션 로그가 이 세션으로 묶임)
+    const sessionId = newLogSession();
+    logAction('preparation', 'initGame', {
+      session: sessionId, mapId, players: playerNames,
+      ai: aiPlayers.map(a => a.playerIndex),
+    });
+
     // 새 게임 상태 설정
     set({
       ...createInitialGameState(mapId, playerNames, aiPlayers),
@@ -662,6 +670,10 @@ export const useGameStore = create<GameStore>()(
     // AI 인스턴스 상태 리셋 (인스턴스는 유지, 전략만 초기화)
     aiPlayerManager.resetAll();
     clearUndo();
+
+    // 새 게임 세션ID 부여 (리셋 = 새 게임)
+    const sessionId = newLogSession();
+    logAction('preparation', 'resetGame', { session: sessionId, mapId: state.mapId, players: playerNames });
 
     set({
       ...createInitialGameState(state.mapId, playerNames, aiPlayers),
@@ -933,6 +945,7 @@ export const useGameStore = create<GameStore>()(
   // ============================================================
   issueShare: (playerId, amount) => {
     const state = get();
+    logAction('preparation', 'issueShare', { player: playerId, amount, turn: state.currentTurn });
     const player = state.players[playerId];
     if (!player) {
       console.error(`[ERROR] issueShare: 플레이어 없음 - playerId: ${playerId}`);
@@ -975,6 +988,7 @@ export const useGameStore = create<GameStore>()(
   // Phase II: 플레이어 순서 경매
   // ============================================================
   placeBid: (playerId, amount) => {
+    logAction('preparation', 'placeBid', { player: playerId, amount, turn: get().currentTurn });
     set((state) => {
       if (!state.auction) {
         // 경매 시작 - 다음 입찰자 계산
@@ -1039,6 +1053,7 @@ export const useGameStore = create<GameStore>()(
   },
 
   passBid: (playerId) => {
+    logAction('preparation', 'passBid', { player: playerId, turn: get().currentTurn });
     set((state) => {
       // 첫 번째 플레이어가 입찰 없이 포기하는 경우 (auction이 null)
       if (!state.auction) {
@@ -1120,6 +1135,7 @@ export const useGameStore = create<GameStore>()(
 
   // Turn Order 패스: 탈락 없이 다음 입찰자로 넘어가기
   skipBid: (playerId) => {
+    logAction('preparation', 'skipBid', { player: playerId, turn: get().currentTurn });
     set((state) => {
       if (!state.auction) {
         console.warn(`[WARN] skipBid: 경매 없음 - playerId: ${playerId}`);
@@ -1270,18 +1286,28 @@ export const useGameStore = create<GameStore>()(
   moveTrackCube: (trackId, destCityId) => {
     const state = get();
     const currentPlayer = state.currentPlayer;
+    logAction('goodsMovement', 'moveTrackCube', { player: currentPlayer, trackId, dest: destCityId, turn: state.currentTurn });
 
     if (state.phaseState.playerMoves[currentPlayer]) {
       console.warn('[moveTrackCube] 이미 이번 라운드에 이동함');
       return false;
     }
 
-    const delivery = findTrackCubeDeliveries(state.board, trackId, state.players[state.currentPlayer]?.engineLevel ?? 1, state.currentPlayer)
-      .find(d => d.city.id === destCityId);
+    // 수송 시작 — 같은 도시로 가는 후보 루트를 모두 로그(사람/AI 공통), 그 다음 선택 루트 로그
+    const deliveries = findTrackCubeDeliveries(
+      state.board, trackId, state.players[state.currentPlayer]?.engineLevel ?? 1, state.currentPlayer,
+      (cand) => logAction('goodsMovement', 'deliveryCandidate', { player: currentPlayer, trackId, ...cand }),
+    );
+    const delivery = deliveries.find(d => d.city.id === destCityId);
     if (!delivery) {
       console.warn(`[moveTrackCube] 배달 불가: track=${trackId} → ${destCityId}`);
       return false;
     }
+    logAction('goodsMovement', 'deliverySelected', {
+      player: currentPlayer, trackId, dest: destCityId,
+      linkCount: delivery.linkCount, oppLinks: delivery.oppLinks,
+      path: [...delivery.pathCoords, delivery.city.coord],
+    });
 
     const track = state.board.trackTiles.find(t => t.id === trackId);
     if (!track || !track.cube) return false;
@@ -1332,7 +1358,7 @@ export const useGameStore = create<GameStore>()(
         return state;
       }
 
-      const rules = getMapRules(state.mapId);
+      const rules = getMapProfile(state.mapId);
       const others = state.activePlayers.filter(p => p !== playerId);
 
       // 수락: firstSeatCost 지불 후 선공
@@ -1420,13 +1446,14 @@ export const useGameStore = create<GameStore>()(
   // Phase III: 행동 선택
   // ============================================================
   selectAction: (playerId, action) => {
+    logAction('preparation', 'selectAction', { player: playerId, action, turn: get().currentTurn });
     // 성공 조건을 미리 확인하고 스냅샷 저장 (취소 버튼용 — locomotive 즉시 효과까지 되돌리기 위함)
     {
       const pre = get();
       const prePlayer = pre.players[playerId];
       if (
         prePlayer &&
-        !getMapRules(pre.mapId).disabledActions.includes(action) &&
+        !getMapProfile(pre.mapId).disabledActions.includes(action) &&
         !Object.values(pre.players).some((p) => p.selectedAction === action)
       ) {
         captureUndo(pre, `행동 선택 (${ACTION_INFO[action]?.name ?? action})`);
@@ -1442,7 +1469,7 @@ export const useGameStore = create<GameStore>()(
       }
 
       // 맵 룰에서 비활성화된 행동인지 확인 (예: St. Lucia의 production)
-      if (getMapRules(state.mapId).disabledActions.includes(action)) {
+      if (getMapProfile(state.mapId).disabledActions.includes(action)) {
         console.warn(`[WARN] selectAction: 이 맵에서 사용 불가한 행동 - playerId: ${playerId}, action: ${action}`);
         return state;
       }
@@ -1566,6 +1593,7 @@ export const useGameStore = create<GameStore>()(
 
   buildTrack: (coord, edges) => {
     const state = get();
+    logAction('trackBuilding', 'buildTrack', { player: state.currentPlayer, coord, edges, turn: state.currentTurn });
 
     if (!state.canBuildTrack(coord, edges)) {
       // 실패 원인 로깅 (디버깅용)
@@ -1771,6 +1799,7 @@ export const useGameStore = create<GameStore>()(
 
   buildComplexTrack: (coord, newEdges, trackType) => {
     const state = get();
+    logAction('trackBuilding', 'buildComplexTrack', { player: state.currentPlayer, coord, newEdges, trackType, turn: state.currentTurn });
 
     if (!state.canBuildComplexTrack(coord, newEdges, trackType)) {
       return false;
@@ -1899,6 +1928,7 @@ export const useGameStore = create<GameStore>()(
 
   buildTownSpur: (townCoord, edge) => {
     const state = get();
+    logAction('trackBuilding', 'buildTownSpur', { player: state.currentPlayer, town: townCoord, edge, turn: state.currentTurn });
     if (!state.canBuildTownSpur(townCoord, edge)) return false;
 
     captureUndo(state, `마을 가닥 건설 (${townCoord.col},${townCoord.row})`);
@@ -2069,6 +2099,7 @@ export const useGameStore = create<GameStore>()(
     set((state) => {
       // targetPlayerId가 제공되면 사용, 아니면 currentPlayer 사용
       const playerId = targetPlayerId || state.currentPlayer;
+      logAction('goodsMovement', 'upgradeEngine', { player: playerId, turn: state.currentTurn });
       const player = state.players[playerId];
       if (!player) {
         console.error(`[ERROR] upgradeEngine: 플레이어 없음 - playerId: ${playerId}`);
@@ -2416,6 +2447,7 @@ export const useGameStore = create<GameStore>()(
   // ============================================================
   nextPhase: () => {
     const currentState = get();
+    logAction('turnEnd', 'nextPhase', { from: currentState.currentPhase, player: currentState.currentPlayer, turn: currentState.currentTurn });
 
     // 이미 게임 오버면 진행하지 않음
     if (currentState.currentPhase === 'gameOver') {
@@ -2450,7 +2482,7 @@ export const useGameStore = create<GameStore>()(
         console.log('[nextPhase set] 게임 오버 상태 - 변경 없음');
         return state;
       }
-      const mapRules = getMapRules(state.mapId);
+      const mapRules = getMapProfile(state.mapId);
       // 룰북(St. Lucia): 선공권 결정(Determine Player Order)이 Issue Shares보다 먼저
       const phases: GamePhase[] = mapRules.alternateTurnOrder
         ? [
@@ -2714,7 +2746,7 @@ export const useGameStore = create<GameStore>()(
       // === VI-X. 자동 단계들 ===
       let nextIndex = (currentIndex + 1) % phases.length;
       // 맵 룰: 물품 성장 단계 생략 (St. Lucia)
-      if (phases[nextIndex] === 'goodsGrowth' && getMapRules(state.mapId).skipGoodsGrowth) {
+      if (phases[nextIndex] === 'goodsGrowth' && getMapProfile(state.mapId).skipGoodsGrowth) {
         console.log('[nextPhase] 물품 성장 단계 생략 (맵 룰: skipGoodsGrowth)');
         nextIndex = (nextIndex + 1) % phases.length;
       }
@@ -2846,6 +2878,7 @@ export const useGameStore = create<GameStore>()(
 
   selectCube: (cityId, cubeIndex) => {
     const state = get();
+    logAction('goodsMovement', 'selectCube', { player: state.currentPlayer, city: cityId, cubeIndex, turn: state.currentTurn });
 
     // 이미 이번 라운드에 이동했으면 리턴
     if (state.phaseState.playerMoves[state.currentPlayer]) {
@@ -2856,29 +2889,34 @@ export const useGameStore = create<GameStore>()(
     // 트랙 위 큐브 선택 (St. Lucia — 'track:<trackId>' 컨벤션, 미완성 링크여도 배달 가능)
     if (cityId.startsWith('track:')) {
       const trackId = cityId.slice('track:'.length);
-      const deliveries = findTrackCubeDeliveries(state.board, trackId, state.players[state.currentPlayer]?.engineLevel ?? 1, state.currentPlayer);
-      console.log(`[selectCube] 트랙 큐브 선택: ${trackId}, 배달 가능 도시=${deliveries.map(d => d.city.id).join(',') || '없음'}`);
+      // 화물 선택 — 수송 가능한 후보 루트를 모두 로그 (같은 도시 여러 경로의 채택/탈락 포함)
+      const deliveries = findTrackCubeDeliveries(
+        state.board, trackId, state.players[state.currentPlayer]?.engineLevel ?? 1, state.currentPlayer,
+        (cand) => logAction('goodsMovement', 'deliveryCandidate', { player: state.currentPlayer, trackId, ...cand }),
+      );
+      logAction('goodsMovement', 'trackCubeSelect', { player: state.currentPlayer, trackId, cities: deliveries.map(d => d.city.id) });
       if (deliveries.length === 0) {
         // 엔진 무제한으로 다시 탐색 → 엔진 부족(거리 초과)인지 vs 연결 자체가 없는지 구분
         const eng = state.players[state.currentPlayer]?.engineLevel ?? 1;
         const withMaxEngine = findTrackCubeDeliveries(state.board, trackId, Infinity, state.currentPlayer);
         if (withMaxEngine.length > 0) {
-          console.log(`[큐브진단] ${trackId}: 엔진 부족 (현재 ${eng}) — 목적지 ${withMaxEngine.map(d => d.city.id).join(',')}까지 거리가 엔진 초과`);
+          logAction('goodsMovement', 'cubeUndeliverable', { trackId, reason: 'engineShort', engine: eng, cities: withMaxEngine.map(d => d.city.id) }, 'error');
           get().addLog(`엔진 레벨이 부족합니다 (현재 ${eng}) — Move Goods에서 Locomotive로 엔진을 올리면 이 화물을 배달할 수 있습니다`);
         } else {
           const stk = state.board.trackTiles.find(t => t.id === trackId);
-          console.log(`[큐브진단] ${trackId}: 연결 없음 — 같은 색 도시로 트랙이 연결되지 않음`);
-          console.log('[연결진단] ' + JSON.stringify({
+          logAction('goodsMovement', 'cubeUndeliverable', {
+            trackId, reason: 'noConnection',
             cube: stk?.cube, at: stk?.coord, edges: stk?.edges,
             sameColorCities: state.board.cities.filter(c => c.color === stk?.cube).map(c => ({ id: c.id, c: c.coord })),
             tracks: state.board.trackTiles.map(t => ({ c: t.coord, e: t.edges, se: t.secondaryEdges ?? null, tt: t.trackType, o: t.owner, so: t.secondaryOwner ?? null, cube: t.cube ?? null })),
             spurs: (state.board.townSpurs ?? []).map(s => ({ t: s.townCoord, e: s.edge, o: s.owner })),
             towns: state.board.towns.map(t => ({ c: t.coord, ncc: t.newCityColor })),
-          }));
+          }, 'error');
           get().addLog('이 화물은 배달할 수 있는 도시가 없습니다 (트랙으로 연결된 같은 색 도시 필요)');
         }
         return;
       }
+      logAction('goodsMovement', 'deliveryRoutes', { player: state.currentPlayer, trackId, routes: deliveries.map(d => ({ city: d.city.id, links: d.linkCount, oppLinks: d.oppLinks })) });
       set({
         ui: {
           ...state.ui,
@@ -3307,6 +3345,7 @@ export const useGameStore = create<GameStore>()(
   redirectTrack: (coord, newExitEdge) => {
     const state = get();
     const currentPlayer = state.currentPlayer;
+    logAction('trackBuilding', 'redirectTrack', { player: currentPlayer, coord, newExitEdge, turn: state.currentTurn });
 
     // 트랙 제한 확인 (방향 전환도 건설 1회로 카운트 — 룰: 턴당 3개, Engineer 4개)
     if (state.phaseState.builtTracksThisTurn >= state.phaseState.maxTracksThisTurn) {
@@ -3491,6 +3530,7 @@ export const useGameStore = create<GameStore>()(
 
   placeNewCity: (townCoord) => {
     const state = get();
+    logAction('trackBuilding', 'placeNewCity', { player: state.currentPlayer, town: townCoord, turn: state.currentTurn });
 
     if (!state.canPlaceNewCity(townCoord)) {
       return false;
@@ -3853,6 +3893,7 @@ export const useGameStore = create<GameStore>()(
   completeCubeMove: () => {
     const state = get();
     if (!state.ui.movingCube) return;
+    logAction('goodsMovement', 'completeCubeMove', { player: state.currentPlayer, turn: state.currentTurn });
 
     const { path, color, context } = state.ui.movingCube;
 

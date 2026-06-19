@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import AuctionPanel from './AuctionPanel';
 import TurnOrderOfferPanel from './TurnOrderOfferPanel';
-import { getMapRules } from '@/utils/mapRegistry';
+import { getMapProfile } from '@/maps/getMapProfile';
 import GoodsGrowthPanel from './GoodsGrowthPanel';
 
 const PHASE_ICONS: Record<GamePhase, React.ReactNode> = {
@@ -218,7 +218,7 @@ export default function PhasePanel() {
                     const taken = isActionTaken(action);
                     const isSelected = currentPlayerData.selectedAction === action;
                     // 맵 룰로 금지된 행동 (St. Lucia: production, turnOrder)
-                    const mapDisabled = getMapRules(mapId).disabledActions.includes(action);
+                    const mapDisabled = getMapProfile(mapId).disabledActions.includes(action);
 
                     return (
                       <button

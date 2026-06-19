@@ -64,8 +64,8 @@ describe('트랙 건설 메커니즘', () => {
    *   (4,0) even, edge0(E) =(5,0)=C ✓
    */
   function buildCompletedLink(owner: PlayerId) {
-    placeTrack({ col: 3, row: 1 }, [2, 5], owner); // O쪽 edge2, (4,0)쪽 edge5
-    placeTrack({ col: 4, row: 0 }, [2, 0], owner); // (3,1)쪽 edge2, C쪽 edge0
+    placeTrack({ col: 2, row: 1 }, [2, 5], owner); // O쪽 edge2, (4,0)쪽 edge5
+    placeTrack({ col: 3, row: 0 }, [2, 0], owner); // (3,1)쪽 edge2, C쪽 edge0
   }
 
   /**
@@ -77,8 +77,8 @@ describe('트랙 건설 메커니즘', () => {
    *   (2,1) odd,  edge0(E) =(3,1) ✓ → (3,1) entry=edge3
    */
   function buildApproachTrack(owner: PlayerId) {
-    placeTrack({ col: 1, row: 1 }, [4, 0], owner); // P쪽 edge4, (2,1)쪽 edge0
-    placeTrack({ col: 2, row: 1 }, [3, 0], owner); // (1,1)쪽 edge3, (3,1)쪽 edge0
+    placeTrack({ col: 0, row: 1 }, [4, 0], owner); // P쪽 edge4, (2,1)쪽 edge0
+    placeTrack({ col: 1, row: 1 }, [3, 0], owner); // (1,1)쪽 edge3, (3,1)쪽 edge0
   }
 
   // ===== 1. 트랙 방향 전환 (Redirection) =====
@@ -86,29 +86,29 @@ describe('트랙 건설 메커니즘', () => {
   describe('트랙 방향 전환 (Redirection)', () => {
     it('미완성 자기 트랙이 getBuildableNeighbors에 포함됨 (allowReplace=true)', () => {
       // P(1,0) → (2,0)[3,0] 미완성 트랙
-      placeTrack({ col: 2, row: 0 }, [3, 0], 'player1');
+      placeTrack({ col: 1, row: 0 }, [3, 0], 'player1');
       const state = useGameStore.getState();
 
       // allowReplace=true: 내 미완성 트랙 포함
       const neighbors = getBuildableNeighbors(
-        { col: 1, row: 0 }, state.board, 'player1', true
+        { col: 0, row: 0 }, state.board, 'player1', true
       );
-      const hasTrack = neighbors.some(n => n.coord.col === 2 && n.coord.row === 0);
+      const hasTrack = neighbors.some(n => n.coord.col === 1 && n.coord.row === 0);
       expect(hasTrack).toBe(true);
     });
 
     it('미완성 자기 트랙을 buildTrack으로 방향 전환', () => {
-      placeTrack({ col: 2, row: 0 }, [3, 0], 'player1');
+      placeTrack({ col: 1, row: 0 }, [3, 0], 'player1');
       const store = useGameStore;
 
       // [3,0] → [3,1] 로 방향 전환 (E→SE)
-      expect(store.getState().canBuildTrack({ col: 2, row: 0 }, [3, 1])).toBe(true);
+      expect(store.getState().canBuildTrack({ col: 1, row: 0 }, [3, 1])).toBe(true);
 
-      const success = store.getState().buildTrack({ col: 2, row: 0 }, [3, 1]);
+      const success = store.getState().buildTrack({ col: 1, row: 0 }, [3, 1]);
       expect(success).toBe(true);
 
       const track = store.getState().board.trackTiles.find(
-        t => t.coord.col === 2 && t.coord.row === 0
+        t => t.coord.col === 1 && t.coord.row === 0
       );
       expect(track!.edges).toEqual([3, 1]);
       expect(track!.owner).toBe('player1');
@@ -119,7 +119,7 @@ describe('트랙 건설 메커니즘', () => {
       const store = useGameStore;
 
       // 완성된 링크 (3,1)의 방향 전환 시도
-      expect(store.getState().canBuildTrack({ col: 3, row: 1 }, [2, 0])).toBe(false);
+      expect(store.getState().canBuildTrack({ col: 2, row: 1 }, [2, 0])).toBe(false);
     });
   });
 
@@ -140,24 +140,24 @@ describe('트랙 건설 메커니즘', () => {
       // (4,0) edge 3(W,even)=(3,0): 이곳에 player1 트랙을 놓자.
 
       // P(1,0) → (2,0)[3,0] → (3,0)[3,0] player1 체인
+      placeTrack({ col: 1, row: 0 }, [3, 0], 'player1');
       placeTrack({ col: 2, row: 0 }, [3, 0], 'player1');
-      placeTrack({ col: 3, row: 0 }, [3, 0], 'player1');
 
       // (4,0)에서 edge 3(W)→(3,0) 연결 가능.
       // 교차 엣지: [3, 1] — edge 3 연결 (3,0) player1, edge 1 → (4,1)
       // 기존 [2,0] vs 새 [3,1]: 3≠2,3≠0,1≠2,1≠0 → 겹침 없음 ✓
       const canBuild = store.getState().canBuildComplexTrack(
-        { col: 4, row: 0 }, [3, 1], 'crossing'
+        { col: 3, row: 0 }, [3, 1], 'crossing'
       );
       expect(canBuild).toBe(true);
 
       const success = store.getState().buildComplexTrack(
-        { col: 4, row: 0 }, [3, 1], 'crossing'
+        { col: 3, row: 0 }, [3, 1], 'crossing'
       );
       expect(success).toBe(true);
 
       const track = store.getState().board.trackTiles.find(
-        t => t.coord.col === 4 && t.coord.row === 0
+        t => t.coord.col === 3 && t.coord.row === 0
       );
       expect(track!.trackType).toBe('crossing');
       expect(track!.edges).toEqual([2, 0]);         // 기존 경로 유지
@@ -167,18 +167,18 @@ describe('트랙 건설 메커니즘', () => {
 
     it('상대 트랙 위에 교차 건설 가능', () => {
       // player2 트랙: (2,0) [3, 0] (P→E 방향)
-      placeTrack({ col: 2, row: 0 }, [3, 0], 'player2');
+      placeTrack({ col: 1, row: 0 }, [3, 0], 'player2');
 
       // player1 접근: P(1,0) → (1,1)[4,5]
       // (1,1) odd: edge4(NW)=(1,0)=P ✓, edge5(NE)=(2,0) ← player2 트랙 쪽
-      placeTrack({ col: 1, row: 1 }, [4, 5], 'player1');
+      placeTrack({ col: 0, row: 1 }, [4, 5], 'player1');
 
       // 교차: (2,0)에 새 엣지 [2,5]
       // (1,1) edge5 → (2,0), entry at (2,0) = (5+3)%6 = edge 2
       // 기존 [3,0] vs 새 [2,5]: 2≠3,2≠0,5≠3,5≠0 → 겹침 없음 ✓
       // 연결: edge 2 → (2,0) even, SW = (1,1) player1 트랙 edge 5 = (5+3)%6=2의 반대=5 ✓
       const canBuild = useGameStore.getState().canBuildComplexTrack(
-        { col: 2, row: 0 }, [2, 5], 'crossing'
+        { col: 1, row: 0 }, [2, 5], 'crossing'
       );
       expect(canBuild).toBe(true);
     });
@@ -189,23 +189,23 @@ describe('트랙 건설 메커니즘', () => {
 
       // O(3,2)에서 이웃 조회 → (3,1)은 player1 완성 링크 → 교차 후보
       const neighbors = getBuildableNeighbors(
-        { col: 3, row: 2 }, state.board, 'player1', false
+        { col: 2, row: 2 }, state.board, 'player1', false
       );
-      const has31 = neighbors.some(n => n.coord.col === 3 && n.coord.row === 1);
+      const has31 = neighbors.some(n => n.coord.col === 2 && n.coord.row === 1);
       expect(has31).toBe(true);
     });
 
     it('복합 트랙 위에 추가 교차 불가', () => {
       buildCompletedLink('player1');
+      placeTrack({ col: 1, row: 0 }, [3, 0], 'player1');
       placeTrack({ col: 2, row: 0 }, [3, 0], 'player1');
-      placeTrack({ col: 3, row: 0 }, [3, 0], 'player1');
 
       const store = useGameStore;
-      store.getState().buildComplexTrack({ col: 4, row: 0 }, [3, 1], 'crossing');
+      store.getState().buildComplexTrack({ col: 3, row: 0 }, [3, 1], 'crossing');
 
       // 이미 복합 → 추가 교차 불가
       expect(store.getState().canBuildComplexTrack(
-        { col: 4, row: 0 }, [4, 5], 'crossing'
+        { col: 3, row: 0 }, [4, 5], 'crossing'
       )).toBe(false);
     });
 
@@ -214,7 +214,7 @@ describe('트랙 건설 메커니즘', () => {
 
       // (4,0) edges [2, 0] vs 새 [0, 4]: edge 0 겹침
       expect(useGameStore.getState().canBuildComplexTrack(
-        { col: 4, row: 0 }, [0, 4], 'crossing'
+        { col: 3, row: 0 }, [0, 4], 'crossing'
       )).toBe(false);
     });
   });
@@ -223,15 +223,15 @@ describe('트랙 건설 메커니즘', () => {
 
   describe('UI 플로우 (selectSourceHex → selectTargetHex → selectExitDirection)', () => {
     it('selectSourceHex에서 미완성 트랙이 buildableNeighbors에 포함됨', () => {
-      placeTrack({ col: 2, row: 0 }, [3, 0], 'player1');
+      placeTrack({ col: 1, row: 0 }, [3, 0], 'player1');
 
       const store = useGameStore;
-      store.getState().selectSourceHex({ col: 1, row: 0 }); // P 도시
+      store.getState().selectSourceHex({ col: 0, row: 0 }); // P 도시
 
       const ui = store.getState().ui;
       expect(ui.buildMode).toBe('source_selected');
       expect(ui.buildableNeighbors.some(
-        n => n.coord.col === 2 && n.coord.row === 0
+        n => n.coord.col === 1 && n.coord.row === 0
       )).toBe(true);
     });
 
@@ -239,11 +239,11 @@ describe('트랙 건설 메커니즘', () => {
       buildCompletedLink('player1');
 
       const store = useGameStore;
-      store.getState().selectSourceHex({ col: 3, row: 2 }); // O 도시
+      store.getState().selectSourceHex({ col: 2, row: 2 }); // O 도시
 
       const ui = store.getState().ui;
       expect(ui.buildableNeighbors.some(
-        n => n.coord.col === 3 && n.coord.row === 1
+        n => n.coord.col === 2 && n.coord.row === 1
       )).toBe(true);
     });
 
@@ -253,8 +253,8 @@ describe('트랙 건설 메커니즘', () => {
 
       const store = useGameStore;
       // (2,1)에서 출발 → (3,1) 트랙 선택
-      store.getState().selectSourceHex({ col: 2, row: 1 });
-      store.getState().selectTargetHex({ col: 3, row: 1 });
+      store.getState().selectSourceHex({ col: 1, row: 1 });
+      store.getState().selectTargetHex({ col: 2, row: 1 });
 
       const ui = store.getState().ui;
       expect(ui.buildMode).toBe('target_selected');
@@ -272,8 +272,8 @@ describe('트랙 건설 메커니즘', () => {
 
       const store = useGameStore;
       // (2,1)에서 출발 → (3,1) 선택
-      store.getState().selectSourceHex({ col: 2, row: 1 });
-      store.getState().selectTargetHex({ col: 3, row: 1 });
+      store.getState().selectSourceHex({ col: 1, row: 1 });
+      store.getState().selectTargetHex({ col: 2, row: 1 });
 
       const ui = store.getState().ui;
       expect(ui.exitDirections.length).toBeGreaterThan(0);

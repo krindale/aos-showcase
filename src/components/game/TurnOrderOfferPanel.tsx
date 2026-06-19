@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 import { useShallow } from 'zustand/react/shallow';
 import { PLAYER_COLORS } from '@/types/game';
-import { getMapRules } from '@/utils/mapRegistry';
+import { getMapProfile } from '@/maps/getMapProfile';
 import { Crown, DollarSign, XCircle, Bot } from 'lucide-react';
 
 /**
@@ -25,7 +25,7 @@ export default function TurnOrderOfferPanel() {
 
   if (!turnOrderOffer) return null;
 
-  const rules = getMapRules(mapId);
+  const rules = getMapProfile(mapId);
   const offerPlayer = players[turnOrderOffer.offerPlayer];
   const playerColor = PLAYER_COLORS[offerPlayer.color];
 

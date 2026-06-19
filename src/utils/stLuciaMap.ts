@@ -28,9 +28,9 @@ export const ST_LUCIA_MAP = {
   players: { min: 2, max: 2 },
   supportedPlayers: [2],
   difficulty: 3,
-  cols: 12, // 유효 col: 1 ~ 11 (원본 r 0~10)
-  rows: 7,  // 유효 row: 0 ~ 6 (원본 q 0~6)
-  startCol: 1,
+  cols: 11, // 유효 col: 0 ~ 10 (0-base)
+  rows: 7,  // 유효 row: 0 ~ 6
+  startCol: 0,
   maxTurns: 8,
 };
 
@@ -39,17 +39,17 @@ export const ST_LUCIA_CITIES: City[] = [];
 
 // === 마을 11개 (공식 맵 픽셀 측정 좌표) ===
 export const ST_LUCIA_TOWNS: Town[] = [
-  { id: 'LC', coord: { col: 1, row: 4 }, newCityColor: null, cubes: [] },   // Le Cap (북단)
-  { id: 'CS', coord: { col: 3, row: 2 }, newCityColor: null, cubes: [] },   // Castries
-  { id: 'GA', coord: { col: 3, row: 5 }, newCityColor: null, cubes: [] },   // Grand Anse
-  { id: 'BI', coord: { col: 5, row: 3 }, newCityColor: null, cubes: [] },   // Barre de l'Isle
-  { id: 'AR', coord: { col: 6, row: 0 }, newCityColor: null, cubes: [] },   // Anse Le Raye
-  { id: 'DN', coord: { col: 6, row: 6 }, newCityColor: null, cubes: [] },   // Dennery
-  { id: 'MG', coord: { col: 7, row: 3 }, newCityColor: null, cubes: [] },   // Morne Gimie
-  { id: 'AC', coord: { col: 8, row: 0 }, newCityColor: null, cubes: [] },   // Anse Chastenet
-  { id: 'FJ', coord: { col: 9, row: 2 }, newCityColor: null, cubes: [] },   // Fond St Jacques
-  { id: 'MC', coord: { col: 9, row: 6 }, newCityColor: null, cubes: [] },   // Micoud
-  { id: 'LB', coord: { col: 10, row: 3 }, newCityColor: null, cubes: [] },  // Laborie (남단)
+  { id: 'LC', coord: { col: 0, row: 4 }, newCityColor: null, cubes: [] },   // Le Cap (북단)
+  { id: 'CS', coord: { col: 2, row: 2 }, newCityColor: null, cubes: [] },   // Castries
+  { id: 'GA', coord: { col: 2, row: 5 }, newCityColor: null, cubes: [] },   // Grand Anse
+  { id: 'BI', coord: { col: 4, row: 3 }, newCityColor: null, cubes: [] },   // Barre de l'Isle
+  { id: 'AR', coord: { col: 5, row: 0 }, newCityColor: null, cubes: [] },   // Anse Le Raye
+  { id: 'DN', coord: { col: 5, row: 6 }, newCityColor: null, cubes: [] },   // Dennery
+  { id: 'MG', coord: { col: 6, row: 3 }, newCityColor: null, cubes: [] },   // Morne Gimie
+  { id: 'AC', coord: { col: 7, row: 0 }, newCityColor: null, cubes: [] },   // Anse Chastenet
+  { id: 'FJ', coord: { col: 8, row: 2 }, newCityColor: null, cubes: [] },   // Fond St Jacques
+  { id: 'MC', coord: { col: 8, row: 6 }, newCityColor: null, cubes: [] },   // Micoud
+  { id: 'LB', coord: { col: 9, row: 3 }, newCityColor: null, cubes: [] },  // Laborie (남단)
 ];
 
 /** 마을 이름 (UI 표시용) */
@@ -69,40 +69,40 @@ export const ST_LUCIA_TOWN_NAMES: Record<string, string> = {
 
 // === 섬 윤곽: row(원본 열 q)별 육지 col 범위 (픽셀 측정) ===
 const LAND_RANGES: Record<number, [number, number]> = {
-  0: [6, 9],
-  1: [5, 10],
-  2: [3, 11],
-  3: [1, 10],
-  4: [1, 11],
-  5: [1, 10],
-  6: [2, 10],
+  0: [5, 8],
+  1: [4, 9],
+  2: [2, 10],
+  3: [0, 9],
+  4: [0, 10],
+  5: [0, 9],
+  6: [1, 9],
 };
 
 // 산악 지대 10헥스 (공식 맵 진녹색 — 중앙 능선)
 const MOUNTAIN_TILES: { col: number; row: number }[] = [
+  { col: 2, row: 4 },
   { col: 3, row: 4 },
   { col: 4, row: 4 },
+  { col: 5, row: 3 },
   { col: 5, row: 4 },
-  { col: 6, row: 3 },
+  { col: 6, row: 2 },
   { col: 6, row: 4 },
   { col: 7, row: 2 },
+  { col: 7, row: 3 },
   { col: 7, row: 4 },
-  { col: 8, row: 2 },
-  { col: 8, row: 3 },
-  { col: 8, row: 4 },
 ];
 
 // 강 9헥스 (공식 맵 4개 하천의 경유 헥스 — 픽셀 클러스터 측정)
 const RIVER_TILES: { col: number; row: number }[] = [
-  { col: 4, row: 2 },  // 북서 하천 (Castries 남측)
-  { col: 4, row: 3 },
-  { col: 5, row: 5 },  // 동부 하천 (Grand Anse 남측 → Dennery 북측)
-  { col: 5, row: 6 },
-  { col: 7, row: 0 },  // 서부 하천 (Anse Le Raye ~ Anse Chastenet)
-  { col: 7, row: 1 },
-  { col: 9, row: 4 },  // 남동 하천 (Fond St Jacques → Micoud)
-  { col: 10, row: 4 },
-  { col: 10, row: 5 },
+  { col: 3, row: 2 },  // 북서 하천 (Castries 남측)
+  { col: 3, row: 3 },
+  { col: 4, row: 5 },  // 동부 하천 (Grand Anse 남측 → Dennery 북측)
+  { col: 4, row: 6 },
+  { col: 6, row: 0 },  // 서부 하천 (Anse Le Raye ~ Anse Chastenet)
+  { col: 6, row: 1 },
+  { col: 8, row: 4 },  // 남동 하천 (Fond St Jacques → Micoud)
+  { col: 9, row: 4 },
+  { col: 9, row: 5 },
 ];
 
 // === 호수(바다) 타일 ===

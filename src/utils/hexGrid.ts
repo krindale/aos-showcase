@@ -16,7 +16,7 @@ export const HEX_VERTICAL_RADIUS = HEX_SIZE;
 // 기본 보드 설정
 export const DEFAULT_BOARD_COLS = 7;
 export const DEFAULT_BOARD_ROWS = 5;
-export const DEFAULT_START_COL = 1;
+export const DEFAULT_START_COL = 0;
 export const DEFAULT_MARGIN = 50;
 export const DEFAULT_PADDING_X = DEFAULT_MARGIN + HEX_HORIZONTAL_RADIUS;
 export const DEFAULT_PADDING_Y = DEFAULT_MARGIN + HEX_VERTICAL_RADIUS;
@@ -1405,6 +1405,16 @@ export function getAnimationPoints(
 // St. Lucia: 트랙 위 큐브 배달 (미완성 링크 허용)
 // ============================================================
 
+/** 트랙 큐브 배달 후보 탐색 로그 — 같은 도시로 가는 여러 루트의 채택/탈락 기록 (디버그용) */
+export interface TrackCubeRouteCandidate {
+  cityId: string;
+  linkCount: number;
+  oppLinks: number;
+  accepted: boolean;
+  /** first=첫 발견 채택, replace=더 나아 교체, reject-oppLinks=상대철도 많아 탈락, reject-shorter=같은 oppLinks인데 짧아 탈락 */
+  reason: 'first' | 'replace' | 'reject-oppLinks' | 'reject-shorter';
+}
+
 /** 트랙 큐브 배달 후보: 도달 도시와 경유 트랙 구간 소유자 */
 export interface TrackCubeDelivery {
   /** 배달 목적지 도시 */
@@ -1415,6 +1425,8 @@ export interface TrackCubeDelivery {
   sectionOwner: PlayerId | null;
   /** 경로에서 상대(배달자 외) 소유 트랙을 경유한 수 — 적을수록 자기 철도 위주 경로 (경로 선택 우선용) */
   oppLinks: number;
+  /** 이 경로의 링크 수(=수입). 같은 도시 여러 경로 중 자기 철도만으로 가장 긴(수입 큰) 루트를 고르는 데 사용 */
+  linkCount: number;
 }
 
 /**
@@ -1431,6 +1443,7 @@ export function findTrackCubeDeliveries(
   trackId: string,
   engineLevel: number = Infinity, // 이동 가능 링크 수 상한 (미지정 시 무제한)
   playerId: PlayerId | null = null, // 배달자 — 지정 시 상대 철도 경유 적은 경로 우선 (미지정 시 우선 안 함)
+  onCandidate?: (c: TrackCubeRouteCandidate) => void, // 같은 도시로 가는 후보 루트마다 호출 (디버그 로그용)
 ): TrackCubeDelivery[] {
   const startTrack = board.trackTiles.find(t => t.id === trackId);
   if (!startTrack || !startTrack.cube) return [];
@@ -1493,12 +1506,20 @@ export function findTrackCubeDeliveries(
             }).length;
             const existing = deliveries.find(d => d.city.id === city.id);
             if (!existing) {
-              deliveries.push({ city, pathCoords: [...pathCoords], sectionOwner, oppLinks });
-            } else if (oppLinks < existing.oppLinks) {
-              // 같은 도시에 상대 철도 경유가 더 적은 경로 발견 → 교체 (자기 철도 우선)
+              deliveries.push({ city, pathCoords: [...pathCoords], sectionOwner, oppLinks, linkCount });
+              onCandidate?.({ cityId: city.id, linkCount, oppLinks, accepted: true, reason: 'first' });
+            } else if (oppLinks < existing.oppLinks || (oppLinks === existing.oppLinks && linkCount > existing.linkCount)) {
+              // 상대 철도 경유가 더 적거나(자기 철도 우선), 같으면 더 긴 루트(=통과 링크 많음=수입 큼) 선택
               existing.pathCoords = [...pathCoords];
               existing.sectionOwner = sectionOwner;
               existing.oppLinks = oppLinks;
+              existing.linkCount = linkCount;
+              onCandidate?.({ cityId: city.id, linkCount, oppLinks, accepted: true, reason: 'replace' });
+            } else {
+              onCandidate?.({
+                cityId: city.id, linkCount, oppLinks, accepted: false,
+                reason: oppLinks > existing.oppLinks ? 'reject-oppLinks' : 'reject-shorter',
+              });
             }
           }
           break;

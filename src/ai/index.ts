@@ -19,7 +19,7 @@ import { aiPlayerManager } from './AIPlayerManager';
 // === 기존 전략 함수 (호환성 유지용) ===
 import { decideSharesIssue } from './strategies/issueShares';
 import { decideAuctionBid, decideTurnOrderOffer, AuctionDecision } from './strategies/auction';
-import { getMapRules } from '@/utils/mapRegistry';
+import { getMapProfile } from '@/maps/getMapProfile';
 import { decideAction } from './strategies/selectAction';
 import { decideBuildTrack, TrackBuildDecision } from './strategies/buildTrack';
 import { decideMoveGoods, MoveGoodsDecision } from './strategies/moveGoods';
@@ -120,10 +120,10 @@ export function getAIDecision(state: GameState, playerId: PlayerId): AIDecision 
 
     case 'determinePlayerOrder': {
       // 교대 선공권 맵 (St. Lucia): 경매 대신 선공권 수락/거절 결정
-      const rules = getMapRules(state.mapId);
-      if (rules.alternateTurnOrder) {
+      const profile = getMapProfile(state.mapId);
+      if (profile.alternateTurnOrder) {
         if (state.turnOrderOffer && state.turnOrderOffer.offerPlayer === playerId) {
-          const accept = decideTurnOrderOffer(state, playerId, rules.firstSeatCost);
+          const accept = decideTurnOrderOffer(state, playerId, profile.firstSeatCost);
           return { type: 'turnOrderOffer', accept };
         }
         return { type: 'skip' };

@@ -40,7 +40,7 @@ import { decideAuctionBid, decideTurnOrderOffer, AuctionDecision } from './strat
 import { decideAction } from './strategies/selectAction';
 import { decideBuildTrack, TrackBuildDecision } from './strategies/buildTrack';
 import { decideMoveGoods, MoveGoodsDecision } from './strategies/moveGoods';
-import { getMapRules } from '@/utils/mapRegistry';
+import { getMapProfile } from '@/maps/getMapProfile';
 
 /**
  * AI 결정 타입
@@ -125,10 +125,10 @@ export class AIPlayer {
 
       case 'determinePlayerOrder': {
         // 교대 선공권 맵 (St. Lucia): 경매 대신 선공권 수락/거절 결정
-        const rules = getMapRules(state.mapId);
-        if (rules.alternateTurnOrder) {
+        const profile = getMapProfile(state.mapId);
+        if (profile.alternateTurnOrder) {
           if (state.turnOrderOffer && state.turnOrderOffer.offerPlayer === this.playerId) {
-            const accept = decideTurnOrderOffer(state, this.playerId, rules.firstSeatCost);
+            const accept = decideTurnOrderOffer(state, this.playerId, profile.firstSeatCost);
             return { type: 'turnOrderOffer', accept };
           }
           // 제안이 이미 해결됨 → 다음 단계로

@@ -28,7 +28,7 @@ import {
 } from '../strategy/vp';
 import { findReachableDestinations, hexCoordsEqual, getNeighborHex } from '@/utils/hexGrid';
 import { debugLog } from '@/utils/debugConfig';
-import { getMapRules } from '@/utils/mapRegistry';
+import { getMapProfile } from '@/maps/getMapProfile';
 
 /**
  * 사용 가능한 행동 목록 반환 (맵 룰에서 금지된 행동 제외 — 예: St. Lucia의 production)
@@ -38,7 +38,7 @@ function getAvailableActions(state: GameState): SpecialAction[] {
     .map(p => p.selectedAction)
     .filter((a): a is SpecialAction => a !== null);
 
-  const disabled = getMapRules(state.mapId).disabledActions;
+  const disabled = getMapProfile(state.mapId).disabledActions;
 
   const allActions: SpecialAction[] = [
     'firstMove',

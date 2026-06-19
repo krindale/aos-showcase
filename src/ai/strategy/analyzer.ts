@@ -1,6 +1,7 @@
 import { GameState, PlayerId, HexCoord, CubeColor, BoardState, GAME_CONSTANTS } from '@/types/game';
 import { debugLog } from '@/utils/debugConfig';
 import { DeliveryOpportunity, DeliveryRoute } from './types';
+import { getMapAIConfig } from './mapConfig';
 import { getNeighborHex, hexCoordsEqual, hexDistance, getConnectedNeighbors, hexToKey, getConnectingEdge, getOppositeEdge } from '@/utils/hexGrid';
 
 // 경로 캐시 (출발지-목적지 → 경로)
@@ -370,7 +371,12 @@ function getOpportunitiesCacheKey(state: GameState): string {
   const cubeSignature = state.board.cities
     .map(c => `${c.id}:${c.cubes.join(',')}`)
     .join('|');
-  return `${state.currentTurn}-t${state.board.trackTiles.length}-${cubeSignature}`;
+  // 트랙 위 큐브 변화(배달로 제거 등)도 캐시 키에 반영 — 안 하면 배달 후 stale 기회 사용
+  const trackCubeSig = state.board.trackTiles
+    .filter(t => t.cube)
+    .map(t => `${t.id}:${t.cube}`)
+    .join('|');
+  return `${state.currentTurn}-t${state.board.trackTiles.length}-${cubeSignature}-${trackCubeSig}`;
 }
 
 export function clearOpportunitiesCache(): void {
@@ -412,6 +418,27 @@ export function analyzeDeliveryOpportunities(
         });
       }
     });
+  }
+
+  // 트랙 위 큐브 → 같은 색 도시 — 맵 config가 'trackCubes'를 income 원천으로 선언한 맵만 (St. Lucia 등).
+  // 맵 이름 하드코딩 없이 MapAIConfig.incomeSources로 켜고 끈다. 새 맵은 config만 추가.
+  if (getMapAIConfig(state).incomeSources.includes('trackCubes')) {
+    for (const track of board.trackTiles) {
+      if (!track.cube) continue;
+      const destinations = findDestinationCities(track.cube, board);
+      for (const dest of destinations) {
+        const linkCount = estimateRouteLinkCount(track.coord, dest.coord, board);
+        opportunities.push({
+          sourceCityId: `track:${track.id}`, // 도시가 아닌 트랙 큐브 출발 (estimateRouteVP는 sourceCoord 사용)
+          sourceCoord: track.coord,
+          cubeColor: track.cube,
+          cubeIndex: 0,
+          targetCityId: dest.cityId,
+          targetCoord: dest.coord,
+          distance: linkCount,
+        });
+      }
+    }
   }
 
   opportunitiesCache = { key: cacheKey, result: opportunities };

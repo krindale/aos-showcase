@@ -2859,8 +2859,24 @@ export const useGameStore = create<GameStore>()(
       const deliveries = findTrackCubeDeliveries(state.board, trackId, state.players[state.currentPlayer]?.engineLevel ?? 1, state.currentPlayer);
       console.log(`[selectCube] 트랙 큐브 선택: ${trackId}, 배달 가능 도시=${deliveries.map(d => d.city.id).join(',') || '없음'}`);
       if (deliveries.length === 0) {
-        // 무반응으로 보이지 않게 게임 로그로 안내 (같은 색 도시가 트랙으로 연결돼야 배달 가능)
-        get().addLog('이 화물은 배달할 수 있는 도시가 없습니다 (트랙으로 연결된 같은 색 도시 필요)');
+        // 엔진 무제한으로 다시 탐색 → 엔진 부족(거리 초과)인지 vs 연결 자체가 없는지 구분
+        const eng = state.players[state.currentPlayer]?.engineLevel ?? 1;
+        const withMaxEngine = findTrackCubeDeliveries(state.board, trackId, Infinity, state.currentPlayer);
+        if (withMaxEngine.length > 0) {
+          console.log(`[큐브진단] ${trackId}: 엔진 부족 (현재 ${eng}) — 목적지 ${withMaxEngine.map(d => d.city.id).join(',')}까지 거리가 엔진 초과`);
+          get().addLog(`엔진 레벨이 부족합니다 (현재 ${eng}) — Move Goods에서 Locomotive로 엔진을 올리면 이 화물을 배달할 수 있습니다`);
+        } else {
+          const stk = state.board.trackTiles.find(t => t.id === trackId);
+          console.log(`[큐브진단] ${trackId}: 연결 없음 — 같은 색 도시로 트랙이 연결되지 않음`);
+          console.log('[연결진단] ' + JSON.stringify({
+            cube: stk?.cube, at: stk?.coord, edges: stk?.edges,
+            sameColorCities: state.board.cities.filter(c => c.color === stk?.cube).map(c => ({ id: c.id, c: c.coord })),
+            tracks: state.board.trackTiles.map(t => ({ c: t.coord, e: t.edges, se: t.secondaryEdges ?? null, tt: t.trackType, o: t.owner, so: t.secondaryOwner ?? null, cube: t.cube ?? null })),
+            spurs: (state.board.townSpurs ?? []).map(s => ({ t: s.townCoord, e: s.edge, o: s.owner })),
+            towns: state.board.towns.map(t => ({ c: t.coord, ncc: t.newCityColor })),
+          }));
+          get().addLog('이 화물은 배달할 수 있는 도시가 없습니다 (트랙으로 연결된 같은 색 도시 필요)');
+        }
         return;
       }
       set({

@@ -241,13 +241,15 @@ export function estimateRouteVP(
   };
   if (!player) return none;
 
-  const sourceCity = board.cities.find(c => c.id === opp.sourceCityId);
   const targetCity = board.cities.find(c => c.id === opp.targetCityId);
-  if (!sourceCity || !targetCity) return none;
+  if (!targetCity) return none;
+  // 출발은 도시(튜토리얼) 또는 트랙 위 큐브 위치(St. Lucia) — sourceCoord로 일반화
+  const sourceCity = board.cities.find(c => c.id === opp.sourceCityId); // 트랙 큐브 출발이면 null
+  const sourceCoord = opp.sourceCoord;
 
-  // 1. A* 경로와 남은 건설량/비용
+  // 1. A* 경로와 남은 건설량/비용 (출발: 도시 또는 트랙 큐브 위치)
   const fullPath = findOptimalPathAvoidingOpponent(
-    sourceCity.coord, targetCity.coord, board, playerId
+    sourceCoord, targetCity.coord, board, playerId
   );
   if (fullPath.length < 2) return none;
 
@@ -286,7 +288,7 @@ export function estimateRouteVP(
   //   income 원천을 맵별로 일반화 — ① 출발 도시 안의 큐브(튜토리얼 등) +
   //   ② 이 경로 위에 놓인 트랙 큐브 중 도착 도시 색(St. Lucia 헥스큐브 등).
   //   (맵 이름 하드코딩 없이, 보드에 실제로 존재하는 income 원천만 본다)
-  const cityCubes = sourceCity.cubes.filter(cube => cube === targetCity.color).length;
+  const cityCubes = (sourceCity?.cubes ?? []).filter(cube => cube === targetCity.color).length;
   const trackCubesOnPath = board.trackTiles.filter(t =>
     t.cube === targetCity.color && fullPath.some(pc => hexCoordsEqual(pc, t.coord))
   ).length;

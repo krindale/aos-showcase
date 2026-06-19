@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useCallback, useEffect } from 'react';
+import { useMemo, useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { useGameStore } from '@/store/gameStore';
@@ -27,6 +27,8 @@ import { isValidConnectionPoint as isValidConnectionPointUtil } from '@/utils/tr
 import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId } from '@/types/game';
 
 export default function GameBoard() {
+  // 디버그: 헥스 좌표 표시 토글 (우측 상단 버튼)
+  const [showCoords, setShowCoords] = useState(false);
   // Zustand selector 최적화: useShallow로 불필요한 리렌더링 방지
   const {
     board,
@@ -413,9 +415,17 @@ export default function GameBoard() {
             {currentPhase === 'moveGoods' && ui.movingCube && '물품 이동 중...'}
             {currentPhase !== 'buildTrack' && currentPhase !== 'moveGoods' && 'Tutorial'}
           </span>
-          <span className="text-xs text-accent">
-            {players[currentPlayer].name}의 차례
-          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-xs text-accent whitespace-nowrap">
+              {players[currentPlayer].name}의 차례
+            </span>
+            <button
+              onClick={() => setShowCoords(v => !v)}
+              className={`px-2 py-0.5 text-xs rounded transition-colors ${showCoords ? 'bg-accent text-background' : 'bg-foreground/10 text-accent hover:bg-foreground/20'}`}
+            >
+              {showCoords ? '좌표 ON' : '좌표 OFF'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1194,7 +1204,24 @@ export default function GameBoard() {
           );
         })()}
         </g>
+        {/* 좌표 오버레이 — 모든 요소 위(최상위). 노란 글자+검정 외곽으로 마을(흰 원)·도시 위에서도 보임 */}
+        {showCoords && board.hexTiles.map(h => {
+          const { x, y } = hexToPixel(h.coord.col, h.coord.row, undefined, undefined, undefined, isFlat);
+          return (
+            <text
+              key={`coord-${h.coord.col}-${h.coord.row}`}
+              x={x} y={y + HEX_SIZE * 0.5 + 10}
+              fontSize="9" fontWeight="bold"
+              fill="#000000"
+              textAnchor="middle" dominantBaseline="middle"
+              style={{ pointerEvents: 'none' }}
+            >
+              {h.coord.col},{h.coord.row}
+            </text>
+          );
+        })}
       </svg>
+
 
       {/* 줌 컨트롤 (모바일/태블릿) */}
       {(isMobile || isTablet) && (

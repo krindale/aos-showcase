@@ -1449,14 +1449,21 @@ export function findTrackCubeDeliveries(
     ownerLocked: boolean;
     linkCount: number; // 큐브 시작 구간부터 통과한 도시/마을(=링크) 수 — 엔진 레벨 제한용
   }
-  const stack: TrackWalkState[] = startTrack.edges.map(startEdge => ({
-    current: startTrack.coord,
-    exitEdge: startEdge,
-    pathCoords: [startTrack.coord],
-    sectionOwner: startTrack.owner,
-    ownerLocked: false,
-    linkCount: 1, // 큐브가 놓인 시작 구간이 첫 링크
-  }));
+  // 큐브가 놓인 트랙이 복합 교차/공존이면 주(edges)·보조(secondaryEdges) 양쪽 트랙 모두 출발점이 된다.
+  // (이전엔 edges만 보고 secondaryEdges를 누락 → 큐브가 교차 트랙의 보조 트랙으로 도시에 닿는 경로를 못 찾음)
+  const stack: TrackWalkState[] = [];
+  for (const startEdge of startTrack.edges) {
+    stack.push({
+      current: startTrack.coord, exitEdge: startEdge, pathCoords: [startTrack.coord],
+      sectionOwner: startTrack.owner, ownerLocked: false, linkCount: 1,
+    });
+  }
+  for (const startEdge of (startTrack.secondaryEdges ?? [])) {
+    stack.push({
+      current: startTrack.coord, exitEdge: startEdge, pathCoords: [startTrack.coord],
+      sectionOwner: startTrack.secondaryOwner ?? startTrack.owner, ownerLocked: false, linkCount: 1,
+    });
+  }
 
   let guard = 0;
   while (stack.length > 0 && guard++ < 256) {

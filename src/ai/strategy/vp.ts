@@ -283,7 +283,14 @@ export function estimateRouteVP(
   const deliverableTurns = remainingTurnsIncl - Math.max(completionTurns - 1, engineDelay);
 
   // 4. 기대 배달 횟수: 매칭 큐브 수와 배달 가능 턴 (턴당 1회 보수 가정)
-  const matchingCubes = sourceCity.cubes.filter(cube => cube === targetCity.color).length;
+  //   income 원천을 맵별로 일반화 — ① 출발 도시 안의 큐브(튜토리얼 등) +
+  //   ② 이 경로 위에 놓인 트랙 큐브 중 도착 도시 색(St. Lucia 헥스큐브 등).
+  //   (맵 이름 하드코딩 없이, 보드에 실제로 존재하는 income 원천만 본다)
+  const cityCubes = sourceCity.cubes.filter(cube => cube === targetCity.color).length;
+  const trackCubesOnPath = board.trackTiles.filter(t =>
+    t.cube === targetCity.color && fullPath.some(pc => hexCoordsEqual(pc, t.coord))
+  ).length;
+  const matchingCubes = cityCubes + trackCubesOnPath;
   const expectedDeliveries = Math.max(0, Math.min(deliverableTurns, matchingCubes));
 
   // 5. 경쟁 할인 ρ

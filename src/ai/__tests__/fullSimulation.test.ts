@@ -935,27 +935,31 @@ describe('2인 화물 수송 우선순위 시뮬레이션 (10회)', () => {
    * Player2: C↔O↔I (C→O 1링크, O→I 1링크, C→I 2링크)
    */
   function buildPresetTracks(state: GameState): GameState {
-    // 튜토리얼 맵 도시 좌표:
-    // P(1,0) C(5,0) O(3,2) W(5,3) I(1,4)
+    // 튜토리얼 맵 도시 좌표 (0-base):
+    // P(0,0) C(4,0) O(2,2) W(4,3) I(0,4)
 
     const newTracks: TrackTile[] = [
-      // Player1: P(1,0) → O(3,2) 경로: (2,0)→(2,1)
-      { id: 'preset-p1-1', coord: { col: 2, row: 0 }, edges: [3, 1] as [number, number], owner: 'player1', trackType: 'simple' as const },
-      { id: 'preset-p1-2', coord: { col: 2, row: 1 }, edges: [4, 1] as [number, number], owner: 'player1', trackType: 'simple' as const },
-      // Player1: O(3,2) → W(5,3) 경로: (4,2)→(4,3)
-      { id: 'preset-p1-3', coord: { col: 4, row: 2 }, edges: [3, 1] as [number, number], owner: 'player1', trackType: 'simple' as const },
-      { id: 'preset-p1-4', coord: { col: 4, row: 3 }, edges: [4, 0] as [number, number], owner: 'player1', trackType: 'simple' as const },
+      // Player1: P(0,0) → O(2,2) 경로: (1,0)→(1,1)
+      // (1,0) even row: edge3=W→P(0,0), edge1=SE→(1,1)
+      { id: 'preset-p1-1', coord: { col: 1, row: 0 }, edges: [3, 1] as [number, number], owner: 'player1', trackType: 'simple' as const },
+      // (1,1) odd row: edge4=NW→(1,0), edge1=SE→O(2,2)
+      { id: 'preset-p1-2', coord: { col: 1, row: 1 }, edges: [4, 1] as [number, number], owner: 'player1', trackType: 'simple' as const },
+      // Player1: O(2,2) → W(4,3) 경로: (3,2)→(3,3)
+      // (3,2) even row: edge3=W→O(2,2), edge1=SE→(3,3)
+      { id: 'preset-p1-3', coord: { col: 3, row: 2 }, edges: [3, 1] as [number, number], owner: 'player1', trackType: 'simple' as const },
+      // (3,3) odd row: edge4=NW→(3,2), edge0=E→W(4,3)
+      { id: 'preset-p1-4', coord: { col: 3, row: 3 }, edges: [4, 0] as [number, number], owner: 'player1', trackType: 'simple' as const },
 
-      // Player2: C(5,0) → O(3,2) 경로: C→(4,0)→(3,1)→O
-      // (4,0) even row: edge0=E→C(5,0), edge2=SW→(3,1)
-      { id: 'preset-p2-1', coord: { col: 4, row: 0 }, edges: [0, 2] as [number, number], owner: 'player2', trackType: 'simple' as const },
-      // (3,1) odd row: edge5=NE→(4,0), edge2=SW→O(3,2)
-      { id: 'preset-p2-2', coord: { col: 3, row: 1 }, edges: [5, 2] as [number, number], owner: 'player2', trackType: 'simple' as const },
-      // Player2: O(3,2) → I(1,4) 경로: O→(2,3)→(2,4)→I
-      // (2,3) odd row: edge5=NE→O(3,2), edge2=SW→(2,4)
-      { id: 'preset-p2-3', coord: { col: 2, row: 3 }, edges: [5, 2] as [number, number], owner: 'player2', trackType: 'simple' as const },
-      // (2,4) even row: edge5=NE→(2,3), edge3=W→I(1,4)
-      { id: 'preset-p2-4', coord: { col: 2, row: 4 }, edges: [5, 3] as [number, number], owner: 'player2', trackType: 'simple' as const },
+      // Player2: C(4,0) → O(2,2) 경로: C→(3,0)→(2,1)→O
+      // (3,0) even row: edge0=E→C(4,0), edge2=SW→(2,1)
+      { id: 'preset-p2-1', coord: { col: 3, row: 0 }, edges: [0, 2] as [number, number], owner: 'player2', trackType: 'simple' as const },
+      // (2,1) odd row: edge5=NE→(3,0), edge2=SW→O(2,2)
+      { id: 'preset-p2-2', coord: { col: 2, row: 1 }, edges: [5, 2] as [number, number], owner: 'player2', trackType: 'simple' as const },
+      // Player2: O(2,2) → I(0,4) 경로: O→(1,3)→(1,4)→I
+      // (1,3) odd row: edge5=NE→O(2,2), edge2=SW→(1,4)
+      { id: 'preset-p2-3', coord: { col: 1, row: 3 }, edges: [5, 2] as [number, number], owner: 'player2', trackType: 'simple' as const },
+      // (1,4) even row: edge5=NE→(1,3), edge3=W→I(0,4)
+      { id: 'preset-p2-4', coord: { col: 1, row: 4 }, edges: [5, 3] as [number, number], owner: 'player2', trackType: 'simple' as const },
     ];
 
     return {

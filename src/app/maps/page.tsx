@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Image from 'next/image';
 import { motion, AnimatePresence, useInView } from 'framer-motion';
 import {
@@ -14,7 +14,7 @@ import {
   Factory,
   Mountain,
   Palmtree,
-  MapPin, Play } from 'lucide-react';
+  MapPin, Play, ZoomIn, X } from 'lucide-react';
 
 const basePath = process.env.NODE_ENV === 'production' ? '/aos-showcase' : '';
 
@@ -162,10 +162,26 @@ const maps = [
 
 export default function MapsPage() {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const heroRef = useRef<HTMLDivElement>(null);
   const isHeroInView = useInView(heroRef, { once: true });
 
   const currentMap = maps[currentIndex];
+
+  // 라이트박스: ESC 키로 닫기 + 열려있는 동안 배경 스크롤 잠금
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightboxOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [lightboxOpen]);
 
   const nextMap = () => {
     setCurrentIndex((prev) => (prev + 1) % maps.length);
@@ -250,16 +266,27 @@ export default function MapsPage() {
                   <div className="grid lg:grid-cols-2 gap-12 items-start h-full">
                     {/* Map Visual */}
                     <div className="relative">
-                      <div className="relative aspect-[4/3] rounded-2xl bg-background-tertiary border border-glass-border overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setLightboxOpen(true)}
+                        aria-label={`${currentMap.name} 지도 확대 보기`}
+                        className="group relative aspect-[4/3] w-full rounded-2xl bg-background-tertiary border border-glass-border overflow-hidden cursor-pointer"
+                      >
                         {/* Map Image */}
                         <Image
                           src={`${basePath}${currentMap.image}`}
                           alt={currentMap.name}
                           fill
                           sizes="(max-width: 1024px) 100vw, 50vw"
-                          className="object-contain bg-background-secondary"
+                          className="object-contain bg-background-secondary transition-transform duration-300 group-hover:scale-105"
                           priority={false}
                         />
+
+                        {/* 확대 힌트 (호버 시) */}
+                        <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-background/80 backdrop-blur-sm border border-glass-border opacity-0 group-hover:opacity-100 transition-opacity">
+                          <ZoomIn className="w-4 h-4 text-accent" />
+                          <span className="text-foreground text-xs font-medium">확대</span>
+                        </div>
 
                         {/* Overlay gradient for better text contrast */}
                         <div className={`absolute inset-0 bg-gradient-to-t from-background/60 via-transparent to-transparent pointer-events-none`} />
@@ -271,7 +298,7 @@ export default function MapsPage() {
                             <span className="text-foreground text-sm font-medium">{currentMap.region}</span>
                           </div>
                         </div>
-                      </div>
+                      </button>
                     </div>
 
                     {/* Map Info */}
@@ -459,6 +486,57 @@ export default function MapsPage() {
           </div>
         </div>
       </section>
+
+      {/* 지도 확대 라이트박스 */}
+      <AnimatePresence>
+        {lightboxOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={() => setLightboxOpen(false)}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 sm:p-8"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${currentMap.name} 지도 확대`}
+          >
+            {/* 닫기 버튼 */}
+            <button
+              type="button"
+              onClick={() => setLightboxOpen(false)}
+              aria-label="닫기"
+              className="absolute top-4 right-4 z-10 p-2.5 rounded-full bg-background/80 backdrop-blur-sm border border-glass-border hover:bg-background transition-colors"
+            >
+              <X className="w-6 h-6 text-foreground" />
+            </button>
+
+            {/* 확대 이미지 (배경 클릭은 닫힘, 이미지 클릭은 유지) */}
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ duration: 0.25 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-6xl h-[85vh]"
+            >
+              <Image
+                src={`${basePath}${currentMap.image}`}
+                alt={currentMap.name}
+                fill
+                sizes="100vw"
+                className="object-contain"
+                priority
+              />
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-lg bg-background/80 backdrop-blur-sm border border-glass-border">
+                <span className="text-foreground text-sm font-medium">
+                  {currentMap.name} · {currentMap.nameKo}
+                </span>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

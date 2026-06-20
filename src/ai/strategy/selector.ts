@@ -552,13 +552,17 @@ export function getHexCubeMapRoute(
     const links = Math.max(1, Math.min(hexDistance(cand.from.coord, cand.to.coord), config.engineMax));
     const perDeliveryVP = Math.max(0, deliveryDeltaVP(state, playerId, links, 0));
 
-    // 하이브리드 점수: 배달 가능 큐브는 ΔVP로, 그 외(배달처 미정/연결/네트워크)는 기존 수집 휴리스틱 보존
+    // 수익(income) 최우선: 실제 같은색 도시로 배달 가능한 큐브를 강하게 우대.
+    // 배달처가 없는 큐브(potential) 수집은 income으로 실현 안 되므로 약하게만(수집 유도 정도).
+    // 목적지가 도시(배달처)면 큰 보너스 — 그래야 수집 큐브가 실제 income이 된다.
+    const endsAtCity = cand.to.isCity || cand.from.isCity;
     const score =
-      deliverable * perDeliveryVP                            // 실현 income (ΔVP 업그레이드)
-      + potential * 3                                        // 배달처 미정 큐브 = 수집 유도 (기존 cubes×3 보존)
-      + (cand.to.isCity || cand.from.isCity ? 5 : 0)         // 배달 목적지 연결 (기존)
-      + (connectedCities.includes(cand.from.id) ? 3 : 0)     // 내 연결망 확장 (기존)
-      - unbuilt;                                             // 건설 부담 (기존)
+      deliverable * perDeliveryVP * 2                        // 실현 income 최우선 (가중 ↑)
+      + potential * 0.75                                     // 배달처 미정 큐브 = 약한 수집 유도 (3 → 0.75)
+      + (endsAtCity ? 6 : 0)                                 // 배달 목적지(도시) 연결 = income 실현 전제
+      + (deliverable > 0 && endsAtCity ? 4 : 0)              // 수집+배달처 동시 = 완결 배달 경로 보너스
+      + (connectedCities.includes(cand.from.id) ? 3 : 0)     // 내 연결망 확장
+      - unbuilt;                                             // 건설 부담
 
     if (!best || score > best.score) {
       best = { route: { from: cand.from.id, to: cand.to.id, priority: 1 }, score };

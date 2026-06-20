@@ -131,11 +131,47 @@ function evaluateActionDeltaVP(
       if (state.board.cities.length === 0) return 10;
       // 도시가 1개뿐이면 두 번째 목적지의 가치도 큼
       if (state.board.cities.length === 1) return 3;
+      // 트랙큐브 맵(St. Lucia): 도시 = 배달 목적지. 도시가 많을수록 픽업 큐브가 배달 가능해져
+      // income으로 전환된다. 도시화는 income 전제 조건이므로, 매칭 안 된 큐브가 많으면 가치↑.
+      // (배달 목적지 부족이 건설→배달 전환율의 핵심 병목)
+      if (getMapAIConfig(state).incomeSources.includes('trackCubes')) {
+        return evaluateUrbanizationForTrackCubes(state);
+      }
       return 0.2;
     }
     case 'turnOrder': return 0.1;
     default: return 0;
   }
+}
+
+/**
+ * 트랙큐브 맵(St. Lucia)에서 도시화의 가치 — 배달 목적지(매칭 색 도시) 확충.
+ * 아직 도시가 없는 색의 큐브(보드 위 헥스/트랙)가 많을수록, 그 색 도시를 만들면
+ * 그 큐브들이 배달 가능해져 income으로 전환된다. (건설→배달 전환율의 핵심 병목 해소)
+ */
+function evaluateUrbanizationForTrackCubes(state: GameState): number {
+  const { board } = state;
+  const availableTiles = state.newCityTiles.filter(t => !t.used);
+  if (availableTiles.length === 0) return 0.2;
+  const existingColors = new Set(board.cities.map(c => c.color));
+
+  // 도시 없는 색별 큐브 수 (헥스 + 트랙)
+  const cubesByColor = new Map<string, number>();
+  const bump = (c: string | null | undefined) => { if (c) cubesByColor.set(c, (cubesByColor.get(c) ?? 0) + 1); };
+  board.hexTiles.forEach(h => bump(h.cube));
+  board.trackTiles.forEach(t => bump(t.cube));
+
+  // 만들 수 있는(타일 보유) 색 중, 아직 도시 없고 큐브가 가장 많은 색
+  let bestUnlock = 0;
+  for (const tile of availableTiles) {
+    if (existingColors.has(tile.color)) continue;
+    bestUnlock = Math.max(bestUnlock, cubesByColor.get(tile.color) ?? 0);
+  }
+  if (bestUnlock === 0) return 0.2; // 새로 열 색 없음 — 도시화 무의미
+
+  // 해금되는 잠재 배달 1건당 대략 income 1 ΔVP 수준 — 보수적으로 일부만 실현 가정.
+  // 건설 행동(engineer 등)과 경쟁하되, 미매칭 큐브가 많으면 우선.
+  return Math.min(8, bestUnlock * 1.5);
 }
 
 /**

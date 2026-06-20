@@ -171,7 +171,14 @@ function evaluateUrbanizationForTrackCubes(state: GameState): number {
   if (bestUnlock === 0) return 0.2; // 새로 열 색 없음 — 도시화 무의미
 
   // 해금되는 잠재 배달 1건당 대략 income 1 ΔVP 수준 — 보수적으로 일부만 실현 가정.
-  return Math.min(8, bestUnlock * 1.5);
+  const base = Math.min(8, bestUnlock * 1.5);
+
+  // ★ 도시 수에 따른 체감 (사용자 분석: AI가 매 턴 도시화 남발 → 갓 만든 도시에 1링크 배달만 →
+  // 깊은 배달 불가). 도시가 늘수록 추가 도시화 가치를 깎아, 라인 확장·깊은 배달을 우선하게 한다.
+  // 도시 1개→×1, 2개→×0.6, 3개→×0.4, 4개+→×0.3. (도시화는 income 전제라 0으로는 안 만듦)
+  const cityCount = board.cities.length;
+  const decay = cityCount <= 1 ? 1 : Math.max(0.3, 1 - (cityCount - 1) * 0.3);
+  return base * decay;
 }
 
 /**

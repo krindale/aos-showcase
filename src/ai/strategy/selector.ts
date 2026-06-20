@@ -600,7 +600,7 @@ export function getHexCubeMapRoute(
     const routeDist = hexDistance(cand.from.coord, cand.to.coord);
     const score =
       deliverable * perDeliveryVP * 2                        // 실현 income 최우선 (가중 ↑)
-      + depthBonus * 2.5                                     // ★ 깊은 큐브(매칭색 도시에서 먼) 우선 = 4-5링크 배달
+      + depthBonus * 3.5                                     // ★ 깊은 큐브(매칭색 도시에서 먼) 우선 = 4-5링크 배달 (강화)
       + routeDist * 2                                        // 라인 연장 — 멀리 뻗어 체인을 길게(4-5링크 깊이)
       + potential * 0.75                                     // 배달처 미정 큐브 = 약한 수집 유도
       + (endsAtCity ? 6 : 0)                                 // 배달 목적지(도시) 연결 = income 실현 전제

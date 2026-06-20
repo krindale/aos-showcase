@@ -211,9 +211,9 @@ function findPassThroughDanglingTown(state: GameState, playerId: PlayerId): HexC
     const info = townInfo.get(`${sp.townCoord.col},${sp.townCoord.row}`);
     if (info) info.spurEdges.add(sp.edge);
   }
-  for (const { coord, myEdges, spurEdges } of townInfo.values()) {
+  for (const { coord, myEdges, spurEdges } of Array.from(townInfo.values())) {
     // 내 트랙이 2변 이상 닿았는데 가닥이 빠진 변이 있으면 = 통과 마을 미완성
-    if (myEdges.size >= 2 && [...myEdges].some(e => !spurEdges.has(e))) return coord;
+    if (myEdges.size >= 2 && Array.from(myEdges).some(e => !spurEdges.has(e))) return coord;
   }
   return null;
 }

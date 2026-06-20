@@ -16,7 +16,7 @@ import {
   findStopById,
   getMainNetworkStopIds,
 } from './analyzer';
-import { hexDistance, hexCoordsEqual, getNeighborHex } from '@/utils/hexGrid';
+import { hexDistance, hexCoordsEqual } from '@/utils/hexGrid';
 import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, clearCurrentRoutes } from './state';
 import { estimateRouteVP, deliveryDeltaVP } from './vp';
 import { getMapAIConfig } from './mapConfig';

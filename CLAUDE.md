@@ -106,8 +106,11 @@ src/
 │   ├── strategy/               # 고수준 전략 분석 및 경로 탐색
 │   │   ├── types.ts            # DeliveryRoute, DeliveryOpportunity 타입
 │   │   ├── scenarios.ts        # 시나리오 정의
-│   │   ├── analyzer.ts         # A* 경로 탐색, evaluateTrackForRoute, getConnectedCities
-│   │   ├── selector.ts         # 화물 기반 동적 전략 선택 (getNextTargetRoute)
+│   │   ├── analyzer.ts         # A* 경로 탐색, 트랙 큐브 배달 기회 생성, getConnectedCities
+│   │   ├── selector.ts         # 화물 기반 동적 전략 선택 (getNextTargetRoute, 헥스큐브 맵 경로)
+│   │   ├── vp.ts               # ΔVP 환산기 (순수 함수, 튜닝 상수 집중)
+│   │   ├── mapConfig.ts        # 맵별 AI 설정 오버라이드 (엔진 상한·턴 수·건설 수·income 원천)
+│   │   ├── turnPlan.ts         # 턴 시작 계획 수립 (목표 경로/필요 트랙/현금), Phase 간 공유
 │   │   ├── state.ts            # 전략 상태 관리 (currentTargetRoutes Map)
 │   │   └── __tests__/          # 전략 단위 테스트
 │   │       ├── analyzer.test.ts
@@ -138,8 +141,17 @@ src/
 │       ├── trackBuildSimulation.test.ts  # 턴 간 트랙 건설 시뮬레이션
 │       ├── fullSimulation.test.ts        # 2 AI 멀티턴 트랙 건설/링크 완성 시뮬레이션
 │       ├── fullGameSimulation.test.ts    # 실제 gameStore 구동 전체 게임 시뮬레이션 (파산율/재정 검증)
+│       ├── stLuciaSimulation.test.ts     # St.Lucia 2 AI 동기식 전체게임 러너 + 수익/건설 깔때기 측정
 │       └── helpers/
 │           └── mockState.ts    # 테스트용 Mock 데이터 헬퍼
+│
+├── maps/                       # 맵 프로파일 (다형성 — 맵별 동작을 mapId 분기 대신 상속 override로)
+│   ├── MapId.ts                # 맵 식별자 enum (문자열 분기 제거, 라우트/저장 호환)
+│   ├── MapProfile.ts           # 추상 베이스 (세팅·규칙·AI설정·경로전략, 기본=표준 맵)
+│   ├── getMapProfile.ts        # mapId → MapProfile 인스턴스 팩토리 (캐싱)
+│   └── profiles/
+│       ├── StandardMapProfile.ts   # 룰북 기본 맵 (튜토리얼 = engineMax 3 override)
+│       └── StLuciaMapProfile.ts    # St.Lucia override (헥스큐브 income/규칙/경로전략)
 │
 ├── components/                 # UI 컴포넌트
 │   ├── Navigation.tsx          # 글래스모피즘 네비게이션 바
@@ -148,11 +160,12 @@ src/
 │   ├── GameBoardPreview.tsx    # 헥스 그리드 인터랙티브 프리뷰
 │   ├── FeatureCards.tsx        # 피처 카드 + 숫자 카운트업
 │   ├── OfflineIndicator.tsx    # 오프라인/동기화 상태 표시 (PWA)
-│   └── game/                   # 게임 UI 컴포넌트 (16개)
-│       ├── GameBoard.tsx       # 헥스 그리드 게임보드 (SVG)
+│   └── game/                   # 게임 UI 컴포넌트 (17개)
+│       ├── GameBoard.tsx       # 헥스 그리드 게임보드 (SVG, 좌표 표시 토글, 화물 경로 골드 점선)
 │       ├── PlayerPanel.tsx     # 플레이어 정보 패널 (AI 표시 포함)
 │       ├── PhasePanel.tsx      # 현재 단계 표시 (AI 생각 중 상태)
 │       ├── AuctionPanel.tsx    # 경매 UI
+│       ├── TurnOrderOfferPanel.tsx  # 교대 선공권 제안 UI ($5 선공/거부, St.Lucia)
 │       ├── UrbanizationPanel.tsx   # 도시화 UI
 │       ├── ProductionPanel.tsx     # 생산 UI
 │       ├── GoodsGrowthPanel.tsx    # 물품 성장 UI
@@ -182,10 +195,12 @@ src/
 │
 └── utils/                      # 핵심 비즈니스 로직 유틸리티
     ├── gameLogic.ts            # 게임 엔진 규칙 (수입 계산, 물품 이동)
-    ├── hexGrid.ts              # 헥스 그리드 기하학 (Axial/Offset, A*, BFS)
+    ├── hexGrid.ts              # 헥스 그리드 기하학 (Axial/Offset, A*, BFS, 트랙 큐브 배달 탐색)
     ├── trackValidation.ts      # 트랙 건설 및 연결성 검증
-    ├── tutorialMap.ts          # 튜토리얼 맵 데이터 정의
-    ├── debugConfig.ts          # 디버그 설정 유틸리티 (로그 카테고리 토글)
+    ├── tutorialMap.ts          # 튜토리얼 맵 데이터 정의 (좌표 0-base)
+    ├── stLuciaMap.ts           # St. Lucia 맵 데이터 정의 (2인 전용, 헥스큐브, 좌표 0-base)
+    ├── mapRegistry.ts          # 맵 룰 분리 레지스트리 (MapRuleConfig)
+    ├── debugConfig.ts          # 디버그 설정 (로그 카테고리 토글 + logAction 종합 액션 로깅)
     ├── pwaUtils.ts             # Service Worker 등록/관리 유틸리티
     └── testHelpers.ts          # 단위 테스트 헬퍼 함수
 
@@ -357,8 +372,18 @@ AI는 **객체 지향 아키텍처**로 설계되어 있으며, 각 AI 플레이
   - `engineUpgradeDeltaVP`: 해금 배달 가치 × 실현확률 − 매턴 비용. 비관 시나리오 1턴 생존 시뮬레이션으로 파산 위험은 -∞ 차단
   - `estimateRouteVP`: 경로의 기대 ΔVP. **완성 불가능한 경로(시간/자금/엔진 상한)는 -∞로 원천 배제** → 산발 건설 차단. 건설 슬롯 기회비용으로 트랙VP 절반 인정
   - `incomeMarginalVP`: 수입 감소 구간(11+) 경계에서 한계가치 체감 (큰 맵 대비)
-- **`strategy/mapConfig.ts`**: 엔진 상한·턴 수·턴당 건설 수를 맵 오버라이드 테이블로 주입. **AI 코드에 "tutorial이면 3" 같은 맵 분기 금지** — 새 맵 추가 시 이 테이블만 갱신
+- **`strategy/mapConfig.ts`**: 엔진 상한·턴 수·턴당 건설 수·income 원천(MapAIConfig.incomeSources)을 맵 오버라이드 테이블로 주입. **AI 코드에 "tutorial이면 3" 같은 맵 분기 금지** — 새 맵 추가 시 이 테이블만 갱신
 - **`strategy/turnPlan.ts`**: 턴 시작(issueShares)에 계획(목표 경로, A* fullPath, 필요 트랙/비용/현금) 수립, Phase 간 공유. 게임 리셋 시 `clearTurnPlans()` (AIPlayerManager에서 호출)
+
+**맵 프로파일 다형성 (`src/maps/`, 2026-06)**: `mapId === 'st-lucia'` 같은 코드 전반의 문자열 분기를
+없애기 위해, 맵별로 달라지는 동작(세팅·규칙·AI설정·**경로 선택 전략**)을 `MapProfile` 추상 베이스 +
+서브클래스 override로 표현한다. `getMapProfile(mapId)`로 인스턴스를 얻어 다형 메서드 호출.
+- `MapProfile.incomeSources` = `'cityCubes'`(표준: 출발 도시 큐브) | `'trackCubes'`(St.Lucia: 트랙 위 헥스큐브).
+  analyzer는 이 목록으로 배달 기회를 생성하고, `estimateRouteVP`는 경로상 트랙 큐브 중 도착 도시 색까지
+  income 원천으로 합산 — **맵 이름 하드코딩 없이** income 평가 일반화 (튜토리얼은 트랙 큐브 없어 영향 0)
+- `selectTargetRoute`/`selectTopRoutes` = 헥스큐브 맵의 경로 선택을 `StLuciaMapProfile`이 override
+  (기존 selector의 `hexCubeSetup` 우회 분기를 다형성으로 대체)
+- 의존 방향 단방향: `maps/`는 `types/game`만 의존(저수준), AI 전략·게임 엔진이 `maps/`를 의존
 
 **Phase별 결정**:
 - `issueShares`: TurnPlan.cashNeeded 부족분만 발행. 생존 발행(파산 방지) 절대 우선, 마지막 턴 생존 외 발행 금지, 턴당 2주/총 5주 상한
@@ -399,6 +424,7 @@ debugPaths("player2");          // 최적 경로 탐색 결과 시각화
 | `goodsMovement` | 물품 운송 결정 | OFF |
 | `turnEnd` | 정산/수입감소/턴 종료 | OFF |
 | `verbose` | 경로 탐색, 연결 확인 등 상세 로그 | OFF |
+| `aiEvaluation` | AI 평가(트랙 점수/전략 평가 등) | ON |
 
 ```javascript
 // 콘솔 헬퍼 함수
@@ -406,6 +432,15 @@ showDebugConfig();                   // 현재 설정 상태 확인
 setDebug("trackBuilding", true);     // 특정 카테고리 on/off
 setAllDebug(true);                   // 모든 로그 on/off
 ```
+
+#### 종합 액션 로깅 (logAction)
+
+위 토글과 **별개로**, 모든 게임 액션을 `logAction`(debugConfig.ts)이 **토글과 무관하게 항상**
+구조화 JSON 한 줄로 기록한다. 출력: `[game:<sessionId>] {"t":"buildTrack","c":"trackBuilding",...}`.
+- 게임 시작/리셋 시 짧은 세션ID 부여(`newLogSession`) — 여러 게임이 섞여도 prefix로 구분
+- `category`("c" 필드)는 끄는 스위치가 아니라 `:3999`에서 grep 필터링할 분류 라벨
+- `level:'error'`면 `console.error`로 출력 (오류만 추출 가능)
+- GamePageClient의 콘솔 미러가 이 줄을 localhost:3999로 전송 → 로그만으로 게임 진행/오류 추적
 
 #### AI 트랙 건설 로직 (상세)
 
@@ -441,6 +476,35 @@ setAllDebug(true);                   // 모든 로그 on/off
   수입은 시작 구간(미완성이어도) 소유자 +1 **그리고** 이후 경유하는 완성 링크마다 일반 규칙대로
   소유자 +1 (예: 구간→마을→도시 = +2). UI는 `selectCube('track:<id>')` 컨벤션
 - 튜토리얼(경매/물품성장 O)과 St. Lucia(선공권/헥스큐브 O) **양쪽 헤드리스 완주 검증 필수**
+
+#### St. Lucia AI 수익 개선 (2026-06, feature/st-lucia-ai-income)
+
+헥스큐브 맵에서 AI의 income/VP가 음수에 머무는 문제를 라이브 플레이 분석으로 단계 개선.
+**모두 trackCubes 맵(St.Lucia) 한정 — tutorial VP 회귀 게이트 보존.**
+
+- **트랙 큐브 배달 경로 (`findTrackCubeDeliveries`, hexGrid.ts)**: 트랙 위 큐브를 같은 색 도시로
+  배달, 다른 색 도시는 통과, **엔진 레벨(링크 수) 제한**, 자기 철도 우선 경로.
+  분기 탐색의 visited를 **전역 → per-path(복사)** 로 수정 — 공유 허브를 한 경로가 먼저 지나도
+  다른 경로(내 트랙만으로 가는 최적 경로)가 막히지 않게 함 (income 8.0→9.6의 핵심 버그).
+  엔진 초과로 닿는 도시도 `reason:'engine-exceeded'`+`requiredEngine`으로 로그 노출.
+- **route-aware 마을 가닥 (`tryDirectPathBuild`/`hasPendingFreeSpur`, buildTrack.ts)**: 경로가
+  마을을 지날 때 들어온 변 가닥을 먼저 짓고 다음 타일로 진행. 3/3 마지막 타일이 마을에 새 변을
+  연결하면 빌드 페이즈가 끝나기 전 무료 가닥(0카운트)으로 같은 턴에 메움(현금 가드로 루프 차단).
+- **엔진 타이밍 정책 (moveGoods/selectAction)**: front-load(초반 수송 1개 포기로 엔진 3) →
+  T4 이후 move-round 엔진업 금지(엔진은 Locomotive 액션으로만) → T6+ 엔진 4 floor는
+  "4링크+ 배달 가능한 깊은 큐브가 있을 때만"(얕은 게임 비용 낭비 차단).
+- **도시화 가치 (`evaluateUrbanizationForTrackCubes`, selectAction)**: 도시화 가치를 "아직 도시
+  없는 색의 큐브 수"(배달 목적지 확충)로 산정 + **도시 수 체감(decay)** (도시 2개→×0.7, 3개→×0.4,
+  4개+→×0.3) — 도시가 충분하면 도시화 남발 대신 라인 확장·깊은 배달 우선.
+- **깊은 배달 보상 (selector)**: depthBonus(매칭색 도시에서 먼 큐브 우선)로 긴 체인 유도.
+- **후반 파산 차단 (issueShares)**: 마지막 2턴(T7-8) 건설 목적 발행 금지(배달 회수 턴 부족 → 순수 빚).
+  생존 발행은 유지.
+- **화물 클릭 경로 하이라이트 (selectCube/GameBoard)**: 트랙 큐브 클릭 시 도달 가능 도시 중
+  최적 경로(상대 철도 적은→링크 긴 순)를 `ui.movePath`에 설정 → 골드 점선 표시.
+- **측정 하니스 (`stLuciaSimulation.test.ts`)**: St.Lucia 2 AI 동기식 전체게임 러너 +
+  수익/건설 깔때기(배달·미배달·건설·도시화·완주턴) + 진단 지표(배달 깊이/체인 지원/최고 엔진).
+  베이스라인 측정(통과) + 목표 게이트(skip). 누적 결과(20시드): VP −21.8→**+3.8**, income→10.8,
+  파산 17→7. tutorial VP 회귀 불변.
 
 #### 마을 가닥(스퍼) 모델 (2026-06-12 재설계, 모든 맵 공통)
 
@@ -526,6 +590,7 @@ npx vitest run src/ai/__tests__/fullGameSimulation.test.ts -t "executeAITurn" # 
 - `src/ai/__tests__/trackBuildSimulation.test.ts` - AI 트랙 건설 시뮬레이션
 - `src/ai/__tests__/fullSimulation.test.ts` - 2 AI 멀티턴 트랙 건설/링크 완성 시뮬레이션
 - `src/ai/__tests__/fullGameSimulation.test.ts` - 실제 gameStore 구동 전체 게임 시뮬레이션 (파산율 0%, 재정 건전성, 랜덤 시드 스트레스 테스트)
+- `src/ai/__tests__/stLuciaSimulation.test.ts` - St.Lucia 2 AI 동기식 전체게임 러너 + 수익/건설 깔때기 측정 (income/VP 베이스라인 + 목표 게이트)
 - `src/ai/strategy/__tests__/analyzer.test.ts` - A* 경로 탐색 테스트
 - `src/ai/strategy/__tests__/selector.test.ts` - 전략 선택 테스트
 - `src/ai/strategies/__tests__/buildTrack.test.ts` - 트랙 건설 전략 테스트
@@ -1140,6 +1205,12 @@ const CITY_COLORS = {
 - [3, 0]: 좌↔우 (수평)
 - [4, 1]: 좌상↔우하 (NW↔SE)
 - [5, 2]: 우상↔좌하 (NE↔SW)
+
+### 좌표 0-base (2026-06, feature/st-lucia-ai-income)
+
+맵 데이터 좌표를 0-base로 통일했다 — 맵 데이터(stLucia/tutorial)의 col을 −1 이동,
+`DEFAULT_START_COL = 0`. **게임 로직은 불변** (odd-r 인접은 row의 홀짝만 사용하므로 col 평행이동에
+무영향). 화면/로그 좌표가 (0,0)부터 표시된다. 프리셋 트랙 좌표를 쓰는 테스트는 col −1 재정렬 필요.
 
 ### Odd-r Offset 이웃 계산 공식
 

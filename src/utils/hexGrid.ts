@@ -1411,8 +1411,10 @@ export interface TrackCubeRouteCandidate {
   linkCount: number;
   oppLinks: number;
   accepted: boolean;
-  /** first=첫 발견 채택, replace=더 나아 교체, reject-oppLinks=상대철도 많아 탈락, reject-shorter=같은 oppLinks인데 짧아 탈락 */
-  reason: 'first' | 'replace' | 'reject-oppLinks' | 'reject-shorter';
+  /** first=첫 발견 채택, replace=더 나아 교체, reject-oppLinks=상대철도 많아 탈락, reject-shorter=같은 oppLinks인데 짧아 탈락, engine-exceeded=링크 수가 엔진 초과(배달 불가, 가시화용) */
+  reason: 'first' | 'replace' | 'reject-oppLinks' | 'reject-shorter' | 'engine-exceeded';
+  /** engine-exceeded일 때, 이 경로로 배달하려면 필요한 최소 엔진 레벨(=linkCount) */
+  requiredEngine?: number;
 }
 
 /** 트랙 큐브 배달 후보: 도달 도시와 경유 트랙 구간 소유자 */
@@ -1478,6 +1480,12 @@ export function findTrackCubeDeliveries(
     });
   }
 
+  // 엔진을 초과하는 경로는 배달엔 못 쓰지만, "엔진 N이면 가능"을 로그로 노출하면 디버깅에 유용.
+  // onCandidate(로그)가 있을 때만 엔진 + 여유분만큼 더 탐색한다 (AI 내부 평가엔 영향 없음).
+  const ENGINE_REPORT_MARGIN = 2;
+  const exploreLimit =
+    onCandidate && engineLevel !== Infinity ? engineLevel + ENGINE_REPORT_MARGIN : engineLevel;
+
   let guard = 0;
   while (stack.length > 0 && guard++ < 256) {
     const st = stack.pop()!;
@@ -1498,12 +1506,12 @@ export function findTrackCubeDeliveries(
         // 같은 색 도시 → 배달 후보 + 종료 (룰: 같은 색 도시 도착 시 이동 멈춤).
         // 단 링크 수가 엔진 레벨 이하여야 배달 가능 (엔진 = 이동 가능 링크 수)
         if (city.color === cubeColor) {
+          // 경로의 상대 철도 경유 수 — 적을수록 자기 철도 위주 (배달자 지정 시에만 의미)
+          const oppLinks = playerId === null ? 0 : pathCoords.filter(pc => {
+            const t = board.trackTiles.find(tt => hexCoordsEqual(tt.coord, pc));
+            return t && t.owner !== null && t.owner !== playerId;
+          }).length;
           if (linkCount <= engineLevel) {
-            // 경로의 상대 철도 경유 수 — 적을수록 자기 철도 위주 (배달자 지정 시에만 의미)
-            const oppLinks = playerId === null ? 0 : pathCoords.filter(pc => {
-              const t = board.trackTiles.find(tt => hexCoordsEqual(tt.coord, pc));
-              return t && t.owner !== null && t.owner !== playerId;
-            }).length;
             const existing = deliveries.find(d => d.city.id === city.id);
             if (!existing) {
               deliveries.push({ city, pathCoords: [...pathCoords], sectionOwner, oppLinks, linkCount });
@@ -1521,12 +1529,18 @@ export function findTrackCubeDeliveries(
                 reason: oppLinks > existing.oppLinks ? 'reject-oppLinks' : 'reject-shorter',
               });
             }
+          } else {
+            // 엔진 초과 — 배달 불가지만 "엔진 N이면 가능"을 로그로 노출 (exploreLimit까지만 도달)
+            onCandidate?.({
+              cityId: city.id, linkCount, oppLinks, accepted: false,
+              reason: 'engine-exceeded', requiredEngine: linkCount,
+            });
           }
           break;
         }
         // 다른 색 도시 → 통과 (도시는 모든 변이 연결됨, 한 번만 방문). 너머 같은 색 도시로 계속 탐색.
-        // 엔진 레벨을 이미 넘었으면 더 통과해봐야 배달 불가 → 중단
-        if (linkCount >= engineLevel) break;
+        // 탐색 상한을 이미 넘었으면 더 통과해봐야 의미 없음 → 중단 (로그 모드면 엔진+여유까지)
+        if (linkCount >= exploreLimit) break;
         if (visited.has(key)) break;
         visited.add(key);
         const cityPath = [...pathCoords, nextCoord];
@@ -1549,7 +1563,7 @@ export function findTrackCubeDeliveries(
         const entrySpurEdge = getOppositeEdge(exitEdge);
         const spurs = (board.townSpurs ?? []).filter(sp => hexCoordsEqual(sp.townCoord, nextCoord));
         if (!spurs.some(sp => sp.edge === entrySpurEdge)) break; // 진입 변에 가닥 없음 — 연결 안 됨
-        if (linkCount >= engineLevel) break; // 엔진 레벨 초과 — 더 통과 불가
+        if (linkCount >= exploreLimit) break; // 탐색 상한 초과 — 더 통과 불가 (로그 모드면 엔진+여유까지)
         if (visited.has(key)) break;
         visited.add(key);
         const townPath = [...pathCoords, nextCoord];

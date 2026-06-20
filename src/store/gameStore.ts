@@ -2917,11 +2917,16 @@ export const useGameStore = create<GameStore>()(
         return;
       }
       logAction('goodsMovement', 'deliveryRoutes', { player: state.currentPlayer, trackId, routes: deliveries.map(d => ({ city: d.city.id, links: d.linkCount, oppLinks: d.oppLinks })) });
+      // 최적 경로(상대철도 적고 → 링크 긴=수입 큰 순)를 골라 하이라이트(movePath)로 표시
+      const best = deliveries.reduce((a, b) =>
+        (b.oppLinks < a.oppLinks || (b.oppLinks === a.oppLinks && b.linkCount > a.linkCount)) ? b : a
+      );
       set({
         ui: {
           ...state.ui,
           selectedCube: { cityId, cubeIndex: 0 },
           reachableDestinations: deliveries.map(d => d.city.coord),
+          movePath: [...best.pathCoords, best.city.coord],
         },
       });
       return;
@@ -2961,6 +2966,7 @@ export const useGameStore = create<GameStore>()(
         ...state.ui,
         selectedCube: { cityId, cubeIndex },
         reachableDestinations: reachable.map(c => c.coord),
+        movePath: [], // 트랙 큐브 선택에서 남은 경로 하이라이트 제거
       },
     });
   },

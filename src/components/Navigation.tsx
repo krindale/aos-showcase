@@ -115,7 +115,7 @@ export default function Navigation() {
                   whileTap={{ scale: 0.95 }}
                   className="btn-primary text-sm px-6 py-2.5"
                 >
-                  시작하기
+                  튜토리얼
                 </motion.button>
               </Link>
             </div>

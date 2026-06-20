@@ -331,17 +331,19 @@ export function decideUrbanizationPlacement(
   let bestTownScore = -Infinity;
   for (const town of towns) {
     let score = 0;
-    // 주변 3칸 내 해당 색 큐브 수
+    // 주변 3칸 내 해당 색 큐브 수 (배달 실현 쉬운 위치)
     for (const hex of board.hexTiles) {
       if (hex.cube === bestTile.color && hexDistance(hex.coord, town.coord) <= 3) score += 2;
     }
     for (const track of board.trackTiles) {
       if (track.cube === bestTile.color && hexDistance(track.coord, town.coord) <= 3) score += 2;
     }
-    // 내 트랙과의 거리 (가까울수록 배달 실현 쉬움)
+    // 내 트랙과의 거리 — 신규 도시를 내 연결망에 "인접"(거리1) 배치하면 그 도시가
+    // 연결망에 합류해 하나의 긴 철도가 된다. 멀리 떨어진 도시는 별도 앵커=파편을 만들므로 강하게 억제.
     if (myTracks.length > 0) {
       const minDist = Math.min(...myTracks.map(t => hexDistance(t.coord, town.coord)));
-      score += Math.max(0, 5 - minDist);
+      if (minDist <= 1) score += 20;          // 연결망 인접 = 하나의 철도로 합류 (강하게 우선)
+      else score += Math.max(0, 4 - minDist); // 떨어질수록 파편 위험 ↑
     }
     if (score > bestTownScore) {
       bestTownScore = score;

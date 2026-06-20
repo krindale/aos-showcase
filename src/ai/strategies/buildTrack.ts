@@ -14,6 +14,7 @@ import {
 import { hexCoordsEqual, hexDistance, getNeighborHex, getOppositeEdge } from '@/utils/hexGrid';
 import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, incrementInvestedTracks } from '../strategy/state';
 import { getNextTargetRoute, findNextTargetRoute, getTopPriorityRoutes } from '../strategy/selector';
+import { getMapAIConfig } from '../strategy/mapConfig';
 import {
   getConnectedCities,
   isRouteComplete,
@@ -381,11 +382,15 @@ function tryDirectPathBuild(
   // 자사 트랙 엣지 비호환 시 회피 좌표를 추가하며 최대 3회 재탐색
   const avoidCoords: HexCoord[] = [];
 
+  // trackCubes 맵: 건설 경로도 마을을 경유하도록(route 선택과 동일) → 화물이 마을 링크를 지나 4-5링크 배달
+  const preferTowns = getMapAIConfig(state).incomeSources.includes('trackCubes');
+
   for (let attempt = 0; attempt < 3; attempt++) {
     // 1. A* 경로 계산 (상대 트랙 회피, 자사 트랙 우대, 비호환 트랙 회피)
     const optimalPath = findOptimalPathAvoidingOpponent(
       sourceCity.coord, targetCity.coord, board, playerId,
-      avoidCoords.length > 0 ? avoidCoords : undefined
+      avoidCoords.length > 0 ? avoidCoords : undefined,
+      preferTowns,
     );
     if (optimalPath.length < 3) return null;
 

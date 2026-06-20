@@ -1338,6 +1338,8 @@ export const useGameStore = create<GameStore>()(
     });
 
     console.log(`[moveTrackCube] ${currentPlayer}: ${cubeColor} → ${destCityId} 애니메이션 시작 (구간 소유 ${delivery.sectionOwner ?? '없음'})`);
+    // [PLAY] 사람 플레이 분석용 — 배달 링크 깊이(4-5링크 목표 확인)
+    console.log(`[PLAY] T${state.currentTurn} ${currentPlayer} 배달 ${cubeColor}→${destCityId} ${delivery.linkCount}링크 (경로 ${path.map(c => `(${c.col},${c.row})`).join('→')})`);
     return true;
   },
 
@@ -1750,6 +1752,8 @@ export const useGameStore = create<GameStore>()(
     // 참고: nextPhase()는 호출자(UI 버튼 또는 AI)가 직접 호출함
     // 여기서 자동 호출하면 중복 호출로 버그 발생
 
+    // [PLAY] 사람 플레이 분석용 — 건설 좌표/엣지 (긴 라인 추적)
+    console.log(`[PLAY] T${state.currentTurn} ${currentPlayer} 건설 (${coord.col},${coord.row}) edges[${edges}] [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]${newSpurs.length > 0 ? ` +가닥${newSpurs.length}` : ''}`);
     return true;
   },
 
@@ -1895,6 +1899,8 @@ export const useGameStore = create<GameStore>()(
     // 참고: nextPhase()는 호출자(UI 버튼 또는 AI)가 직접 호출함
     // 여기서 자동 호출하면 중복 호출로 버그 발생
 
+    // [PLAY] 사람 플레이 분석용 — 복합 건설 좌표
+    console.log(`[PLAY] T${state.currentTurn} ${currentPlayer} 복합건설(${trackType}) (${coord.col},${coord.row}) edges[${newEdges}] [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`);
     return true;
   },
 
@@ -1998,6 +2004,8 @@ export const useGameStore = create<GameStore>()(
       ],
     });
 
+    // [PLAY] 사람 플레이 분석용 — 마을 가닥 완성(링크 완성 = 깊은 배달 핵심)
+    console.log(`[PLAY] T${state.currentTurn} ${currentPlayer} 가닥완성 @(${townCoord.col},${townCoord.row}) 가닥${missing.length}개`);
     return true;
   },
 
@@ -2118,6 +2126,7 @@ export const useGameStore = create<GameStore>()(
       const oldLevel = player.engineLevel;
       const newLevel = player.engineLevel + 1;
       console.log(`[upgradeEngine] ${player.name}: 엔진 업그레이드 ${oldLevel} → ${newLevel}`);
+      console.log(`[PLAY] T${state.currentTurn} ${playerId} 엔진업 ${oldLevel}→${newLevel}`);
 
       return {
         players: {
@@ -3624,6 +3633,8 @@ export const useGameStore = create<GameStore>()(
       ],
     });
 
+    // [PLAY] 사람 플레이 분석용 — 도시화 위치/색
+    console.log(`[PLAY] T${state.currentTurn} ${state.currentPlayer} 도시화 ${tile.color} 도시(${selectedTileId}) @${town.id}(${townCoord.col},${townCoord.row})`);
     return true;
   },
 

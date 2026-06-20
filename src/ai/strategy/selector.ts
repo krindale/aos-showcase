@@ -13,8 +13,10 @@ import {
   getRouteProgress,
   isRouteComplete,
   findOptimalPathAvoidingOpponent,
+  findStopById,
+  getMainNetworkStopIds,
 } from './analyzer';
-import { hexDistance, hexCoordsEqual } from '@/utils/hexGrid';
+import { hexDistance, hexCoordsEqual, getNeighborHex } from '@/utils/hexGrid';
 import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, clearCurrentRoutes } from './state';
 import { estimateRouteVP, deliveryDeltaVP } from './vp';
 import { getMapAIConfig } from './mapConfig';
@@ -494,23 +496,46 @@ export function getHexCubeMapRoute(
   if (stops.length < 2) return null;
 
   const connectedCities = getConnectedCities(state, playerId);
-  const myTracks = board.trackTiles.filter(t => t.owner === playerId);
+  const myTracks = board.trackTiles.filter(t => t.owner === playerId || t.secondaryOwner === playerId);
+  const hasNetwork = myTracks.length > 0;
+  const oppTracks = board.trackTiles.filter(t =>
+    (t.owner !== null && t.owner !== playerId) || (t.secondaryOwner != null && t.secondaryOwner !== playerId));
 
-  // 후보 쌍: 거리 2~5 (1은 너무 짧아 링크 가치 낮음, 6+는 한 경로로 비효율)
+  // 상대가 "지금 노리는" 화물 회피 — 상대의 현재 목표 경로(A* 경로) 위 좌표 집합.
+  // 두 AI가 같은 큐브를 동시에 노리면 한쪽이 굶으므로, 상대 타겟 경로의 큐브는 경합으로 처리해 분담.
+  const oppPathKeys = new Set<string>();
+  for (const oppId of state.activePlayers) {
+    if (oppId === playerId) continue;
+    const oppRoute = getCurrentRoute(oppId);
+    if (!oppRoute) continue;
+    const f = findStopById(board, oppRoute.from);
+    const t = findStopById(board, oppRoute.to);
+    if (!f || !t) continue;
+    for (const c of findOptimalPathAvoidingOpponent(f.coord, t.coord, board, oppId)) {
+      oppPathKeys.add(`${c.col},${c.row}`);
+    }
+  }
+
+  // ★ 메인 라인(가장 큰 연결 컴포넌트)에서만 확장 — 도시별 토막 금지, 하나의 라인을 계속 이어 짓는다.
+  const networkStopIds = getMainNetworkStopIds(board, playerId) ?? new Set<string>(connectedCities);
+
+  // 후보 쌍: 거리 1~6
   type Cand = { from: typeof stops[0]; to: typeof stops[0]; prelim: number };
   const candidates: Cand[] = [];
   for (const from of stops) {
+    // 네트워크가 있으면 from은 반드시 내 연결망 frontier여야 함 — 분산된 토막 건설 차단
+    if (hasNetwork && !networkStopIds.has(from.id)) continue;
     for (const to of stops) {
       if (from.id === to.id) continue;
       const d = hexDistance(from.coord, to.coord);
-      if (d < 1 || d > 5) continue;
+      if (d < 1 || d > 6) continue; // 깊은 체인 허용 (엔진 성장 전제)
       // 이미 내 트랙으로 완성된 경로는 제외
       if (isRouteComplete(state, { from: from.id, to: to.id, priority: 1 }, playerId)) continue;
 
-      let prelim = -d; // 가까울수록 우선
+      // 깊은 확장 선호: 짧은 경로 페널티 대신, 먼 stop으로 뻗어 하나의 긴 철도를 만든다.
+      let prelim = d;                                     // 멀수록(깊을수록) 우선
       if (to.isCity || from.isCity) prelim += 4;          // 배달 목적지 연결
-      if (connectedCities.includes(from.id)) prelim += 3; // 내 연결망에서 확장
-      if (myTracks.length === 0) prelim += 0;             // 첫 트랙은 어디든
+      if (networkStopIds.has(from.id)) prelim += 6;       // 내 연결망에서 확장 (강하게)
       candidates.push({ from, to, prelim });
     }
   }
@@ -522,7 +547,8 @@ export function getHexCubeMapRoute(
   let best: { route: DeliveryRoute; score: number } | null = null;
 
   for (const cand of candidates.slice(0, K)) {
-    const path = findOptimalPathAvoidingOpponent(cand.from.coord, cand.to.coord, board, playerId);
+    // preferTowns: 경로가 마을을 경유하도록 — 화물이 마을(링크 경계)을 여러 개 지나 4-5링크 배달
+    const path = findOptimalPathAvoidingOpponent(cand.from.coord, cand.to.coord, board, playerId, undefined, true);
     if (path.length < 2) continue;
 
     // 이 경로/내 연결망이 닿는 도시 색 = 수집 큐브를 배달할 수 있는 목적지 색 집합
@@ -537,10 +563,25 @@ export function getHexCubeMapRoute(
     let deliverable = 0; // 같은색 도시로 배달 가능한 수집 큐브 (실현 income)
     let potential = 0;   // 배달처 미정 수집 큐브 (수집 유도)
     let unbuilt = 0;
+    let contested = 0;   // 상대 트랙에 가까운(경합) 큐브 — 뺏길 위험 → 분산 유도
+    let depthBonus = 0;  // 큐브 배달 깊이(매칭색 도시까지 거리) — 깊을수록 4-5링크 배달 → 강하게 우대
     for (const coord of path) {
       const hex = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
       if (hex?.cube) {
-        if (reachableColors.has(hex.cube)) deliverable++; else potential++;
+        if (reachableColors.has(hex.cube)) {
+          deliverable++;
+          // ★ 사용자 핵심: 매칭색 도시에서 "멀리 떨어진" 큐브를 노려야 4-5링크 배달이 나온다.
+          // 큐브→가장 가까운 매칭색 도시 거리(링크 근사, engineMax로 캡)를 깊이로 환산해 가산.
+          let minMatchCityDist = Infinity;
+          for (const c of board.cities) {
+            if (c.color === hex.cube) minMatchCityDist = Math.min(minMatchCityDist, hexDistance(coord, c.coord));
+          }
+          if (minMatchCityDist < Infinity) depthBonus += Math.min(minMatchCityDist, config.engineMax);
+        } else potential++;
+        // 경합 판정: 상대 트랙이 가깝거나(이미 지음), 상대의 현재 목표 경로 위에 있으면(지금 노림)
+        // → 뺏길 위험 → 분산 유도. 같은 큐브 두고 싸우다 한쪽이 굶는 것을 방지.
+        const onOppPath = oppPathKeys.has(`${coord.col},${coord.row}`);
+        if (onOppPath || oppTracks.some(t => hexDistance(t.coord, coord) <= 2)) contested++;
       }
       const hasTrack = board.trackTiles.some(t => hexCoordsEqual(t.coord, coord));
       const isCityHex = board.cities.some(c => hexCoordsEqual(c.coord, coord));
@@ -556,13 +597,17 @@ export function getHexCubeMapRoute(
     // 배달처가 없는 큐브(potential) 수집은 income으로 실현 안 되므로 약하게만(수집 유도 정도).
     // 목적지가 도시(배달처)면 큰 보너스 — 그래야 수집 큐브가 실제 income이 된다.
     const endsAtCity = cand.to.isCity || cand.from.isCity;
+    const routeDist = hexDistance(cand.from.coord, cand.to.coord);
     const score =
       deliverable * perDeliveryVP * 2                        // 실현 income 최우선 (가중 ↑)
-      + potential * 0.75                                     // 배달처 미정 큐브 = 약한 수집 유도 (3 → 0.75)
+      + depthBonus * 2.5                                     // ★ 깊은 큐브(매칭색 도시에서 먼) 우선 = 4-5링크 배달
+      + routeDist * 2                                        // 라인 연장 — 멀리 뻗어 체인을 길게(4-5링크 깊이)
+      + potential * 0.75                                     // 배달처 미정 큐브 = 약한 수집 유도
       + (endsAtCity ? 6 : 0)                                 // 배달 목적지(도시) 연결 = income 실현 전제
       + (deliverable > 0 && endsAtCity ? 4 : 0)              // 수집+배달처 동시 = 완결 배달 경로 보너스
-      + (connectedCities.includes(cand.from.id) ? 3 : 0)     // 내 연결망 확장
-      - unbuilt;                                             // 건설 부담
+      + (networkStopIds.has(cand.from.id) ? 8 : 0)           // 내 연결망에서 확장 (하나의 철도)
+      - contested * 2                                        // 상대와 경합하는 큐브 회피 → 비경합 큐브로 분산
+      - unbuilt * 0.25;                                      // 건설 부담은 가볍게
 
     if (!best || score > best.score) {
       best = { route: { from: cand.from.id, to: cand.to.id, priority: 1 }, score };

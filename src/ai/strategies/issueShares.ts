@@ -63,8 +63,12 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
   }
 
   // === 5. 상한 적용 ===
-  // 턴당 상한 + 총 주식 안전망 (생존 발행은 안전망 무시)
-  const headroom = Math.max(0, MAX_TOTAL_SHARES - player.issuedShares);
+  // 턴당 상한 + 총 주식 안전망 (생존 발행은 안전망 무시).
+  // trackCubes 맵: 누적 상한 없음 — 어떻게든 철도를 이어 지어 4-5링크 배달을 만든다(사용자 지침).
+  // trackCubes: 상한 없음 — 수익 한 턴 못 내도 빚내서 하나의 긴 라인을 이어 짓는다(사용자 지침).
+  const headroom = config.incomeSources.includes('trackCubes')
+    ? maxPossibleShares
+    : Math.max(0, MAX_TOTAL_SHARES - player.issuedShares);
   const sharesToIssue = Math.max(
     survivalShares,
     Math.min(planShares, MAX_SHARES_PER_TURN, headroom, maxPossibleShares),

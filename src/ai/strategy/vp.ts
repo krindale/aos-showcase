@@ -166,6 +166,7 @@ export function engineUpgradeDeltaVP(
   unlockedDeliveryVP: number,
   realizationProb: number = FUTURE_DELIVERY_DISCOUNT,
   plannedSpending: number = 0,
+  relaxSurvival: boolean = false, // 깊은 배달이 셋업된 Locomotive 업그레이드: 비관(배달 실패) 파산 차단을 페널티로 완화
 ): number {
   const player = state.players[playerId];
   if (!player) return -Infinity;
@@ -192,7 +193,9 @@ export function engineUpgradeDeltaVP(
   const pessimisticCash = player.cash - plannedSpending + Math.max(0, player.income) - futureExpenses;
   if (pessimisticCash < 0) {
     const incomeAfterReduction = Math.max(0, player.income) + pessimisticCash;
-    if (incomeAfterReduction < 0) return -Infinity; // 파산 위험은 확률과 무관하게 차단
+    // 비관 파산 위험: 기본은 -Infinity 차단. 단 relaxSurvival(깊은 배달 셋업)이면 차단 대신 무거운
+    // VP 페널티로만 — "배달 실패 가정"은 셋업된 깊은 배달엔 과보수적이므로(사용자 결정: 후반 완화).
+    if (incomeAfterReduction < 0 && !relaxSurvival) return -Infinity;
     shortfallVP = -pessimisticCash * VP_PER_INCOME;
   }
 

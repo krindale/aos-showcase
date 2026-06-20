@@ -26,7 +26,7 @@ import {
   ACTION_INFO,
 } from '@/types/game';
 import { getAIDecision, AI_TURN_DELAY, isCurrentPlayerAI, aiPlayerManager } from '@/ai';
-import { addFailedBuildCoord } from '@/ai/strategies/buildTrack';
+import { addFailedBuildCoord, hasPendingFreeSpur } from '@/ai/strategies/buildTrack';
 import { initializeGoodsDisplay } from '@/utils/tutorialMap';
 import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
@@ -830,6 +830,13 @@ export const useGameStore = create<GameStore>()(
               releaseAILock(executionId, get, set);
               scheduleAICheck(get);
               return; // nextPhase 호출하지 않음
+            }
+            // 3/3을 다 썼어도, 방금 타일이 마을에 새 연결을 만들어 무료(0카운트) 가닥이 남았으면 한 번 더
+            // 호출해 같은 턴에 메운다 (미연결 토막 방지). buildSpur는 종료로 가므로 루프 없음.
+            if (hasPendingFreeSpur(afterBuildState, capturedContext.currentPlayer)) {
+              releaseAILock(executionId, get, set);
+              scheduleAICheck(get);
+              return;
             }
           } else if (buildDecision.action === 'buildSpur') {
             // 마을 가닥 단독 건설 (지난 턴 카운트 부족으로 미연결된 트랙의 연결 완성)

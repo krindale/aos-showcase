@@ -219,6 +219,21 @@ function findPassThroughDanglingTown(state: GameState, playerId: PlayerId): HexC
 }
 
 /**
+ * 무료로 메울 수 있는 통과 마을 가닥이 남아있는가 — 이번 턴 이미 그 마을을 연결했으면(0카운트)
+ * 빌드 카운트(3/3)를 다 써도 추가 변 가닥을 무료로 연결할 수 있다. AI 실행 루프가 빌드 종료 직전
+ * 이걸 확인해, 마지막 타일이 마을에 새 연결을 만든 경우를 같은 턴에 메운다(미연결 토막 방지).
+ */
+export function hasPendingFreeSpur(state: GameState, playerId: PlayerId): boolean {
+  const player = state.players[playerId];
+  if (!player || player.cash < GAME_CONSTANTS.PLAIN_TRACK_COST) return false; // 가닥 비용($1+) 못 내면 메울 수 없음(루프 방지)
+  const town = findPassThroughDanglingTown(state, playerId);
+  if (!town) return false;
+  return (state.board.townSpurs ?? []).some(
+    sp => hexCoordsEqual(sp.townCoord, town) && sp.owner === playerId && sp.builtTurn === state.currentTurn
+  );
+}
+
+/**
  * 이번 턴 목표 경로 결정 (턴 간 경로 커밋)
  *
  * 이전 경로가 미완성이고 (화물이 남았거나 투자가 2트랙 이상이면) 유지한다.

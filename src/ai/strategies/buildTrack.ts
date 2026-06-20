@@ -68,7 +68,25 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   const player = state.players[playerId];
   if (!player) return { action: 'skip' };
 
-  // 이미 이번 턴 트랙 건설 완료 확인
+  // ===== 0. 통과 마을 연결 (사용자 지적: 마을 미연결로 끝내지 말 것) — guard보다 먼저 =====
+  // 내 트랙이 2변 이상 닿은 마을은 가닥 연결 시 through-link가 완성된다(깊은 배달의 전제).
+  // 새 fragment 타일을 깔기 전에 이 링크부터 완성한다. 특히 이번 턴 이미 그 마을을 연결했다면
+  // 추가 변 가닥은 0카운트(무료)라 3/3에서도 가능 — (7,1) 연결 후 (6,0)으로 새 연결이 생긴 경우를 같은 턴에 메움.
+  if (player.cash >= 1 /* TOWN_SPUR_COST */) {
+    const passThroughTown = findPassThroughDanglingTown(state, playerId);
+    if (passThroughTown) {
+      const spurredThisTurn = (state.board.townSpurs ?? []).some(
+        sp => hexCoordsEqual(sp.townCoord, passThroughTown) && sp.owner === playerId && sp.builtTurn === state.currentTurn
+      );
+      const townCount = spurredThisTurn ? 0 : 1; // 이미 이번 턴 연결한 마을이면 추가 변은 무료
+      if (state.phaseState.builtTracksThisTurn + townCount <= state.phaseState.maxTracksThisTurn) {
+        debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 통과 마을 가닥 연결 (${passThroughTown.col},${passThroughTown.row})${townCount === 0 ? ' [무료]' : ''}`);
+        return { action: 'buildSpur', townCoord: passThroughTown };
+      }
+    }
+  }
+
+  // 이미 이번 턴 트랙 건설 완료 확인 (무료 통과-마을 연결은 위에서 이미 처리됨)
   if (state.phaseState.builtTracksThisTurn >= state.phaseState.maxTracksThisTurn) {
     debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 이번 턴 건설 완료`);
     return { action: 'skip' };
@@ -162,6 +180,40 @@ function findDanglingTownConnection(state: GameState, playerId: PlayerId): HexCo
         if (!hasSpur) return nb;
       }
     }
+  }
+  return null;
+}
+
+/**
+ * 통과 마을(내 트랙이 2변 이상 닿아, 가닥을 연결하면 through-link가 완성되는 마을) 찾기.
+ * 마을 미연결 = 링크 미완성 = 깊은 배달 불가이므로, 이런 마을은 새 fragment 타일보다 먼저 연결한다.
+ * (단일 변만 닿은 끝단 마을은 through-link가 아니므로 제외 — 후순위로 둔다.)
+ */
+function findPassThroughDanglingTown(state: GameState, playerId: PlayerId): HexCoord | null {
+  const board = state.board;
+  const townInfo = new Map<string, { coord: HexCoord; myEdges: Set<number>; spurEdges: Set<number> }>();
+  for (const tile of board.trackTiles) {
+    const myEdgeSets: number[][] = [];
+    if (tile.owner === playerId) myEdgeSets.push(tile.edges);
+    if (tile.secondaryOwner === playerId && tile.secondaryEdges) myEdgeSets.push(tile.secondaryEdges);
+    for (const edges of myEdgeSets) {
+      for (const e of edges) {
+        const nb = getNeighborHex(tile.coord, e);
+        const isTown = board.towns.some(t => hexCoordsEqual(t.coord, nb) && t.newCityColor === null);
+        if (!isTown) continue;
+        const key = `${nb.col},${nb.row}`;
+        if (!townInfo.has(key)) townInfo.set(key, { coord: nb, myEdges: new Set(), spurEdges: new Set() });
+        townInfo.get(key)!.myEdges.add(getOppositeEdge(e)); // 마을 쪽에서 내 트랙을 향한 변
+      }
+    }
+  }
+  for (const sp of board.townSpurs ?? []) {
+    const info = townInfo.get(`${sp.townCoord.col},${sp.townCoord.row}`);
+    if (info) info.spurEdges.add(sp.edge);
+  }
+  for (const { coord, myEdges, spurEdges } of townInfo.values()) {
+    // 내 트랙이 2변 이상 닿았는데 가닥이 빠진 변이 있으면 = 통과 마을 미완성
+    if (myEdges.size >= 2 && [...myEdges].some(e => !spurEdges.has(e))) return coord;
   }
   return null;
 }

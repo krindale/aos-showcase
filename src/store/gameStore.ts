@@ -1921,9 +1921,11 @@ export const useGameStore = create<GameStore>()(
       targetCount = findMissingTownSpurs(townCoord, state.board, state.currentPlayer).length;
     }
     if (targetCount === 0) return false;
-    // 카운트 = 이번 턴에 그 마을 타일을 변경한 적 있으면 0(같은 타일), 처음이면 1. 지난 턴 가닥은 무관.
+    // 카운트 = 이번 턴에 "내가" 그 마을을 변경한 적 있으면 0(같은 마을 추가 가닥), 처음이면 1. 지난 턴 무관.
+    // ★ owner 필터 필수: 상대가 같은 턴 같은 마을에 가닥을 지어도 내 카운트는 영향 없어야 한다
+    //   (필터 누락 시 중앙 마을을 둘 다 거치는 St.Lucia에서 내 가닥이 공짜가 돼 4건설 위반 발생).
     const builtThisTurn = (state.board.townSpurs ?? []).some(
-      e => hexCoordsEqual(e.townCoord, townCoord) && e.builtTurn === state.currentTurn
+      e => hexCoordsEqual(e.townCoord, townCoord) && e.builtTurn === state.currentTurn && e.owner === state.currentPlayer
     );
     const townCount = builtThisTurn ? 0 : 1;
     if (state.phaseState.builtTracksThisTurn + townCount > state.phaseState.maxTracksThisTurn) return false;
@@ -1944,8 +1946,9 @@ export const useGameStore = create<GameStore>()(
     // edge 지정: 그 변 가닥만(방향 직접 선택). 생략: 마을에 닿은 미연결 트랙 변 전부.
     // 카운트 = 이번 턴 그 마을 첫 변경이면 1, 추가면 0. 비용은 가닥당 $1.
     const missing = edge !== undefined ? [{ townCoord, edge }] : findMissingTownSpurs(townCoord, state.board, currentPlayer);
+    // owner 필터 필수 — 상대의 같은 턴 같은 마을 가닥이 내 카운트를 0으로 만들면 안 됨 (4건설 위반 방지)
     const builtThisTurn = (state.board.townSpurs ?? []).some(
-      e => hexCoordsEqual(e.townCoord, townCoord) && e.builtTurn === state.currentTurn
+      e => hexCoordsEqual(e.townCoord, townCoord) && e.builtTurn === state.currentTurn && e.owner === currentPlayer
     );
     const townCount = builtThisTurn ? 0 : 1;
     const cost = missing.length * TOWN_SPUR_COST;

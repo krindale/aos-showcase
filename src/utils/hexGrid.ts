@@ -2,7 +2,22 @@
 import { debugLog } from '@/utils/debugConfig';
 // GameBoardPreview.tsx에서 추출
 
-import { HexCoord, BoardState, PlayerId, CityColor, City } from '@/types/game';
+import { HexCoord, BoardState, PlayerId, CityColor, City, TrackTile } from '@/types/game';
+
+/**
+ * 한 트랙 타일에서 특정 플레이어가 통과 가능한(소유한) 엣지 목록.
+ * 복합 트랙(crossing/coexist)에서 `secondaryOwner`로 가진 가닥도 "내 트랙"으로 인정한다.
+ * (예: 상대 단순 트랙 위에 내가 크로싱을 깔면 그 타일의 owner는 상대지만 secondaryEdges는 내 것)
+ * 소유분이 전혀 없으면 null.
+ */
+export function playerEdgesAtTrack(tile: TrackTile, playerId: PlayerId): number[] | null {
+  const owns = tile.owner === playerId;
+  const ownsSecondary = tile.secondaryOwner === playerId && !!tile.secondaryEdges;
+  if (owns && ownsSecondary) return [...tile.edges, ...tile.secondaryEdges!];
+  if (owns) return [...tile.edges];
+  if (ownsSecondary) return [...tile.secondaryEdges!];
+  return null;
+}
 
 // === 헥스 그리드 상수 ===
 export const HEX_SIZE = 55;

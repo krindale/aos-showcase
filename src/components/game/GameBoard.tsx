@@ -1204,19 +1204,24 @@ export default function GameBoard() {
           );
         })()}
         </g>
-        {/* 좌표 오버레이 — 모든 요소 위(최상위). 노란 글자+검정 외곽으로 마을(흰 원)·도시 위에서도 보임 */}
-        {showCoords && board.hexTiles.map(h => {
-          const { x, y } = hexToPixel(h.coord.col, h.coord.row, undefined, undefined, undefined, isFlat);
+        {/* 좌표 오버레이 — 모든 요소 위(최상위). 노란 글자+검정 외곽으로 마을(흰 원)·도시 위에서도 보임.
+            hexTiles에는 도시 헥스가 없으므로(generateHexTiles의 !isCity) 도시·마을 좌표를 합쳐 렌더 */}
+        {showCoords && [
+          ...board.hexTiles.map(h => h.coord),
+          ...board.cities.map(c => c.coord),
+          ...board.towns.map(t => t.coord),
+        ].map(coord => {
+          const { x, y } = hexToPixel(coord.col, coord.row, undefined, undefined, undefined, isFlat);
           return (
             <text
-              key={`coord-${h.coord.col}-${h.coord.row}`}
+              key={`coord-${coord.col}-${coord.row}`}
               x={x} y={y + HEX_SIZE * 0.5 + 10}
               fontSize="9" fontWeight="bold"
               fill="#000000"
               textAnchor="middle" dominantBaseline="middle"
               style={{ pointerEvents: 'none' }}
             >
-              {h.coord.col},{h.coord.row}
+              {coord.col},{coord.row}
             </text>
           );
         })}

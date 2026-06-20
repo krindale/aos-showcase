@@ -15,6 +15,10 @@ function getColumnInfo(columnId: GoodsColumnId): { label: string; cityName: stri
 
   // 기존 도시인 경우 도시 이름 조회
   if (!mapping.isNewCity) {
+    // cityId가 비어있으면 마을/미사용 열 (예: 마을이 된 Wheeling) — 물품 생산 없음
+    if (!mapping.cityId) {
+      return { label: columnId, cityName: '—', isNewCity: false };
+    }
     const city = TUTORIAL_CITIES.find(c => c.id === mapping.cityId);
     return {
       label: columnId,

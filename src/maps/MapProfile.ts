@@ -39,6 +39,8 @@ export abstract class MapProfile {
   get hexCubeSetup(): boolean { return false; }
   /** AI가 1턴에 무조건 도시화 (도시 0개로 시작하는 맵) */
   get forceFirstTurnUrbanization(): boolean { return false; }
+  /** 도시에 자기 색과 같은 화물은 배치하지 않음 (초기 배치 + 물품 성장 모두). 튜토리얼 하우스룰. */
+  get noOwnColorCubes(): boolean { return false; }
 
   // ── AI 설정 (기본 = 룰북 기본값; 맵 규모/특성에 따라 override) ──
   /** AI가 올릴 엔진 레벨 전략 상한 */

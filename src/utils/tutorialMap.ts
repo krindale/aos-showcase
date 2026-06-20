@@ -60,13 +60,6 @@ export const TUTORIAL_CITIES: City[] = [
     cubes: [],
   },
   {
-    id: 'W',
-    name: 'Wheeling',
-    coord: { col: 4, row: 3 },
-    color: 'black',
-    cubes: [],
-  },
-  {
     id: 'I',
     name: 'Cincinnati',
     coord: { col: 0, row: 4 },
@@ -75,8 +68,12 @@ export const TUTORIAL_CITIES: City[] = [
   },
 ];
 
-// === 마을 위치 (Tutorial에서는 마을 없음, 확장용) ===
-export const TUTORIAL_TOWNS: Town[] = [];
+// === 마을 위치 ===
+// Wheeling: 원래 검정 도시였으나 마을로 변경 (도시화 시 신규 도시 타일로 승격 가능).
+// 마을은 물품을 생산하지 않으므로 검정 화물은 도시화 후에만 배달 가능.
+export const TUTORIAL_TOWNS: Town[] = [
+  { id: 'W', coord: { col: 4, row: 3 }, newCityColor: null, cubes: [] }, // Wheeling
+];
 
 // === 물품 디스플레이 열-도시 매핑 ===
 // Tutorial 맵에서 주사위 결과(1-6)가 어느 도시에 물품을 배치하는지 정의
@@ -85,7 +82,7 @@ export const TUTORIAL_COLUMN_MAPPING: GoodsColumnMapping[] = [
   { columnId: '1' as GoodsColumnId, cityId: 'P', isNewCity: false, rowCount: 6 }, // Pittsburgh
   { columnId: '2' as GoodsColumnId, cityId: 'C', isNewCity: false, rowCount: 6 }, // Cleveland
   { columnId: '3' as GoodsColumnId, cityId: 'O', isNewCity: false, rowCount: 6 }, // Columbus
-  { columnId: '4' as GoodsColumnId, cityId: 'W', isNewCity: false, rowCount: 6 }, // Wheeling
+  { columnId: '4' as GoodsColumnId, cityId: '', isNewCity: false, rowCount: 6 }, // Wheeling(마을) — 물품 생산 없음, 빈 열
   { columnId: '5' as GoodsColumnId, cityId: 'I', isNewCity: false, rowCount: 6 }, // Cincinnati
   { columnId: '6' as GoodsColumnId, cityId: 'P', isNewCity: false, rowCount: 6 }, // Pittsburgh (다시)
   { columnId: 'A' as GoodsColumnId, cityId: 'A', isNewCity: true, rowCount: 4 },  // New City A
@@ -220,7 +217,6 @@ export const TUTORIAL_COLORS = {
     P: CITY_COLORS.red,      // Pittsburgh
     C: CITY_COLORS.blue,     // Cleveland
     O: CITY_COLORS.yellow,   // Columbus
-    W: CITY_COLORS.black,    // Wheeling
     I: CITY_COLORS.purple,   // Cincinnati
   },
 

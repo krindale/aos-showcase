@@ -17,6 +17,8 @@ export interface StandardMapArgs {
   createBoardState: () => BoardState;
   /** 맵 규모에 따른 AI 엔진 전략 상한 (미지정 시 룰북 기본) */
   engineMax?: number;
+  /** 도시에 자기 색 화물 배치 금지 (튜토리얼 하우스룰) */
+  noOwnColorCubes?: boolean;
 }
 
 export class StandardMapProfile extends MapProfile {
@@ -27,6 +29,7 @@ export class StandardMapProfile extends MapProfile {
   readonly maxTurns: number;
   private readonly _createBoardState: () => BoardState;
   private readonly _engineMax?: number;
+  private readonly _noOwnColorCubes: boolean;
 
   constructor(args: StandardMapArgs) {
     super();
@@ -37,6 +40,7 @@ export class StandardMapProfile extends MapProfile {
     this.maxTurns = args.maxTurns;
     this._createBoardState = args.createBoardState;
     this._engineMax = args.engineMax;
+    this._noOwnColorCubes = args.noOwnColorCubes ?? false;
   }
 
   createBoardState(): BoardState {
@@ -45,6 +49,10 @@ export class StandardMapProfile extends MapProfile {
 
   get engineMax(): number {
     return this._engineMax ?? GAME_CONSTANTS.MAX_ENGINE;
+  }
+
+  get noOwnColorCubes(): boolean {
+    return this._noOwnColorCubes;
   }
 
   // 표준 경로 선택 (도시 큐브 배달 ΔVP 파이프라인) — selector의 표준 본문에 위임

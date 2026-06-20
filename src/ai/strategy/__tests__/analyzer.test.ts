@@ -13,8 +13,10 @@ import {
   getStrategyAdjustments,
   breakRouteIntoSegments,
   getIntermediateCities,
+  findOptimalPathAvoidingOpponent,
+  getEdgeBetweenHexes,
 } from '../analyzer';
-import { hexDistance } from '@/utils/hexGrid';
+import { hexDistance, playerEdgesAtTrack } from '@/utils/hexGrid';
 import { resetStrategyStates } from '../state';
 import {
   createMockGameState,
@@ -25,7 +27,7 @@ import {
   addOpponentTrack,
 } from '../../__tests__/helpers/mockState';
 import type { DeliveryRoute } from '../types';
-import type { HexCoord } from '@/types/game';
+import type { HexCoord, TrackTile } from '@/types/game';
 
 describe('hexDistance', () => {
   it('같은 좌표면 0 반환', () => {
@@ -50,6 +52,75 @@ describe('hexDistance', () => {
     const b: HexCoord = { col: 2, row: 2 };
     // Odd-r 헥스 좌표계에서의 거리
     expect(hexDistance(a, b)).toBeGreaterThan(0);
+  });
+});
+
+describe('findOptimalPathAvoidingOpponent — 내 복합 트랙(coexist/crossing) 통과 방향', () => {
+  beforeEach(() => resetStrategyStates());
+
+  // 회귀: 라이브 게임(game:6ci6)에서 AI가 P→C 경로 도중 상대 트랙 위에 coexist를 깐 뒤,
+  // 그 coexist에 도시 방향 레일이 없는데도 A*가 "내 트랙이니 통과"로 보고 도시로 직진 →
+  // frontier가 "도착 도시 도달 = 완성"으로 오판 → 미완성인데 다른 경로로 갈아타던 버그.
+  // 복합 트랙은 정해진 두 경로로만 다녀야 하므로, 레일 없는 방향으로는 통과 불가여야 한다.
+  //
+  // 보드(odd-r, even row): 도시 P(0,0), C(4,0).
+  //   (3,0) = 코엑시스 — primary=player1[2,0](단순), secondary=player2[3,1](W·SE).
+  //   (3,0)의 player2 레일 [3,1]에는 도시 C(4,0) 방향(edge0=E)이 없다.
+  //   올바른 완성: (3,0)→(3,1)→C (한 칸 더). 잘못된 직진: (3,0)→C.
+  function buildCoexistBoardState() {
+    const cities = [
+      createMockCity('P', 'red', { col: 0, row: 0 }),
+      createMockCity('C', 'blue', { col: 4, row: 0 }),
+    ];
+    const tracks: TrackTile[] = [
+      { id: 't-1-0', coord: { col: 1, row: 0 }, edges: [3, 0], owner: 'player2', trackType: 'simple' }, // P↔(2,0)
+      { id: 't-2-0', coord: { col: 2, row: 0 }, edges: [3, 0], owner: 'player2', trackType: 'simple' }, // (1,0)↔(3,0)
+      // (3,0): 상대(player1) 단순 [2,0] 위에 내(player2) 코엑시스 [3,1]
+      {
+        id: 't-3-0', coord: { col: 3, row: 0 }, edges: [2, 0], owner: 'player1',
+        trackType: 'coexist', secondaryEdges: [3, 1], secondaryOwner: 'player2',
+      },
+    ];
+    return createMockGameState({ board: createMockBoard(cities, tracks) });
+  }
+
+  it('도시 방향 레일이 없는 내 코엑시스를 도시로 직진하지 않는다', () => {
+    const state = buildCoexistBoardState();
+    const path = findOptimalPathAvoidingOpponent(
+      { col: 0, row: 0 }, { col: 4, row: 0 }, state.board, 'player2'
+    );
+
+    expect(path.length).toBeGreaterThan(0);
+    // 도착해야 함
+    expect(path[path.length - 1]).toEqual({ col: 4, row: 0 });
+
+    // 잘못된 직진 (3,0)→(4,0) 이 경로에 나타나면 안 됨 (코엑시스에 edge0 레일 없음)
+    const idx30 = path.findIndex(c => c.col === 3 && c.row === 0);
+    if (idx30 >= 0 && idx30 + 1 < path.length) {
+      const after = path[idx30 + 1];
+      expect(after).not.toEqual({ col: 4, row: 0 });
+    }
+    // 올바른 우회 (3,1) 를 경유해야 함
+    expect(path.some(c => c.col === 3 && c.row === 1)).toBe(true);
+  });
+
+  it('경로의 모든 내-트랙 구간은 실제 레일 방향으로만 통과한다 (traversability 불변식)', () => {
+    const state = buildCoexistBoardState();
+    const path = findOptimalPathAvoidingOpponent(
+      { col: 0, row: 0 }, { col: 4, row: 0 }, state.board, 'player2'
+    );
+
+    for (let i = 0; i < path.length - 1; i++) {
+      const a = path[i];
+      const b = path[i + 1];
+      const tileAtA = state.board.trackTiles.find(t => t.coord.col === a.col && t.coord.row === a.row);
+      const myEdges = tileAtA ? playerEdgesAtTrack(tileAtA, 'player2') : null;
+      // a 칸에 내 기존 트랙이 있으면, 다음 칸으로 향하는 변(레일)을 실제로 가져야 한다
+      if (myEdges) {
+        const edgeToB = getEdgeBetweenHexes(a, b);
+        expect(myEdges).toContain(edgeToB);
+      }
+    }
   });
 });
 

@@ -11,7 +11,7 @@ import {
   validateTrackConnection,
   isTrackPartOfCompletedLink,
 } from '@/utils/trackValidation';
-import { hexCoordsEqual, hexDistance, getNeighborHex, getOppositeEdge } from '@/utils/hexGrid';
+import { hexCoordsEqual, hexDistance, getNeighborHex, getOppositeEdge, playerEdgesAtTrack } from '@/utils/hexGrid';
 import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, incrementInvestedTracks } from '../strategy/state';
 import { getNextTargetRoute, findNextTargetRoute, getTopPriorityRoutes } from '../strategy/selector';
 import { getMapAIConfig } from '../strategy/mapConfig';
@@ -432,7 +432,15 @@ function tryDirectPathBuild(
   let targetCity = findStopById(board, route.to);
   if (!sourceCity || !targetCity || !player) return null;
 
-  const playerTracks = board.trackTiles.filter(t => t.owner === playerId);
+  // 내 트랙 = primary 소유 + secondaryOwner(복합 트랙 크로싱)도 포함. 각 타일에서 내가 통과
+  // 가능한 엣지를 함께 들고 다닌다 — 안 그러면 내가 깐 크로싱에서 frontier 체인이 끊겨
+  // (크로싱의 primary owner는 상대) 거의 완성된 경로를 추적 못 하고 다른 경로로 갈아탄다.
+  const playerTracks = board.trackTiles
+    .map(t => {
+      const edges = playerEdgesAtTrack(t, playerId);
+      return edges ? { coord: t.coord, edges } : null;
+    })
+    .filter((x): x is { coord: HexCoord; edges: number[] } => x !== null);
   const hasExistingTrack = playerTracks.length > 0;
 
   // 첫 트랙은 도시 인접에서만 시작할 수 있다 (정규 룰). 경로가 마을→도시 방향이면
@@ -512,21 +520,17 @@ function tryDirectPathBuild(
         const prevCoord = optimalPath[i - 1];
         const edgeToPrev = getEdgeBetweenHexes(pathCoord, prevCoord);
         if (edgeToPrev >= 0 && trackHere.edges.includes(edgeToPrev)) {
-          // 역방향 OK. 순방향 검증: 다음 위치로 연결되는 엣지가 있는지
+          // 역방향 OK. 순방향 검증: 다음 위치로 연결되는 엣지가 있는지.
+          // 다음이 도시여도 트랙이 그 도시를 향한 변(레일)을 실제로 가져야 연결된다 —
+          // 그렇지 않으면(예: 코엑시스가 도시 쪽 변 없음) 미완성인데 "완성"으로 오판한다.
           if (i + 1 < optimalPath.length) {
             const nextPathCoord = optimalPath[i + 1];
-            const nextIsCity = board.cities.some(c => hexCoordsEqual(c.coord, nextPathCoord))
-              || board.towns.some(t => hexCoordsEqual(t.coord, nextPathCoord) && t.newCityColor === null);
-            if (!nextIsCity) {
-              // 다음이 일반 헥스 → 트랙이 해당 방향 엣지를 가져야 함
-              const edgeToNext = getEdgeBetweenHexes(pathCoord, nextPathCoord);
-              if (edgeToNext < 0 || !trackHere.edges.includes(edgeToNext)) {
-                // 순방향 엣지 비호환 → 이 트랙을 회피해야 함
-                edgeBlockedHex = pathCoord;
-                break;
-              }
+            const edgeToNext = getEdgeBetweenHexes(pathCoord, nextPathCoord);
+            if (edgeToNext < 0 || !trackHere.edges.includes(edgeToNext)) {
+              // 순방향 엣지 비호환 → 이 트랙을 회피해야 함
+              edgeBlockedHex = pathCoord;
+              break;
             }
-            // 다음이 도시면 항상 연결 (도시는 모든 엣지 연결)
           }
           frontierIndex = i;
         } else {

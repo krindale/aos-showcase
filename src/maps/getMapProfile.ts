@@ -28,6 +28,7 @@ function buildProfile(mapId: string): MapProfile {
         maxTurns: TUTORIAL_MAX_TURNS,
         createBoardState: createTutorialBoardState,
         engineMax: 3, // 7×5 좁은 맵 → 과도한 엔진 업그레이드 비용 낭비
+        noOwnColorCubes: true, // 도시에 자기 색 화물 배치 금지 (튜토리얼 하우스룰)
       });
 
     default:

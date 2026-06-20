@@ -47,6 +47,7 @@ import {
   findLongestPath,
   findReachableDestinations,
   findTrackCubeDeliveries,
+  countPathLinks,
   getNeighborHex,
   getOppositeEdge } from '@/utils/hexGrid';
 import {
@@ -160,9 +161,50 @@ export function createInitialGameState(
 ): GameState {
   const mapData = getMapData(mapId);
   const boardState = mapData.createBoardState();
-  const goodsDisplay = initializeGoodsDisplay();
+  let goodsDisplay = initializeGoodsDisplay();
 
   const setupRules = getMapProfile(mapId);
+
+  // noOwnColorCubes(튜토리얼): 물품 디스플레이의 각 도시 열에 그 도시 색 큐브가
+  // 놓이지 않도록 교체한다 (예: 빨강 도시 Pittsburgh 열엔 빨강 화물이 보이지 않음).
+  // 빼낸 자기 색 큐브는 주머니로 보내고, 주머니의 다른 색 큐브와 맞바꾼다.
+  if (setupRules.noOwnColorCubes && !setupRules.hexCubeSetup) {
+    const slots = [...goodsDisplay.slots];
+    const pool = [...goodsDisplay.bag];
+    let slotIndex = 0;
+    for (const m of mapData.columnMapping) {
+      const mappedCity = m.isNewCity ? undefined : mapData.cities.find(c => c.id === m.cityId);
+      // 도시(주사위 열)인데 매칭 도시가 없으면 = 마을/미사용 열(예: 마을이 된 Wheeling의 4번 열).
+      // 물품이 배달될 곳이 없으므로 열을 비워 주머니로 돌려보낸다.
+      if (!m.isNewCity && !mappedCity) {
+        for (let i = 0; i < m.rowCount; i++) {
+          const idx = slotIndex + i;
+          if (slots[idx] !== null) { pool.push(slots[idx]!); slots[idx] = null; }
+        }
+        slotIndex += m.rowCount;
+        continue;
+      }
+      // 신규 도시 열(A~D)은 고정 색이 없으므로 제외
+      const ownColor = mappedCity?.color;
+      if (ownColor) {
+        for (let i = 0; i < m.rowCount; i++) {
+          const idx = slotIndex + i;
+          if (slots[idx] === ownColor) {
+            const replIdx = pool.findIndex(c => c !== ownColor);
+            if (replIdx >= 0) {
+              const repl = pool[replIdx];
+              pool[replIdx] = ownColor; // 자기 색은 주머니로
+              slots[idx] = repl;        // 다른 색으로 교체
+            }
+            // 주머니에 다른 색이 없으면(극히 드묾) 그대로 둠
+          }
+        }
+      }
+      slotIndex += m.rowCount;
+    }
+    goodsDisplay = { slots, bag: pool };
+  }
+
   // 헥스 큐브 맵(St. Lucia): 물품 성장이 없어 디스플레이가 불필요 →
   // 디스플레이에 깔린 큐브까지 전부 주머니로 합쳐 모든 평지/강 헥스를 채운다
   // (디스플레이 52개를 빼면 주머니가 44개뿐이라 일부 헥스가 비는 문제 방지)
@@ -178,10 +220,18 @@ export function createInitialGameState(
     if (setupRules.hexCubeSetup) return { ...city, cubes: [] };
     const cubes: CubeColor[] = [];
     for (let i = 0; i < GAME_CONSTANTS.INITIAL_CUBES_PER_CITY; i++) {
-      if (bag.length > 0) {
-        const cube = bag.pop();
-        if (cube) cubes.push(cube);
+      if (bag.length === 0) break;
+      // noOwnColorCubes: 도시 자기 색과 다른 큐브만 배치 (튜토리얼). 같은 색은 건너뛰고 다른 색을 찾음
+      let idx = bag.length - 1;
+      if (setupRules.noOwnColorCubes) {
+        idx = -1;
+        for (let j = bag.length - 1; j >= 0; j--) {
+          if (bag[j] !== city.color) { idx = j; break; }
+        }
+        if (idx === -1) break; // 다른 색이 남아있지 않으면 배치 생략
       }
+      const cube = bag.splice(idx, 1)[0];
+      if (cube) cubes.push(cube);
     }
     return { ...city, cubes };
   });
@@ -2409,6 +2459,9 @@ export const useGameStore = create<GameStore>()(
         columnCounts[key] = (columnCounts[key] || 0) + 1;
       }
 
+      // noOwnColorCubes: 도시 자기 색 화물은 도시에 배치하지 않음 (튜토리얼)
+      const skipOwnColor = getMapProfile(state.mapId).noOwnColorCubes;
+
       // 각 열에서 도시로 큐브 이동
       for (const [column, count] of Object.entries(columnCounts)) {
         const cityId = columnToCityId[column];
@@ -2420,12 +2473,12 @@ export const useGameStore = create<GameStore>()(
         const startIdx = columnStartIndex[column];
         const rowCount = columnRowCount[column] ?? 6;
 
-        // 위에서부터 큐브 가져오기
+        // 위에서부터 큐브 가져오기 (자기 색 큐브는 건너뛰고 다음 큐브를 가져옴)
         let moved = 0;
         for (let i = 0; i < rowCount && moved < count; i++) {
           const slotIdx = startIdx + i;
           const cube = newSlots[slotIdx];
-          if (cube) {
+          if (cube && (!skipOwnColor || cube !== city.color)) {
             city.cubes.push(cube);
             newSlots[slotIdx] = null;
             moved++;
@@ -2959,15 +3012,6 @@ export const useGameStore = create<GameStore>()(
 
     const player = state.players[state.currentPlayer];
 
-    // 디버그: 큐브 선택 정보
-    console.log('=== selectCube 디버그 ===');
-    console.log('출발 도시:', city.name, city.coord);
-    console.log('큐브 색상:', cubeColor);
-    console.log('엔진 레벨:', player.engineLevel);
-    console.log('같은 색상 도시들:', state.board.cities.filter(c => c.color === cubeColor).map(c => ({ name: c.name, coord: c.coord })));
-    console.log('전체 트랙 수:', state.board.trackTiles.length);
-    console.log('트랙 목록:', state.board.trackTiles.map(t => ({ coord: t.coord, edges: t.edges, owner: t.owner })));
-
     // 도달 가능한 목적지 계산
     const reachable = findReachableDestinations(
       city.coord,
@@ -2977,15 +3021,44 @@ export const useGameStore = create<GameStore>()(
       cubeColor
     );
 
-    console.log('도달 가능한 목적지:', reachable.map(c => ({ name: c.name, coord: c.coord })));
-    console.log('=========================');
+    // 화물 선택 시 최적 경로(최대 링크=최대 수입)를 골라 골드 점선으로 미리보기 표시 (모든 맵 공통).
+    // 사용자가 목적지를 클릭하면 moveGoods가 그 목적지로 경로를 다시 계산해 이동한다.
+    let bestPath: HexCoord[] = [];
+    let bestLinks = -1;
+    for (const dest of reachable) {
+      const p = findLongestPath(
+        city.coord, dest.coord, state.board, state.currentPlayer, player.engineLevel, cubeColor
+      );
+      if (p) {
+        const links = countPathLinks(p, state.board);
+        if (links > bestLinks) { bestLinks = links; bestPath = p; }
+      }
+    }
+
+    // 구조화 로그 — St. Lucia 트랙 큐브 선택과 동일한 형태로 후보/채택 경로 기록
+    logAction('goodsMovement', 'cityCubeSelect', {
+      player: state.currentPlayer, city: cityId, color: cubeColor,
+      cities: reachable.map(c => c.id),
+    });
+    if (reachable.length === 0) {
+      logAction('goodsMovement', 'cubeUndeliverable', {
+        city: cityId, color: cubeColor, reason: 'noConnection',
+        sameColorCities: state.board.cities.filter(c => c.color === cubeColor).map(c => c.id),
+      }, 'error');
+      get().addLog('이 화물은 배달할 수 있는 도시가 없습니다 (트랙으로 연결된 같은 색 도시 필요)');
+    } else {
+      logAction('goodsMovement', 'deliveryRoutes', {
+        player: state.currentPlayer, city: cityId,
+        routes: reachable.map(c => ({ city: c.id })), bestLinks,
+      });
+    }
 
     set({
       ui: {
         ...state.ui,
         selectedCube: { cityId, cubeIndex },
         reachableDestinations: reachable.map(c => c.coord),
-        movePath: [], // 트랙 큐브 선택에서 남은 경로 하이라이트 제거
+        movePath: bestPath, // 최적 경로 골드 점선 미리보기 (St. Lucia와 동일)
       },
     });
   },

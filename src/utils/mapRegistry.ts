@@ -113,6 +113,7 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     cities: TUTORIAL_CITIES,
     towns: TUTORIAL_TOWNS,
     columnMapping: TUTORIAL_COLUMN_MAPPING,
+    townNames: { W: 'Wheeling' },
     colors: {
       terrain: TUTORIAL_COLORS.terrain,
       background: TUTORIAL_COLORS.background,

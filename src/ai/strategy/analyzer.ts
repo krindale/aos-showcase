@@ -2,7 +2,7 @@ import { GameState, PlayerId, HexCoord, CubeColor, BoardState, GAME_CONSTANTS } 
 import { debugLog } from '@/utils/debugConfig';
 import { DeliveryOpportunity, DeliveryRoute } from './types';
 import { getMapAIConfig } from './mapConfig';
-import { getNeighborHex, hexCoordsEqual, hexDistance, getConnectedNeighbors, hexToKey, getConnectingEdge, getOppositeEdge } from '@/utils/hexGrid';
+import { getNeighborHex, hexCoordsEqual, hexDistance, getConnectedNeighbors, hexToKey, getConnectingEdge, getOppositeEdge, playerEdgesAtTrack } from '@/utils/hexGrid';
 
 // 경로 캐시 (출발지-목적지 → 경로)
 const pathCache: Map<string, HexCoord[]> = new Map();
@@ -665,17 +665,19 @@ export function findOptimalPathAvoidingOpponent(
 
     // [Refinement] 내 트랙이 있으면 매우 낮은 비용 (기존 경로 유지 강력 유도)
     // AI가 한 번 길을 닦기 시작하면, 그 길을 최단 경로로 인식하게 함
+    // 복합 트랙에서 secondaryOwner로 가진 크로싱도 "내 트랙"(통과 가능) — 안 그러면 내가
+    // 방금 깐 크로싱을 상대 트랙으로 보고 회피해 자기 경로를 추적 못 한다.
     const ownTrack = board.trackTiles.find(
-      t => t.owner === playerId && hexCoordsEqual(t.coord, coord)
+      t => (t.owner === playerId || t.secondaryOwner === playerId) && hexCoordsEqual(t.coord, coord)
     );
     if (ownTrack) {
       return 0.1;
     }
 
     // 상대 트랙이 있으면 높은 비용 (피하도록 유도)
-    // 단, 복합 트랙으로 지나갈 수 있으므로 무한대는 아님
+    // 단, 복합 트랙으로 지나갈 수 있으므로 무한대는 아님 (내가 co-own한 타일은 위에서 이미 own 처리)
     const opponentTrack = board.trackTiles.find(
-      t => t.owner !== playerId && t.owner !== null && hexCoordsEqual(t.coord, coord)
+      t => t.owner !== playerId && t.owner !== null && t.secondaryOwner !== playerId && hexCoordsEqual(t.coord, coord)
     );
     if (opponentTrack) {
       // 단순 트랙이면 복합 트랙으로 지나갈 수 있음 (추가 비용)
@@ -735,27 +737,29 @@ export function findOptimalPathAvoidingOpponent(
       // 교차 트랙을 건설하려면 진입/퇴출 엣지가 기존 트랙 엣지와 겹치면 안 됨
       const currentIsCity = board.cities.some(c => hexCoordsEqual(c.coord, current.coord));
       if (!currentIsCity) {
-        // 현재 헥스에 상대 트랙 → 퇴출 엣지 호환성 체크
+        // 현재 헥스에 상대 트랙 → 퇴출 엣지 호환성 체크 (내가 co-own한 타일은 상대로 보지 않음)
         const currentOpponentTrack = board.trackTiles.find(
-          t => t.owner !== playerId && t.owner !== null &&
+          t => t.owner !== playerId && t.owner !== null && t.secondaryOwner !== playerId &&
             hexCoordsEqual(t.coord, current.coord) && t.trackType === 'simple'
         );
         if (currentOpponentTrack && currentOpponentTrack.edges.includes(edge)) {
           continue; // 이 방향으로 퇴출 불가 (기존 트랙 엣지와 겹침)
         }
 
-        const currentOwnTrack = board.trackTiles.find(
-          t => t.owner === playerId && hexCoordsEqual(t.coord, current.coord)
-        );
-        if (currentOwnTrack && !currentOwnTrack.edges.includes(edge)) {
-          terrainCost += 3; // 출구 방향 비호환
+        const currentOwnTile = board.trackTiles.find(t => hexCoordsEqual(t.coord, current.coord));
+        const currentOwnEdges = currentOwnTile ? playerEdgesAtTrack(currentOwnTile, playerId) : null;
+        if (currentOwnTile && currentOwnEdges && !currentOwnEdges.includes(edge)) {
+          // 내 복합 트랙(crossing/coexist)은 정해진 두 경로로만 다닐 수 있다 — 레일 없는 방향으론
+          // 통과 불가(=막힘). 안 막으면 A*가 내 코엑시스를 도시 쪽으로 직진해 "완성"으로 오판한다.
+          if (currentOwnTile.trackType !== 'simple') continue;
+          terrainCost += 3; // 내 단순 트랙: 비호환 방향은 비용↑ (복합 추가 여지)
         }
       }
       const neighborIsCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
       if (!neighborIsCity) {
-        // 이웃 헥스에 상대 트랙 → 진입 엣지 호환성 체크
+        // 이웃 헥스에 상대 트랙 → 진입 엣지 호환성 체크 (내가 co-own한 타일은 상대로 보지 않음)
         const neighborOpponentTrack = board.trackTiles.find(
-          t => t.owner !== playerId && t.owner !== null &&
+          t => t.owner !== playerId && t.owner !== null && t.secondaryOwner !== playerId &&
             hexCoordsEqual(t.coord, neighbor) && t.trackType === 'simple'
         );
         if (neighborOpponentTrack) {
@@ -765,13 +769,14 @@ export function findOptimalPathAvoidingOpponent(
           }
         }
 
-        const neighborOwnTrack = board.trackTiles.find(
-          t => t.owner === playerId && hexCoordsEqual(t.coord, neighbor)
-        );
-        if (neighborOwnTrack) {
+        const neighborOwnTile = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor));
+        const neighborOwnEdges = neighborOwnTile ? playerEdgesAtTrack(neighborOwnTile, playerId) : null;
+        if (neighborOwnTile && neighborOwnEdges) {
           const oppositeEdge = (edge + 3) % 6;
-          if (!neighborOwnTrack.edges.includes(oppositeEdge)) {
-            terrainCost += 3; // 입구 방향 비호환
+          if (!neighborOwnEdges.includes(oppositeEdge)) {
+            // 내 복합 트랙은 레일 있는 변으로만 진입 가능 (위 퇴출 규칙과 대칭)
+            if (neighborOwnTile.trackType !== 'simple') continue;
+            terrainCost += 3; // 내 단순 트랙: 비호환 방향은 비용↑
           }
         }
       }
@@ -1389,10 +1394,11 @@ export function getStrategyAdjustments(
   }
 
   // 각 시나리오의 목표 경로와 상대 목표 도시 비교
+  // W(Wheeling)는 마을로 변경되어 도시 목록에서 제외됨
   const ALL_SCENARIOS = [
     { name: 'northern_express', routes: ['P', 'C'] },
-    { name: 'columbus_hub', routes: ['P', 'C', 'W', 'I', 'O'] },
-    { name: 'eastern_dominance', routes: ['P', 'W', 'O'] },
+    { name: 'columbus_hub', routes: ['P', 'C', 'I', 'O'] },
+    { name: 'eastern_dominance', routes: ['P', 'O'] },
     { name: 'western_corridor', routes: ['I', 'O', 'P'] },
   ];
 

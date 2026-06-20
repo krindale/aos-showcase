@@ -94,23 +94,24 @@ function createSeededRng(seed: number): () => number {
 // 물품 배치 헬퍼
 // ========================================
 
+// W(Wheeling)는 마을로 변경되어 검정 도시가 없음 → 검정 화물은 시작 시 배달 불가.
+// 테스트 known-good 큐브는 배달 가능한 4색(red/blue/yellow/purple)만 사용.
 /** 기본 물품 배치 (테스트용 known-good) */
 function getDefaultCubeMap(): Record<string, CubeColor[]> {
   return {
     P: ['blue', 'yellow'],    // Pittsburgh(red): blue→C, yellow→O
     C: ['red', 'purple'],     // Cleveland(blue): red→P, purple→I
-    O: ['black', 'red'],      // Columbus(yellow): black→W, red→P
-    W: ['yellow', 'blue'],    // Wheeling(black): yellow→O, blue→C
+    O: ['blue', 'red'],       // Columbus(yellow): blue→C, red→P
     I: ['red', 'blue'],       // Cincinnati(purple): red→P, blue→C
   };
 }
 
 /** 시드 기반 랜덤 물품 배치 */
 function getRandomCubeMap(rng: () => number): Record<string, CubeColor[]> {
-  const colors: CubeColor[] = ['red', 'blue', 'yellow', 'purple', 'black'];
-  const cityIds = ['P', 'C', 'O', 'W', 'I'];
+  const colors: CubeColor[] = ['red', 'blue', 'yellow', 'purple']; // black 제외 (배달 가능한 색만)
+  const cityIds = ['P', 'C', 'O', 'I'];
   const cityColors: Record<string, CubeColor> = {
-    P: 'red', C: 'blue', O: 'yellow', W: 'black', I: 'purple',
+    P: 'red', C: 'blue', O: 'yellow', I: 'purple',
   };
   const map: Record<string, CubeColor[]> = {};
 
@@ -1065,7 +1066,7 @@ describe('AI 전체 게임 시뮬레이션 (gameStore 기반 통합 테스트)',
         console.log(`${'!'.repeat(60)}`);
         console.log(`\n큐브 배치:`);
         for (const [cityId, cubes] of Object.entries(cubeMap)) {
-          const cityColor = { P: 'red', C: 'blue', O: 'yellow', W: 'black', I: 'purple' }[cityId];
+          const cityColor = { P: 'red', C: 'blue', O: 'yellow', I: 'purple' }[cityId];
           console.log(`  ${cityId}(${cityColor}): ${cubes.join(', ')}`);
         }
 
@@ -1301,10 +1302,14 @@ describe('AI 전체 게임 시뮬레이션 (gameStore 기반 통합 테스트)',
     //     (점수 fallback 제거로 -0.57 — 게이트 내. 베이스라인은 4단계 수치 유지, 6단계에서 회복 목표)
     //   6단계(estimateRouteVP + 슬롯 기회비용 + λ=0.5 확정): 평균 9.30 / 최소 -10 / 완성 트랙 비율 84.3% / 파산 0건
     //   리뷰 수정(moveGoods 경로 커밋 보존 + 기회 분석 메모이즈): 평균 11.00 / 최소 -10 / 완성 트랙 비율 85.5% / 파산 0건
+    //   Wheeling→마을 변경(검정 도시 제거, 5→4 도시): 평균 8.72 / 최소 -14 / 완성 트랙 비율 79.9% / 파산 0건
+    //     (배달 목적지 1개 감소로 경로·VP 자연 하락 — 맵 변경 반영한 새 베이스라인)
+    //   크로싱(secondaryOwner) 인식 버그 수정: 평균 10.10 / 완성 트랙 비율 81.4% / 파산 0건
+    //     (내가 깐 복합 트랙을 A*/frontier가 "내 트랙"으로 못 봐 경로를 갈아타던 문제 → 경로 완성률 ↑)
     const BASELINE = {
-      avgAccurateVP: 11.0,
-      minAccurateVP: -10,
-      completedTrackRatio: 0.85,
+      avgAccurateVP: 10.1,
+      minAccurateVP: -14,
+      completedTrackRatio: 0.81,
     };
 
     const TOTAL_RUNS = 20;

@@ -166,6 +166,7 @@ export function engineUpgradeDeltaVP(
   unlockedDeliveryVP: number,
   realizationProb: number = FUTURE_DELIVERY_DISCOUNT,
   plannedSpending: number = 0,
+  relaxSurvival: boolean = false, // 깊은 배달이 셋업된 Locomotive 업그레이드: 비관(배달 실패) 파산 차단을 페널티로 완화
 ): number {
   const player = state.players[playerId];
   if (!player) return -Infinity;
@@ -192,7 +193,9 @@ export function engineUpgradeDeltaVP(
   const pessimisticCash = player.cash - plannedSpending + Math.max(0, player.income) - futureExpenses;
   if (pessimisticCash < 0) {
     const incomeAfterReduction = Math.max(0, player.income) + pessimisticCash;
-    if (incomeAfterReduction < 0) return -Infinity; // 파산 위험은 확률과 무관하게 차단
+    // 비관 파산 위험: 기본은 -Infinity 차단. 단 relaxSurvival(깊은 배달 셋업)이면 차단 대신 무거운
+    // VP 페널티로만 — "배달 실패 가정"은 셋업된 깊은 배달엔 과보수적이므로(사용자 결정: 후반 완화).
+    if (incomeAfterReduction < 0 && !relaxSurvival) return -Infinity;
     shortfallVP = -pessimisticCash * VP_PER_INCOME;
   }
 
@@ -241,13 +244,15 @@ export function estimateRouteVP(
   };
   if (!player) return none;
 
-  const sourceCity = board.cities.find(c => c.id === opp.sourceCityId);
   const targetCity = board.cities.find(c => c.id === opp.targetCityId);
-  if (!sourceCity || !targetCity) return none;
+  if (!targetCity) return none;
+  // 출발은 도시(튜토리얼) 또는 트랙 위 큐브 위치(St. Lucia) — sourceCoord로 일반화
+  const sourceCity = board.cities.find(c => c.id === opp.sourceCityId); // 트랙 큐브 출발이면 null
+  const sourceCoord = opp.sourceCoord;
 
-  // 1. A* 경로와 남은 건설량/비용
+  // 1. A* 경로와 남은 건설량/비용 (출발: 도시 또는 트랙 큐브 위치)
   const fullPath = findOptimalPathAvoidingOpponent(
-    sourceCity.coord, targetCity.coord, board, playerId
+    sourceCoord, targetCity.coord, board, playerId
   );
   if (fullPath.length < 2) return none;
 
@@ -283,7 +288,14 @@ export function estimateRouteVP(
   const deliverableTurns = remainingTurnsIncl - Math.max(completionTurns - 1, engineDelay);
 
   // 4. 기대 배달 횟수: 매칭 큐브 수와 배달 가능 턴 (턴당 1회 보수 가정)
-  const matchingCubes = sourceCity.cubes.filter(cube => cube === targetCity.color).length;
+  //   income 원천을 맵별로 일반화 — ① 출발 도시 안의 큐브(튜토리얼 등) +
+  //   ② 이 경로 위에 놓인 트랙 큐브 중 도착 도시 색(St. Lucia 헥스큐브 등).
+  //   (맵 이름 하드코딩 없이, 보드에 실제로 존재하는 income 원천만 본다)
+  const cityCubes = (sourceCity?.cubes ?? []).filter(cube => cube === targetCity.color).length;
+  const trackCubesOnPath = board.trackTiles.filter(t =>
+    t.cube === targetCity.color && fullPath.some(pc => hexCoordsEqual(pc, t.coord))
+  ).length;
+  const matchingCubes = cityCubes + trackCubesOnPath;
   const expectedDeliveries = Math.max(0, Math.min(deliverableTurns, matchingCubes));
 
   // 5. 경쟁 할인 ρ

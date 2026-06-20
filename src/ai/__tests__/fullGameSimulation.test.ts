@@ -309,6 +309,16 @@ function executeTrackBuildStep(): boolean {
           return true; // 재시도 (caller가 다시 호출)
         }
       }
+    } else if (buildDecision.action === 'buildSpur') {
+      // 마을 가닥 단독 건설 (미연결 트랙의 연결 완성)
+      const success = useGameStore.getState().buildTownSpur(buildDecision.townCoord);
+      if (success) {
+        const after = useGameStore.getState();
+        if (after.phaseState.builtTracksThisTurn < after.phaseState.maxTracksThisTurn) {
+          return true; // 더 건설 가능
+        }
+      }
+      // 실패 시 재시도 없이 종료 (무한 루프 방지 — 실제 AI 경로와 동일)
     } else if (buildDecision.action === 'buildComplex') {
       // 복합 트랙도 UI에서 도달 가능한지 검증
       validateBuildReachableFromUI(buildDecision.coord, state.currentPlayer, state.currentTurn);

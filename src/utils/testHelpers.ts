@@ -178,6 +178,8 @@ export function createTestGameState(options: TestGameStateOptions = {}): GameSta
 
     // 경매
     auction: null,
+    turnOrderOffer: null,
+    nextFirstSeatOption: null,
 
     // 단계 상태
     phaseState: {
@@ -187,6 +189,7 @@ export function createTestGameState(options: TestGameStateOptions = {}): GameSta
       moveGoodsRound: 1,
       playerMoves: playerMoves as Record<PlayerId, boolean>,
       productionUsed: false,
+      urbanizationUsed: false,
       locomotiveUsed: false,
     },
 
@@ -216,6 +219,9 @@ export function createTestGameState(options: TestGameStateOptions = {}): GameSta
 
     // 로그
     logs: [],
+
+    // 실행 취소
+    undoCount: 0,
 
     // 결과
     winner: null,

@@ -158,6 +158,8 @@ export function createMockGameState(
     newCityTiles: [],
 
     auction: null,
+    turnOrderOffer: null,
+    nextFirstSeatOption: null,
     phaseState: {
       builtTracksThisTurn: 0,
       maxTracksThisTurn: GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
@@ -172,6 +174,7 @@ export function createMockGameState(
         player6: false,
       },
       productionUsed: false,
+      urbanizationUsed: false,
       locomotiveUsed: false,
     },
 
@@ -199,6 +202,7 @@ export function createMockGameState(
     },
 
     logs: [],
+    undoCount: 0,
     winner: null,
     finalScores: null,
   };

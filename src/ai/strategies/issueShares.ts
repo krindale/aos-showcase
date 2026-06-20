@@ -41,10 +41,16 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
     );
   }
 
-  // === 2. 마지막 턴: 건설→VP 회수가 약하고 -3VP/주는 영구 → 생존 외 발행 금지 ===
-  if (isLastTurn) {
+  // === 2. 마지막 턴(또는 trackCubes 마지막 2턴): 건설→VP 회수가 약하고 -3VP/주는 영구 → 생존 외 발행 금지 ===
+  // ★ trackCubes는 마지막 2턴(T7-8) 건설 발행도 금지 (사용자: VP 양보해도 파산↓) — 늦은 건설은
+  //   배달로 회수할 턴이 부족해 순수 빚이 되고, 그 주식 비용이 파산을 유발한다.
+  // ★ trackCubes 마지막 2턴(T7-8)은 건설 발행 절대 금지(사용자 지침) — 늦은 건설은 배달로 회수할 턴이
+  //   부족해 순수 빚이 되고 그 주식 비용이 파산을 유발한다(측정: 파산 13→11, VP 유지).
+  const noBuildIssue = isLastTurn
+    || (config.incomeSources.includes('trackCubes') && state.currentTurn >= config.totalTurns - 1);
+  if (noBuildIssue) {
     if (survivalShares === 0) {
-      debugLog.preparation(`[Phase I: 주식 발행] ${player.name}: 마지막 턴, 생존 가능 → 발행 안함`);
+      debugLog.preparation(`[Phase I: 주식 발행] ${player.name}: 후반(생존 외 발행 금지) → 발행 안함`);
     }
     return survivalShares;
   }
@@ -63,8 +69,11 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
   }
 
   // === 5. 상한 적용 ===
-  // 턴당 상한 + 총 주식 안전망 (생존 발행은 안전망 무시)
-  const headroom = Math.max(0, MAX_TOTAL_SHARES - player.issuedShares);
+  // 턴당 상한 + 총 주식 안전망 (생존 발행은 안전망 무시).
+  // trackCubes 맵: 누적 상한 없음 — 빚내서 라인을 이어 짓는다(사용자 지침).
+  const headroom = config.incomeSources.includes('trackCubes')
+    ? maxPossibleShares
+    : Math.max(0, MAX_TOTAL_SHARES - player.issuedShares);
   const sharesToIssue = Math.max(
     survivalShares,
     Math.min(planShares, MAX_SHARES_PER_TURN, headroom, maxPossibleShares),

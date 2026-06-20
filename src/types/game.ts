@@ -71,6 +71,10 @@ export interface TrackTile {
   trackType: TrackType;           // 트랙 유형 (기본: simple)
   secondaryEdges?: [number, number];  // 복합 트랙의 두 번째 경로 (crossing, coexist)
   secondaryOwner?: PlayerId | null;   // 두 번째 경로 소유자
+  /** 트랙 위 물품 큐브 (St. Lucia — 미완성 링크여도 배달 가능) */
+  cube?: CubeColor | null;
+  /** 건설된 턴 (이번 턴에 지은 트랙 시각 표시용) */
+  builtTurn?: number;
 }
 
 // 도시
@@ -97,6 +101,8 @@ export type TerrainType = 'plain' | 'river' | 'mountain' | 'lake';
 export interface HexTile {
   coord: HexCoord;
   terrain: TerrainType;
+  /** 헥스 위 물품 큐브 (St. Lucia 셋업 — 건설 시 트랙 위로 이동) */
+  cube?: CubeColor | null;
 }
 
 // === 플레이어 상태 ===
@@ -120,6 +126,17 @@ export interface BoardState {
   towns: Town[];
   trackTiles: TrackTile[];     // 모든 트랙 (소유자 정보 포함)
   hexTiles: HexTile[];         // 모든 헥스 타일 (지형 정보)
+  /** 마을 안 철길 가닥 (원→변). 노선이 마을에 연결될 때 함께 건설되며 건설 1회로 카운트 */
+  townSpurs?: TownSpur[];
+}
+
+/** 마을 안 철길 가닥: 마을 원에서 특정 변까지. 실제 건설물 (비용/카운트 발생) */
+export interface TownSpur {
+  id: string;
+  townCoord: HexCoord;
+  edge: number;            // 가닥이 닿는 마을 헥스의 변 (0~5)
+  owner: PlayerId;
+  builtTurn?: number;      // 이번 턴 건설 표시용
 }
 
 // === 물품 디스플레이 ===
@@ -146,6 +163,15 @@ export const GOODS_DISPLAY_CONFIG = {
   ROWS_PER_COLUMN: [6, 6, 6, 6, 6, 6, 4, 4, 4, 4],  // 총 52칸
 };
 
+// === 교대 선공권 (St. Lucia 등 alternateTurnOrder 맵) ===
+// 경매 대신: 제안받은 플레이어가 $5를 내고 선공하거나 거절 →
+// 상대에게 옵션이 넘어가고, 둘 다 거절하면 첫 제안자가 무료로 선공
+export interface TurnOrderOfferState {
+  offerPlayer: PlayerId;       // 현재 선공권 제안을 받은 플레이어
+  firstOptionPlayer: PlayerId; // 이번 턴 첫 제안 대상 (모두 거절 시 무료 선공)
+  declined: PlayerId[];        // 거절한 플레이어들
+}
+
 // === 턴 순서 경매 ===
 export interface AuctionState {
   currentBidder: PlayerId | null;
@@ -169,6 +195,8 @@ export interface PhaseState {
 
   // 기타 플래그
   productionUsed: boolean;
+  // Urbanization으로 이번 턴 신규 도시를 배치했는지 (AI 중복 배치 방지)
+  urbanizationUsed: boolean;
   locomotiveUsed: boolean;
 }
 
@@ -202,6 +230,8 @@ export interface MovingCubeContext {
   playerId: PlayerId;        // 이동을 수행한 플레이어
   phase: GamePhase;          // 이동 시작 시 단계
   moveRound: 1 | 2;          // 이동 라운드
+  // 트랙 큐브 배달(St. Lucia): 정의되어 있으면 링크 수입 대신 구간 소유자 +1
+  trackCubeSectionOwner?: PlayerId | null;
 }
 
 // === UI 상태 ===
@@ -302,6 +332,12 @@ export interface GameState {
   // 경매 (플레이어 순서 결정 단계)
   auction: AuctionState | null;
 
+  // 교대 선공권 제안 (alternateTurnOrder 맵 전용, 그 외 항상 null)
+  turnOrderOffer: TurnOrderOfferState | null;
+
+  // 다음 턴 선공권 제안 차례 (alternateTurnOrder 맵 전용 — 룰북: 차례는 두 플레이어 간 엄격 교대)
+  nextFirstSeatOption: PlayerId | null;
+
   // 현재 단계 관련 임시 상태
   phaseState: PhaseState;
 
@@ -310,6 +346,9 @@ export interface GameState {
 
   // 게임 로그
   logs: GameLog[];
+
+  // 실행 취소 가능한 행동 수 (스냅샷은 스토어 모듈에 보관 — 단계/차례 전환 시 0)
+  undoCount: number;
 
   // 게임 결과
   winner: PlayerId | null;

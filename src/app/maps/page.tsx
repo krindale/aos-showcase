@@ -14,8 +14,7 @@ import {
   Factory,
   Mountain,
   Palmtree,
-  MapPin,
-} from 'lucide-react';
+  MapPin, Play } from 'lucide-react';
 
 const basePath = process.env.NODE_ENV === 'production' ? '/aos-showcase' : '';
 
@@ -41,7 +40,7 @@ const maps = [
       '기본 규칙 적용',
     ],
     specialRules: null,
-    playable: true, // 게임 플레이 가능 여부
+    playable: false, // Rust Belt는 미구현 (튜토리얼 맵과 별개)
   },
   {
     id: 2,
@@ -156,8 +155,8 @@ const maps = [
       '직접적인 경쟁',
       '빠른 게임 진행',
     ],
-    specialRules: '2인 모드 규칙 적용',
-    playable: false,
+    specialRules: '경매 대신 교대 선공권($5), Production 불가, 물품 성장 생략, 8턴',
+    playable: true,
   },
 ];
 
@@ -360,6 +359,17 @@ export default function MapsPage() {
                           <div className="h-[52px]" />
                         )}
                       </div>
+
+                      {/* 플레이 가능한 맵: 게임 진입 버튼 */}
+                      {currentMap.playable && (
+                        <a
+                          href={`${basePath}/game/${currentMap.slug}/`}
+                          className="btn-primary mt-4 flex items-center justify-center gap-2 text-sm py-3"
+                        >
+                          <Play className="w-4 h-4" />
+                          지금 플레이하기
+                        </a>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -403,7 +413,7 @@ export default function MapsPage() {
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {maps.map((map, index) => (
-              <motion.button
+              <motion.div
                 key={map.id}
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
@@ -414,7 +424,8 @@ export default function MapsPage() {
                   setCurrentIndex(index);
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className={`glass-card p-6 rounded-xl text-left transition-all
+                role="button"
+                className={`glass-card p-6 rounded-xl text-left transition-all cursor-pointer
                   ${currentIndex === index ? 'ring-2 ring-accent' : ''}`}
               >
                 <div className="flex items-center gap-4">
@@ -432,7 +443,18 @@ export default function MapsPage() {
                     {map.players}
                   </div>
                 </div>
-              </motion.button>
+                {/* 플레이 가능한 맵: 그리드에서 바로 게임 진입 */}
+                {map.playable && (
+                  <a
+                    href={`${basePath}/game/${map.slug}/`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="btn-primary mt-4 flex items-center justify-center gap-2 text-sm py-2"
+                  >
+                    <Play className="w-4 h-4" />
+                    플레이
+                  </a>
+                )}
+              </motion.div>
             ))}
           </div>
         </div>

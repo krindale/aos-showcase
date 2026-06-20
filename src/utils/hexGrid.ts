@@ -16,7 +16,7 @@ export const HEX_VERTICAL_RADIUS = HEX_SIZE;
 // 기본 보드 설정
 export const DEFAULT_BOARD_COLS = 7;
 export const DEFAULT_BOARD_ROWS = 5;
-export const DEFAULT_START_COL = 1;
+export const DEFAULT_START_COL = 0;
 export const DEFAULT_MARGIN = 50;
 export const DEFAULT_PADDING_X = DEFAULT_MARGIN + HEX_HORIZONTAL_RADIUS;
 export const DEFAULT_PADDING_Y = DEFAULT_MARGIN + HEX_VERTICAL_RADIUS;
@@ -31,12 +31,15 @@ export function hexToPixel(
   row: number,
   startCol: number = DEFAULT_START_COL,
   paddingX: number = DEFAULT_PADDING_X,
-  paddingY: number = DEFAULT_PADDING_Y
+  paddingY: number = DEFAULT_PADDING_Y,
+  flat: boolean = false
 ): { x: number; y: number } {
   const offset = row % 2 === 1 ? HEX_WIDTH / 2 : 0;
   const x = (col - startCol) * HEX_WIDTH + offset + paddingX;
   const y = row * HEX_HEIGHT * 0.75 + paddingY;
-  return { x, y };
+  // flat-top 맵(St. Lucia): 화면 전치 — 데이터의 col이 화면 세로, row가 화면 가로
+  // (전치는 인접 관계를 보존하므로 게임 로직은 그대로, 렌더만 원본 보드 배치가 됨)
+  return flat ? { x: y, y: x } : { x, y };
 }
 
 /**
@@ -85,13 +88,14 @@ export function pixelToHex(
 /**
  * pointy-top 헥스 꼭지점 계산
  */
-export function getHexPoints(cx: number, cy: number, size: number): string {
+export function getHexPoints(cx: number, cy: number, size: number, flat: boolean = false): string {
   const points = [];
   for (let i = 0; i < 6; i++) {
     const angle = (Math.PI / 3) * i - Math.PI / 6;
-    const x = cx + size * Math.cos(angle);
-    const y = cy + size * Math.sin(angle);
-    points.push(`${x},${y}`);
+    const dx = size * Math.cos(angle);
+    const dy = size * Math.sin(angle);
+    // flat-top: 오프셋 전치 (dx↔dy) → 평평한 윗변 헥스
+    points.push(flat ? `${cx + dy},${cy + dx}` : `${cx + dx},${cy + dy}`);
   }
   return points.join(' ');
 }
@@ -115,14 +119,14 @@ export function getEdgeMidpoint(
   cx: number,
   cy: number,
   edge: number,
-  size: number
+  size: number,
+  flat: boolean = false
 ): { x: number; y: number } {
   const angle1 = (Math.PI / 3) * edge - Math.PI / 6;
   const angle2 = (Math.PI / 3) * ((edge + 1) % 6) - Math.PI / 6;
-  return {
-    x: cx + size * (Math.cos(angle1) + Math.cos(angle2)) / 2,
-    y: cy + size * (Math.sin(angle1) + Math.sin(angle2)) / 2,
-  };
+  const dx = size * (Math.cos(angle1) + Math.cos(angle2)) / 2;
+  const dy = size * (Math.sin(angle1) + Math.sin(angle2)) / 2;
+  return flat ? { x: cx + dy, y: cy + dx } : { x: cx + dx, y: cy + dy };
 }
 
 /**
@@ -133,10 +137,11 @@ export function getTrackPath(
   cy: number,
   edge1: number,
   edge2: number,
-  size: number
+  size: number,
+  flat: boolean = false
 ): string {
-  const p1 = getEdgeMidpoint(cx, cy, edge1, size);
-  const p2 = getEdgeMidpoint(cx, cy, edge2, size);
+  const p1 = getEdgeMidpoint(cx, cy, edge1, size, flat);
+  const p2 = getEdgeMidpoint(cx, cy, edge2, size, flat);
 
   // 엣지 간 거리 계산 (0-3)
   const diff = Math.abs(edge1 - edge2);
@@ -160,10 +165,11 @@ export function getRailroadTies(
   edge1: number,
   edge2: number,
   size: number,
-  numTies: number = 6
+  numTies: number = 6,
+  flat: boolean = false
 ): { x: number; y: number; angle: number }[] {
-  const p1 = getEdgeMidpoint(cx, cy, edge1, size);
-  const p2 = getEdgeMidpoint(cx, cy, edge2, size);
+  const p1 = getEdgeMidpoint(cx, cy, edge1, size, flat);
+  const p2 = getEdgeMidpoint(cx, cy, edge2, size, flat);
   const ties: { x: number; y: number; angle: number }[] = [];
 
   const diff = Math.abs(edge1 - edge2);
@@ -329,12 +335,14 @@ export function calculateBoardDimensions(
   cols: number = DEFAULT_BOARD_COLS,
   rows: number = DEFAULT_BOARD_ROWS,
   startCol: number = DEFAULT_START_COL,
-  margin: number = DEFAULT_MARGIN
+  margin: number = DEFAULT_MARGIN,
+  flat: boolean = false
 ): { width: number; height: number } {
   const actualCols = cols - startCol + 0.5; // odd row offset
   const width = actualCols * HEX_WIDTH + margin * 2 + HEX_HORIZONTAL_RADIUS * 2;
   const height = (rows - 1) * HEX_HEIGHT * 0.75 + margin * 2 + HEX_VERTICAL_RADIUS * 2;
-  return { width, height };
+  // flat-top 전치 렌더: 가로/세로 교환
+  return flat ? { width: height, height: width } : { width, height };
 }
 
 // === 트랙 건설 관련 함수 ===
@@ -352,6 +360,9 @@ export function isValidBuildTarget(coord: HexCoord, board: BoardState): boolean 
 
   // 도시인 경우 건설 불가
   if (isCity) return false;
+
+  // 마을인 경우 건설 불가 (마을은 도시처럼 타일 없는 연결점 — 인접 트랙이 변에 닿으면 연결)
+  if (board.towns.some(t => hexCoordsEqual(t.coord, coord) && t.newCityColor === null)) return false;
 
   // 호수인 경우 건설 불가
   if (hexTile && hexTile.terrain === 'lake') return false;
@@ -379,6 +390,10 @@ export function isValidBuildTargetWithReplace(
     return false;
   }
   if (isCity) {
+    return false;
+  }
+  // 마을인 경우 건설 불가 (마을은 타일 없는 연결점)
+  if (board.towns.some(t => hexCoordsEqual(t.coord, coord) && t.newCityColor === null)) {
     return false;
   }
   if (hexTile && hexTile.terrain === 'lake') {
@@ -434,6 +449,13 @@ export function getBuildableNeighbors(
   // sourceCoord가 도시인지 확인
   const isCity = board.cities.some(c => hexCoordsEqual(c.coord, sourceCoord));
 
+  const isTownHere = !isCity &&
+    board.towns.some(t => hexCoordsEqual(t.coord, sourceCoord) && t.newCityColor === null);
+
+  // sourceCoord가 내 가닥(스퍼)이 있는 마을인지 확인 — 마을 원이 모든 가닥을 연결하는 허브
+  const isConnectedTown = isTownHere &&
+    (board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, sourceCoord) && sp.owner === currentPlayer);
+
   // sourceCoord에 트랙이 있는지 확인 (소유권 필터 없이)
   const trackAtSource = board.trackTiles.find(t => hexCoordsEqual(t.coord, sourceCoord));
 
@@ -446,8 +468,8 @@ export function getBuildableNeighbors(
   // 연결 가능한 엣지 목록 결정
   let availableEdges: number[];
 
-  if (isCity) {
-    // 도시: 모든 6개 엣지에서 연결 가능
+  if (isCity || isConnectedTown) {
+    // 도시/진입한 마을: 모든 6개 엣지에서 연결 가능
     availableEdges = [0, 1, 2, 3, 4, 5];
   } else if (isPlayerOwned && trackAtSource) {
     // 플레이어 트랙: 플레이어 소유 경로의 엣지에서만 연결 가능 (복합 트랙 지원)
@@ -485,9 +507,10 @@ export function getBuildableNeighbors(
       });
     } else {
       // 기존 단순 트랙이 있는 헥스 → 복합 트랙(교차/공존) 건설 가능 대상
-      // 자기 트랙(완성된 링크)이든 상대 트랙이든 교차/공존 가능
+      // 자기 트랙(완성된 링크)이든 상대 트랙이든 교차/공존 가능 (마을 헥스 제외)
+      const isNeighborTownHex = board.towns.some(t => hexCoordsEqual(t.coord, neighbor) && t.newCityColor === null);
       const existingTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor));
-      if (existingTrack && existingTrack.trackType === 'simple') {
+      if (!isNeighborTownHex && existingTrack && existingTrack.trackType === 'simple') {
         const targetEdge = getOppositeEdge(sourceEdge);
         buildableNeighbors.push({
           coord: neighbor,
@@ -575,16 +598,21 @@ export function getConnectedNeighbors(
 ): HexCoord[] {
   const neighbors: HexCoord[] = [];
 
-  // 현재 위치가 도시인지 확인
+  // 현재 위치가 도시/마을인지 확인 (마을도 도시처럼 모든 진입 트랙을 연결하는 허브)
   const isCurrentCity = board.cities.some(c => hexCoordsEqual(c.coord, currentCoord));
+  const isCurrentTown = !isCurrentCity && board.towns.some(t => hexCoordsEqual(t.coord, currentCoord) && t.newCityColor === null);
 
   // 현재 위치가 트랙인지 확인 (소유자 무관)
   const currentTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, currentCoord));
 
 
-  if (isCurrentCity) {
-    // 도시에서: 6방향 모두에서 완성된 트랙이 연결되어 있는지 확인
+  if (isCurrentCity || isCurrentTown) {
+    // 도시: 6방향 모두 / 마을: 가닥(스퍼)이 있는 변으로만 연결
+    const townSpurEdges = isCurrentTown
+      ? new Set((board.townSpurs ?? []).filter(sp => hexCoordsEqual(sp.townCoord, currentCoord)).map(sp => sp.edge))
+      : null;
     for (let edge = 0; edge < 6; edge++) {
+      if (townSpurEdges && !townSpurEdges.has(edge)) continue;
       const neighbor = getNeighborHex(currentCoord, edge);
       const neighborKey = hexToKey(neighbor);
       if (visitedKey.has(neighborKey)) {
@@ -672,10 +700,18 @@ export function getConnectedNeighbors(
         continue;
       }
 
-      // 이웃이 도시인지 확인
+      // 이웃이 도시면 연결, 마을이면 그 변에 가닥(스퍼)이 있어야 연결
       const isNeighborCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
       if (isNeighborCity) {
         neighbors.push(neighbor);
+        continue;
+      }
+      const isNeighborTown = board.towns.some(t => hexCoordsEqual(t.coord, neighbor) && t.newCityColor === null);
+      if (isNeighborTown) {
+        const spurEdge = getOppositeEdge(edge);
+        if ((board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, neighbor) && sp.edge === spurEdge)) {
+          neighbors.push(neighbor);
+        }
         continue;
       }
 
@@ -936,8 +972,15 @@ export function findCompletedLinks(board: BoardState): CompletedLink[] {
   ];
 
   for (const startPoint of startPoints) {
+    // 마을이면 가닥(스퍼)이 있는 변으로만 링크 시작 (도시/도시화된 마을은 모든 변)
+    const isStartTown = !board.cities.some(c => hexCoordsEqual(c.coord, startPoint))
+      && board.towns.some(t => hexCoordsEqual(t.coord, startPoint) && t.newCityColor === null);
+
     // 이 도시/마을에 연결된 트랙 찾기
     for (let edge = 0; edge < 6; edge++) {
+      if (isStartTown && !(board.townSpurs ?? []).some(
+        sp => hexCoordsEqual(sp.townCoord, startPoint) && sp.edge === edge
+      )) continue;
       const neighbor = getNeighborHex(startPoint, edge);
       const track = board.trackTiles.find(
         t => hexCoordsEqual(t.coord, neighbor) && t.owner !== null
@@ -1025,11 +1068,21 @@ function traceLinkFromTrack(
 
     // 다음이 도시/마을인지 확인
     const isCity = board.cities.some(c => hexCoordsEqual(c.coord, nextNeighbor));
-    const isTown = board.towns.some(t => hexCoordsEqual(t.coord, nextNeighbor));
+    const isTown = !isCity && board.towns.some(t => hexCoordsEqual(t.coord, nextNeighbor) && t.newCityColor === null);
 
-    if (isCity || isTown) {
+    if (isCity) {
       // 완성된 링크!
       return { trackTiles, endCity: nextNeighbor };
+    }
+    if (isTown) {
+      // 마을: 진입 변에 가닥(스퍼)이 있어야 링크 완성
+      const spurEdge = getOppositeEdge(exitEdge);
+      if ((board.townSpurs ?? []).some(
+        sp => hexCoordsEqual(sp.townCoord, nextNeighbor) && sp.edge === spurEdge
+      )) {
+        return { trackTiles, endCity: nextNeighbor };
+      }
+      return null; // 가닥 없으면 미완성 구간
     }
 
     // 다음 트랙으로 이동
@@ -1152,7 +1205,8 @@ export function isTrackPartOfCompletedLink(
 export function getMovementPathSVG(
   path: HexCoord[],
   board: BoardState,
-  hexSize: number
+  hexSize: number,
+  flat: boolean = false
 ): string {
   if (path.length < 2) return '';
 
@@ -1160,32 +1214,29 @@ export function getMovementPathSVG(
 
   for (let i = 0; i < path.length; i++) {
     const coord = path[i];
-    const pixel = hexToPixel(coord.col, coord.row);
+    const pixel = hexToPixel(coord.col, coord.row, undefined, undefined, undefined, flat);
 
     const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
-    const isCity = board.cities.some(c => hexCoordsEqual(c.coord, coord));
     const isTown = board.towns.some(t => hexCoordsEqual(t.coord, coord));
 
     if (i === 0) {
-      // 시작점 (도시)
-      if (isCity || isTown) {
-        pathParts.push(`M ${pixel.x} ${pixel.y}`);
+      // 시작점 — 도시/마을 또는 트랙(트랙 큐브 배달) 중심에서 시작
+      pathParts.push(`M ${pixel.x} ${pixel.y}`);
 
-        // 다음 헥스로 나가는 엣지
-        if (i + 1 < path.length) {
-          const nextEdge = getConnectingEdge(coord, path[i + 1]);
-          if (nextEdge !== null) {
-            const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize);
-            pathParts.push(`L ${exitPoint.x} ${exitPoint.y}`);
-          }
+      // 다음 헥스로 나가는 엣지
+      if (i + 1 < path.length) {
+        const nextEdge = getConnectingEdge(coord, path[i + 1]);
+        if (nextEdge !== null) {
+          const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat);
+          pathParts.push(`L ${exitPoint.x} ${exitPoint.y}`);
         }
       }
     } else if (i === path.length - 1) {
-      // 끝점 (도시)
-      if (isCity || isTown) {
+      // 끝점 (도시/마을 중심으로 진입)
+      {
         const prevEdge = getConnectingEdge(coord, path[i - 1]);
         if (prevEdge !== null) {
-          const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize);
+          const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat);
           pathParts.push(`L ${entryPoint.x} ${entryPoint.y}`);
         }
         pathParts.push(`L ${pixel.x} ${pixel.y}`);
@@ -1197,8 +1248,8 @@ export function getMovementPathSVG(
         const nextEdge = getConnectingEdge(coord, path[i + 1]);
 
         if (prevEdge !== null && nextEdge !== null) {
-          const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize);
-          const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize);
+          const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat);
+          const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat);
 
           // 엣지 간 거리로 직선/곡선 결정
           const edgeDiff = Math.abs(prevEdge - nextEdge);
@@ -1220,8 +1271,8 @@ export function getMovementPathSVG(
         const nextEdge = getConnectingEdge(coord, path[i + 1]);
 
         if (prevEdge !== null && nextEdge !== null) {
-          const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize);
-          const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize);
+          const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat);
+          const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat);
 
           pathParts.push(`L ${entryPoint.x} ${entryPoint.y}`);
           pathParts.push(`L ${pixel.x} ${pixel.y}`);
@@ -1242,7 +1293,8 @@ export function getAnimationPoints(
   path: HexCoord[],
   board: BoardState,
   hexSize: number,
-  pointsPerSegment: number = 10
+  pointsPerSegment: number = 10,
+  flat: boolean = false
 ): { x: number; y: number }[] {
   if (path.length < 2) return [];
 
@@ -1250,7 +1302,7 @@ export function getAnimationPoints(
 
   for (let i = 0; i < path.length; i++) {
     const coord = path[i];
-    const pixel = hexToPixel(coord.col, coord.row);
+    const pixel = hexToPixel(coord.col, coord.row, undefined, undefined, undefined, flat);
 
     const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
     const isTown = board.towns.some(t => hexCoordsEqual(t.coord, coord));
@@ -1263,7 +1315,7 @@ export function getAnimationPoints(
       if (i + 1 < path.length) {
         const nextEdge = getConnectingEdge(coord, path[i + 1]);
         if (nextEdge !== null) {
-          const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize);
+          const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat);
           // 중간 포인트 추가
           for (let j = 1; j <= pointsPerSegment; j++) {
             const t = j / pointsPerSegment;
@@ -1278,7 +1330,7 @@ export function getAnimationPoints(
       // 끝 도시
       const prevEdge = getConnectingEdge(coord, path[i - 1]);
       if (prevEdge !== null) {
-        const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize);
+        const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat);
         // 이전 헥스 경계에서 진입점으로
         for (let j = 1; j <= pointsPerSegment; j++) {
           const t = j / pointsPerSegment;
@@ -1294,8 +1346,8 @@ export function getAnimationPoints(
       const nextEdge = getConnectingEdge(coord, path[i + 1]);
 
       if (prevEdge !== null && nextEdge !== null) {
-        const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize);
-        const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize);
+        const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat);
+        const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat);
 
         // 진입점 추가
         points.push(entryPoint);
@@ -1347,4 +1399,224 @@ export function getAnimationPoints(
   }
 
   return points;
+}
+
+// ============================================================
+// St. Lucia: 트랙 위 큐브 배달 (미완성 링크 허용)
+// ============================================================
+
+/** 트랙 큐브 배달 후보 탐색 로그 — 같은 도시로 가는 여러 루트의 채택/탈락 기록 (디버그용) */
+export interface TrackCubeRouteCandidate {
+  cityId: string;
+  linkCount: number;
+  oppLinks: number;
+  accepted: boolean;
+  /** first=첫 발견 채택, replace=더 나아 교체, reject-oppLinks=상대철도 많아 탈락, reject-shorter=같은 oppLinks인데 짧아 탈락, engine-exceeded=링크 수가 엔진 초과(배달 불가, 가시화용) */
+  reason: 'first' | 'replace' | 'reject-oppLinks' | 'reject-shorter' | 'engine-exceeded';
+  /** engine-exceeded일 때, 이 경로로 배달하려면 필요한 최소 엔진 레벨(=linkCount) */
+  requiredEngine?: number;
+}
+
+/** 트랙 큐브 배달 후보: 도달 도시와 경유 트랙 구간 소유자 */
+export interface TrackCubeDelivery {
+  /** 배달 목적지 도시 */
+  city: City;
+  /** 큐브 위치에서 도시까지 경유한 트랙 좌표 순서 */
+  pathCoords: HexCoord[];
+  /** 이 구간(체인)의 소유자 — 보너스 수입 1을 받음 (룰북: the player who owns the track section) */
+  sectionOwner: PlayerId | null;
+  /** 경로에서 상대(배달자 외) 소유 트랙을 경유한 수 — 적을수록 자기 철도 위주 경로 (경로 선택 우선용) */
+  oppLinks: number;
+  /** 이 경로의 링크 수(=수입). 같은 도시 여러 경로 중 자기 철도만으로 가장 긴(수입 큰) 루트를 고르는 데 사용 */
+  linkCount: number;
+}
+
+/**
+ * 트랙 위 큐브의 배달 가능 도시 탐색 (St. Lucia)
+ *
+ * 룰북: 트랙 건설 시 헥스 큐브가 트랙 위로 올라가며, 그 큐브는 트랙이
+ * 미완성 링크여도 도시로 배달할 수 있다. 미완성 구간도 소유자에게 수입 1.
+ *
+ * 큐브가 놓인 트랙에서 엣지 연결을 따라 양방향으로 체인을 추적해,
+ * 체인이 닿는 도시 중 큐브 색상과 일치하는 도시를 반환한다.
+ */
+export function findTrackCubeDeliveries(
+  board: BoardState,
+  trackId: string,
+  engineLevel: number = Infinity, // 이동 가능 링크 수 상한 (미지정 시 무제한)
+  playerId: PlayerId | null = null, // 배달자 — 지정 시 상대 철도 경유 적은 경로 우선 (미지정 시 우선 안 함)
+  onCandidate?: (c: TrackCubeRouteCandidate) => void, // 같은 도시로 가는 후보 루트마다 호출 (디버그 로그용)
+): TrackCubeDelivery[] {
+  const startTrack = board.trackTiles.find(t => t.id === trackId);
+  if (!startTrack || !startTrack.cube) return [];
+
+  const cubeColor = startTrack.cube;
+  const deliveries: TrackCubeDelivery[] = [];
+
+  // 워크 스택: 트랙 체인을 따라가다 마을(허브)을 만나면 마을에 닿은 다른 타일들로 분기
+  // sectionOwner = 큐브가 있는 구간(첫 마을/도시 도달 전까지)의 소유자 — 마을 경유 후엔 고정
+  // ★ visited는 경로별(per-path) — 전역으로 두면 한 경로가 공유 허브를 먼저 지날 때 다른(내 트랙) 경로가
+  //   막혀 못 찾는다. 각 분기는 자기 경로의 visited만 보유(복사)해 대안 경로를 모두 탐색한다.
+  interface TrackWalkState {
+    current: HexCoord;
+    exitEdge: number;
+    pathCoords: HexCoord[];
+    sectionOwner: PlayerId | null;
+    ownerLocked: boolean;
+    linkCount: number; // 큐브 시작 구간부터 통과한 도시/마을(=링크) 수 — 엔진 레벨 제한용
+    visited: Set<string>; // 이 경로가 지나온 헥스 (경로 내 사이클 방지 — 분기 시 복사)
+  }
+  // 큐브가 놓인 트랙이 복합 교차/공존이면 주(edges)·보조(secondaryEdges) 양쪽 트랙 모두 출발점이 된다.
+  // (이전엔 edges만 보고 secondaryEdges를 누락 → 큐브가 교차 트랙의 보조 트랙으로 도시에 닿는 경로를 못 찾음)
+  const stack: TrackWalkState[] = [];
+  for (const startEdge of startTrack.edges) {
+    stack.push({
+      current: startTrack.coord, exitEdge: startEdge, pathCoords: [startTrack.coord],
+      sectionOwner: startTrack.owner, ownerLocked: false, linkCount: 1,
+      visited: new Set<string>([hexToKey(startTrack.coord)]),
+    });
+  }
+  for (const startEdge of (startTrack.secondaryEdges ?? [])) {
+    stack.push({
+      current: startTrack.coord, exitEdge: startEdge, pathCoords: [startTrack.coord],
+      sectionOwner: startTrack.secondaryOwner ?? startTrack.owner, ownerLocked: false, linkCount: 1,
+      visited: new Set<string>([hexToKey(startTrack.coord)]),
+    });
+  }
+
+  // 엔진을 초과하는 경로는 배달엔 못 쓰지만, "엔진 N이면 가능"을 로그로 노출하면 디버깅에 유용.
+  // onCandidate(로그)가 있을 때만 엔진 + 여유분만큼 더 탐색한다 (AI 내부 평가엔 영향 없음).
+  const ENGINE_REPORT_MARGIN = 2;
+  const exploreLimit =
+    onCandidate && engineLevel !== Infinity ? engineLevel + ENGINE_REPORT_MARGIN : engineLevel;
+
+  let guard = 0;
+  while (stack.length > 0 && guard++ < 256) {
+    const st = stack.pop()!;
+    let current = st.current;
+    let exitEdge = st.exitEdge;
+    let sectionOwner = st.sectionOwner;
+    const ownerLocked = st.ownerLocked;
+    const linkCount = st.linkCount;
+    const pathCoords = [...st.pathCoords];
+    const visited = st.visited; // 이 경로의 visited (분기 시 아래에서 복사해 push)
+
+    for (let steps = 0; steps < 64; steps++) {
+      const nextCoord = getNeighborHex(current, exitEdge);
+      const key = hexToKey(nextCoord);
+
+      // 도시 도달
+      const city = board.cities.find(c => hexCoordsEqual(c.coord, nextCoord));
+      if (city) {
+        // 같은 색 도시 → 배달 후보 + 종료 (룰: 같은 색 도시 도착 시 이동 멈춤).
+        // 단 링크 수가 엔진 레벨 이하여야 배달 가능 (엔진 = 이동 가능 링크 수)
+        if (city.color === cubeColor) {
+          // 경로의 상대 철도 경유 수 — 적을수록 자기 철도 위주 (배달자 지정 시에만 의미)
+          const oppLinks = playerId === null ? 0 : pathCoords.filter(pc => {
+            const t = board.trackTiles.find(tt => hexCoordsEqual(tt.coord, pc));
+            return t && t.owner !== null && t.owner !== playerId;
+          }).length;
+          if (linkCount <= engineLevel) {
+            const existing = deliveries.find(d => d.city.id === city.id);
+            if (!existing) {
+              deliveries.push({ city, pathCoords: [...pathCoords], sectionOwner, oppLinks, linkCount });
+              onCandidate?.({ cityId: city.id, linkCount, oppLinks, accepted: true, reason: 'first' });
+            } else if (oppLinks < existing.oppLinks || (oppLinks === existing.oppLinks && linkCount > existing.linkCount)) {
+              // 상대 철도 경유가 더 적거나(자기 철도 우선), 같으면 더 긴 루트(=통과 링크 많음=수입 큼) 선택
+              existing.pathCoords = [...pathCoords];
+              existing.sectionOwner = sectionOwner;
+              existing.oppLinks = oppLinks;
+              existing.linkCount = linkCount;
+              onCandidate?.({ cityId: city.id, linkCount, oppLinks, accepted: true, reason: 'replace' });
+            } else {
+              onCandidate?.({
+                cityId: city.id, linkCount, oppLinks, accepted: false,
+                reason: oppLinks > existing.oppLinks ? 'reject-oppLinks' : 'reject-shorter',
+              });
+            }
+          } else {
+            // 엔진 초과 — 배달 불가지만 "엔진 N이면 가능"을 로그로 노출 (exploreLimit까지만 도달)
+            onCandidate?.({
+              cityId: city.id, linkCount, oppLinks, accepted: false,
+              reason: 'engine-exceeded', requiredEngine: linkCount,
+            });
+          }
+          break;
+        }
+        // 다른 색 도시 → 통과 (도시는 모든 변이 연결됨, 한 번만 방문). 너머 같은 색 도시로 계속 탐색.
+        // 탐색 상한을 이미 넘었으면 더 통과해봐야 의미 없음 → 중단 (로그 모드면 엔진+여유까지)
+        if (linkCount >= exploreLimit) break;
+        if (visited.has(key)) break;
+        visited.add(key);
+        const cityPath = [...pathCoords, nextCoord];
+        for (let e = 0; e < 6; e++) {
+          if (e === getOppositeEdge(exitEdge)) continue; // 들어온 변 제외
+          const beyond = getNeighborHex(nextCoord, e);
+          if (visited.has(hexToKey(beyond))) continue;
+          const bTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, beyond));
+          const opp = getOppositeEdge(e);
+          if (bTrack?.edges.includes(opp) || bTrack?.secondaryEdges?.includes(opp)) {
+            stack.push({ current: nextCoord, exitEdge: e, pathCoords: cityPath, sectionOwner, ownerLocked: true, linkCount: linkCount + 1, visited: new Set(visited) });
+          }
+        }
+        break;
+      }
+
+      // 마을 도달 → 진입 변에 가닥(스퍼)이 있어야 통과 가능. 가닥 있는 다른 변들로 분기 계속
+      const isTownHere = board.towns.some(t => hexCoordsEqual(t.coord, nextCoord) && t.newCityColor === null);
+      if (isTownHere) {
+        const entrySpurEdge = getOppositeEdge(exitEdge);
+        const spurs = (board.townSpurs ?? []).filter(sp => hexCoordsEqual(sp.townCoord, nextCoord));
+        if (!spurs.some(sp => sp.edge === entrySpurEdge)) break; // 진입 변에 가닥 없음 — 연결 안 됨
+        if (linkCount >= exploreLimit) break; // 탐색 상한 초과 — 더 통과 불가 (로그 모드면 엔진+여유까지)
+        if (visited.has(key)) break;
+        visited.add(key);
+        const townPath = [...pathCoords, nextCoord];
+        for (const sp of spurs) {
+          if (sp.edge === entrySpurEdge) continue;
+          const beyond = getNeighborHex(nextCoord, sp.edge);
+          if (visited.has(hexToKey(beyond))) continue;
+          const bTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, beyond));
+          const opp = getOppositeEdge(sp.edge);
+          if (bTrack?.edges.includes(opp) || bTrack?.secondaryEdges?.includes(opp)) {
+            stack.push({
+              current: nextCoord,
+              exitEdge: sp.edge,
+              pathCoords: townPath,
+              sectionOwner,
+              ownerLocked: true,
+              linkCount: linkCount + 1,
+              visited: new Set(visited),
+            });
+          }
+        }
+        break;
+      }
+
+      // 다음 트랙으로 연결 확인 (마주보는 엣지 보유 필요)
+      const nextTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, nextCoord));
+      const entryEdge = getOppositeEdge(exitEdge);
+      if (!nextTrack) break;
+
+      // 어느 경로(주/보조)로 들어왔는지 판단해 반대쪽 출구 결정
+      let edges: [number, number] | undefined;
+      if (nextTrack.edges.includes(entryEdge)) {
+        edges = nextTrack.edges;
+        if (!ownerLocked) sectionOwner = nextTrack.owner ?? sectionOwner;
+      } else if (nextTrack.secondaryEdges?.includes(entryEdge)) {
+        edges = nextTrack.secondaryEdges;
+        if (!ownerLocked) sectionOwner = nextTrack.secondaryOwner ?? sectionOwner;
+      }
+      if (!edges) break;
+
+      if (visited.has(key)) break;
+      visited.add(key);
+
+      pathCoords.push(nextCoord);
+      current = nextCoord;
+      exitEdge = edges[0] === entryEdge ? edges[1] : edges[0];
+    }
+  }
+
+  return deliveries;
 }

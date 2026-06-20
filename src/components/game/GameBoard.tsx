@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useCallback, useEffect } from 'react';
+import { useMemo, useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { useGameStore } from '@/store/gameStore';
@@ -12,6 +12,7 @@ import {
   getHexPoints,
   getTrackPath,
   getRailroadTies,
+  getEdgeMidpoint,
   calculateBoardDimensions,
   hexCoordsEqual,
   getNeighborHex,
@@ -21,10 +22,13 @@ import {
   getMovementPathSVG,
   getAnimationPoints,
 } from '@/utils/hexGrid';
-import { TUTORIAL_MAP, TUTORIAL_COLORS, TUTORIAL_LAKE_TILES } from '@/utils/tutorialMap';
+import { getMapData } from '@/utils/mapRegistry';
+import { isValidConnectionPoint as isValidConnectionPointUtil } from '@/utils/trackValidation';
 import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId } from '@/types/game';
 
 export default function GameBoard() {
+  // 디버그: 헥스 좌표 표시 토글 (우측 상단 버튼)
+  const [showCoords, setShowCoords] = useState(false);
   // Zustand selector 최적화: useShallow로 불필요한 리렌더링 방지
   const {
     board,
@@ -41,6 +45,13 @@ export default function GameBoard() {
       ui: state.ui,
     }))
   );
+  const mapId = useGameStore((state) => state.mapId);
+  const currentTurn = useGameStore((state) => state.currentTurn);
+  // 맵 데이터(그리드 크기/지형 색): mapRegistry에서 주입 — 튜토리얼 하드코딩 금지
+  const mapData = useMemo(() => getMapData(mapId), [mapId]);
+  const terrainColors = mapData.colors.terrain;
+  // flat-top 맵(St. Lucia): 모든 렌더 기하를 전치 — 데이터/게임 로직은 pointy-top 그대로 (인접 동형)
+  const isFlat = mapData.orientation === 'flat';
 
   // Actions (참조가 변하지 않으므로 별도 selector)
   const {
@@ -56,11 +67,13 @@ export default function GameBoard() {
     selectTrackToRedirect,
     canPlaceNewCity,
     placeNewCity,
+    canBuildTownSpur,
+    buildTownSpur,
   } = useGameStore();
 
   const { width: boardWidth, height: boardHeight } = useMemo(
-    () => calculateBoardDimensions(TUTORIAL_MAP.cols, TUTORIAL_MAP.rows),
-    []
+    () => calculateBoardDimensions(mapData.cols, mapData.rows, undefined, undefined, isFlat),
+    [mapData, isFlat]
   );
 
   // 터치 제스처 (핀치 줌, 팬) 지원
@@ -185,36 +198,30 @@ export default function GameBoard() {
     }>();
 
     for (const tile of board.trackTiles) {
-      const { x, y } = hexToPixel(tile.coord.col, tile.coord.row);
-      const pathData = getTrackPath(x, y, tile.edges[0], tile.edges[1], HEX_SIZE - 2);
-      const ties = getRailroadTies(x, y, tile.edges[0], tile.edges[1], HEX_SIZE - 2);
+      const { x, y } = hexToPixel(tile.coord.col, tile.coord.row, undefined, undefined, undefined, isFlat);
+      const pathData = getTrackPath(x, y, tile.edges[0], tile.edges[1], HEX_SIZE - 2, isFlat);
+      const ties = getRailroadTies(x, y, tile.edges[0], tile.edges[1], HEX_SIZE - 2, 6, isFlat);
 
       const hasSecondary = tile.trackType !== 'simple' && tile.secondaryEdges;
       const secondaryPathData = hasSecondary
-        ? getTrackPath(x, y, tile.secondaryEdges![0], tile.secondaryEdges![1], HEX_SIZE - 2)
+        ? getTrackPath(x, y, tile.secondaryEdges![0], tile.secondaryEdges![1], HEX_SIZE - 2, isFlat)
         : null;
       const secondaryTies = hasSecondary
-        ? getRailroadTies(x, y, tile.secondaryEdges![0], tile.secondaryEdges![1], HEX_SIZE - 2)
+        ? getRailroadTies(x, y, tile.secondaryEdges![0], tile.secondaryEdges![1], HEX_SIZE - 2, 6, isFlat)
         : [];
 
       cache.set(tile.id, { pathData, ties, secondaryPathData, secondaryTies });
     }
 
     return cache;
-  }, [board.trackTiles]);
+  }, [board.trackTiles, isFlat]);
 
-  // 헥스가 유효한 연결점인지 확인 (도시 또는 현재 플레이어의 트랙)
+  // 헥스가 유효한 연결점인지 확인 (도시, 내 트랙, 내 트랙이 진입한 마을)
   const isValidConnectionPoint = useCallback(
     (coord: HexCoord) => {
-      const isCity = board.cities.some(c => hexCoordsEqual(c.coord, coord));
-      if (isCity) return true;
-
-      const playerTrack = board.trackTiles.find(
-        t => hexCoordsEqual(t.coord, coord) && (t.owner === currentPlayer || t.secondaryOwner === currentPlayer)
-      );
-      return !!playerTrack;
+      return isValidConnectionPointUtil(coord, board, currentPlayer);
     },
-    [board.cities, board.trackTiles, currentPlayer]
+    [board, currentPlayer]
   );
 
   // 헥스가 하이라이트된 건설 대상인지 확인 (source_selected 모드)
@@ -238,6 +245,13 @@ export default function GameBoard() {
   const handleHexClick = useCallback(
     (coord: HexCoord) => {
       if (currentPhase === 'buildTrack') {
+        // 미연결 가닥 완성: 내 트랙이 변에 닿아 있으나 가닥이 없는 마을 클릭 → 가닥 건설.
+        // buildMode와 무관하게 최우선 — 같은 턴에 이미 일부 연결된 마을의 추가 변도 연결 가능.
+        if (canBuildTownSpur(coord)) {
+          buildTownSpur(coord);
+          return;
+        }
+
         if (ui.buildMode === 'idle') {
           // 유효한 연결점(도시 또는 기존 트랙) 클릭 → 선택
           if (isValidConnectionPoint(coord)) {
@@ -247,6 +261,30 @@ export default function GameBoard() {
           // 같은 헥스 클릭 → 선택 취소
           if (ui.sourceHex && hexCoordsEqual(coord, ui.sourceHex)) {
             resetBuildMode();
+            return;
+          }
+
+          // 출발점이 마을이면: 클릭한 인접 헥스 방향에 따라
+          //  - 가닥 없는 변 → 마을 가닥만 단독 건설 (트랙 없이)
+          //  - 가닥 있는 변 → 그 방향으로 트랙(노선) 이어가기
+          const src = ui.sourceHex;
+          const srcIsTown = src && board.towns.some(t => hexCoordsEqual(t.coord, src) && t.newCityColor === null);
+          if (srcIsTown && src) {
+            for (let e = 0; e < 6; e++) {
+              if (hexCoordsEqual(getNeighborHex(src, e), coord)) {
+                const spurExists = (board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, src) && sp.edge === e);
+                if (spurExists) {
+                  // 이미 가닥이 있는 변 → 그 헥스로 트랙(노선) 이어가기
+                  if (isBuildableTarget(coord)) { selectTargetHex(coord); return; }
+                } else {
+                  // 가닥 없는 변 → 가닥만 단독 건설
+                  if (buildTownSpur(src, e)) resetBuildMode();
+                  return;
+                }
+              }
+            }
+            // 인접이 아니면 다른 연결점 재선택
+            if (isValidConnectionPoint(coord)) selectSourceHex(coord);
             return;
           }
 
@@ -286,7 +324,7 @@ export default function GameBoard() {
         }
       }
     },
-    [currentPhase, ui.buildMode, ui.sourceHex, ui.targetHex, isValidConnectionPoint, isBuildableTarget, getExitEdgeForCoord, selectSourceHex, selectTargetHex, selectExitDirection, resetBuildMode]
+    [currentPhase, ui.buildMode, ui.sourceHex, ui.targetHex, isValidConnectionPoint, isBuildableTarget, getExitEdgeForCoord, selectSourceHex, selectTargetHex, selectExitDirection, resetBuildMode, canBuildTownSpur, buildTownSpur]
   );
 
   // 헥스 호버 핸들러
@@ -300,6 +338,35 @@ export default function GameBoard() {
   );
 
   // 큐브 클릭 핸들러
+  // 마을 안 철길 가닥(스퍼) 렌더 — 실제 건설물 (일반 트랙과 동일 스타일: 레일 + 침목)
+  const renderTownSpurs = useCallback(
+    (townCoord: HexCoord, x: number, y: number) => {
+      const spurs = (board.townSpurs ?? []).filter(sp => hexCoordsEqual(sp.townCoord, townCoord));
+      return spurs.map(sp => {
+        const mid = getEdgeMidpoint(x, y, sp.edge, HEX_SIZE - 2, isFlat);
+        const tx = mid.x + (x - mid.x) * 0.4;
+        const ty = mid.y + (y - mid.y) * 0.4;
+        const ang = Math.atan2(y - mid.y, x - mid.x) + Math.PI / 2;
+        return (
+          <g key={`spur-${sp.id}`} style={{ pointerEvents: 'none' }}>
+            <line x1={mid.x} y1={mid.y} x2={x} y2={y} stroke="#3A3A32" strokeWidth="12" strokeLinecap="round" />
+            <line x1={mid.x} y1={mid.y} x2={x} y2={y} stroke={terrainColors.plain} strokeWidth="6" strokeLinecap="round" />
+            <line
+              x1={tx - 8 * Math.cos(ang)} y1={ty - 8 * Math.sin(ang)}
+              x2={tx + 8 * Math.cos(ang)} y2={ty + 8 * Math.sin(ang)}
+              stroke="#4A4A42" strokeWidth="3" strokeLinecap="round"
+            />
+            {/* 이번 턴에 건설한 가닥 표시 */}
+            {sp.builtTurn === currentTurn && (
+              <circle cx={(mid.x + x) / 2} cy={(mid.y + y) / 2} r="6" fill="none" stroke="#ffffff" strokeWidth="1.5" strokeDasharray="3 2" opacity="0.9" />
+            )}
+          </g>
+        );
+      });
+    },
+    [board.townSpurs, isFlat, terrainColors.plain, currentTurn]
+  );
+
   const handleCubeClick = useCallback(
     (cityId: string, cubeIndex: number) => {
       if (currentPhase === 'moveGoods') {
@@ -329,7 +396,7 @@ export default function GameBoard() {
       transition={{ duration: 0.3, ease: 'easeOut' }}
       className="rounded-xl overflow-hidden border border-foreground/10"
       style={{
-        backgroundColor: TUTORIAL_COLORS.background,
+        backgroundColor: mapData.colors.background,
         contain: 'layout style paint', // Performance optimization
         transform: 'translateZ(0)', // GPU acceleration
       }}
@@ -348,9 +415,17 @@ export default function GameBoard() {
             {currentPhase === 'moveGoods' && ui.movingCube && '물품 이동 중...'}
             {currentPhase !== 'buildTrack' && currentPhase !== 'moveGoods' && 'Tutorial'}
           </span>
-          <span className="text-xs text-accent">
-            {players[currentPlayer].name}의 차례
-          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-xs text-accent whitespace-nowrap">
+              {players[currentPlayer].name}의 차례
+            </span>
+            <button
+              onClick={() => setShowCoords(v => !v)}
+              className={`px-2 py-0.5 text-xs rounded transition-colors ${showCoords ? 'bg-accent text-background' : 'bg-foreground/10 text-accent hover:bg-foreground/20'}`}
+            >
+              {showCoords ? '좌표 ON' : '좌표 OFF'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -376,17 +451,20 @@ export default function GameBoard() {
           }}
         >
         {/* 배경 헥스 그리드 */}
-        {[...Array(TUTORIAL_MAP.rows)].map((_, row) =>
-          [...Array(TUTORIAL_MAP.cols - TUTORIAL_MAP.startCol)].map((_, colIndex) => {
-            const col = colIndex + TUTORIAL_MAP.startCol;
-            const { x, y } = hexToPixel(col, row);
+        {[...Array(mapData.rows)].map((_, row) =>
+          [...Array(mapData.cols - mapData.startCol)].map((_, colIndex) => {
+            const col = colIndex + mapData.startCol;
+            const { x, y } = hexToPixel(col, row, undefined, undefined, undefined, isFlat);
 
             if (!shouldRenderHex(col, row)) return null;
 
             const coord = { col, row };
-            const isLake = TUTORIAL_LAKE_TILES.some(
-              (l) => l.col === col && l.row === row
-            );
+            const hexTile = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
+            const terrain = hexTile?.terrain ?? 'plain';
+            const isLake = terrain === 'lake';
+
+            // 섬 맵(St. Lucia): 바다 헥스를 그리지 않아 섬 윤곽 표시
+            if (isLake && mapData.hideLakeHexes) return null;
             const isSourceSelected = ui.sourceHex && hexCoordsEqual(ui.sourceHex, coord);
             const isHighlighted = ui.highlightedHexes.some(h => hexCoordsEqual(h, coord));
             const hasPlayerTrack = board.trackTiles.some(
@@ -399,13 +477,13 @@ export default function GameBoard() {
             return (
               <g key={`hex-${col}-${row}`}>
                 <polygon
-                  points={getHexPoints(x, y, HEX_SIZE - 2)}
+                  points={getHexPoints(x, y, HEX_SIZE - 2, isFlat)}
                   fill={
                     isHighlighted
                       ? 'rgba(212, 168, 83, 0.3)' // 건설 가능 헥스 하이라이트
-                      : isLake
-                      ? TUTORIAL_COLORS.terrain.lake
-                      : TUTORIAL_COLORS.terrain.plain
+                      : terrain === 'river'
+                      ? terrainColors.plain // 강 헥스: 평지색 + 아래 강줄기 곡선 오버레이
+                      : terrainColors[terrain] ?? terrainColors.plain
                   }
                   stroke={
                     isSourceSelected
@@ -427,6 +505,32 @@ export default function GameBoard() {
                   onClick={() => isClickable && handleHexClick(coord)}
                   onMouseEnter={() => handleHexHover(coord)}
                 />
+                {/* 강 헥스: 평지 위로 흐르는 강줄기 (공식 맵 스타일) */}
+                {terrain === 'river' && !isHighlighted && (
+                  <path
+                    d={`M ${x - HEX_SIZE * 0.85} ${y - HEX_SIZE * 0.25} Q ${x - HEX_SIZE * 0.3} ${y + HEX_SIZE * 0.3}, ${x + HEX_SIZE * 0.1} ${y} T ${x + HEX_SIZE * 0.85} ${y + HEX_SIZE * 0.2}`}
+                    fill="none"
+                    stroke={terrainColors.river}
+                    strokeWidth="11"
+                    strokeLinecap="round"
+                    opacity="0.95"
+                    style={{ pointerEvents: 'none' }}
+                  />
+                )}
+                {/* 헥스 위 물품 큐브 (St. Lucia 셋업) */}
+                {hexTile?.cube && (
+                  <rect
+                    x={x - 5}
+                    y={y - 5}
+                    width="10"
+                    height="10"
+                    fill={CUBE_COLORS[hexTile.cube]}
+                    stroke="rgba(0,0,0,0.4)"
+                    strokeWidth="1"
+                    rx="1.5"
+                    pointerEvents="none"
+                  />
+                )}
               </g>
             );
           })
@@ -434,7 +538,7 @@ export default function GameBoard() {
 
         {/* 트랙 타일 */}
         {board.trackTiles.map((tile) => {
-          const { x, y } = hexToPixel(tile.coord.col, tile.coord.row);
+          const { x, y } = hexToPixel(tile.coord.col, tile.coord.row, undefined, undefined, undefined, isFlat);
           // 캐시에서 경로 데이터 가져오기 (계산 비용 절감)
           const cached = trackPathCache.get(tile.id);
           const pathData = cached?.pathData ?? '';
@@ -510,7 +614,7 @@ export default function GameBoard() {
               <path
                 d={pathData}
                 fill="none"
-                stroke={TUTORIAL_COLORS.terrain.plain}
+                stroke={terrainColors.plain}
                 strokeWidth="6"
                 strokeLinecap="round"
                 shapeRendering="geometricPrecision"
@@ -561,7 +665,7 @@ export default function GameBoard() {
                   <path
                     d={secondaryPathData}
                     fill="none"
-                    stroke={TUTORIAL_COLORS.terrain.plain}
+                    stroke={terrainColors.plain}
                     strokeWidth="6"
                     strokeLinecap="round"
                     shapeRendering="geometricPrecision"
@@ -583,6 +687,19 @@ export default function GameBoard() {
                     />
                   ))}
                 </>
+              )}
+
+              {/* 이번 턴에 건설한 트랙 표시 (턴이 끝나면 사라짐) — 누적 트랙과 구분용 */}
+              {tile.builtTurn === currentTurn && (
+                <polygon
+                  points={getHexPoints(x, y, HEX_SIZE - 6, isFlat)}
+                  fill="none"
+                  stroke="#ffffff"
+                  strokeWidth="2"
+                  strokeDasharray="5 4"
+                  opacity="0.85"
+                  style={{ pointerEvents: 'none' }}
+                />
               )}
 
               {/* 소유자 마커 - 미완성 트랙(완성된 링크에 포함되지 않은 트랙)에만 표시 */}
@@ -617,11 +734,16 @@ export default function GameBoard() {
         {/* 완성된 링크 소유 마커 - 링크 중앙에 하나만 표시 */}
         {completedLinks.map((link) => {
           const ownerColor = PLAYER_COLORS[players[link.owner].color];
+          // centerPosition은 pointy 기준 좌표 — flat 맵에서도 맞도록 중간 타일에서 재계산
+          const midTile = link.trackTiles[Math.floor(link.trackTiles.length / 2)];
+          const center = midTile
+            ? hexToPixel(midTile.col, midTile.row, undefined, undefined, undefined, isFlat)
+            : link.centerPosition;
           return (
             <circle
               key={link.id}
-              cx={link.centerPosition.x}
-              cy={link.centerPosition.y}
+              cx={center.x}
+              cy={center.y}
               r="8"
               fill={ownerColor}
               stroke="#1a1a1a"
@@ -633,8 +755,8 @@ export default function GameBoard() {
 
         {/* 끊어진 트랙 연결 경고 표시 */}
         {disconnectedConnections.map((conn, index) => {
-          const { x: x1, y: y1 } = hexToPixel(conn.from.col, conn.from.row);
-          const { x: x2, y: y2 } = hexToPixel(conn.to.col, conn.to.row);
+          const { x: x1, y: y1 } = hexToPixel(conn.from.col, conn.from.row, undefined, undefined, undefined, isFlat);
+          const { x: x2, y: y2 } = hexToPixel(conn.to.col, conn.to.row, undefined, undefined, undefined, isFlat);
 
           // 두 트랙 중간 지점
           const midX = (x1 + x2) / 2;
@@ -671,15 +793,24 @@ export default function GameBoard() {
 
         {/* 마을 (Town) - 흰색 디스크 */}
         {board.towns.map((town) => {
-          const { x, y } = hexToPixel(town.coord.col, town.coord.row);
+          const { x, y } = hexToPixel(town.coord.col, town.coord.row, undefined, undefined, undefined, isFlat);
           const isUrbanized = town.newCityColor !== null;
-          const townColor = isUrbanized ? CITY_COLORS[town.newCityColor!] : '#ffffff';
+          // 도시화된 마을은 cities 배열에 추가되어 도시로 렌더링됨 — 여기서 또 그리면 중복
+          if (isUrbanized) return null;
+          const townColor = '#ffffff';
           const isSourceSelected = ui.sourceHex && hexCoordsEqual(ui.sourceHex, town.coord);
           const isTownClickable = currentPhase === 'buildTrack' && !ui.urbanizationMode;
 
           // 도시화 가능 여부 확인
           const canUrbanize = ui.urbanizationMode && ui.selectedNewCityTile && !isUrbanized;
           const isUrbanizationClickable = canPlaceNewCity(town.coord);
+
+          // 미연결 가닥 완성 가능 여부 (내 트랙이 변에 닿아 있으나 가닥 없음 → 클릭으로 건설)
+          const canCompleteSpur = currentPhase === 'buildTrack' && !ui.urbanizationMode && canBuildTownSpur(town.coord);
+
+          // 마을 헥스 자체에 깔린 트랙 (마을 디스크 아래 트랙 타일)
+          const townTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, town.coord));
+          const townTrackCache = townTrack ? trackPathCache.get(townTrack.id) : undefined;
 
           // 마을 클릭 핸들러
           const handleTownClick = () => {
@@ -698,19 +829,46 @@ export default function GameBoard() {
             <g key={`town-${town.id}`}>
               {/* 마을 배경 헥스 */}
               <polygon
-                points={getHexPoints(x, y, HEX_SIZE - 2)}
-                fill={TUTORIAL_COLORS.terrain.plain}
+                points={getHexPoints(x, y, HEX_SIZE - 2, isFlat)}
+                fill={terrainColors.plain}
                 stroke={
                   isUrbanizationClickable
                     ? '#3B82F6'  // 도시화 가능: 파란색 테두리
+                    : canCompleteSpur
+                    ? '#f4a261'  // 미연결 가닥 완성 가능: 주황 점선 테두리
                     : isSourceSelected
                     ? '#ffffff'
                     : '#3D5A3D'
                 }
-                strokeWidth={isUrbanizationClickable ? 4 : isSourceSelected ? 3 : 2}
+                strokeWidth={isUrbanizationClickable ? 4 : canCompleteSpur ? 3 : isSourceSelected ? 3 : 2}
+                strokeDasharray={canCompleteSpur ? '6 4' : undefined}
                 className={(isTownClickable || isUrbanizationClickable) ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''}
                 onClick={handleTownClick}
-              />
+              >
+                {canCompleteSpur && <title>클릭: 마을 가닥 건설 ($1, 건설 1회) — 미연결 노선의 연결을 완성합니다</title>}
+              </polygon>
+
+              {/* 마을 헥스 위 트랙 타일 (마을 디스크 아래 깔린 철길) */}
+              {townTrack && townTrackCache && (
+                <g style={{ pointerEvents: 'none' }}>
+                  <path d={townTrackCache.pathData} fill="none" stroke="#3A3A32" strokeWidth="12" strokeLinecap="round" shapeRendering="geometricPrecision" />
+                  <path d={townTrackCache.pathData} fill="none" stroke={terrainColors.plain} strokeWidth="6" strokeLinecap="round" shapeRendering="geometricPrecision" />
+                  {townTrackCache.ties.map((tie, i) => (
+                    <line
+                      key={`town-tie-${town.id}-${i}`}
+                      x1={tie.x - 8 * Math.cos((tie.angle + 90) * Math.PI / 180)}
+                      y1={tie.y - 8 * Math.sin((tie.angle + 90) * Math.PI / 180)}
+                      x2={tie.x + 8 * Math.cos((tie.angle + 90) * Math.PI / 180)}
+                      y2={tie.y + 8 * Math.sin((tie.angle + 90) * Math.PI / 180)}
+                      stroke="#4A4A42"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                    />
+                  ))}
+                </g>
+              )}
+              {/* 마을 안 철길 가닥 (실제 건설물 — 원에서 변까지) */}
+              {renderTownSpurs(town.coord, x, y)}
 
               {/* 도시화 가능 표시 - 글로우 효과 */}
               {canUrbanize && !isUrbanized && (
@@ -745,11 +903,27 @@ export default function GameBoard() {
                 onClick={handleTownClick}
               />
 
-              {/* 마을 ID (신규 도시로 변환된 경우 도시 색상 표시) */}
-              {isUrbanized ? (
+              {/* 마을 이름 라벨 (공식 맵처럼 헥스 상단에 표시) */}
+              <text
+                x={x}
+                y={y - 28}
+                textAnchor="middle"
+                fill="#1a1a1a"
+                fontSize="13"
+                fontWeight="700"
+                fontFamily="system-ui, sans-serif"
+                stroke="rgba(255,255,255,0.75)"
+                strokeWidth="3"
+                paintOrder="stroke"
+                style={{ pointerEvents: 'none' }}
+              >
+                {mapData.townNames?.[town.id] ?? town.id}
+              </text>
+              {/* 도시화된 경우 원 안에 신규 도시 ID 표시 */}
+              {isUrbanized && (
                 <text
                   x={x}
-                  y={y + 5}
+                  y={y + 6}
                   textAnchor="middle"
                   fill="#ffffff"
                   fontSize="18"
@@ -757,20 +931,7 @@ export default function GameBoard() {
                   fontFamily="system-ui, sans-serif"
                   style={{ pointerEvents: 'none' }}
                 >
-                  {town.id}
-                </text>
-              ) : (
-                <text
-                  x={x}
-                  y={y + 5}
-                  textAnchor="middle"
-                  fill="#333333"
-                  fontSize="14"
-                  fontWeight="600"
-                  fontFamily="system-ui, sans-serif"
-                  style={{ pointerEvents: 'none' }}
-                >
-                  Town
+                  {town.newCityColor ? town.id : ''}
                 </text>
               )}
 
@@ -803,7 +964,7 @@ export default function GameBoard() {
 
         {/* 도시 */}
         {board.cities.map((city) => {
-          const { x, y } = hexToPixel(city.coord.col, city.coord.row);
+          const { x, y } = hexToPixel(city.coord.col, city.coord.row, undefined, undefined, undefined, isFlat);
           const cityColor = CITY_COLORS[city.color];
           const isSourceSelected = ui.sourceHex && hexCoordsEqual(ui.sourceHex, city.coord);
           const isCityClickable = currentPhase === 'buildTrack';
@@ -825,7 +986,7 @@ export default function GameBoard() {
             <g key={`city-${city.id}`}>
               {/* 도시 헥사곤 */}
               <polygon
-                points={getHexPoints(x, y, HEX_SIZE - 2)}
+                points={getHexPoints(x, y, HEX_SIZE - 2, isFlat)}
                 fill={cityColor}
                 stroke={
                   isReachableDestination
@@ -920,14 +1081,16 @@ export default function GameBoard() {
             {(() => {
               const { x, y } = hexToPixel(
                 ui.previewTrack.coord.col,
-                ui.previewTrack.coord.row
+                ui.previewTrack.coord.row,
+                undefined, undefined, undefined, isFlat
               );
               const pathData = getTrackPath(
                 x,
                 y,
                 ui.previewTrack.edges[0],
                 ui.previewTrack.edges[1],
-                HEX_SIZE - 2
+                HEX_SIZE - 2,
+                isFlat
               );
               return (
                 <path
@@ -946,9 +1109,45 @@ export default function GameBoard() {
         )}
 
         {/* 이동 경로 - 트랙을 따라 곡선으로 표시 */}
+        {/* 트랙 위 물품 큐브 — 최상위 레이어 (마을/도시 등 다른 요소에 클릭이 가려지지 않도록) */}
+        {board.trackTiles.filter(t => t.cube).map((tile) => {
+          const { x, y } = hexToPixel(tile.coord.col, tile.coord.row, undefined, undefined, undefined, isFlat);
+          const isSelected = ui.selectedCube?.cityId === `track:${tile.id}`;
+          const clickable = currentPhase === 'moveGoods';
+          const handleClick = (e: React.MouseEvent) => {
+            if (!clickable) return;
+            e.stopPropagation();
+            selectCube(`track:${tile.id}`, 0);
+          };
+          return (
+            <g key={`track-cube-${tile.id}`} className={clickable ? 'cursor-pointer' : ''}>
+              <rect
+                x={x - 6}
+                y={y - 18}
+                width="12"
+                height="12"
+                fill={CUBE_COLORS[tile.cube!]}
+                stroke={isSelected ? '#ffffff' : 'rgba(0,0,0,0.4)'}
+                strokeWidth={isSelected ? 2.5 : 1}
+                rx="2"
+                className={clickable ? 'hover:opacity-80' : ''}
+                onClick={handleClick}
+              />
+              {/* 투명 히트 영역 (작은 큐브도 클릭하기 쉽게) */}
+              <circle
+                cx={x}
+                cy={y - 12}
+                r="16"
+                fill="transparent"
+                onClick={handleClick}
+              />
+            </g>
+          );
+        })}
+
         {ui.movePath.length > 1 && !ui.movingCube && (
           <path
-            d={getMovementPathSVG(ui.movePath, board, HEX_SIZE - 2)}
+            d={getMovementPathSVG(ui.movePath, board, HEX_SIZE - 2, isFlat)}
             fill="none"
             stroke="#d4a853"
             strokeWidth="4"
@@ -962,7 +1161,7 @@ export default function GameBoard() {
         {/* 이동 중인 큐브 애니메이션 - Framer Motion 사용 */}
         {ui.movingCube && (() => {
           // 경로의 모든 애니메이션 포인트 계산
-          const animPoints = getAnimationPoints(ui.movingCube.path, board, HEX_SIZE - 2, 5);
+          const animPoints = getAnimationPoints(ui.movingCube.path, board, HEX_SIZE - 2, 5, isFlat);
 
           // 모든 x, y 좌표 배열 생성
           const xPoints = animPoints.map(p => p.x - 9);
@@ -972,7 +1171,7 @@ export default function GameBoard() {
             <g>
               {/* 이동 경로 표시 - 트랙을 따라 점선으로 */}
               <path
-                d={getMovementPathSVG(ui.movingCube.path, board, HEX_SIZE - 2)}
+                d={getMovementPathSVG(ui.movingCube.path, board, HEX_SIZE - 2, isFlat)}
                 fill="none"
                 stroke={CUBE_COLORS[ui.movingCube.color]}
                 strokeWidth="4"
@@ -1005,7 +1204,24 @@ export default function GameBoard() {
           );
         })()}
         </g>
+        {/* 좌표 오버레이 — 모든 요소 위(최상위). 노란 글자+검정 외곽으로 마을(흰 원)·도시 위에서도 보임 */}
+        {showCoords && board.hexTiles.map(h => {
+          const { x, y } = hexToPixel(h.coord.col, h.coord.row, undefined, undefined, undefined, isFlat);
+          return (
+            <text
+              key={`coord-${h.coord.col}-${h.coord.row}`}
+              x={x} y={y + HEX_SIZE * 0.5 + 10}
+              fontSize="9" fontWeight="bold"
+              fill="#000000"
+              textAnchor="middle" dominantBaseline="middle"
+              style={{ pointerEvents: 'none' }}
+            >
+              {h.coord.col},{h.coord.row}
+            </text>
+          );
+        })}
       </svg>
+
 
       {/* 줌 컨트롤 (모바일/태블릿) */}
       {(isMobile || isTablet) && (
@@ -1048,14 +1264,14 @@ export default function GameBoard() {
         <div className="flex items-center gap-2">
           <div
             className="w-5 h-5 rounded"
-            style={{ backgroundColor: TUTORIAL_COLORS.terrain.plain }}
+            style={{ backgroundColor: terrainColors.plain }}
           />
           <span className="text-xs text-foreground-secondary">평지</span>
         </div>
         <div className="flex items-center gap-2">
           <div
             className="w-5 h-5 rounded"
-            style={{ backgroundColor: TUTORIAL_COLORS.terrain.lake }}
+            style={{ backgroundColor: terrainColors.lake }}
           />
           <span className="text-xs text-foreground-secondary">호수</span>
         </div>

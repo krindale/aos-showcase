@@ -22,6 +22,7 @@ import {
   analyzeDeliveryOpportunities,
   findOptimalPathAvoidingOpponent,
   getTerrainBuildCost,
+  findStopById,
 } from './analyzer';
 import { getMapAIConfig } from './mapConfig';
 import { hexCoordsEqual } from '@/utils/hexGrid';
@@ -143,8 +144,8 @@ function computeTurnPlan(state: GameState, playerId: PlayerId): TurnPlan {
   let routeLinks = 0;
 
   if (targetRoute) {
-    const sourceCity = board.cities.find(c => c.id === targetRoute.from);
-    const targetCity = board.cities.find(c => c.id === targetRoute.to);
+    const sourceCity = findStopById(board, targetRoute.from);
+    const targetCity = findStopById(board, targetRoute.to);
 
     if (sourceCity && targetCity) {
       const path = findOptimalPathAvoidingOpponent(
@@ -183,6 +184,17 @@ function computeTurnPlan(state: GameState, playerId: PlayerId): TurnPlan {
         (opp.targetCityId === targetRoute.to || opp.targetCityId === finalTo)
       );
       routeLinks = matchingOpp?.distance ?? 1;
+
+      // trackCubes 맵: 경로가 지나는 stop(도시/마을) 수를 엔진 목표로 — 마을 경유로 깊어진 체인의
+      // 먼 큐브를 배달하려면 엔진을 그 깊이로 키워야 한다(locomotive/엔진 업그레이드가 이 깊이를 노림).
+      if (config.incomeSources.includes('trackCubes') && fullPath) {
+        let stops = 0;
+        for (const c of fullPath) {
+          if (board.cities.some(ct => hexCoordsEqual(ct.coord, c))
+            || board.towns.some(t => hexCoordsEqual(t.coord, c) && t.newCityColor === null)) stops++;
+        }
+        routeLinks = Math.max(routeLinks, Math.min(stops, getMapAIConfig(state).engineMax));
+      }
     }
   }
 

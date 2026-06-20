@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { useGameStore } from '@/store/gameStore';
+import { useGameStore, getUndoLabel } from '@/store/gameStore';
 import { useShallow } from 'zustand/react/shallow';
 import {
   GamePhase,
@@ -22,8 +22,12 @@ import {
   Sparkles,
   ArrowRight,
   ChevronRight,
+  X,
+  Undo2,
 } from 'lucide-react';
 import AuctionPanel from './AuctionPanel';
+import TurnOrderOfferPanel from './TurnOrderOfferPanel';
+import { getMapProfile } from '@/maps/getMapProfile';
 import GoodsGrowthPanel from './GoodsGrowthPanel';
 
 const PHASE_ICONS: Record<GamePhase, React.ReactNode> = {
@@ -58,6 +62,8 @@ export default function PhasePanel() {
     activePlayers,
     phaseState,
     aiExecution,
+    turnOrderOffer,
+    mapId,
   } = useGameStore(
     useShallow((state) => ({
       currentPhase: state.currentPhase,
@@ -66,12 +72,40 @@ export default function PhasePanel() {
       activePlayers: state.activePlayers,
       phaseState: state.phaseState,
       aiExecution: state.aiExecution,
+      turnOrderOffer: state.turnOrderOffer,
+      mapId: state.mapId,
     }))
   );
 
   // AI 실행 중 여부 (버튼 비활성화에 사용)
   const isAIExecuting = aiExecution.pending;
-  const { nextPhase, selectAction, upgradeEngine } = useGameStore();
+  const { nextPhase, selectAction, upgradeEngine, cancelSelection, undoLastAction } = useGameStore();
+
+  // 커밋 전 선택이 있는지 (취소 버튼 표시용 — boolean 셀렉터라 값이 바뀔 때만 리렌더)
+  const hasActiveSelection = useGameStore(
+    (s) =>
+      s.ui.buildMode !== 'idle' ||
+      s.ui.selectedCube !== null ||
+      s.ui.complexTrackSelection !== null ||
+      s.ui.redirectTrackSelection !== null
+  );
+
+  // 실행 취소 가능한 확정 행동 수 (주식 발행/행동 선택/트랙 건설 — 단계 전환 전까지)
+  const undoCount = useGameStore((s) => s.undoCount);
+
+  // 실행 취소 버튼 (사람 차례에만, 취소할 행동이 있을 때만)
+  const undoButton =
+    undoCount > 0 && !players[currentPlayer]?.isAI ? (
+      <button
+        onClick={undoLastAction}
+        disabled={isAIExecuting}
+        className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-steam-red/10 text-steam-red border border-steam-red/30 hover:bg-steam-red/20 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        aria-label="실행 취소"
+      >
+        <Undo2 className="w-4 h-4" />
+        취소: {getUndoLabel() ?? '마지막 행동'}
+      </button>
+    ) : null;
 
   const phaseInfo = PHASE_INFO[currentPhase];
   const currentPlayerData = players[currentPlayer];
@@ -126,22 +160,25 @@ export default function PhasePanel() {
                 </div>
               </div>
             ) : (
-              <button
-                onClick={handleNextPhase}
-                disabled={isAIExecuting}
-                className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                aria-label="다음 단계로"
-              >
-                다음 단계로
-                <ChevronRight className="w-4 h-4" />
-              </button>
+              <>
+                {undoButton}
+                <button
+                  onClick={handleNextPhase}
+                  disabled={isAIExecuting}
+                  className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  aria-label="다음 단계로"
+                >
+                  다음 단계로
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </>
             )}
           </div>
         )}
 
-        {/* II. 플레이어 순서 - AuctionPanel 사용 */}
+        {/* II. 플레이어 순서 - 교대 선공권 맵(St. Lucia)은 제안 패널, 그 외 경매 */}
         {currentPhase === 'determinePlayerOrder' && (
-          <AuctionPanel />
+          turnOrderOffer ? <TurnOrderOfferPanel /> : <AuctionPanel />
         )}
 
         {/* III. 행동 선택 - 반응형 */}
@@ -180,17 +217,19 @@ export default function PhasePanel() {
                     const info = ACTION_INFO[action];
                     const taken = isActionTaken(action);
                     const isSelected = currentPlayerData.selectedAction === action;
+                    // 맵 룰로 금지된 행동 (St. Lucia: production, turnOrder)
+                    const mapDisabled = getMapProfile(mapId).disabledActions.includes(action);
 
                     return (
                       <button
                         key={action}
                         onClick={() => handleSelectAction(action)}
-                        disabled={taken || currentPlayerData.selectedAction !== null}
+                        disabled={taken || mapDisabled || currentPlayerData.selectedAction !== null}
                         className={`p-2 md:p-3 min-h-[44px] rounded-lg text-left transition-all ${
                           isSelected
                             ? 'bg-accent/20 border border-accent'
-                            : taken
-                            ? 'bg-background/30 opacity-50 cursor-not-allowed'
+                            : taken || mapDisabled
+                            ? 'bg-background/30 opacity-40 cursor-not-allowed'
                             : currentPlayerData.selectedAction !== null
                             ? 'bg-background/30 opacity-50 cursor-not-allowed'
                             : 'bg-background/50 hover:bg-background/70 border border-transparent'
@@ -198,12 +237,14 @@ export default function PhasePanel() {
                         aria-label={`${info.name} 선택`}
                       >
                         <div className="flex items-center justify-between">
-                          <span className="font-medium text-xs md:text-sm text-foreground">
+                          <span className={`font-medium text-xs md:text-sm ${mapDisabled ? 'line-through text-foreground-muted' : 'text-foreground'}`}>
                             {info.name}
                           </span>
-                          {taken && !isSelected && (
+                          {mapDisabled ? (
+                            <span className="text-[10px] md:text-xs text-steam-red">이 맵에서 사용 불가</span>
+                          ) : taken && !isSelected ? (
                             <span className="text-[10px] md:text-xs text-foreground-secondary">선택됨</span>
-                          )}
+                          ) : null}
                         </div>
                         <p className="text-[10px] md:text-xs text-foreground-secondary mt-0.5 md:mt-1">
                           {info.description}
@@ -213,17 +254,20 @@ export default function PhasePanel() {
                   })}
                 </div>
                 {currentPlayerData.selectedAction && (
-                  <button
-                    onClick={handleNextPhase}
-                    disabled={isAIExecuting}
-                    className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 mt-3 md:mt-4 disabled:opacity-50 disabled:cursor-not-allowed"
-                    aria-label="다음 단계로"
-                  >
-                    {players.player1.selectedAction && players.player2.selectedAction
-                      ? '트랙 건설 단계로'
-                      : `${currentPlayer === 'player1' ? players.player2.name : players.player1.name} 차례로`}
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
+                  <>
+                    <div className="mt-3 md:mt-4">{undoButton}</div>
+                    <button
+                      onClick={handleNextPhase}
+                      disabled={isAIExecuting}
+                      className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 mt-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      aria-label="다음 단계로"
+                    >
+                      {players.player1.selectedAction && players.player2.selectedAction
+                        ? '트랙 건설 단계로'
+                        : `${currentPlayer === 'player1' ? players.player2.name : players.player1.name} 차례로`}
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </>
                 )}
               </>
             )}
@@ -264,6 +308,17 @@ export default function PhasePanel() {
                 </p>
               )}
             </div>
+            {hasActiveSelection && !currentPlayerData.isAI && (
+              <button
+                onClick={cancelSelection}
+                className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-steam-red/10 text-steam-red border border-steam-red/30 hover:bg-steam-red/20 transition-colors flex items-center justify-center gap-2"
+                aria-label="선택 취소"
+              >
+                <X className="w-4 h-4" />
+                선택 취소
+              </button>
+            )}
+            {undoButton}
             <button
               onClick={handleNextPhase}
               disabled={isAIExecuting}
@@ -314,6 +369,16 @@ export default function PhasePanel() {
                 </p>
               )}
             </div>
+            {hasActiveSelection && !currentPlayerData.isAI && (
+              <button
+                onClick={cancelSelection}
+                className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-steam-red/10 text-steam-red border border-steam-red/30 hover:bg-steam-red/20 transition-colors flex items-center justify-center gap-2"
+                aria-label="선택 취소"
+              >
+                <X className="w-4 h-4" />
+                선택 취소
+              </button>
+            )}
             <button
               onClick={() => upgradeEngine()}
               disabled={isAIExecuting || currentPlayerData.engineLevel >= GAME_CONSTANTS.MAX_ENGINE || phaseState.playerMoves[currentPlayer]}

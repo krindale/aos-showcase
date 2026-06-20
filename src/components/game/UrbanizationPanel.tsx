@@ -60,6 +60,48 @@ export default function UrbanizationPanel() {
     );
   }
 
+  // 타일 선택 완료: 전체 화면 모달을 접고 보드 클릭을 막지 않는 플로팅 배너로 전환
+  // (모달을 띄운 채로는 마을 클릭이 모달 배경에 먹혀 도시화가 취소되는 문제)
+  if (ui.selectedNewCityTile) {
+    const selectedTile = newCityTiles.find(t => t.id === ui.selectedNewCityTile);
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: -16 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="fixed top-20 left-1/2 -translate-x-1/2 z-40 glass-card rounded-xl px-4 py-3 flex items-center gap-3 shadow-xl border border-accent/30"
+      >
+        {selectedTile && (
+          <div
+            className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+            style={{ backgroundColor: CITY_COLORS[selectedTile.color] }}
+          >
+            <span className="text-white font-bold">{selectedTile.id}</span>
+          </div>
+        )}
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-foreground">
+            {ui.selectedNewCityTile} 타일 선택됨
+          </div>
+          <div className="text-xs text-foreground-secondary">
+            파란 테두리의 마을을 클릭해 배치하세요
+          </div>
+        </div>
+        <button
+          onClick={() => useGameStore.getState().enterUrbanizationMode()}
+          className="text-xs px-2 py-1 rounded-lg text-foreground-secondary hover:bg-foreground/10 transition-colors shrink-0"
+        >
+          다시 선택
+        </button>
+        <button
+          onClick={exitUrbanizationMode}
+          className="p-1 rounded hover:bg-foreground/10 transition-colors shrink-0"
+        >
+          <X size={16} className="text-foreground-secondary" />
+        </button>
+      </motion.div>
+    );
+  }
+
   // 도시화 모드: 타일 선택 패널
   return (
     <AnimatePresence>

@@ -4,6 +4,7 @@ import GamePageClient from './GamePageClient';
 export function generateStaticParams() {
   return [
     { mapId: 'tutorial' },
+    { mapId: 'st-lucia' },
   ];
 }
 

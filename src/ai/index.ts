@@ -10,7 +10,7 @@
  * 기존 함수형 API는 호환성을 위해 유지됩니다.
  */
 
-import { GameState, PlayerId, SpecialAction } from '@/types/game';
+import { GameState, PlayerId, SpecialAction, HexCoord, NewCityTileId } from '@/types/game';
 
 // === 새로운 인스턴스 기반 시스템 ===
 // aiPlayerManager만 임포트 (클래스는 하단에서 재export)
@@ -18,7 +18,8 @@ import { aiPlayerManager } from './AIPlayerManager';
 
 // === 기존 전략 함수 (호환성 유지용) ===
 import { decideSharesIssue } from './strategies/issueShares';
-import { decideAuctionBid, AuctionDecision } from './strategies/auction';
+import { decideAuctionBid, decideTurnOrderOffer, AuctionDecision } from './strategies/auction';
+import { getMapProfile } from '@/maps/getMapProfile';
 import { decideAction } from './strategies/selectAction';
 import { decideBuildTrack, TrackBuildDecision } from './strategies/buildTrack';
 import { decideMoveGoods, MoveGoodsDecision } from './strategies/moveGoods';
@@ -35,6 +36,8 @@ import { DynamicStrategy } from './strategy/types';
 export type AIDecision =
   | { type: 'issueShares'; amount: number }
   | { type: 'auction'; decision: AuctionDecision }
+  | { type: 'turnOrderOffer'; accept: boolean } // 교대 선공권 응답 (alternateTurnOrder 맵)
+  | { type: 'placeNewCity'; townCoord: HexCoord; tileId: NewCityTileId } // 도시화 배치
   | { type: 'selectAction'; action: SpecialAction }
   | { type: 'buildTrack'; decision: TrackBuildDecision }
   | { type: 'moveGoods'; decision: MoveGoodsDecision }
@@ -116,6 +119,16 @@ export function getAIDecision(state: GameState, playerId: PlayerId): AIDecision 
     }
 
     case 'determinePlayerOrder': {
+      // 교대 선공권 맵 (St. Lucia): 경매 대신 선공권 수락/거절 결정
+      const profile = getMapProfile(state.mapId);
+      if (profile.alternateTurnOrder) {
+        if (state.turnOrderOffer && state.turnOrderOffer.offerPlayer === playerId) {
+          const accept = decideTurnOrderOffer(state, playerId, profile.firstSeatCost);
+          return { type: 'turnOrderOffer', accept };
+        }
+        return { type: 'skip' };
+      }
+
       const decision = decideAuctionBid(state, playerId);
       return { type: 'auction', decision };
     }

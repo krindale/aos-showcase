@@ -23,9 +23,9 @@ export const TUTORIAL_MAP = {
   players: { min: 2, max: 2 },
   supportedPlayers: [2],  // 튜토리얼은 2인 전용
   difficulty: 2,
-  cols: 7,
+  cols: 6,
   rows: 5,
-  startCol: 1,
+  startCol: 0,
 };
 
 // MapConfig 형식의 맵 설정 (게임 초기화용)
@@ -41,35 +41,35 @@ export const TUTORIAL_CITIES: City[] = [
   {
     id: 'P',
     name: 'Pittsburgh',
-    coord: { col: 1, row: 0 },
+    coord: { col: 0, row: 0 },
     color: 'red',
     cubes: [],
   },
   {
     id: 'C',
     name: 'Cleveland',
-    coord: { col: 5, row: 0 },
+    coord: { col: 4, row: 0 },
     color: 'blue',
     cubes: [],
   },
   {
     id: 'O',
     name: 'Columbus',
-    coord: { col: 3, row: 2 },
+    coord: { col: 2, row: 2 },
     color: 'yellow',
     cubes: [],
   },
   {
     id: 'W',
     name: 'Wheeling',
-    coord: { col: 5, row: 3 },
+    coord: { col: 4, row: 3 },
     color: 'black',
     cubes: [],
   },
   {
     id: 'I',
     name: 'Cincinnati',
-    coord: { col: 1, row: 4 },
+    coord: { col: 0, row: 4 },
     color: 'purple',
     cubes: [],
   },
@@ -109,10 +109,10 @@ export function getColumnCityInfo(columnId: GoodsColumnId): GoodsColumnMapping |
 
 // === 호수 타일 ===
 export const TUTORIAL_LAKE_TILES: { col: number; row: number }[] = [
-  { col: 6, row: 0 },
-  { col: 6, row: 1 },
-  { col: 6, row: 2 },
-  { col: 6, row: 3 },
+  { col: 5, row: 0 },
+  { col: 5, row: 1 },
+  { col: 5, row: 2 },
+  { col: 5, row: 3 },
 ];
 
 // === 헥스 타일 (지형 정보) ===
@@ -208,6 +208,7 @@ export function createInitialBoardState(): BoardState {
     cities,
     towns: TUTORIAL_TOWNS,
     trackTiles: [],
+    townSpurs: [],
     hexTiles: generateTutorialHexTiles(),
   };
 }

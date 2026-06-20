@@ -16,6 +16,37 @@ export {
 /**
  * 연결점으로 유효한 헥스인지 확인 (도시 또는 플레이어의 트랙)
  */
+/**
+ * 플레이어의 트랙이 마을에 진입해 있는지 확인
+ * (마을 헥스 위 타일 소유, 또는 인접 타일이 마을 쪽 변을 가짐)
+ * 룰북: 마을은 진입하는 모든 트랙을 연결 — 진입한 플레이어는 마을의
+ * 어느 방향으로든 새 트랙을 시작할 수 있는 허브가 된다.
+ */
+export function playerConnectsToTown(
+  townCoord: HexCoord,
+  board: BoardState,
+  playerId: PlayerId
+): boolean {
+  const isTown = board.towns.some(t => hexCoordsEqual(t.coord, townCoord) && t.newCityColor === null);
+  if (!isTown) return false;
+
+  // 내 가닥(스퍼)이 마을 안에 있으면 진입 완료 — 마을 원이 모든 가닥을 연결
+  return (board.townSpurs ?? []).some(
+    sp => hexCoordsEqual(sp.townCoord, townCoord) && sp.owner === playerId
+  );
+}
+
+/** 마을의 특정 변에 가닥(스퍼)이 있는지 (소유 무관 — 이동/링크용) */
+export function townSpurAt(
+  townCoord: HexCoord,
+  edge: number,
+  board: BoardState
+) {
+  return (board.townSpurs ?? []).find(
+    sp => hexCoordsEqual(sp.townCoord, townCoord) && sp.edge === edge
+  );
+}
+
 export function isValidConnectionPoint(
   coord: HexCoord,
   board: BoardState,
@@ -33,6 +64,9 @@ export function isValidConnectionPoint(
   );
   if (hasPlayerTrack) return true;
 
+  // 내 트랙이 진입해 있는 마을 - 마을은 진입 트랙을 모두 연결하는 허브
+  if (playerConnectsToTown(coord, board, currentPlayer)) return true;
+
   return false;
 }
 
@@ -46,7 +80,8 @@ export function validateFirstTrackRule(
   edges: [number, number],
   board: BoardState
 ): boolean {
-  // 타겟 헥스의 각 엣지에서 이웃 확인
+  // 타겟 헥스의 각 엣지에서 이웃 확인 — 첫 트랙은 도시에 인접해야 함
+  // (St. Lucia: 시작 도시 0개 → 1턴엔 도시화로 만든 도시 인접에만 건설 가능)
   for (const edge of edges) {
     const neighbor = getNeighborHex(targetCoord, edge);
     const isCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
@@ -72,6 +107,9 @@ export function validateTrackConnection(
     // 도시에 연결되는 경우
     const isCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
     if (isCity) return true;
+
+    // 내 트랙이 진입해 있는 마을에 연결되는 경우 (마을은 진입 트랙을 모두 연결)
+    if (playerConnectsToTown(neighbor, board, currentPlayer)) return true;
 
     // 플레이어의 기존 트랙에 연결되는 경우
     const oppositeEdge = getOppositeEdge(edge);

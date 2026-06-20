@@ -4,7 +4,7 @@
  * 정적 시나리오 대신 실제 화물 배치를 기반으로 최적 배달 경로를 동적으로 선택
  */
 
-import { GameState, PlayerId } from '@/types/game';
+import { GameState, PlayerId, CubeColor } from '@/types/game';
 import { DeliveryRoute, DeliveryOpportunity } from './types';
 import {
   analyzeDeliveryOpportunities,
@@ -12,11 +12,15 @@ import {
   breakRouteIntoSegments,
   getRouteProgress,
   isRouteComplete,
+  findOptimalPathAvoidingOpponent,
+  findStopById,
+  getMainNetworkStopIds,
 } from './analyzer';
-import { hexDistance } from '@/utils/hexGrid';
+import { hexDistance, hexCoordsEqual, getNeighborHex } from '@/utils/hexGrid';
 import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, clearCurrentRoutes } from './state';
-import { estimateRouteVP } from './vp';
+import { estimateRouteVP, deliveryDeltaVP } from './vp';
 import { getMapAIConfig } from './mapConfig';
+import { getMapProfile } from '@/maps/getMapProfile';
 import { debugLog } from '@/utils/debugConfig';
 
 /**
@@ -59,6 +63,18 @@ function scoreOpportunity(
  * 정적 시나리오 대신 현재 화물 배치를 분석하여 최적 배달 경로 반환
  */
 export function getNextTargetRoute(
+  state: GameState,
+  playerId: PlayerId
+): DeliveryRoute | null {
+  // 맵 프로파일에 위임 — 표준 맵(도시 큐브)과 헥스큐브 맵(St. Lucia)은
+  // selectTargetRoute override로 분기 (if(hexCubeSetup) 분기를 다형성으로 대체)
+  return getMapProfile(state.mapId).selectTargetRoute(state, playerId);
+}
+
+/**
+ * 표준 맵(도시 큐브 배달)의 경로 선택 — StandardMapProfile.selectTargetRoute가 호출
+ */
+export function selectStandardRoute(
   state: GameState,
   playerId: PlayerId
 ): DeliveryRoute | null {
@@ -403,6 +419,18 @@ export function getTopPriorityRoutes(
   playerId: PlayerId,
   count: number = 5
 ): DeliveryRoute[] {
+  // 맵 프로파일에 위임 (표준 vs 헥스큐브 다형성)
+  return getMapProfile(state.mapId).selectTopRoutes(state, playerId, count);
+}
+
+/**
+ * 표준 맵의 상위 우선순위 경로 후보 — StandardMapProfile.selectTopRoutes가 호출
+ */
+export function selectStandardTopRoutes(
+  state: GameState,
+  playerId: PlayerId,
+  count: number = 5
+): DeliveryRoute[] {
   const player = state.players[playerId];
   if (!player) return [];
 
@@ -433,4 +461,162 @@ export function getTopPriorityRoutes(
     .sort((a, b) => b.score - a.score)
     .slice(0, count)
     .map(s => s.route);
+}
+
+
+// ============================================================
+// 헥스 큐브 맵 (St. Lucia) 전용 경로 선택
+// ============================================================
+
+/**
+ * 헥스 큐브 맵의 건설 경로 선택
+ *
+ * 전략: stop(도시/마을) 쌍을 잇는 경로를 평가해 한 경로를 고른다.
+ *  맵 income 원천(헥스 큐브 수집 → 같은색 도시 배달)을 반영:
+ *   · 경로상 수집될 큐브 중 **같은색 도시로 배달 가능한 것**은 실제 배달 ΔVP(deliveryDeltaVP)로 평가 — 실현 income.
+ *   · 배달처(같은색 도시)가 아직 없는 큐브는 수집 유도 휴리스틱(×3)으로 — 도시화 전 네트워크/재료 확보.
+ *  (구현은 "배달 가능 큐브만 ΔVP로 업그레이드 + 나머지는 기존 수집 휴리스틱 보존" 하이브리드:
+ *   도시화 전 초반엔 큐브 수집·네트워크 구축을 그대로 유도해 자금난·파산을 피하고,
+ *   도시가 생기면 그 색 큐브 배달 경로를 ΔVP로 강하게 우선해 실제 수입을 만든다.)
+ */
+export function getHexCubeMapRoute(
+  state: GameState,
+  playerId: PlayerId
+): DeliveryRoute | null {
+  const { board } = state;
+  const player = state.players[playerId];
+  if (!player) return null;
+  const config = getMapAIConfig(state);
+
+  // stop 목록: 도시 + 도시화 안 된 마을
+  const stops: { id: string; coord: { col: number; row: number }; isCity: boolean }[] = [
+    ...board.cities.map(c => ({ id: c.id, coord: c.coord, isCity: true })),
+    ...board.towns.filter(t => !t.newCityColor).map(t => ({ id: t.id, coord: t.coord, isCity: false })),
+  ];
+  if (stops.length < 2) return null;
+
+  const connectedCities = getConnectedCities(state, playerId);
+  const myTracks = board.trackTiles.filter(t => t.owner === playerId || t.secondaryOwner === playerId);
+  const hasNetwork = myTracks.length > 0;
+  const oppTracks = board.trackTiles.filter(t =>
+    (t.owner !== null && t.owner !== playerId) || (t.secondaryOwner != null && t.secondaryOwner !== playerId));
+
+  // 상대가 "지금 노리는" 화물 회피 — 상대의 현재 목표 경로(A* 경로) 위 좌표 집합.
+  // 두 AI가 같은 큐브를 동시에 노리면 한쪽이 굶으므로, 상대 타겟 경로의 큐브는 경합으로 처리해 분담.
+  const oppPathKeys = new Set<string>();
+  for (const oppId of state.activePlayers) {
+    if (oppId === playerId) continue;
+    const oppRoute = getCurrentRoute(oppId);
+    if (!oppRoute) continue;
+    const f = findStopById(board, oppRoute.from);
+    const t = findStopById(board, oppRoute.to);
+    if (!f || !t) continue;
+    for (const c of findOptimalPathAvoidingOpponent(f.coord, t.coord, board, oppId)) {
+      oppPathKeys.add(`${c.col},${c.row}`);
+    }
+  }
+
+  // ★ 메인 라인(가장 큰 연결 컴포넌트)에서만 확장 — 도시별 토막 금지, 하나의 라인을 계속 이어 짓는다.
+  const networkStopIds = getMainNetworkStopIds(board, playerId) ?? new Set<string>(connectedCities);
+
+  // 후보 쌍: 거리 1~6
+  type Cand = { from: typeof stops[0]; to: typeof stops[0]; prelim: number };
+  const candidates: Cand[] = [];
+  for (const from of stops) {
+    // 네트워크가 있으면 from은 반드시 내 연결망 frontier여야 함 — 분산된 토막 건설 차단
+    if (hasNetwork && !networkStopIds.has(from.id)) continue;
+    for (const to of stops) {
+      if (from.id === to.id) continue;
+      const d = hexDistance(from.coord, to.coord);
+      if (d < 1 || d > 6) continue; // 깊은 체인 허용 (엔진 성장 전제)
+      // 이미 내 트랙으로 완성된 경로는 제외
+      if (isRouteComplete(state, { from: from.id, to: to.id, priority: 1 }, playerId)) continue;
+
+      // 깊은 확장 선호: 짧은 경로 페널티 대신, 먼 stop으로 뻗어 하나의 긴 철도를 만든다.
+      let prelim = d;                                     // 멀수록(깊을수록) 우선
+      if (to.isCity || from.isCity) prelim += 4;          // 배달 목적지 연결
+      if (networkStopIds.has(from.id)) prelim += 6;       // 내 연결망에서 확장 (강하게)
+      candidates.push({ from, to, prelim });
+    }
+  }
+  if (candidates.length === 0) return null;
+
+  // 사전 점수 상위 K개만 A*로 정밀 평가 (경로상 헥스 큐브 수)
+  candidates.sort((a, b) => b.prelim - a.prelim);
+  const K = 8;
+  let best: { route: DeliveryRoute; score: number } | null = null;
+
+  for (const cand of candidates.slice(0, K)) {
+    // preferTowns: 경로가 마을을 경유하도록 — 화물이 마을(링크 경계)을 여러 개 지나 4-5링크 배달
+    const path = findOptimalPathAvoidingOpponent(cand.from.coord, cand.to.coord, board, playerId, undefined, true);
+    if (path.length < 2) continue;
+
+    // 이 경로/내 연결망이 닿는 도시 색 = 수집 큐브를 배달할 수 있는 목적지 색 집합
+    const reachableColors = new Set<CubeColor>();
+    for (const s of [cand.from, cand.to]) {
+      if (s.isCity) { const c = board.cities.find(cc => cc.id === s.id); if (c) reachableColors.add(c.color); }
+    }
+    for (const cid of connectedCities) {
+      const c = board.cities.find(cc => cc.id === cid); if (c) reachableColors.add(c.color);
+    }
+
+    let deliverable = 0; // 같은색 도시로 배달 가능한 수집 큐브 (실현 income)
+    let potential = 0;   // 배달처 미정 수집 큐브 (수집 유도)
+    let unbuilt = 0;
+    let contested = 0;   // 상대 트랙에 가까운(경합) 큐브 — 뺏길 위험 → 분산 유도
+    let depthBonus = 0;  // 큐브 배달 깊이(매칭색 도시까지 거리) — 깊을수록 4-5링크 배달 → 강하게 우대
+    for (const coord of path) {
+      const hex = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
+      if (hex?.cube) {
+        if (reachableColors.has(hex.cube)) {
+          deliverable++;
+          // ★ 사용자 핵심: 매칭색 도시에서 "멀리 떨어진" 큐브를 노려야 4-5링크 배달이 나온다.
+          // 큐브→가장 가까운 매칭색 도시 거리(링크 근사, engineMax로 캡)를 깊이로 환산해 가산.
+          let minMatchCityDist = Infinity;
+          for (const c of board.cities) {
+            if (c.color === hex.cube) minMatchCityDist = Math.min(minMatchCityDist, hexDistance(coord, c.coord));
+          }
+          if (minMatchCityDist < Infinity) depthBonus += Math.min(minMatchCityDist, config.engineMax);
+        } else potential++;
+        // 경합 판정: 상대 트랙이 가깝거나(이미 지음), 상대의 현재 목표 경로 위에 있으면(지금 노림)
+        // → 뺏길 위험 → 분산 유도. 같은 큐브 두고 싸우다 한쪽이 굶는 것을 방지.
+        const onOppPath = oppPathKeys.has(`${coord.col},${coord.row}`);
+        if (onOppPath || oppTracks.some(t => hexDistance(t.coord, coord) <= 2)) contested++;
+      }
+      const hasTrack = board.trackTiles.some(t => hexCoordsEqual(t.coord, coord));
+      const isCityHex = board.cities.some(c => hexCoordsEqual(c.coord, coord));
+      if (!hasTrack && !isCityHex) unbuilt++;
+    }
+    if (unbuilt === 0) continue; // 지을 게 없음
+
+    // 배달 가능 큐브 1개당 실제 배달 ΔVP (수집→같은색 도시). cubes×3의 '3'을 실제 income 가치로 대체.
+    const links = Math.max(1, Math.min(hexDistance(cand.from.coord, cand.to.coord), config.engineMax));
+    const perDeliveryVP = Math.max(0, deliveryDeltaVP(state, playerId, links, 0));
+
+    // 수익(income) 최우선: 실제 같은색 도시로 배달 가능한 큐브를 강하게 우대.
+    // 배달처가 없는 큐브(potential) 수집은 income으로 실현 안 되므로 약하게만(수집 유도 정도).
+    // 목적지가 도시(배달처)면 큰 보너스 — 그래야 수집 큐브가 실제 income이 된다.
+    const endsAtCity = cand.to.isCity || cand.from.isCity;
+    const routeDist = hexDistance(cand.from.coord, cand.to.coord);
+    const score =
+      deliverable * perDeliveryVP * 2                        // 실현 income 최우선 (가중 ↑)
+      + depthBonus * 3.5                                     // ★ 깊은 큐브(매칭색 도시에서 먼) 우선 = 4-5링크 배달 (강화)
+      + routeDist * 2                                        // 라인 연장 — 멀리 뻗어 체인을 길게(4-5링크 깊이)
+      + potential * 0.75                                     // 배달처 미정 큐브 = 약한 수집 유도
+      + (endsAtCity ? 6 : 0)                                 // 배달 목적지(도시) 연결 = income 실현 전제
+      + (deliverable > 0 && endsAtCity ? 4 : 0)              // 수집+배달처 동시 = 완결 배달 경로 보너스
+      + (networkStopIds.has(cand.from.id) ? 8 : 0)           // 내 연결망에서 확장 (하나의 철도)
+      - contested * 2                                        // 상대와 경합하는 큐브 회피 → 비경합 큐브로 분산
+      - unbuilt * 0.25;                                      // 건설 부담은 가볍게
+
+    if (!best || score > best.score) {
+      best = { route: { from: cand.from.id, to: cand.to.id, priority: 1 }, score };
+    }
+  }
+
+  if (best) {
+    debugLog.trackBuilding(`[AI 경로/헥스큐브] ${player.name}: ${best.route.from}→${best.route.to} (점수 ${best.score})`);
+    return best.route;
+  }
+  return null;
 }

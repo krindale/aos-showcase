@@ -7,6 +7,32 @@ import { useGameStore, TUTORIAL_GAME_CONFIG } from '@/store/gameStore';
 
 // 개발 모드에서 AI 디버거 활성화
 import '@/ai/debug';
+
+// [개발 전용] 브라우저 콘솔/게임 로그를 로컬 수신 서버(:3999)로 미러링 — 디버깅용
+if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
+  const w = window as unknown as { __logMirrorInstalled?: boolean };
+  if (!w.__logMirrorInstalled) {
+    w.__logMirrorInstalled = true;
+    const send = (level: string, args: unknown[]) => {
+      try {
+        const msg = args.map(a => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
+        fetch('http://localhost:3999/', {
+          method: 'POST',
+          body: JSON.stringify({ level, msg }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch { /* noop */ }
+    };
+    (['log', 'warn', 'error'] as const).forEach(level => {
+      const orig = console[level].bind(console);
+      console[level] = (...args: unknown[]) => {
+        orig(...args);
+        send(level, args);
+      };
+    });
+    send('log', ['=== 콘솔 미러 연결됨 ===']);
+  }
+}
 import GameBoard from '@/components/game/GameBoard';
 import PlayerPanel from '@/components/game/PlayerPanel';
 import PhasePanel from '@/components/game/PhasePanel';
@@ -27,7 +53,7 @@ import {
   TURNS_BY_PLAYER_COUNT,
   ACTION_INFO,
 } from '@/types/game';
-import { TUTORIAL_MAP } from '@/utils/tutorialMap';
+import { getMapData } from '@/utils/mapRegistry';
 
 interface GamePageClientProps {
   mapId: string;
@@ -49,8 +75,8 @@ const COLOR_NAMES: Record<string, string> = {
 export default function GamePageClient({ mapId }: GamePageClientProps) {
   const router = useRouter();
 
-  // 맵 설정 (현재는 Tutorial만 지원)
-  const mapConfig = TUTORIAL_MAP;
+  // 맵 설정 (mapRegistry에서 맵별 주입)
+  const mapConfig = getMapData(mapId);
   const supportedPlayers = mapConfig.supportedPlayers;
 
   const [showSetup, setShowSetup] = useState(true);
@@ -58,9 +84,9 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   const [playerNames, setPlayerNames] = useState<string[]>(DEFAULT_NAMES);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
   const [isLandscape, setIsLandscape] = useState(false);
-  // 튜토리얼 맵에서 플레이어 2는 기본적으로 AI
+  // 플레이어 2는 기본적으로 AI (모든 맵)
   const [aiPlayerIndexes, setAiPlayerIndexes] = useState<Set<number>>(
-    mapId === 'tutorial' ? new Set([1]) : new Set()
+    new Set([1])
   );
   const [showAIDebug, setShowAIDebug] = useState(false);
 
@@ -525,7 +551,8 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
               ${isLandscape ? 'space-y-2' : 'space-y-4'}
             `}>
               <GameBoard />
-              {!isLandscape && <GoodsDisplayPanel />}
+              {/* 물품 성장이 없는 맵(St. Lucia)은 물품 디스플레이가 무의미 → 숨김 */}
+              {!isLandscape && !mapConfig.rules.skipGoodsGrowth && <GoodsDisplayPanel />}
             </div>
 
             {/* 오른쪽: 패널들 (Desktop: always visible, Tablet: collapsible, Mobile: hidden) */}
@@ -536,7 +563,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: 20 }}
                   transition={{ duration: 0.3 }}
-                  className="hidden md:block md:col-span-4 lg:col-span-4 space-y-4"
+                  className="hidden md:block md:col-span-4 lg:col-span-4 space-y-4 md:sticky md:top-20 md:self-start md:max-h-[calc(100vh-6rem)] md:overflow-y-auto md:pr-1"
                 >
                   {renderPanelContent()}
                 </motion.div>

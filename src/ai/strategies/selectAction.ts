@@ -26,16 +26,19 @@ import {
   FUTURE_DELIVERY_DISCOUNT,
   cashToVPRate,
 } from '../strategy/vp';
-import { findReachableDestinations, hexCoordsEqual, getNeighborHex } from '@/utils/hexGrid';
+import { findReachableDestinations, hexCoordsEqual, getNeighborHex, findTrackCubeDeliveries } from '@/utils/hexGrid';
 import { debugLog } from '@/utils/debugConfig';
+import { getMapProfile } from '@/maps/getMapProfile';
 
 /**
- * 사용 가능한 행동 목록 반환
+ * 사용 가능한 행동 목록 반환 (맵 룰에서 금지된 행동 제외 — 예: St. Lucia의 production)
  */
 function getAvailableActions(state: GameState): SpecialAction[] {
   const selectedActions = Object.values(state.players)
     .map(p => p.selectedAction)
     .filter((a): a is SpecialAction => a !== null);
+
+  const disabled = getMapProfile(state.mapId).disabledActions;
 
   const allActions: SpecialAction[] = [
     'firstMove',
@@ -47,7 +50,7 @@ function getAvailableActions(state: GameState): SpecialAction[] {
     'turnOrder',
   ];
 
-  return allActions.filter(a => !selectedActions.includes(a));
+  return allActions.filter(a => !selectedActions.includes(a) && !disabled.includes(a));
 }
 
 /** 동점 시 선호 순서 (앞이 우선) */
@@ -105,16 +108,77 @@ function evaluateActionDeltaVP(
   action: SpecialAction,
   plan: TurnPlan,
 ): number {
+  // 도시가 하나도 없으면(St. Lucia 1턴, 도시화 전) 첫 트랙은 도시 인접만 허용되므로 건설 자체가 불가능하고,
+  // 완성 링크가 없어 배달도 불가능하다. 건설/이동 행동(firstBuild·firstMove·engineer)은 무의미 → ΔVP 0.
+  // (urbanization=도시 생성, locomotive=미래 엔진 자산만 의미 있음)
+  if (
+    state.board.cities.length === 0 &&
+    (action === 'firstBuild' || action === 'firstMove' || action === 'engineer')
+  ) {
+    return 0;
+  }
+
   switch (action) {
     case 'engineer': return evaluateEngineer(state, playerId, plan);
     case 'locomotive': return evaluateLocomotive(state, playerId, plan);
     case 'firstMove': return evaluateFirstMove(state, playerId);
     case 'firstBuild': return evaluateFirstBuild(state, playerId, plan);
     case 'production': return evaluateProduction(state);
-    case 'urbanization': return state.board.towns.length > 0 ? 0.2 : 0;
+    case 'urbanization': {
+      const towns = state.board.towns.filter(t => !t.newCityColor);
+      if (towns.length === 0) return 0;
+      // 배달 목적지(도시)가 없는 맵(St. Lucia 초기): 도시화는 income의 전제 조건 → 최우선
+      if (state.board.cities.length === 0) return 10;
+      // 도시가 1개뿐이면 두 번째 목적지의 가치도 큼
+      if (state.board.cities.length === 1) return 3;
+      // 트랙큐브 맵(St. Lucia): 도시 = 배달 목적지. 도시가 많을수록 픽업 큐브가 배달 가능해져
+      // income으로 전환된다. 도시화는 income 전제 조건이므로, 매칭 안 된 큐브가 많으면 가치↑.
+      // (배달 목적지 부족이 건설→배달 전환율의 핵심 병목)
+      if (getMapAIConfig(state).incomeSources.includes('trackCubes')) {
+        return evaluateUrbanizationForTrackCubes(state);
+      }
+      return 0.2;
+    }
     case 'turnOrder': return 0.1;
     default: return 0;
   }
+}
+
+/**
+ * 트랙큐브 맵(St. Lucia)에서 도시화의 가치 — 배달 목적지(매칭 색 도시) 확충.
+ * 아직 도시가 없는 색의 큐브(보드 위 헥스/트랙)가 많을수록, 그 색 도시를 만들면
+ * 그 큐브들이 배달 가능해져 income으로 전환된다. (건설→배달 전환율의 핵심 병목 해소)
+ */
+function evaluateUrbanizationForTrackCubes(state: GameState): number {
+  const { board } = state;
+  const availableTiles = state.newCityTiles.filter(t => !t.used);
+  if (availableTiles.length === 0) return 0.2;
+  const existingColors = new Set(board.cities.map(c => c.color));
+
+  // 도시 없는 색별 큐브 수 (헥스 + 트랙)
+  const cubesByColor = new Map<string, number>();
+  const bump = (c: string | null | undefined) => { if (c) cubesByColor.set(c, (cubesByColor.get(c) ?? 0) + 1); };
+  board.hexTiles.forEach(h => bump(h.cube));
+  board.trackTiles.forEach(t => bump(t.cube));
+
+  // 만들 수 있는(타일 보유) 색 중, 아직 도시 없고 큐브가 가장 많은 색
+  // (더 많은 도시 = 더 많은 배달 목적지 = 더 많은 income 기회 — 공격적 도시화가 유리)
+  let bestUnlock = 0;
+  for (const tile of availableTiles) {
+    if (existingColors.has(tile.color)) continue;
+    bestUnlock = Math.max(bestUnlock, cubesByColor.get(tile.color) ?? 0);
+  }
+  if (bestUnlock === 0) return 0.2; // 새로 열 색 없음 — 도시화 무의미
+
+  // 해금되는 잠재 배달 1건당 대략 income 1 ΔVP 수준 — 보수적으로 일부만 실현 가정.
+  const base = Math.min(8, bestUnlock * 1.5);
+
+  // ★ 도시 수에 따른 체감 (사용자 분석: AI가 매 턴 도시화 남발 → 갓 만든 도시에 1링크 배달만 →
+  // 깊은 배달 불가). 도시가 늘수록 추가 도시화 가치를 깎아, 라인 확장·깊은 배달을 우선하게 한다.
+  // 도시 1개→×1, 2개→×0.6, 3개→×0.4, 4개+→×0.3. (도시화는 income 전제라 0으로는 안 만듦)
+  const cityCount = board.cities.length;
+  const decay = cityCount <= 1 ? 1 : Math.max(0.3, 1 - (cityCount - 1) * 0.3);
+  return base * decay;
 }
 
 /**
@@ -177,25 +241,65 @@ function evaluateEngineer(state: GameState, playerId: PlayerId, plan: TurnPlan):
  */
 function evaluateLocomotive(state: GameState, playerId: PlayerId, plan: TurnPlan): number {
   const player = state.players[playerId];
-  if (!player || !plan.targetRoute) return 0;
+  if (!player) return 0;
 
   const config = getMapAIConfig(state);
-  if (plan.routeLinks <= player.engineLevel) return 0; // 현재 엔진으로 충분
+
+  // 도시가 0개라 이번 턴 건설 자체가 불가능할 때(St. Lucia 1턴, 도시화 빼앗김) —
+  // 건설 행동은 모두 0이므로, 엔진 업그레이드를 다음 턴 이후 배달을 위한 영구 자산으로 평가한다.
+  if (state.board.cities.length === 0) {
+    const turnsLeft = config.totalTurns - state.currentTurn;
+    return player.engineLevel < 6 && turnsLeft > 0 ? 0.5 : 0;
+  }
+
+  // ★ trackCubes 엔진 스케줄 (사용자: "엔진업 중 1개 이상 Locomotive로", "T6엔 최소 4"): 엔진을 공짜
+  // 액션으로 미리 올려둔다. move-round를 희생하는 moveGoods front-load보다 우선 — income 손실 없이 엔진 확보.
+  // 현재 경로가 엔진을 더 요구하지 않아도(아래 routeLinks 충분 분기) 미래 깊은 배달의 영구 자산으로 평가.
+  // 스케줄 floor: T1→2, T2~5→3, T6+→4 (T4 이후 move-round 금지이므로 4는 Locomotive로만 달성).
+  // 후반 엔진 4는 깊은 체인(≈5 지원)을 실제로 쓰게 해 income↑·VP↑ (측정: VP −11.7→−8.7).
+  // ★ 단 엔진 4 floor는 "내 네트워크에 4링크+ 배달 가능한 깊은 큐브가 있을 때만" 적용 — 체인이 얕게
+  //   끝난 게임엔 엔진 4가 순수 비용($1/턴)이라 파산을 유발하므로(파산 11→12 원인), 그땐 floor 3 유지.
+  let hasDeepCube = false;
+  if (state.currentTurn >= 6 && config.incomeSources.includes('trackCubes')) {
+    for (const track of state.board.trackTiles) {
+      if (!track.cube || (track.owner !== playerId && track.secondaryOwner !== playerId)) continue;
+      if (findTrackCubeDeliveries(state.board, track.id, Infinity, playerId).some(d => d.linkCount >= 4)) {
+        hasDeepCube = true; break;
+      }
+    }
+  }
+  const engineFloor = hasDeepCube ? 4 : state.currentTurn >= 2 ? 3 : 2;
+  const frontLoadTarget = Math.min(config.engineMax, engineFloor);
+  let locoFrontLoad = 0;
+  if (config.incomeSources.includes('trackCubes')
+    && player.engineLevel < frontLoadTarget
+    && config.totalTurns - state.currentTurn > 0) {
+    // 뒤처짐 정도 + 마감(T6 floor 4) 임박 시 강하게 — urbanization(≤8)을 확실히 이겨 floor 보장.
+    const behind = frontLoadTarget - player.engineLevel;
+    locoFrontLoad = (state.currentTurn >= 6 ? 12 : 4) + behind * 2;
+  }
+
+  if (plan.routeLinks <= player.engineLevel) return locoFrontLoad; // 현재 엔진 충분 → front-load만
 
   // 실현 시점: 이번 턴 완성 가능하면 같은 턴 배달, 아니면 미래
   const turnsAfterThis = Math.max(0, config.totalTurns - state.currentTurn);
   const completableThisTurn = plan.tracksNeeded <= config.buildsPerTurn;
-  if (!completableThisTurn && turnsAfterThis === 0) return 0; // 마지막 턴 + 미래 실현 = 무가치
-  // 경로 자체가 남은 턴 안에 완성 불가능하면 업그레이드도 무의미
+  if (!completableThisTurn && turnsAfterThis === 0) return locoFrontLoad; // 마지막 턴 + 미래 실현
+  // 경로 자체가 남은 턴 안에 완성 불가능하면 업그레이드도 무의미 (단 front-load 자산은 유지)
   const completable = plan.tracksNeeded <= (1 + turnsAfterThis) * config.buildsPerTurn;
-  if (!completable) return 0;
+  if (!completable) return locoFrontLoad;
 
   const prob = completableThisTurn ? SAME_TURN_DELIVERY_DISCOUNT : FUTURE_DELIVERY_DISCOUNT;
   const unlockedVP = deliveryDeltaVP(state, playerId, plan.routeLinks, 0);
-  // 생존 시나리오에 이번 턴 건설 예산을 반영 (건설 후 현금으로 비용을 감당해야 함)
+  // 생존 시나리오에 이번 턴 건설 예산을 반영 (건설 후 현금으로 비용을 감당해야 함).
+  // (relaxSurvival은 측정상 엔진이 안 오르고 파산만↑라 미사용 — 병목은 생존체크가 아니라 routeLinks 깊이)
   const value = engineUpgradeDeltaVP(state, playerId, unlockedVP, prob, plan.buildBudget);
 
-  return value === -Infinity ? 0 : Math.max(0, value);
+  // ★ trackCubes: T4 이후 엔진은 오직 Locomotive로만 올릴 수 있으므로(move-round 금지),
+  // 깊은 경로가 엔진을 요구할 때(routeLinks>engine) Locomotive가 건설/도시화에 밀리지 않도록 강화 —
+  // "필요에 따라 기관사로 엔진을 4-5까지" (깊은 배달 실현 = income↑ = 주식 스파이럴 탈출).
+  const boosted = config.incomeSources.includes('trackCubes') && value > 0 ? value * 3 : value;
+  return value === -Infinity ? locoFrontLoad : Math.max(0, boosted, locoFrontLoad);
 }
 
 /**

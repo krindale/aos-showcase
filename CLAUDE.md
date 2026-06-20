@@ -411,11 +411,87 @@ setAllDebug(true);                   // 모든 로그 on/off
 
 - `tryDirectPathBuild` (buildTrack.ts): A* 최적 경로(상대 트랙 회피, 자사 트랙 0.1 우대)를 따라
   frontier(출발지에서 연속된 자사 트랙 끝) 다음 칸에 정확한 엣지로 건설
+- **첫 트랙 방향(2026-06-18)**: 자사 트랙이 없을 때 경로가 `마을→도시` 방향이면 source/target을
+  교환해 **도시 끝에서부터** 건설한다. 첫 트랙은 도시 인접만 허용되므로(정규 룰), 마을 쪽부터
+  깔면 `validateFirstTrackRule` 실패로 skip된다 (St. Lucia 1턴 도시화 후 건설 안 되던 버그)
 - 엣지 비호환/실패 좌표는 avoidCoords에 넣어 최대 3회 재탐색
 - 상대 단순 트랙 위 복합 트랙(교차/공존) 건설 처리 포함
 - 점수 기반 후보 평가 시스템(evaluateTrackForRoute 매직넘버 체계)은 2026-06 재설계에서 제거됨
   — evaluateTrackForRoute는 AI 디버그 모달 표시 용도로만 잔존 (analyzer.ts)
 - 참고: docs/ai-strategy.md는 재설계 이전 문서로 일부 구식 (점수 체계 부분)
+
+#### St. Lucia 맵 구현 (2026-06-12, feature/st-lucia-map)
+
+공식 맵 PDF(`maps/aos-st_lucia.pdf`) 픽셀 측정으로 재구성한 2인 전용 8턴 맵.
+
+- **맵 데이터** (`src/utils/stLuciaMap.ts`): 도시 0(도시화로만 생성), 마을 11, 산 10, 강 9.
+  원본은 flat-top 보드 — 데이터는 전치 좌표로 저장(인접 동형, 게임 로직 무변경),
+  렌더만 `orientation: 'flat'`으로 기하 함수들이 전치 (`hexToPixel` 등의 `flat` 파라미터)
+- **맵 룰 분리** (`src/utils/mapRegistry.ts`의 MapRuleConfig): `skipGoodsGrowth`,
+  `alternateTurnOrder`(경매 대신 교대 선공권 $5), `firstSeatCost`, `disabledActions`
+  (production/turnOrder), `hexCubeSetup`(헥스 위 큐브 38개, 마을 제외),
+  `forceFirstTurnUrbanization`(AI가 1턴에 무조건 도시화 — 아래 첫 트랙 규칙의 전제).
+  **게임 엔진에 mapId 분기 금지** — 플래그만
+- **첫 트랙은 도시 인접만** (정규 룰, BGG 디자이너 Ted Alspach 공식 답변): St. Lucia는
+  시작 도시 0개라 **1턴엔 Urbanization을 선택해 도시를 만든 플레이어만 (그 도시 인접) 건설** 가능.
+  도시화 못한 플레이어는 1턴 건설 불가(룰상 정상, 의도된 불이익). 2턴부터 도시 존재 → 정상.
+  → AI는 `forceFirstTurnUrbanization && currentTurn===1`이면 `selectAction`에서 도시화 강제.
+  (구 `townsAnchorFirstTrack`/`allowTownAnchor` 마을 앵커 허용은 룰 위반이라 **제거됨**)
+- **트랙 큐브 배달**: 트랙 위 큐브를 미완성 링크여도 같은 색 도시로 배달 (`findTrackCubeDeliveries`).
+  수입은 시작 구간(미완성이어도) 소유자 +1 **그리고** 이후 경유하는 완성 링크마다 일반 규칙대로
+  소유자 +1 (예: 구간→마을→도시 = +2). UI는 `selectCube('track:<id>')` 컨벤션
+- 튜토리얼(경매/물품성장 O)과 St. Lucia(선공권/헥스큐브 O) **양쪽 헤드리스 완주 검증 필수**
+
+#### 마을 가닥(스퍼) 모델 (2026-06-12 재설계, 모든 맵 공통)
+
+마을 = 헥스 안의 원. **마을 헥스에는 트랙 타일을 배치할 수 없다** (도시처럼).
+노선이 마을에 연결되려면 **원→변 가닥(TownSpur)** 이 있어야 하며, 가닥은 실제 건설물이다.
+
+- `TownSpur { townCoord, edge, owner }` — `board.townSpurs`
+- **카운트 규칙 (2026-06-18 확정)**: 일반 헥스 타일 1개 = +1카운트. **가닥은 타일 건설 시
+  자동 생성되지 않는다** — 타일은 항상 1카운트만 소모하므로 수익을 위해 한 턴에 타일을 온전히
+  3개(Engineer 4개) 깔 수 있다. 마을에 닿는 타일은 미연결 상태로 둔다.
+- **마을 가닥은 마을 클릭(`buildTownSpur`)으로만 별도 건설** — 그 마을의 빠진 가닥 전부를 한 번에 연결.
+  **카운트 = 이번 턴에 그 마을 타일을 처음 변경하면 1**(가닥 개수 무관 — `builtTurn === currentTurn`),
+  지난 턴 가닥은 무관, 같은 턴에 그 마을을 또 연결하면 0카운트. 비용 가닥당 $1. 같은 턴 잔여나 다음 턴에.
+  UI는 완성 가능한 마을에 주황 점선 테두리. (예: 신도시→마을 트랙을 타일 3개로 깔고, 마을 연결은 다음 턴)
+- **AI는 타일 우선** (`decideBuildTrack`): 타일 건설을 먼저 시도하고, 더 못 깔 때만 미연결 마을을
+  `buildSpur`로 연결. → 신도시에서 타일을 최대한 짓고 마을 연결은 후순위.
+- **도시화(`placeNewCity`)는 건설 카운트와 무관** — 마을→도시 전환 시 그 마을 가닥만 제거, `builtTracksThisTurn` 불변.
+- 연결된 노선 수 = 마을 안 가닥 수 (화면 토막 수). 가닥이 2개여도 마을 진입 카운트는 1.
+- 이동/배달/완성 링크 판정 모두 **가닥이 있는 변으로만** 마을 통과/도달 인정
+- 내 가닥이 있는 마을 = 내 네트워크 → 6방향 어디로든 새 노선 시작 가능
+- 도시화 시 해당 마을의 가닥 제거 (도시는 모든 변 연결)
+- **도시화된 마을(`town.newCityColor !== null`)은 모든 마을 판정에서 제외** — towns 배열에
+  남아 있으므로 `t.newCityColor === null` 조건 필수 (빠뜨리면 도시 연결에 가닥을 요구하는 버그)
+- 핵심 테스트: `src/store/__tests__/townHubModel.test.ts` (15 케이스 — 가닥 카운트/첫 트랙 도시 앵커),
+  `buildLimitByLog.test.ts` (게임 로그 기반 턴당 건설 제한 검증 — St. Lucia 1턴 도시화 선점자만 건설)
+
+#### 건설 제한 시스템
+
+- 턴당 3개(Engineer 4개) — `builtTracksThisTurn`/`maxTracksThisTurn`
+- 모든 건설 경로(buildTrack/buildComplexTrack/redirectTrack/buildTownSpur)가 카운트 검사,
+  buildTrack에는 canBuildTrack과 별개의 최종 하드 가드 (`[제한 위반 차단]` 콘솔 박제)
+- 카운트 검사는 **타일 1개 기준** — 마을 가닥은 잔여 카운트만큼만 함께 건설 (마을 가닥 모델 참조)
+- 게임 로그에 `[N/max]` 카운트 병기, 이번 턴 건설 트랙에 흰 점선 링 표시
+- 디버깅: dev 모드에서 브라우저 콘솔 로그를 localhost:3999로 미러링하는 코드가
+  GamePageClient에 있음 (수신 서버는 별도 실행 필요 — 없어도 무해, fetch 실패 무시)
+
+#### 실행 취소 / 선택 취소 (2026-06-13)
+
+사람 플레이어의 행동을 **다음 단계로 넘어가기 전까지** 되돌리는 두 층위의 취소:
+
+- **선택 취소** (`cancelSelection`): 커밋 전 UI 선택만 초기화 — 건설 출발지/방향,
+  큐브 선택, 복합/방향전환 패널, 도시화 모드. 진행 중 큐브 애니메이션(`movingCube`)은 보존
+- **실행 취소** (`undoLastAction` + `undoCount`): 확정 행동의 스냅샷 복원.
+  대상: 주식 발행, 행동 선택(locomotive 즉시 엔진업 포함 복원), buildTrack/복합/방향전환/
+  마을 가닥/도시화. 스냅샷(`board`/`players`/`phaseState`/`newCityTiles`/`logs`)은
+  gameStore 모듈 레벨 스택에 보관(비영속), **`nextPhase`마다 초기화** = 단계/차례 전환 시 확정
+- `captureUndo`는 AI 차례면 저장 안 함 (사람 전용). 취소 내역은 게임 로그에 `↩ 취소: ...`
+- 새 커밋 액션을 추가하면 검증 통과 직후 `captureUndo(state, label)` + set에
+  `undoCount: undoSnapshots.length` 포함할 것
+- UI: PhasePanel에 단계별 버튼 (`getUndoLabel()`로 취소 대상 표시)
+- 테스트: `townHubModel.test.ts`의 실행 취소 케이스 3건
 
 #### 알려진 이슈 (미해결)
 
@@ -508,6 +584,9 @@ export default function ComponentName() {
 
 ## 향후 개선 사항
 
+- [ ] **Rust Belt 맵 3-6인 플레이어블** (다음 큰 작업) — 공식 맵 PDF 픽셀 측정으로 데이터 추출,
+  다인 경매/순서/물품성장 헤드리스 검증, AI 다인 밸런스(VP 베이스라인 신규 측정).
+  맵 레지스트리/가닥 모델/AI N인 정규화 인프라는 준비됨
 - [ ] Three.js로 3D 게임보드 구현
 - [ ] GSAP ScrollTrigger 고급 애니메이션 (라이브러리는 설치됨, 미적용)
 - [ ] i18n 다국어 지원

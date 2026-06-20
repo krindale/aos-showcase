@@ -101,6 +101,58 @@ export const debugLog = {
 // 설정 가져오기
 export const getDebugConfig = () => debugConfig;
 
+// ──────────────────────────────────────────────────────────────────────────
+// 종합 액션 로깅 (게임별 세션ID + 구조화 JSON + 레벨)
+// ──────────────────────────────────────────────────────────────────────────
+// 모든 게임 액션을 한 곳(logAction)에서 일관되게 기록한다.
+// ★ 액션 로깅은 디버그 토글과 무관하게 항상 출력된다 (사용자의 모든 액션을 빠짐없이 추적하는 게 목적).
+//   category는 끄는 스위치가 아니라 :3999에서 필터링할 분류 라벨("c":...)일 뿐이다.
+// 출력: `[game:<sessionId>] {"t":"buildTrack","c":"trackBuilding","player":"player1",...}` (한 줄 JSON)
+// GamePageClient의 콘솔 미러가 이 줄을 :3999로 전송 → 로그만으로 게임 진행 추적/오류 확인.
+// 여러 게임이 섞여도 sessionId prefix로 구분된다.
+
+// 액션 → 카테고리 라벨 매핑 (출력 여부와 무관 — :3999 grep `"c":"preparation"` 등으로 필터용)
+//   preparation : issueShare, placeBid, passBid, skipBid, selectAction
+//   trackBuilding: buildTrack, buildComplexTrack, redirectTrack, buildTownSpur, placeNewCity
+//   goodsMovement: selectCube, moveTrackCube, completeCubeMove, upgradeEngine
+//   turnEnd      : nextPhase
+export type LogCategory = keyof Pick<
+    DebugConfig,
+    'preparation' | 'trackBuilding' | 'goodsMovement' | 'turnEnd'
+>;
+
+let logSessionId = '';
+
+/** 게임 시작/리셋 시 새 세션ID 부여 (여러 게임 구분용). */
+export const setLogSession = (id: string) => { logSessionId = id; };
+export const getLogSession = () => logSessionId;
+
+/** 짧은 게임 세션ID 생성 (예: "a3f9"). */
+export const newLogSession = (): string => {
+    const id = Math.random().toString(36).slice(2, 6);
+    logSessionId = id;
+    return id;
+};
+
+/**
+ * 게임 액션 1건을 구조화 JSON 한 줄로 기록한다. ★ 토글과 무관하게 항상 출력된다.
+ * @param category 분류 라벨 (record의 "c" 필드 — 출력 여부에 영향 없음, :3999 필터용)
+ * @param type     액션 이름 (buildTrack, selectCube, nextPhase, ...)
+ * @param payload  구조화 데이터 (player, turn, coord, cost 등)
+ * @param level    'error'면 console.error로 출력 (오류만 추출 가능)
+ */
+export const logAction = (
+    category: LogCategory,
+    type: string,
+    payload: Record<string, unknown> = {},
+    level: 'info' | 'error' = 'info',
+) => {
+    const record = { t: type, c: category, ...payload };
+    const prefix = `[game:${logSessionId || '?'}]`;
+    if (level === 'error') console.error(prefix, JSON.stringify(record));
+    else console.log(prefix, JSON.stringify(record));
+};
+
 // 상태 변경 리스너 (React 훅에서 사용)
 type DebugConfigListener = (config: DebugConfig) => void;
 const listeners: Set<DebugConfigListener> = new Set();

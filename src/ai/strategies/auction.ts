@@ -88,6 +88,37 @@ export function decideAuctionBid(state: GameState, playerId: PlayerId): AuctionD
 }
 
 /**
+ * 교대 선공권 결정 (alternateTurnOrder 맵 전용, 예: St. Lucia)
+ *
+ * 경매와 동일한 가치 모델을 재사용: 1등 순서의 ΔVP를 달러로 환산한 상한이
+ * 선공 비용(firstSeatCost) 이상이고 자금 여유가 있으면 수락.
+ */
+export function decideTurnOrderOffer(
+  state: GameState,
+  playerId: PlayerId,
+  firstSeatCost: number
+): boolean {
+  const player = state.players[playerId];
+  if (!player) return false;
+
+  const plan = ensureTurnPlan(state, playerId);
+  const firstSeatVP = estimateFirstSeatVP(state, playerId);
+  const lambda = cashToVPRate(state, playerId) || LAMBDA_BASE;
+
+  // 자금 상한: 건설 예산 + 운영비는 절대 침범 금지
+  const expenses = player.issuedShares + player.engineLevel;
+  const cashCeiling = Math.max(0, player.cash - plan.buildBudget - expenses);
+  const maxPay = Math.min(Math.floor(firstSeatVP / lambda), cashCeiling);
+
+  const accept = maxPay >= firstSeatCost;
+  debugLog.preparation(
+    `[Phase II: 선공권] ${player.name}: ${accept ? '수락' : '거절'} ` +
+    `(1등 가치 ${firstSeatVP.toFixed(1)}VP → 상한 $${maxPay}, 비용 $${firstSeatCost})`
+  );
+  return accept;
+}
+
+/**
  * 1등 순서의 ΔVP 추정
  */
 function estimateFirstSeatVP(state: GameState, playerId: PlayerId): number {

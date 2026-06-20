@@ -11,15 +11,17 @@ import {
   validateTrackConnection,
   isTrackPartOfCompletedLink,
 } from '@/utils/trackValidation';
-import { hexCoordsEqual, hexDistance } from '@/utils/hexGrid';
+import { hexCoordsEqual, hexDistance, getNeighborHex, getOppositeEdge } from '@/utils/hexGrid';
 import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, incrementInvestedTracks } from '../strategy/state';
 import { getNextTargetRoute, findNextTargetRoute, getTopPriorityRoutes } from '../strategy/selector';
+import { getMapAIConfig } from '../strategy/mapConfig';
 import {
   getConnectedCities,
   isRouteComplete,
   clearPathCache,
   findOptimalPathAvoidingOpponent,
   getEdgeBetweenHexes,
+  findStopById,
 } from '../strategy/analyzer';
 import type { DeliveryRoute } from '../strategy/types';
 import { debugLog } from '@/utils/debugConfig';
@@ -27,6 +29,7 @@ import { debugLog } from '@/utils/debugConfig';
 export type TrackBuildDecision =
   | { action: 'build'; coord: HexCoord; edges: [number, number] }
   | { action: 'buildComplex'; coord: HexCoord; edges: [number, number]; trackType: 'crossing' | 'coexist' }
+  | { action: 'buildSpur'; townCoord: HexCoord } // 마을 가닥 단독 건설 (미연결 트랙의 연결 완성)
   | { action: 'skip' }; // 건설 스킵
 
 // ===== 모듈 레벨: 건설 실패 좌표 추적 (턴 기반 자동 초기화) =====
@@ -65,17 +68,34 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   const player = state.players[playerId];
   if (!player) return { action: 'skip' };
 
-  // 이미 이번 턴 트랙 건설 완료 확인
+  // ===== 0. 통과 마을 연결 (사용자 지적: 마을 미연결로 끝내지 말 것) — guard보다 먼저 =====
+  // 내 트랙이 2변 이상 닿은 마을은 가닥 연결 시 through-link가 완성된다(깊은 배달의 전제).
+  // 새 fragment 타일을 깔기 전에 이 링크부터 완성한다. 특히 이번 턴 이미 그 마을을 연결했다면
+  // 추가 변 가닥은 0카운트(무료)라 3/3에서도 가능 — (7,1) 연결 후 (6,0)으로 새 연결이 생긴 경우를 같은 턴에 메움.
+  if (player.cash >= 1 /* TOWN_SPUR_COST */) {
+    const passThroughTown = findPassThroughDanglingTown(state, playerId);
+    if (passThroughTown) {
+      const spurredThisTurn = (state.board.townSpurs ?? []).some(
+        sp => hexCoordsEqual(sp.townCoord, passThroughTown) && sp.owner === playerId && sp.builtTurn === state.currentTurn
+      );
+      const townCount = spurredThisTurn ? 0 : 1; // 이미 이번 턴 연결한 마을이면 추가 변은 무료
+      if (state.phaseState.builtTracksThisTurn + townCount <= state.phaseState.maxTracksThisTurn) {
+        debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 통과 마을 가닥 연결 (${passThroughTown.col},${passThroughTown.row})${townCount === 0 ? ' [무료]' : ''}`);
+        return { action: 'buildSpur', townCoord: passThroughTown };
+      }
+    }
+  }
+
+  // 이미 이번 턴 트랙 건설 완료 확인 (무료 통과-마을 연결은 위에서 이미 처리됨)
   if (state.phaseState.builtTracksThisTurn >= state.phaseState.maxTracksThisTurn) {
     debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 이번 턴 건설 완료`);
     return { action: 'skip' };
   }
 
-  // 현금이 최소 비용보다 적으면 스킵
-  if (player.cash < GAME_CONSTANTS.PLAIN_TRACK_COST) {
-    debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 현금 부족 ($${player.cash})`);
-    return { action: 'skip' };
-  }
+  // ===== 1. 타일 건설 우선 (수익 위해 타일을 최대한 — 마을 가닥은 타일 후순위로) =====
+  // 마을에 닿아도 가닥은 자동 생성되지 않으므로(미연결), 가닥 연결은 타일을 다 짓고
+  // 남는 카운트나 다음 턴에 처리한다. 타일 비용 이상일 때만 타일 건설을 시도한다.
+  if (player.cash >= GAME_CONSTANTS.PLAIN_TRACK_COST) {
 
   // ===== 1. 이번 턴 목표 경로 결정 =====
   let targetRoute: DeliveryRoute | null;
@@ -120,10 +140,97 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
       return decision;
     }
   }
+  } // ===== 타일 건설 시도 끝 (현금이 타일 비용 미만이면 이 블록을 건너뛴다) =====
 
-  // ===== 4. 모든 후보 실패 → 스킵 (미완성 트랙 = 0VP, 무리한 건설은 돈 낭비) =====
+  // ===== 2. 타일을 더 못 깔면(경로 없음/현금 부족) 미연결 마을 가닥을 연결한다 (타일 후순위) =====
+  // 타일을 최대한 짓고 남는 카운트로만 마을을 연결한다. 가닥은 $1 + 마을 진입 1카운트.
+  if (player.cash >= 1 /* TOWN_SPUR_COST */) {
+    const danglingTown = findDanglingTownConnection(state, playerId);
+    if (danglingTown) {
+      debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 미연결 마을 가닥 완성 (${danglingTown.col},${danglingTown.row})`);
+      return { action: 'buildSpur', townCoord: danglingTown };
+    }
+  }
+
+  // ===== 3. 모든 시도 실패 → 스킵 (미완성 트랙 = 0VP, 무리한 건설은 돈 낭비) =====
   debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 가능한 경로 없음 → 스킵`);
   return { action: 'skip' };
+}
+
+/**
+ * 내 트랙이 마을 변에 닿아 있으나 가닥이 없는 마을 찾기
+ * (카운트 부족으로 타일만 지어진 미연결 상태 — buildTownSpur 대상)
+ */
+function findDanglingTownConnection(state: GameState, playerId: PlayerId): HexCoord | null {
+  const board = state.board;
+  for (const tile of board.trackTiles) {
+    const myEdgeSets: number[][] = [];
+    if (tile.owner === playerId) myEdgeSets.push(tile.edges);
+    if (tile.secondaryOwner === playerId && tile.secondaryEdges) myEdgeSets.push(tile.secondaryEdges);
+
+    for (const edges of myEdgeSets) {
+      for (const e of edges) {
+        const nb = getNeighborHex(tile.coord, e);
+        const isTown = board.towns.some(t => hexCoordsEqual(t.coord, nb) && t.newCityColor === null);
+        if (!isTown) continue;
+        const spurEdge = getOppositeEdge(e);
+        const hasSpur = (board.townSpurs ?? []).some(
+          sp => hexCoordsEqual(sp.townCoord, nb) && sp.edge === spurEdge
+        );
+        if (!hasSpur) return nb;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * 통과 마을(내 트랙이 2변 이상 닿아, 가닥을 연결하면 through-link가 완성되는 마을) 찾기.
+ * 마을 미연결 = 링크 미완성 = 깊은 배달 불가이므로, 이런 마을은 새 fragment 타일보다 먼저 연결한다.
+ * (단일 변만 닿은 끝단 마을은 through-link가 아니므로 제외 — 후순위로 둔다.)
+ */
+function findPassThroughDanglingTown(state: GameState, playerId: PlayerId): HexCoord | null {
+  const board = state.board;
+  const townInfo = new Map<string, { coord: HexCoord; myEdges: Set<number>; spurEdges: Set<number> }>();
+  for (const tile of board.trackTiles) {
+    const myEdgeSets: number[][] = [];
+    if (tile.owner === playerId) myEdgeSets.push(tile.edges);
+    if (tile.secondaryOwner === playerId && tile.secondaryEdges) myEdgeSets.push(tile.secondaryEdges);
+    for (const edges of myEdgeSets) {
+      for (const e of edges) {
+        const nb = getNeighborHex(tile.coord, e);
+        const isTown = board.towns.some(t => hexCoordsEqual(t.coord, nb) && t.newCityColor === null);
+        if (!isTown) continue;
+        const key = `${nb.col},${nb.row}`;
+        if (!townInfo.has(key)) townInfo.set(key, { coord: nb, myEdges: new Set(), spurEdges: new Set() });
+        townInfo.get(key)!.myEdges.add(getOppositeEdge(e)); // 마을 쪽에서 내 트랙을 향한 변
+      }
+    }
+  }
+  for (const sp of board.townSpurs ?? []) {
+    const info = townInfo.get(`${sp.townCoord.col},${sp.townCoord.row}`);
+    if (info) info.spurEdges.add(sp.edge);
+  }
+  for (const { coord, myEdges, spurEdges } of townInfo.values()) {
+    // 내 트랙이 2변 이상 닿았는데 가닥이 빠진 변이 있으면 = 통과 마을 미완성
+    if (myEdges.size >= 2 && [...myEdges].some(e => !spurEdges.has(e))) return coord;
+  }
+  return null;
+}
+
+/**
+ * 무료로 메울 수 있는 통과 마을 가닥이 남아있는가 — 이번 턴 이미 그 마을을 연결했으면(0카운트)
+ * 빌드 카운트(3/3)를 다 써도 추가 변 가닥을 무료로 연결할 수 있다. AI 실행 루프가 빌드 종료 직전
+ * 이걸 확인해, 마지막 타일이 마을에 새 연결을 만든 경우를 같은 턴에 메운다(미연결 토막 방지).
+ */
+export function hasPendingFreeSpur(state: GameState, playerId: PlayerId): boolean {
+  const player = state.players[playerId];
+  if (!player || player.cash < GAME_CONSTANTS.PLAIN_TRACK_COST) return false; // 가닥 비용($1+) 못 내면 메울 수 없음(루프 방지)
+  const town = findPassThroughDanglingTown(state, playerId);
+  if (!town) return false;
+  return (state.board.townSpurs ?? []).some(
+    sp => hexCoordsEqual(sp.townCoord, town) && sp.owner === playerId && sp.builtTurn === state.currentTurn
+  );
 }
 
 /**
@@ -321,21 +428,36 @@ function tryDirectPathBuild(
 ): TrackBuildDecision | null {
   const { board } = state;
   const player = state.players[playerId];
-  const sourceCity = board.cities.find(c => c.id === route.from);
-  const targetCity = board.cities.find(c => c.id === route.to);
+  let sourceCity = findStopById(board, route.from);
+  let targetCity = findStopById(board, route.to);
   if (!sourceCity || !targetCity || !player) return null;
 
   const playerTracks = board.trackTiles.filter(t => t.owner === playerId);
   const hasExistingTrack = playerTracks.length > 0;
 
+  // 첫 트랙은 도시 인접에서만 시작할 수 있다 (정규 룰). 경로가 마을→도시 방향이면
+  // 마을 쪽 첫 칸은 도시 비인접이라 건설이 막히므로, source/target을 교환해
+  // 도시 끝에서부터 건설을 시작한다 (배달 경로는 양방향 동일 — St. Lucia 도시화 1턴 등).
+  if (!hasExistingTrack) {
+    const sourceIsCity = board.cities.some(c => hexCoordsEqual(c.coord, sourceCity!.coord));
+    const targetIsCity = board.cities.some(c => hexCoordsEqual(c.coord, targetCity!.coord));
+    if (!sourceIsCity && targetIsCity) {
+      [sourceCity, targetCity] = [targetCity, sourceCity];
+    }
+  }
+
   // 자사 트랙 엣지 비호환 시 회피 좌표를 추가하며 최대 3회 재탐색
   const avoidCoords: HexCoord[] = [];
+
+  // trackCubes 맵: 건설 경로도 마을을 경유하도록(route 선택과 동일) → 화물이 마을 링크를 지나 4-5링크 배달
+  const preferTowns = getMapAIConfig(state).incomeSources.includes('trackCubes');
 
   for (let attempt = 0; attempt < 3; attempt++) {
     // 1. A* 경로 계산 (상대 트랙 회피, 자사 트랙 우대, 비호환 트랙 회피)
     const optimalPath = findOptimalPathAvoidingOpponent(
       sourceCity.coord, targetCity.coord, board, playerId,
-      avoidCoords.length > 0 ? avoidCoords : undefined
+      avoidCoords.length > 0 ? avoidCoords : undefined,
+      preferTowns,
     );
     if (optimalPath.length < 3) return null;
 
@@ -347,11 +469,13 @@ function tryDirectPathBuild(
     for (let i = 1; i < optimalPath.length - 1; i++) {
       const pathCoord = optimalPath[i];
 
-      // 중간 도시 체크
-      const isIntermediateCity = board.cities.some(c => hexCoordsEqual(c.coord, pathCoord));
+      // 중간 허브(도시/마을) 체크 — 마을도 타일 없이 모든 진입 트랙을 연결
+      const isIntermediateCity = board.cities.some(c => hexCoordsEqual(c.coord, pathCoord))
+        || board.towns.some(t => hexCoordsEqual(t.coord, pathCoord) && t.newCityColor === null);
       if (isIntermediateCity) {
         const prevCoord = optimalPath[i - 1];
-        const prevIsCity = board.cities.some(c => hexCoordsEqual(c.coord, prevCoord));
+        const prevIsCity = board.cities.some(c => hexCoordsEqual(c.coord, prevCoord))
+          || board.towns.some(t => hexCoordsEqual(t.coord, prevCoord) && t.newCityColor === null);
 
         if (prevIsCity) {
           frontierIndex = i;
@@ -362,6 +486,19 @@ function tryDirectPathBuild(
         if (prevTrack) {
           const edgeToCity = getEdgeBetweenHexes(prevCoord, pathCoord);
           if (edgeToCity >= 0 && prevTrack.edges.includes(edgeToCity)) {
+            // ★ 사용자 지침: 경로가 마을을 지날 땐, 다음 타일을 짓기 전에 "들어온 변" 가닥을 먼저 짓는다.
+            // 마을은 가닥이 있어야 실제 연결 — frontier만 넘기면 다음 타일이 미연결 마을에서 시작돼 실패/토막.
+            const pathIsTown = board.towns.some(t => hexCoordsEqual(t.coord, pathCoord) && t.newCityColor === null);
+            if (pathIsTown) {
+              const townEntryEdge = getEdgeBetweenHexes(pathCoord, prevCoord); // 마을에서 prev를 향한 변
+              const hasEntrySpur = (board.townSpurs ?? []).some(
+                sp => hexCoordsEqual(sp.townCoord, pathCoord) && sp.edge === townEntryEdge
+              );
+              if (!hasEntrySpur && townEntryEdge >= 0 && player.cash >= GAME_CONSTANTS.PLAIN_TRACK_COST) {
+                debugLog.trackBuilding(`[직접 경로] 마을 (${pathCoord.col},${pathCoord.row}) 들어온 변 가닥 먼저 연결 (다음 타일 전)`);
+                return { action: 'buildSpur', townCoord: pathCoord };
+              }
+            }
             frontierIndex = i;
             continue;
           }
@@ -378,7 +515,8 @@ function tryDirectPathBuild(
           // 역방향 OK. 순방향 검증: 다음 위치로 연결되는 엣지가 있는지
           if (i + 1 < optimalPath.length) {
             const nextPathCoord = optimalPath[i + 1];
-            const nextIsCity = board.cities.some(c => hexCoordsEqual(c.coord, nextPathCoord));
+            const nextIsCity = board.cities.some(c => hexCoordsEqual(c.coord, nextPathCoord))
+              || board.towns.some(t => hexCoordsEqual(t.coord, nextPathCoord) && t.newCityColor === null);
             if (!nextIsCity) {
               // 다음이 일반 헥스 → 트랙이 해당 방향 엣지를 가져야 함
               const edgeToNext = getEdgeBetweenHexes(pathCoord, nextPathCoord);
@@ -428,8 +566,9 @@ function tryDirectPathBuild(
         continue;
       }
 
-      // 도시 헥스 처리: 도착 도시면 경로 완성, 중간 도시면 건너뜀
-      if (board.cities.some(c => hexCoordsEqual(c.coord, nextCoord))) {
+      // 허브(도시/마을) 헥스 처리: 도착지면 경로 완성, 중간이면 건너뜀 (타일 배치 불가/불필요)
+      if (board.cities.some(c => hexCoordsEqual(c.coord, nextCoord))
+        || board.towns.some(t => hexCoordsEqual(t.coord, nextCoord) && t.newCityColor === null)) {
         if (hexCoordsEqual(nextCoord, targetCity.coord)) {
           debugLog.trackBuilding(`[직접 경로] 도착 도시(${nextCoord.col},${nextCoord.row}) 도달 → 경로 완성`);
           return null;
@@ -454,7 +593,8 @@ function tryDirectPathBuild(
         if (entryEdgeLoop >= 0 && existingTrack.edges.includes(entryEdgeLoop)) {
           if (nextIndex + 1 < optimalPath.length) {
             const nextNext = optimalPath[nextIndex + 1];
-            const isNextCity = board.cities.some(c => hexCoordsEqual(c.coord, nextNext));
+            const isNextCity = board.cities.some(c => hexCoordsEqual(c.coord, nextNext))
+              || board.towns.some(t => hexCoordsEqual(t.coord, nextNext) && t.newCityColor === null);
             if (isNextCity) {
               canPassThrough = true; // 다음이 도시면 항상 연결
             } else {

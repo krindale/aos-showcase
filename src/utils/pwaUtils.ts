@@ -67,6 +67,23 @@ export async function registerServiceWorker(
     return false;
   }
 
+  // 개발 모드: SW를 등록하지 않고, 이전에 등록된 SW와 캐시를 제거
+  // (dev에서 SW 캐시가 옛 페이지/JS를 서빙해 코드 변경이 화면에 반영되지 않는 문제 방지)
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[PWA] Dev mode: unregistering service workers and clearing caches');
+    try {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map(r => r.unregister()));
+      if (typeof caches !== 'undefined') {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+    } catch (e) {
+      console.warn('[PWA] Dev cleanup failed:', e);
+    }
+    return false;
+  }
+
   try {
     const swPath = getServiceWorkerPath();
     console.log('[PWA] Registering service worker:', swPath);

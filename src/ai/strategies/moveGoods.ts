@@ -10,7 +10,7 @@
  */
 
 import { GameState, PlayerId, HexCoord, CubeColor, City } from '@/types/game';
-import { findReachableDestinations, findLongestPath, hexCoordsEqual, countPathLinks } from '@/utils/hexGrid';
+import { findReachableDestinations, findLongestPath, hexCoordsEqual, countPathLinks, findTrackCubeDeliveries } from '@/utils/hexGrid';
 import { getSelectedStrategy, getCurrentRoute } from '../strategy/state';
 import { getConnectedCities } from '../strategy/analyzer';
 import { getMapAIConfig } from '../strategy/mapConfig';
@@ -26,6 +26,7 @@ import { debugLog } from '@/utils/debugConfig';
 
 export type MoveGoodsDecision =
   | { action: 'move'; sourceCityId: string; cubeIndex: number; destinationCoord: HexCoord; cubeColor: CubeColor }
+  | { action: 'moveTrackCube'; trackId: string; destCityId: string } // St. Lucia: 트랙 위 큐브 배달
   | { action: 'upgradeEngine' }
   | { action: 'skip' };
 
@@ -142,6 +143,20 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
     }
   }
 
+  // St. Lucia: 트랙 위 큐브 배달 후보 (미완성 링크 허용 — 구간 소유자 수입 +1)
+  let bestTrackCube: { trackId: string; destCityId: string; deltaVP: number } | null = null;
+  for (const track of board.trackTiles) {
+    if (!track.cube) continue;
+    for (const delivery of findTrackCubeDeliveries(board, track.id, player.engineLevel, playerId)) {
+      const own = delivery.sectionOwner === playerId ? 1 : 0;
+      const opp = delivery.sectionOwner && delivery.sectionOwner !== playerId ? 1 : 0;
+      const vp = deliveryDeltaVP(state, playerId, own, opp);
+      if (!bestTrackCube || vp > bestTrackCube.deltaVP) {
+        bestTrackCube = { trackId: track.id, destCityId: delivery.city.id, deltaVP: vp };
+      }
+    }
+  }
+
   // 총 ΔVP 기준 정렬
   candidates.sort((a, b) => (b.deltaVP + b.routeScore) - (a.deltaVP + a.routeScore));
   const best = candidates.length > 0 ? candidates[0] : null;
@@ -154,7 +169,12 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
     `[Phase V: 물품 이동] ${player.name}: 옵션 비교 — 배달 ΔVP=${bestMoveVP === -Infinity ? '없음' : bestMoveVP.toFixed(2)}, 업그레이드 ΔVP=${upgradeVP === -Infinity ? '불가' : upgradeVP.toFixed(2)}`
   );
 
-  // 최대 ΔVP 선택: 배달 vs 업그레이드 vs 스킵(0)
+  // 최대 ΔVP 선택: 트랙 큐브 배달 vs 도시 배달 vs 업그레이드 vs 스킵(0)
+  if (bestTrackCube && bestTrackCube.deltaVP > bestMoveVP && bestTrackCube.deltaVP > upgradeVP && bestTrackCube.deltaVP > 0) {
+    debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 트랙 큐브 배달 → ${bestTrackCube.destCityId}, ΔVP=${bestTrackCube.deltaVP.toFixed(2)}`);
+    return { action: 'moveTrackCube', trackId: bestTrackCube.trackId, destCityId: bestTrackCube.destCityId };
+  }
+
   if (upgradeVP > bestMoveVP && upgradeVP > 0) {
     debugLog.goodsMovement(`[Phase V: 물품 이동] ${player.name}: 엔진 업그레이드 (${player.engineLevel}→${player.engineLevel + 1}), ΔVP=${upgradeVP.toFixed(2)}`);
     return { action: 'upgradeEngine' };
@@ -193,25 +213,54 @@ function evaluateEngineUpgradeOption(state: GameState, playerId: PlayerId): numb
   if (player.engineLevel >= config.engineMax) return -Infinity;
   if (player.selectedAction === 'locomotive') return -Infinity;
 
-  // 완성된 링크(연결 네트워크)가 없으면 업그레이드는 시기상조
+  // ★ 사용자 지침: trackCubes 맵 T4 이후엔 수송 포기(move-round) 엔진업 전면 금지 —
+  // 엔진은 오직 Locomotive 액션으로만 올린다(배달 라운드를 더 이상 엔진에 쓰지 않음).
+  if (config.incomeSources.includes('trackCubes') && state.currentTurn > 4) return -Infinity;
+
+  // 완성된 링크(연결 네트워크)가 없으면 업그레이드는 시기상조.
+  // 단 trackCubes 맵(St. Lucia)은 트랙 큐브를 미완성 링크로도 배달하므로,
+  // 트랙 위에 내 큐브가 있으면 2개 도시 연결 전이라도 엔진 업그레이드가 유효하다.
   const connectedCities = getConnectedCities(state, playerId);
-  if (connectedCities.length < 2) return -Infinity;
+  const hasTrackCube = state.board.trackTiles.some(t => t.cube && t.owner === playerId);
+  if (connectedCities.length < 2 && !(config.incomeSources.includes('trackCubes') && hasTrackCube)) {
+    return -Infinity;
+  }
 
   const round = state.phaseState.moveGoodsRound;
   const remainingTurns = config.totalTurns - state.currentTurn;
+
+  // ★ trackCubes front-load (사용자 전략): 초반부터 수송 1개 포기로 엔진을 3까지 미리 올린다.
+  // "T4까지 엔진 3~4 유동적" — front-load는 3까지(수송 포기 비용 최소), 3→4는 Locomotive 깊은-경로
+  // 부스트가 상황에 따라(깊은 배달 필요 시) 처리 → 측정상 엔진 ~3.9에 안착(3~4). 상한 4로 강제하면
+  // 초반 배달을 과도하게 포기해 income↓·파산↑·VP↓(측정 확인). 값 5는 짧은 배달(1링크)만 이김.
+  const frontLoadTarget = Math.min(3, state.currentTurn + 1);
+  const frontLoad = (config.incomeSources.includes('trackCubes') && player.engineLevel < frontLoadTarget && remainingTurns >= 1)
+    ? 5
+    : 0;
 
   // round 2의 업그레이드는 다음 턴에야 실현 → 마지막 턴이면 가치 없음
   if (round !== 1 && remainingTurns < 1) return -Infinity;
   const prob = round === 1 ? SAME_TURN_DELIVERY_DISCOUNT : FUTURE_DELIVERY_DISCOUNT;
 
-  // 엔진+1로 해금되는 최선의 자기 트랙 배달 탐색
+  // 엔진+1로 해금되는 최선의 자기 트랙 배달 탐색 (도시 큐브 + 트랙 큐브)
   const bestUnlocked = findBestUnlockedDelivery(state, playerId, player.engineLevel + 1);
+  const bestUnlockedTrackVP = config.incomeSources.includes('trackCubes')
+    ? findBestUnlockedTrackCubeVP(state, playerId, player.engineLevel)
+    : -Infinity;
 
-  if (bestUnlocked) {
-    const unlockedVP = deliveryDeltaVP(
-      state, playerId, bestUnlocked.ownLinks, bestUnlocked.totalLinks - bestUnlocked.ownLinks
-    );
-    return engineUpgradeDeltaVP(state, playerId, unlockedVP, prob);
+  const cityUnlockedVP = bestUnlocked
+    ? deliveryDeltaVP(state, playerId, bestUnlocked.ownLinks, bestUnlocked.totalLinks - bestUnlocked.ownLinks)
+    : -Infinity;
+  const unlockedVP = Math.max(cityUnlockedVP, bestUnlockedTrackVP);
+
+  if (unlockedVP > -Infinity) {
+    const base = engineUpgradeDeltaVP(state, playerId, unlockedVP, prob);
+    // trackCubes 맵: 마을 경유로 깊어진 체인의 먼 큐브를 배달하려면 엔진을 키워야 한다. 짧은 즉시
+    // 배달에 안주하지 않도록 엔진 업그레이드를 강하게 우대(사용자 목표: 4-5링크 배달 실현).
+    if (base > 0 && bestUnlockedTrackVP >= unlockedVP && config.incomeSources.includes('trackCubes')) {
+      return Math.max(base * 6, frontLoad);
+    }
+    return Math.max(base, frontLoad);
   }
 
   // 해금 배달이 없어도, 보드에 화물이 전혀 없으면 다음 턴 물품 성장을 기대
@@ -219,10 +268,10 @@ function evaluateEngineUpgradeOption(state: GameState, playerId: PlayerId): numb
   if (totalCubes === 0 && remainingTurns >= 1) {
     // 보수적 기대: 1링크 배달, 불확실성 추가 할인
     const expectedVP = deliveryDeltaVP(state, playerId, 1, 0);
-    return engineUpgradeDeltaVP(state, playerId, expectedVP, FUTURE_DELIVERY_DISCOUNT * 0.5);
+    return Math.max(engineUpgradeDeltaVP(state, playerId, expectedVP, FUTURE_DELIVERY_DISCOUNT * 0.5), frontLoad);
   }
 
-  return -Infinity;
+  return frontLoad > 0 ? frontLoad : -Infinity; // front-load: 해금 큐브가 없어도 미리 엔진을 올려둔다
 }
 
 /**
@@ -267,6 +316,34 @@ function findBestUnlockedDelivery(
     }
   }
 
+  return best;
+}
+
+/**
+ * trackCubes 맵: 엔진+1로 "해금"되는(현재 엔진으론 불가) 최선의 트랙 큐브 배달 ΔVP.
+ *
+ * 현재 엔진 레벨에선 도달 못 하지만 +1이면 배달 가능해지는 트랙 큐브를 찾는다.
+ * "짧게 시작 → 엔진 키워 먼 배달" 전략의 엔진 성장 신호 (백본의 더 깊은 큐브 해금).
+ */
+function findBestUnlockedTrackCubeVP(
+  state: GameState,
+  playerId: PlayerId,
+  engineLevel: number,
+): number {
+  const { board } = state;
+  let best = -Infinity;
+  for (const track of board.trackTiles) {
+    if (!track.cube) continue;
+    // 현재 엔진으로 이미 배달 가능하면 "해금"이 아님
+    const nowReachable = findTrackCubeDeliveries(board, track.id, engineLevel, playerId).length > 0;
+    if (nowReachable) continue;
+    for (const delivery of findTrackCubeDeliveries(board, track.id, engineLevel + 1, playerId)) {
+      const own = delivery.sectionOwner === playerId ? 1 : 0;
+      if (own < 1) continue; // 내 income 없는 배달은 업그레이드 근거 아님
+      const vp = deliveryDeltaVP(state, playerId, own, 0);
+      if (vp > best) best = vp;
+    }
+  }
   return best;
 }
 

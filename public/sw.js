@@ -1,7 +1,7 @@
 // Age of Steam PWA Service Worker
 // Handles offline caching and PWA functionality
 
-const CACHE_VERSION = 'aos-v1';
+const CACHE_VERSION = 'aos-v2';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 const BASE_PATH = '/aos-showcase';

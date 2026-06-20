@@ -1,6 +1,7 @@
 import { GameState, PlayerId, HexCoord, CubeColor, BoardState, GAME_CONSTANTS } from '@/types/game';
 import { debugLog } from '@/utils/debugConfig';
 import { DeliveryOpportunity, DeliveryRoute } from './types';
+import { getMapAIConfig } from './mapConfig';
 import { getNeighborHex, hexCoordsEqual, hexDistance, getConnectedNeighbors, hexToKey, getConnectingEdge, getOppositeEdge } from '@/utils/hexGrid';
 
 // 경로 캐시 (출발지-목적지 → 경로)
@@ -56,9 +57,10 @@ export function findOptimalPath(
     return GAME_CONSTANTS.PLAIN_TRACK_COST;
   };
 
-  // 도시인지 확인
+  // 도시/마을인지 확인 (마을도 도시처럼 타일 없이 통과 가능한 허브)
   const isCity = (coord: HexCoord): boolean => {
-    return board.cities.some(c => hexCoordsEqual(c.coord, coord));
+    return board.cities.some(c => hexCoordsEqual(c.coord, coord))
+      || board.towns.some(t => hexCoordsEqual(t.coord, coord));
   };
 
   // 시작 노드
@@ -369,7 +371,12 @@ function getOpportunitiesCacheKey(state: GameState): string {
   const cubeSignature = state.board.cities
     .map(c => `${c.id}:${c.cubes.join(',')}`)
     .join('|');
-  return `${state.currentTurn}-t${state.board.trackTiles.length}-${cubeSignature}`;
+  // 트랙 위 큐브 변화(배달로 제거 등)도 캐시 키에 반영 — 안 하면 배달 후 stale 기회 사용
+  const trackCubeSig = state.board.trackTiles
+    .filter(t => t.cube)
+    .map(t => `${t.id}:${t.cube}`)
+    .join('|');
+  return `${state.currentTurn}-t${state.board.trackTiles.length}-${cubeSignature}-${trackCubeSig}`;
 }
 
 export function clearOpportunitiesCache(): void {
@@ -411,6 +418,27 @@ export function analyzeDeliveryOpportunities(
         });
       }
     });
+  }
+
+  // 트랙 위 큐브 → 같은 색 도시 — 맵 config가 'trackCubes'를 income 원천으로 선언한 맵만 (St. Lucia 등).
+  // 맵 이름 하드코딩 없이 MapAIConfig.incomeSources로 켜고 끈다. 새 맵은 config만 추가.
+  if (getMapAIConfig(state).incomeSources.includes('trackCubes')) {
+    for (const track of board.trackTiles) {
+      if (!track.cube) continue;
+      const destinations = findDestinationCities(track.cube, board);
+      for (const dest of destinations) {
+        const linkCount = estimateRouteLinkCount(track.coord, dest.coord, board);
+        opportunities.push({
+          sourceCityId: `track:${track.id}`, // 도시가 아닌 트랙 큐브 출발 (estimateRouteVP는 sourceCoord 사용)
+          sourceCoord: track.coord,
+          cubeColor: track.cube,
+          cubeIndex: 0,
+          targetCityId: dest.cityId,
+          targetCoord: dest.coord,
+          distance: linkCount,
+        });
+      }
+    }
   }
 
   opportunitiesCache = { key: cacheKey, result: opportunities };
@@ -594,7 +622,8 @@ export function findOptimalPathAvoidingOpponent(
   to: HexCoord,
   board: BoardState,
   playerId: PlayerId,
-  avoidCoords?: HexCoord[]
+  avoidCoords?: HexCoord[],
+  preferTowns?: boolean, // trackCubes 맵: 경로가 마을을 경유하도록 우대 (마을=링크 경계 → 4-5링크 배달)
 ): HexCoord[] {
   // A* 알고리즘 구현
   interface Node {
@@ -619,6 +648,11 @@ export function findOptimalPathAvoidingOpponent(
     // 도시는 통과 비용 0
     if (board.cities.some(c => hexCoordsEqual(c.coord, coord))) {
       return 0;
+    }
+    // [trackCubes] 마을 우대 — 경로가 마을을 경유하면 stop(=링크 경계)이 늘어 화물이 더 많은
+    // 링크를 지나 배달된다(4-5링크). 약간의 우회를 감수하고 마을을 거치도록 매우 낮은 비용 부여.
+    if (preferTowns && board.towns.some(t => hexCoordsEqual(t.coord, coord) && t.newCityColor === null)) {
+      return 1.0; // 마을을 우대해 경로가 마을을 경유 → 체인을 깊게(4-5링크) 만든다
     }
 
     const hex = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
@@ -1403,9 +1437,86 @@ export function getStrategyAdjustments(
  * 보드 상태를 기준으로 경로 완성 여부 확인
  * @param playerId 지정 시 해당 플레이어 트랙으로만 완성 여부 확인, 미지정 시 모든 플레이어 트랙 고려
  */
+
+/**
+ * 플레이어의 "가장 큰 하나의 연결 철도(메인 라인)"가 닿는 stop(도시/마을) id 집합.
+ * 도시가 여러 개면 도시마다 별도 토막이 생기는데, 여기서만 확장하면 그 토막들 대신
+ * 하나의 메인 라인을 이어 키운다(사용자 지침: 토막 금지, 계속 이어서). 트랙 없으면 null.
+ */
+export function getMainNetworkStopIds(board: BoardState, playerId: PlayerId): Set<string> | null {
+  const mine = board.trackTiles.filter(t => t.owner === playerId || t.secondaryOwner === playerId);
+  if (mine.length === 0) return null;
+  const key = (c: HexCoord) => `${c.col},${c.row}`;
+  const byKey = new Map(mine.map(t => [key(t.coord), t]));
+  const isStopHex = (c: HexCoord) =>
+    board.cities.some(ct => hexCoordsEqual(ct.coord, c)) ||
+    board.towns.some(tw => hexCoordsEqual(tw.coord, c) && tw.newCityColor === null);
+  const stopMembers = new Map<string, typeof mine>();
+  const neighborsOf = (t: typeof mine[0]): typeof mine => {
+    const out: typeof mine = [];
+    for (const e of [...t.edges, ...(t.secondaryEdges ?? [])]) {
+      const nb = getNeighborHex(t.coord, e);
+      const nbT = byKey.get(key(nb));
+      if (nbT) {
+        const back = getConnectingEdge(nb, t.coord);
+        const nbEdges = [...nbT.edges, ...(nbT.secondaryEdges ?? [])];
+        if (back !== null && back >= 0 && nbEdges.includes(back)) out.push(nbT);
+      } else if (isStopHex(nb)) {
+        const sk = key(nb);
+        const arr = stopMembers.get(sk) ?? [];
+        for (const other of arr) if (other !== t) out.push(other);
+        if (!arr.includes(t)) { arr.push(t); stopMembers.set(sk, arr); }
+      }
+    }
+    return out;
+  };
+  const seen = new Set<string>();
+  let bestComp: typeof mine = [];
+  for (const start of mine) {
+    if (seen.has(key(start.coord))) continue;
+    const comp: typeof mine = [];
+    const stack = [start];
+    seen.add(key(start.coord));
+    while (stack.length) {
+      const t = stack.pop()!;
+      comp.push(t);
+      for (const nbT of neighborsOf(t)) if (!seen.has(key(nbT.coord))) { seen.add(key(nbT.coord)); stack.push(nbT); }
+    }
+    if (comp.length > bestComp.length) bestComp = comp;
+  }
+  const result = new Set<string>();
+  const allStops = [
+    ...board.cities.map(c => ({ id: c.id, coord: c.coord })),
+    ...board.towns.filter(t => t.newCityColor === null).map(t => ({ id: t.id, coord: t.coord })),
+  ];
+  for (const t of bestComp) {
+    for (const e of [...t.edges, ...(t.secondaryEdges ?? [])]) {
+      const nb = getNeighborHex(t.coord, e);
+      const s = allStops.find(st => hexCoordsEqual(st.coord, nb));
+      if (s) result.add(s.id);
+    }
+  }
+  return result;
+}
+
+/**
+ * 경로 끝점(stop) 좌표 해석: 도시 우선, 없으면 마을
+ * (St. Lucia처럼 마을이 경로 끝점이 되는 맵 지원)
+ */
+export function findStopById(
+  board: BoardState,
+  id: string,
+): { id: string; coord: HexCoord } | null {
+  const city = board.cities.find(c => c.id === id);
+  if (city) return { id: city.id, coord: city.coord };
+  const town = board.towns.find(t => t.id === id);
+  if (town) return { id: town.id, coord: town.coord };
+  return null;
+}
+
 export function isRouteCompleteForBoard(board: BoardState, route: DeliveryRoute, playerId?: PlayerId): boolean {
-  const sourceCity = board.cities.find(c => c.id === route.from);
-  const targetCity = board.cities.find(c => c.id === route.to);
+  const sourceCity = findStopById(board, route.from);
+  const targetCity = findStopById(board, route.to);
   if (!sourceCity || !targetCity) return false;
 
   // BFS로 실제 연결 여부 확인

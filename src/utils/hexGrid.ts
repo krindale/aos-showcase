@@ -1452,10 +1452,11 @@ export function findTrackCubeDeliveries(
 
   const cubeColor = startTrack.cube;
   const deliveries: TrackCubeDelivery[] = [];
-  const visited = new Set<string>([hexToKey(startTrack.coord)]);
 
   // 워크 스택: 트랙 체인을 따라가다 마을(허브)을 만나면 마을에 닿은 다른 타일들로 분기
   // sectionOwner = 큐브가 있는 구간(첫 마을/도시 도달 전까지)의 소유자 — 마을 경유 후엔 고정
+  // ★ visited는 경로별(per-path) — 전역으로 두면 한 경로가 공유 허브를 먼저 지날 때 다른(내 트랙) 경로가
+  //   막혀 못 찾는다. 각 분기는 자기 경로의 visited만 보유(복사)해 대안 경로를 모두 탐색한다.
   interface TrackWalkState {
     current: HexCoord;
     exitEdge: number;
@@ -1463,6 +1464,7 @@ export function findTrackCubeDeliveries(
     sectionOwner: PlayerId | null;
     ownerLocked: boolean;
     linkCount: number; // 큐브 시작 구간부터 통과한 도시/마을(=링크) 수 — 엔진 레벨 제한용
+    visited: Set<string>; // 이 경로가 지나온 헥스 (경로 내 사이클 방지 — 분기 시 복사)
   }
   // 큐브가 놓인 트랙이 복합 교차/공존이면 주(edges)·보조(secondaryEdges) 양쪽 트랙 모두 출발점이 된다.
   // (이전엔 edges만 보고 secondaryEdges를 누락 → 큐브가 교차 트랙의 보조 트랙으로 도시에 닿는 경로를 못 찾음)
@@ -1471,12 +1473,14 @@ export function findTrackCubeDeliveries(
     stack.push({
       current: startTrack.coord, exitEdge: startEdge, pathCoords: [startTrack.coord],
       sectionOwner: startTrack.owner, ownerLocked: false, linkCount: 1,
+      visited: new Set<string>([hexToKey(startTrack.coord)]),
     });
   }
   for (const startEdge of (startTrack.secondaryEdges ?? [])) {
     stack.push({
       current: startTrack.coord, exitEdge: startEdge, pathCoords: [startTrack.coord],
       sectionOwner: startTrack.secondaryOwner ?? startTrack.owner, ownerLocked: false, linkCount: 1,
+      visited: new Set<string>([hexToKey(startTrack.coord)]),
     });
   }
 
@@ -1495,6 +1499,7 @@ export function findTrackCubeDeliveries(
     const ownerLocked = st.ownerLocked;
     const linkCount = st.linkCount;
     const pathCoords = [...st.pathCoords];
+    const visited = st.visited; // 이 경로의 visited (분기 시 아래에서 복사해 push)
 
     for (let steps = 0; steps < 64; steps++) {
       const nextCoord = getNeighborHex(current, exitEdge);
@@ -1551,7 +1556,7 @@ export function findTrackCubeDeliveries(
           const bTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, beyond));
           const opp = getOppositeEdge(e);
           if (bTrack?.edges.includes(opp) || bTrack?.secondaryEdges?.includes(opp)) {
-            stack.push({ current: nextCoord, exitEdge: e, pathCoords: cityPath, sectionOwner, ownerLocked: true, linkCount: linkCount + 1 });
+            stack.push({ current: nextCoord, exitEdge: e, pathCoords: cityPath, sectionOwner, ownerLocked: true, linkCount: linkCount + 1, visited: new Set(visited) });
           }
         }
         break;
@@ -1581,6 +1586,7 @@ export function findTrackCubeDeliveries(
               sectionOwner,
               ownerLocked: true,
               linkCount: linkCount + 1,
+              visited: new Set(visited),
             });
           }
         }

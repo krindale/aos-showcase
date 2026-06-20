@@ -486,6 +486,19 @@ function tryDirectPathBuild(
         if (prevTrack) {
           const edgeToCity = getEdgeBetweenHexes(prevCoord, pathCoord);
           if (edgeToCity >= 0 && prevTrack.edges.includes(edgeToCity)) {
+            // ★ 사용자 지침: 경로가 마을을 지날 땐, 다음 타일을 짓기 전에 "들어온 변" 가닥을 먼저 짓는다.
+            // 마을은 가닥이 있어야 실제 연결 — frontier만 넘기면 다음 타일이 미연결 마을에서 시작돼 실패/토막.
+            const pathIsTown = board.towns.some(t => hexCoordsEqual(t.coord, pathCoord) && t.newCityColor === null);
+            if (pathIsTown) {
+              const townEntryEdge = getEdgeBetweenHexes(pathCoord, prevCoord); // 마을에서 prev를 향한 변
+              const hasEntrySpur = (board.townSpurs ?? []).some(
+                sp => hexCoordsEqual(sp.townCoord, pathCoord) && sp.edge === townEntryEdge
+              );
+              if (!hasEntrySpur && townEntryEdge >= 0 && player.cash >= GAME_CONSTANTS.PLAIN_TRACK_COST) {
+                debugLog.trackBuilding(`[직접 경로] 마을 (${pathCoord.col},${pathCoord.row}) 들어온 변 가닥 먼저 연결 (다음 타일 전)`);
+                return { action: 'buildSpur', townCoord: pathCoord };
+              }
+            }
             frontierIndex = i;
             continue;
           }

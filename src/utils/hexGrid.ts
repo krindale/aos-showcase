@@ -637,7 +637,8 @@ export function getConnectedNeighbors(
       // 이웃에 트랙이 있고, 해당 트랙이 현재 도시 방향으로 연결되어 있는지 확인
       let neighborTracks = board.trackTiles.filter(t => hexCoordsEqual(t.coord, neighbor));
       if (playerId !== undefined && playerId !== null) {
-        neighborTracks = neighborTracks.filter(t => t.owner === playerId || t.secondaryOwner === playerId);
+        // 자기 트랙 + 공용(파산, owner null) 트랙만 (살아있는 타인 제외)
+        neighborTracks = neighborTracks.filter(t => t.owner === playerId || t.secondaryOwner === playerId || t.owner === null || t.secondaryOwner === null);
       }
 
       for (const t of neighborTracks) {
@@ -662,12 +663,14 @@ export function getConnectedNeighbors(
 
     let currentCoordTracks = board.trackTiles.filter(t => hexCoordsEqual(t.coord, currentCoord));
     if (playerId) {
-      currentCoordTracks = currentCoordTracks.filter(t => t.owner === playerId || t.secondaryOwner === playerId);
+      // 자기 트랙 + 공용(파산, owner null) 트랙만 (살아있는 타인 제외)
+      currentCoordTracks = currentCoordTracks.filter(t => t.owner === playerId || t.secondaryOwner === playerId || t.owner === null || t.secondaryOwner === null);
     }
 
     // 사용 가능한 출구 엣지와 해당 소유자 수집
     // [핵심] entryEdge가 주어지면, 해당 엣지가 속한 경로의 다른 엣지만 출구로 사용
-    const outgoingEdgesAndOwners = new Map<number, Set<PlayerId>>();
+    // 공용(파산) 트랙은 owner가 null이므로 null도 키로 담는다 (이동 시 사용 허용).
+    const outgoingEdgesAndOwners = new Map<number, Set<PlayerId | null>>();
 
     currentCoordTracks.forEach(t => {
       // 기본 경로 (edges) 처리
@@ -677,13 +680,13 @@ export function getConnectedNeighbors(
 
         // entryEdge가 없거나, entryEdge가 primary 경로에 있으면 primary 출구 사용 가능
         if (entryEdge === undefined || isEntryInPrimary) {
-          // primary 경로가 playerId와 일치하는지 확인
-          if (!playerId || t.owner === playerId) {
+          // primary 경로가 자기 소유이거나 공용(파산, owner null)이면 사용 가능 (살아있는 타인 제외)
+          if (!playerId || t.owner === playerId || t.owner === null) {
             t.edges.forEach(e => {
               // entryEdge와 다른 엣지만 출구로 사용 (들어온 방향으로 되돌아가지 않음)
               if (e !== entryEdge) {
                 if (!outgoingEdgesAndOwners.has(e)) outgoingEdgesAndOwners.set(e, new Set());
-                outgoingEdgesAndOwners.get(e)!.add(t.owner!);
+                outgoingEdgesAndOwners.get(e)!.add(t.owner);
               }
             });
           }
@@ -692,12 +695,12 @@ export function getConnectedNeighbors(
         // entryEdge가 없거나, entryEdge가 secondary 경로에 있으면 secondary 출구 사용 가능
         if (t.secondaryEdges && t.secondaryOwner) {
           if (entryEdge === undefined || isEntryInSecondary) {
-            // secondary 경로가 playerId와 일치하는지 확인
-            if (!playerId || t.secondaryOwner === playerId) {
+            // secondary 경로가 자기 소유이거나 공용(파산)이면 사용 가능
+            if (!playerId || t.secondaryOwner === playerId || t.secondaryOwner === null) {
               t.secondaryEdges.forEach(e => {
                 if (e !== entryEdge) {
                   if (!outgoingEdgesAndOwners.has(e)) outgoingEdgesAndOwners.set(e, new Set());
-                  outgoingEdgesAndOwners.get(e)!.add(t.secondaryOwner!);
+                  outgoingEdgesAndOwners.get(e)!.add(t.secondaryOwner ?? null);
                 }
               });
             }
@@ -741,11 +744,12 @@ export function getConnectedNeighbors(
 
         // 1. 소유권 확인: 현재 헥스의 해당 엣지를 나가는 소유자 중 하나가 이웃 트랙의 해당 엣지 소유자와 같아야 함
         // [핵심] 이웃 트랙에서도 entryEdge가 속한 경로의 소유자와 일치해야 함
-        const isBasicMatch = t.edges.includes(neighborEntryEdge) && t.owner && currentEdgeOwners.has(t.owner);
-        const isSecondaryMatch = t.secondaryEdges && t.secondaryEdges.includes(neighborEntryEdge) && t.secondaryOwner && currentEdgeOwners.has(t.secondaryOwner);
+        // 공용(파산, owner null) 트랙도 연결 인정 — currentEdgeOwners에 null이 담겨 있으면 매칭
+        const isBasicMatch = t.edges.includes(neighborEntryEdge) && (t.owner != null ? currentEdgeOwners.has(t.owner) : currentEdgeOwners.has(null));
+        const isSecondaryMatch = !!t.secondaryEdges && t.secondaryEdges.includes(neighborEntryEdge) && (t.secondaryOwner != null ? currentEdgeOwners.has(t.secondaryOwner) : currentEdgeOwners.has(null));
 
-        // 2. 만약 특정 플레이어의 망을 탐색 중이라면(playerId 존재), 해당 플레이어 소유여야 함
-        const matchesRequest = !playerId || t.owner === playerId || t.secondaryOwner === playerId;
+        // 2. 자기 망 또는 공용(파산) 트랙이면 사용 가능 (살아있는 타인 제외)
+        const matchesRequest = !playerId || t.owner === playerId || t.secondaryOwner === playerId || t.owner === null || t.secondaryOwner === null;
 
         if ((isBasicMatch || isSecondaryMatch) && matchesRequest) {
           debugLog.verbose(`  edge ${edge}: 이웃 (${neighbor.col}, ${neighbor.row}) 트랙 확인, 소유자 매칭 성공! 필요한 entryEdge: ${neighborEntryEdge}`);
@@ -804,7 +808,8 @@ function findAllPaths(
   end: HexCoord,
   board: BoardState,
   playerId: PlayerId,
-  maxLength: number
+  maxLength: number,
+  cubeColor: CityColor
 ): HexCoord[][] {
   const allPaths: HexCoord[][] = [];
 
@@ -821,18 +826,25 @@ function findAllPaths(
       return;
     }
 
-    // 이동은 자기/타인/공용 철도를 모두 사용(룰 V) → undefined로 모든 완성 트랙 탐색
-    const neighbors = getConnectedNeighbors(current, board, undefined, visited, entryEdge);
+    // 이동은 자기 철도 + 파산 공용(owner null) 철도만 사용 (살아있는 타인 철도 제외)
+    const neighbors = getConnectedNeighbors(current, board, playerId, visited, entryEdge);
 
     for (const neighbor of neighbors) {
       // 링크 카운트: "완성된 철도 링크" = 도시/마을 사이의 연결 (중간 트랙 수 무관)
       // 도시/마을에 도착할 때만 링크 카운트 증가
-      const isNeighborCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
+      const neighborCity = board.cities.find(c => hexCoordsEqual(c.coord, neighbor));
       const isNeighborTown = board.towns.some(t => hexCoordsEqual(t.coord, neighbor));
-      const newLinkCount = (isNeighborCity || isNeighborTown) ? linkCount + 1 : linkCount;
+      const newLinkCount = (neighborCity || isNeighborTown) ? linkCount + 1 : linkCount;
 
       // 최대 링크 수 초과 시 건너뛰기
       if (newLinkCount > maxLength) {
+        continue;
+      }
+
+      // 같은 색 도시는 물품이 거기서 멈추므로 통과할 수 없다.
+      // 목적지(end)가 아닌데 cubeColor와 같은 색 도시를 만나면 그 경로는 차단한다
+      // (가까운 같은 색 도시를 지나 더 먼 같은 색 도시로 가는 잘못된 가이드 방지).
+      if (neighborCity && neighborCity.color === cubeColor && !hexCoordsEqual(neighbor, end)) {
         continue;
       }
 
@@ -906,7 +918,8 @@ export function findLongestPath(
     targetCityCoord,
     board,
     playerId,
-    engineLevel
+    engineLevel,
+    cubeColor
   );
 
   if (allPaths.length === 0) return null;
@@ -943,9 +956,9 @@ export function findReachableDestinations(
   const foundKeys = new Set<string>();
 
   function dfs(current: HexCoord, visited: Set<string>, linkCount: number, entryEdge?: number) {
-    // 이동은 자기/타인/공용 철도를 모두 사용한다(룰 V) → undefined로 모든 완성 트랙을 탐색.
-    // (수입은 completeCubeMove에서 경로의 각 링크 소유자에게 분배되고, 공용 null은 스킵된다)
-    const neighbors = getConnectedNeighbors(current, board, undefined, visited, entryEdge);
+    // 이동은 자기 철도 + 파산으로 공용(owner null)이 된 철도만 사용한다 (살아있는 타인 철도 제외).
+    // playerId를 넘기면 getConnectedNeighbors가 자기/공용 트랙만 인정한다(owner===playerId || null).
+    const neighbors = getConnectedNeighbors(current, board, playerId, visited, entryEdge);
     for (const neighbor of neighbors) {
       const nbKey = hexToKey(neighbor);
       if (visited.has(nbKey)) continue;

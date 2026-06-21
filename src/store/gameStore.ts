@@ -269,6 +269,9 @@ export function createInitialGameState(
 
   // 도시에 물품 배치 (헥스 큐브 셋업 맵은 도시 큐브 없음 — 룰북 St. Lucia)
   const cityCubeCounts = setupRules.cityCubeCounts;
+  // 색이 한쪽으로 몰리지 않도록 전역 색 사용량을 추적해 균형 있게 배치한다.
+  // (순수 무작위면 한 도시에 같은 색 2개·특정 색 쏠림이 생겨 시각적으로 빈약함)
+  const colorUsage = new Map<CubeColor, number>();
   const citiesWithCubes = boardState.cities.map((city) => {
     if (setupRules.hexCubeSetup) return { ...city, cubes: [] };
     const cubes: CubeColor[] = [];
@@ -276,17 +279,27 @@ export function createInitialGameState(
     const targetCubes = cityCubeCounts[city.id] ?? GAME_CONSTANTS.INITIAL_CUBES_PER_CITY;
     for (let i = 0; i < targetCubes; i++) {
       if (bag.length === 0) break;
-      // noOwnColorCubes: 도시 자기 색과 다른 큐브만 배치 (튜토리얼). 같은 색은 건너뛰고 다른 색을 찾음
-      let idx = bag.length - 1;
-      if (setupRules.noOwnColorCubes) {
-        idx = -1;
-        for (let j = bag.length - 1; j >= 0; j--) {
-          if (bag[j] !== city.color) { idx = j; break; }
-        }
-        if (idx === -1) break; // 다른 색이 남아있지 않으면 배치 생략
+      // 후보 선택: ① 이 도시에 아직 없는 색 우선(도시 내 중복 회피)
+      //           ② 그 중 전역 사용량이 가장 적은 색(전체 균형)
+      //  noOwnColorCubes(튜토리얼)는 도시 자기 색을 후보에서 제외.
+      let bestIdx = -1;
+      let bestUsed = Infinity;
+      let fallbackIdx = -1; // 자기색 제약만 통과(도시 내 중복 허용)하는 차선책
+      for (let j = bag.length - 1; j >= 0; j--) {
+        const c = bag[j];
+        if (setupRules.noOwnColorCubes && c === city.color) continue;
+        if (fallbackIdx === -1) fallbackIdx = j;
+        if (cubes.includes(c)) continue;
+        const used = colorUsage.get(c) ?? 0;
+        if (used < bestUsed) { bestUsed = used; bestIdx = j; }
       }
+      const idx = bestIdx !== -1 ? bestIdx : fallbackIdx;
+      if (idx === -1) break; // 배치 가능한 색이 전혀 없음(튜토리얼 극단)
       const cube = bag.splice(idx, 1)[0];
-      if (cube) cubes.push(cube);
+      if (cube) {
+        cubes.push(cube);
+        colorUsage.set(cube, (colorUsage.get(cube) ?? 0) + 1);
+      }
     }
     return { ...city, cubes };
   });

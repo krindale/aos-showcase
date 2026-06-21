@@ -751,8 +751,9 @@ export default function GameBoard() {
                 />
               )}
 
-              {/* 소유자 마커 - 미완성 트랙(완성된 링크에 포함되지 않은 트랙)에만 표시 */}
-              {!isTrackInCompletedLink(tile.coord) && (
+              {/* 소유자 마커 - 미완성 트랙에만 표시. 파산으로 공용화된(owner null) 트랙은
+                  소유 디스크를 제거하므로 마커를 그리지 않음 (룰: 파산 미완성 트랙 디스크 제거) */}
+              {!isTrackInCompletedLink(tile.coord) && tile.owner !== null && (
                 <circle
                   cx={x}
                   cy={y}

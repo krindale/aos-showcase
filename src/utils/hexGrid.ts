@@ -821,8 +821,8 @@ function findAllPaths(
       return;
     }
 
-    // entryEdge를 전달하여 복합 트랙에서 올바른 경로만 사용
-    const neighbors = getConnectedNeighbors(current, board, playerId, visited, entryEdge);
+    // 이동은 자기/타인/공용 철도를 모두 사용(룰 V) → undefined로 모든 완성 트랙 탐색
+    const neighbors = getConnectedNeighbors(current, board, undefined, visited, entryEdge);
 
     for (const neighbor of neighbors) {
       // 링크 카운트: "완성된 철도 링크" = 도시/마을 사이의 연결 (중간 트랙 수 무관)
@@ -943,7 +943,9 @@ export function findReachableDestinations(
   const foundKeys = new Set<string>();
 
   function dfs(current: HexCoord, visited: Set<string>, linkCount: number, entryEdge?: number) {
-    const neighbors = getConnectedNeighbors(current, board, playerId, visited, entryEdge);
+    // 이동은 자기/타인/공용 철도를 모두 사용한다(룰 V) → undefined로 모든 완성 트랙을 탐색.
+    // (수입은 completeCubeMove에서 경로의 각 링크 소유자에게 분배되고, 공용 null은 스킵된다)
+    const neighbors = getConnectedNeighbors(current, board, undefined, visited, entryEdge);
     for (const neighbor of neighbors) {
       const nbKey = hexToKey(neighbor);
       if (visited.has(nbKey)) continue;

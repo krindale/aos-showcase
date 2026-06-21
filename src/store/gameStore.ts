@@ -154,6 +154,56 @@ function findMissingTownSpurs(
   return missing;
 }
 
+/**
+ * 이번 턴에 연장(새 타일 추가)하지 않은 미완성 트랙 구간의 소유권을 해제(공용화)한다.
+ * 룰(IV): "미완성 트랙 구간을 자기 턴에 추가 트랙으로 연장하지 않으면 소유 디스크가 제거되어
+ * 미소유 상태가 된다. 방향 전환만으로는 연장으로 인정되지 않는다."
+ * 연결된 같은-소유자 구간 단위로 판정 — 구간에 이번 턴(builtTurn===currentTurn) 타일이 하나라도
+ * 있으면 유지, 없으면 그 구간 전체를 owner null로(점진 건설 구간이 매 턴 끊기지 않도록 구간 단위).
+ */
+function releaseUnextendedTrack(board: BoardState, currentTurn: number): { board: BoardState; released: number } {
+  const k = (c: HexCoord) => `${c.col},${c.row}`;
+  // 소유된 미완성 트랙(완성 링크의 일부가 아님)만 대상
+  const incomplete = board.trackTiles.filter(
+    t => t.owner != null && !isTrackPartOfCompletedLink(t.coord, board)
+  );
+  if (incomplete.length === 0) return { board, released: 0 };
+  const incByKey = new Map(incomplete.map(t => [k(t.coord), t]));
+  const visited = new Set<string>();
+  const releaseKeys = new Set<string>();
+
+  for (const start of incomplete) {
+    if (visited.has(k(start.coord))) continue;
+    // 같은 소유자로 연결된 미완성 구간 BFS
+    const group: typeof incomplete = [];
+    const stack = [start];
+    visited.add(k(start.coord));
+    while (stack.length) {
+      const t = stack.pop()!;
+      group.push(t);
+      for (const e of [...t.edges, ...(t.secondaryEdges ?? [])]) {
+        const nb = getNeighborHex(t.coord, e);
+        const nbT = incByKey.get(k(nb));
+        if (!nbT || visited.has(k(nb)) || nbT.owner !== t.owner) continue;
+        const back = (e + 3) % 6; // 인접 헥스에서 마주보는 변
+        if (![...nbT.edges, ...(nbT.secondaryEdges ?? [])].includes(back)) continue;
+        visited.add(k(nb));
+        stack.push(nbT);
+      }
+    }
+    // 구간에 이번 턴 연장(새 타일)이 하나도 없으면 전체 소유권 해제
+    if (!group.some(t => t.builtTurn === currentTurn)) {
+      group.forEach(t => releaseKeys.add(k(t.coord)));
+    }
+  }
+
+  if (releaseKeys.size === 0) return { board, released: 0 };
+  const updated = board.trackTiles.map(t =>
+    releaseKeys.has(k(t.coord)) ? { ...t, owner: null } : t
+  );
+  return { board: { ...board, trackTiles: updated }, released: releaseKeys.size };
+}
+
 export function createInitialGameState(
   mapId: string,
   playerNames: string[],
@@ -2846,9 +2896,16 @@ export const useGameStore = create<GameStore>()(
 
       // advanceTurn 후에는 새 턴 시작
       if (currentIndex === phases.length - 1) {
+        // 미완성 트랙 소유권 해제(룰 IV): 이번 턴에 연장 안 한 미완성 구간을 공용(owner null)으로
+        const { board: cleanedBoard, released } = releaseUnextendedTrack(state.board, state.currentTurn);
+        if (released > 0) {
+          console.log(`[nextPhase] 미완성 트랙 ${released}개 공용화 (이번 턴 미연장 구간)`);
+        }
+
         // 게임 종료 확인
         if (state.currentTurn >= state.maxTurns) {
           return {
+            board: cleanedBoard,
             currentPhase: 'gameOver' as GamePhase,
           };
         }
@@ -2857,6 +2914,7 @@ export const useGameStore = create<GameStore>()(
           currentPhase: nextPhaseName,
           currentTurn: state.currentTurn + 1,
           currentPlayer: playerOrder[0],
+          board: cleanedBoard,
           phaseState: {
             builtTracksThisTurn: 0,
             maxTracksThisTurn: GAME_CONSTANTS.NORMAL_TRACK_LIMIT,

@@ -251,8 +251,10 @@ export function estimateRouteVP(
   const sourceCoord = opp.sourceCoord;
 
   // 1. A* 경로와 남은 건설량/비용 (출발: 도시 또는 트랙 큐브 위치)
+  // 마을 경유 우대로 다링크 체인을 평가 — buildTrack/turnPlan과 동일 경로를 써야 일관됨.
+  const preferStops = config.incomeSources.includes('trackCubes') || state.activePlayers.length >= 3;
   const fullPath = findOptimalPathAvoidingOpponent(
-    sourceCoord, targetCity.coord, board, playerId
+    sourceCoord, targetCity.coord, board, playerId, undefined, preferStops
   );
   if (fullPath.length < 2) return none;
 

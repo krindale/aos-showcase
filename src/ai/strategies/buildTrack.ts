@@ -457,8 +457,11 @@ function tryDirectPathBuild(
   // 자사 트랙 엣지 비호환 시 회피 좌표를 추가하며 최대 3회 재탐색
   const avoidCoords: HexCoord[] = [];
 
-  // trackCubes 맵: 건설 경로도 마을을 경유하도록(route 선택과 동일) → 화물이 마을 링크를 지나 4-5링크 배달
-  const preferTowns = getMapAIConfig(state).incomeSources.includes('trackCubes');
+  // 마을 경유 우대: 화물이 마을 링크를 더 지나 다링크 배달 → income↑.
+  // trackCubes(4-5링크 깊은 배달) + 다인 cityCubes(장거리 도시 배달, 사용자 목표 income 20) 모두 적용.
+  // (route 선택·평가와 동일 경로를 빌드해야 일관됨 — vp.estimateRouteVP/turnPlan과 맞춤)
+  const cfg = getMapAIConfig(state);
+  const preferTowns = cfg.incomeSources.includes('trackCubes') || state.activePlayers.length >= 3;
 
   for (let attempt = 0; attempt < 3; attempt++) {
     // 1. A* 경로 계산 (상대 트랙 회피, 자사 트랙 우대, 비호환 트랙 회피)

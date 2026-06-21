@@ -148,8 +148,10 @@ function computeTurnPlan(state: GameState, playerId: PlayerId): TurnPlan {
     const targetCity = findStopById(board, targetRoute.to);
 
     if (sourceCity && targetCity) {
+      // 마을 경유 우대(다링크 체인) — vp.estimateRouteVP/buildTrack과 동일 경로로 일관성 유지.
+      const preferStops = config.incomeSources.includes('trackCubes') || state.activePlayers.length >= 3;
       const path = findOptimalPathAvoidingOpponent(
-        sourceCity.coord, targetCity.coord, board, playerId
+        sourceCity.coord, targetCity.coord, board, playerId, undefined, preferStops
       );
       if (path.length >= 2) {
         fullPath = path;

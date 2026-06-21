@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 import { useShallow } from 'zustand/react/shallow';
-import { PlayerId, PLAYER_COLORS } from '@/types/game';
+import { PLAYER_COLORS } from '@/types/game';
 import { DollarSign, User, Crown, XCircle, Check } from 'lucide-react';
 
 export default function AuctionPanel() {

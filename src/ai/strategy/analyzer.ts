@@ -102,9 +102,12 @@ export function findOptimalPath(
       // 이미 방문한 노드 스킵
       if (closedSet.has(neighborKey)) continue;
 
-      // 도시는 통과 가능 (비용 0) - 먼저 체크!
+      // 도시/마을 통과 = 완성 링크 +1 = income +1 (영구 +3VP). 트랙 비용($2≈1VP)보다 가치가
+      // 훨씬 크므로, 통과를 0이 아니라 보너스로 우대 → 일직선 대신 마을·도시를 거치는 경로를
+      // 선호하게 한다 (income 핵심: 지나는 링크 수만큼 수입). 도착 도시(to)는 보너스 제외.
       if (isCity(neighbor)) {
-        const newG = current.g + 0;  // 도시 통과 비용 0
+        const passBonus = hexCoordsEqual(neighbor, to) ? 0 : 1.5;
+        const newG = current.g - passBonus;  // 중간 도시/마을 경유 우대
 
         const existingIndex = openSet.findIndex(n => hexCoordsEqual(n.coord, neighbor));
         if (existingIndex >= 0) {

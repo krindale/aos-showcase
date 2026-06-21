@@ -99,6 +99,23 @@ export function selectStandardRoute(
     return findNetworkExpansionTarget(state, playerId);
   }
 
+  // 경로 지속(장거리 완성 대책): 지난 턴에 착수한 미완성 경로가 아직 "완성 가능"하면
+  // 새 화물로 갈아타지 말고 그 경로를 끝까지 짓는다. 4-5링크 장거리 경로는 여러 턴이
+  // 걸리는데, 매턴 갈아타면 미완성 트랙이 공용화되어 배달(수입)로 이어지지 못한다.
+  const prevRoute = getCurrentRoute(playerId);
+  if (prevRoute) {
+    const prog = getRouteProgress(state, playerId, prevRoute);
+    // 진행 중이고 "완성 가능한" 경로면 갈아타지 말고 고수 (완성 불가 경로는 갈아타기 허용 —
+    // 무조건 고수는 완성 불가 경로를 끝까지 고집해 오히려 income↓ 측정).
+    if (prog > 0 && prog < 1 && !isRouteComplete(state, prevRoute, playerId)) {
+      const prevOpp = allOpportunities.find(o => o.sourceCityId === prevRoute.from && o.targetCityId === prevRoute.to);
+      if (prevOpp && estimateRouteVP(state, playerId, prevOpp).completable) {
+        debugLog.trackBuilding(`[AI 경로] ${player.name}: 진행 중 경로 ${prevRoute.from}→${prevRoute.to} 완성까지 고수`);
+        return prevRoute;
+      }
+    }
+  }
+
   // 2. 연결된 도시 확인
   const connectedCities = getConnectedCities(state, playerId);
   const playerTracks = state.board.trackTiles.filter(t => t.owner === playerId);

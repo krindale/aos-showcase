@@ -233,10 +233,19 @@ function evaluateEngineUpgradeOption(state: GameState, playerId: PlayerId): numb
   // "T4까지 엔진 3~4 유동적" — front-load는 3까지(수송 포기 비용 최소), 3→4는 Locomotive 깊은-경로
   // 부스트가 상황에 따라(깊은 배달 필요 시) 처리 → 측정상 엔진 ~3.9에 안착(3~4). 상한 4로 강제하면
   // 초반 배달을 과도하게 포기해 income↓·파산↑·VP↓(측정 확인). 값 5는 짧은 배달(1링크)만 이김.
+  // 다인(3+) cityCubes도 trackCubes처럼 엔진을 미리 올린다 — 장거리(4-5링크) 배달이
+  // 수입의 핵심이기 때문(사용자 목표: income 20). 2인 tutorial(cityCubes)은 제외해 회귀 보존.
+  // 사용자 지침: 엔진은 T4까지만 front-load로 3까지 올리고, T5+ 는 move-round 엔진업을
+  // 금지하고 특수액션 Locomotive로만 올린다 (move-round 엔진업은 배달 1개를 포기 → income 손실).
+  const longHaul = config.incomeSources.includes('trackCubes') || state.activePlayers.length >= 3;
   const frontLoadTarget = Math.min(3, state.currentTurn + 1);
-  const frontLoad = (config.incomeSources.includes('trackCubes') && player.engineLevel < frontLoadTarget && remainingTurns >= 1)
+  const frontLoad = (longHaul && player.engineLevel < frontLoadTarget
+    && state.currentTurn <= 4 && remainingTurns >= 1)
     ? 5
     : 0;
+  if (longHaul && state.currentTurn >= 5) {
+    return frontLoad; // T5+: move-round 엔진업 금지 (frontLoad=0) → 엔진은 Locomotive로만
+  }
 
   // round 2의 업그레이드는 다음 턴에야 실현 → 마지막 턴이면 가치 없음
   if (round !== 1 && remainingTurns < 1) return -Infinity;
@@ -257,7 +266,11 @@ function evaluateEngineUpgradeOption(state: GameState, playerId: PlayerId): numb
     const base = engineUpgradeDeltaVP(state, playerId, unlockedVP, prob);
     // trackCubes 맵: 마을 경유로 깊어진 체인의 먼 큐브를 배달하려면 엔진을 키워야 한다. 짧은 즉시
     // 배달에 안주하지 않도록 엔진 업그레이드를 강하게 우대(사용자 목표: 4-5링크 배달 실현).
-    if (base > 0 && bestUnlockedTrackVP >= unlockedVP && config.incomeSources.includes('trackCubes')) {
+    // 장거리 배달 해금 시 엔진 업그레이드를 강하게 우대 — 짧은 1링크 배달에 안주하지 않게.
+    // trackCubes(깊은 트랙큐브 체인) + 다인 cityCubes(3링크+ 장거리 도시 배달) 모두 적용.
+    const longHaulUnlock = (bestUnlockedTrackVP >= unlockedVP && config.incomeSources.includes('trackCubes'))
+      || (state.activePlayers.length >= 3 && bestUnlocked && bestUnlocked.totalLinks >= 3);
+    if (base > 0 && longHaulUnlock) {
       return Math.max(base * 6, frontLoad);
     }
     return Math.max(base, frontLoad);

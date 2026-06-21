@@ -24,6 +24,7 @@ void _getNextTargetRoute; // 향후 확장용
 // 전역 상태 동기화용
 import { getCurrentRoute } from './strategy/state';
 import { refreshTurnPlan } from './strategy/turnPlan';
+import { getConnectedCities } from './strategy/analyzer';
 
 // 분석 함수들 (순수 함수)
 import {
@@ -307,9 +308,15 @@ export function decideUrbanizationPlacement(
   const bump = (c: string | null | undefined) => {
     if (c) colorCount.set(c, (colorCount.get(c) ?? 0) + 1);
   };
+  // 내 네트워크가 닿는 도시의 큐브만 센다 (사용자 지침: 트랙으로 수송할 화물과 연관된 도시화 —
+  // 보드 전체 큐브를 보면 못 옮길 먼 큐브까지 세서 엉뚱한 색을 도시화하게 된다).
+  // trackCubes 맵(St. Lucia)은 트랙/헥스 위 큐브도 수송원이므로 함께 본다.
+  const connectedForUrban = new Set(getConnectedCities(state, playerId));
+  board.cities.forEach(city => {
+    if (connectedForUrban.has(city.id)) city.cubes.forEach(bump);
+  });
   board.hexTiles.forEach(h => bump(h.cube));
   board.trackTiles.forEach(t => bump(t.cube));
-  board.cities.forEach(city => city.cubes.forEach(bump));
 
   // 이미 같은 색 도시가 있으면 후순위 (목적지 중복)
   const existingColors = new Set(board.cities.map(c => c.color));
@@ -337,6 +344,12 @@ export function decideUrbanizationPlacement(
     }
     for (const track of board.trackTiles) {
       if (track.cube === bestTile.color && hexDistance(track.coord, town.coord) <= 3) score += 2;
+    }
+    // ★ 도시 큐브(cityCubes 맵의 실제 화물)가 있는 도시 근처 마을을 강하게 우대 — 도시화 후
+    // 그 도시의 해당 색 큐브를 새 도시로 즉시 배달할 수 있다 (사용자 지침: 수송할 화물과 연관).
+    for (const city of board.cities) {
+      if (city.cubes.some(c => (c as string) === (bestTile.color as string))
+          && hexDistance(city.coord, town.coord) <= 2) score += 8;
     }
     // 내 트랙과의 거리 — 신규 도시를 내 연결망에 "인접"(거리1) 배치하면 그 도시가
     // 연결망에 합류해 하나의 긴 철도가 된다. 멀리 떨어진 도시는 별도 앵커=파편을 만들므로 강하게 억제.

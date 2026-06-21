@@ -267,7 +267,13 @@ export function estimateRouteVP(
 
   // 2. 완성 가능성 게이트 (시간 + 자금)
   const remainingTurnsIncl = Math.max(0, config.totalTurns - state.currentTurn + 1);
-  const timeFeasible = tracksToBuild <= remainingTurnsIncl * config.buildsPerTurn;
+  // 사용자 지침: 1~2턴 내 완성 가능한 경로만 목표로 잡는다. 7턴 전체로 낙관하면 먼 경로를
+  // 잡았다가 자금·경쟁으로 미완성(0링크)으로 끝나 배달 0이 된다. 짧아도 실제로 완성해서
+  // 배달하는 게 income에 유리 (다인 cityCubes). 단 trackCubes는 기존(장거리 깊은 배달) 유지.
+  const maxBuildTurns = config.incomeSources.includes('trackCubes')
+    ? remainingTurnsIncl
+    : Math.min(2, remainingTurnsIncl);
+  const timeFeasible = tracksToBuild <= maxBuildTurns * config.buildsPerTurn;
   // 자금: 보유 현금 + 턴당 2주 발행 여력 (보수적 1턴치)
   const fundingCapacity = player.cash + 2 * GAME_CONSTANTS.SHARE_VALUE;
   const fundFeasible = buildCost <= fundingCapacity + Math.max(0, player.income) * remainingTurnsIncl;
@@ -276,7 +282,13 @@ export function estimateRouteVP(
     return { deltaVP: -Infinity, tracksToBuild, buildCost, completable, expectedDeliveries: 0, fullPath };
   }
 
-  const links = opp.distance; // 이미 "예상 링크 수"
+  // 실제 A* 경로가 지나는 도시/마을 수 = 완성 시 income (지나는 링크마다 +1).
+  // (기존엔 직선거리/3 추정이라 마을·도시 경유로 늘어난 income을 평가에 못 반영했다.)
+  const linksOnPath = fullPath.filter(c =>
+    board.cities.some(ct => hexCoordsEqual(ct.coord, c)) ||
+    board.towns.some(t => hexCoordsEqual(t.coord, c) && t.newCityColor === null)
+  ).length - 1;
+  const links = Math.max(1, linksOnPath);
 
   // 3. 배달 가능 턴 수: 완성 시점과 엔진 준비 시점 이후
   const completionTurns = Math.ceil(tracksToBuild / config.buildsPerTurn); // 이번 턴 포함
@@ -329,10 +341,16 @@ export function estimateRouteVP(
   const fundShares = Math.ceil(Math.max(0, buildCost - player.cash) / GAME_CONSTANTS.SHARE_VALUE);
   const netTrackVP = tracksToBuild * VP_PER_LINK_TRACK * 0.5;
 
+  // 1턴 완성 최우선(사용자 지침): 이번 턴에 완성·배달 가능한 경로를 2턴 완성보다 강하게
+  // 우선한다. 완성이 늦을수록 페널티 (1턴=0, 2턴=-4VP). cityCubes 다인만 적용.
+  const lateCompletionPenalty = config.incomeSources.includes('trackCubes')
+    ? 0
+    : Math.max(0, completionTurns - 1) * 4;
   const deltaVP =
     rho * (expectedDeliveries * perDeliveryVP + netTrackVP)
     - buildCost * lambda
-    - fundShares * -VP_PER_SHARE;
+    - fundShares * -VP_PER_SHARE
+    - lateCompletionPenalty;
 
   return { deltaVP, tracksToBuild, buildCost, completable, expectedDeliveries, fullPath };
 }

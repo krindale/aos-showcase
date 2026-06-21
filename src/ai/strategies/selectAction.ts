@@ -26,7 +26,7 @@ import {
   FUTURE_DELIVERY_DISCOUNT,
   cashToVPRate,
 } from '../strategy/vp';
-import { findReachableDestinations, hexCoordsEqual, getNeighborHex, findTrackCubeDeliveries } from '@/utils/hexGrid';
+import { findReachableDestinations, hexCoordsEqual, getNeighborHex, findTrackCubeDeliveries, hexDistance } from '@/utils/hexGrid';
 import { debugLog } from '@/utils/debugConfig';
 import { getMapProfile } from '@/maps/getMapProfile';
 
@@ -136,6 +136,33 @@ function evaluateActionDeltaVP(
       // (배달 목적지 부족이 건설→배달 전환율의 핵심 병목)
       if (getMapAIConfig(state).incomeSources.includes('trackCubes')) {
         return evaluateUrbanizationForTrackCubes(state);
+      }
+      // cityCubes 다인: 닿을 같은 색 도시가 부족해 배달을 못 하는 게 핵심 병목(사용자 지침).
+      // 도시화로 배달 목적지를 늘린다 — 도시가 적고 보드에 배달 안 된 큐브가 많을수록 가치↑.
+      // cityCubes 다인 도시화: 내 네트워크가 닿는 도시의 "수송할 화물(큐브) 색"을 확인하고,
+      // 그 색 신규 도시 타일이 있을 때 내 트랙 근처 마을을 도시화하면 배달 목적지가 생긴다.
+      if (state.activePlayers.length >= 3) {
+        const myTracks = state.board.trackTiles.filter(t => t.owner === playerId);
+        const townsNearMe = state.board.towns.filter(t => t.newCityColor === null &&
+          myTracks.some(tr => hexDistance(tr.coord, t.coord) <= 2));
+        if (townsNearMe.length === 0) return 0.2;
+        // 내 트랙 근처(거리3) 도시의 큐브 색 = 내가 옮길 수 있는 화물. (getConnectedCities는
+        // '트랙 없을 때 빈 배열' 버그가 있어 늘 비어버리므로, 트랙 근접 도시로 robust하게 판단.)
+        const myCubeColors = new Set<string>();
+        state.board.cities.forEach(c => {
+          if (c.cubes && c.cubes.length &&
+              myTracks.some(tr => hexDistance(tr.coord, c.coord) <= 3)) {
+            c.cubes.forEach(cube => myCubeColors.add(cube as string));
+          }
+        });
+        if (myCubeColors.size === 0) return 0.2;
+        const availColors = new Set<string>(state.newCityTiles.filter(t => !t.used).map(t => t.color as string));
+        let deliverableViaUrban = 0;
+        myCubeColors.forEach(color => { if (availColors.has(color)) deliverableViaUrban++; });
+        if (deliverableViaUrban === 0) return 0.2;
+        // 도시화로 새로 열리는 배달 목적지의 income 가치 (배달 1링크 ≈ +3VP). engineer/firstBuild와
+        // 같은 ΔVP 단위로 비교되어, 도시화가 실제로 income을 여는 상황에서 확실히 선택된다.
+        return Math.min(9, deliverableViaUrban * 3);
       }
       return 0.2;
     }
@@ -268,10 +295,15 @@ function evaluateLocomotive(state: GameState, playerId: PlayerId, plan: TurnPlan
       }
     }
   }
-  const engineFloor = hasDeepCube ? 4 : state.currentTurn >= 2 ? 3 : 2;
+  // 다인 cityCubes: 장거리(4-5링크) 배달이 핵심이므로 T5+ 엔진 floor를 4로 올린다.
+  // (사용자 지침: T4까지 move-round로 3, T5+ 는 Locomotive 액션으로만 4-5까지)
+  const multiCity = state.activePlayers.length >= 3 && !config.incomeSources.includes('trackCubes');
+  const engineFloor = hasDeepCube ? 4
+    : (multiCity && state.currentTurn >= 5) ? 4   // 다인 후반: 4링크 장거리 배달 (측정상 최적)
+    : state.currentTurn >= 2 ? 3 : 2;
   const frontLoadTarget = Math.min(config.engineMax, engineFloor);
   let locoFrontLoad = 0;
-  if (config.incomeSources.includes('trackCubes')
+  if ((config.incomeSources.includes('trackCubes') || multiCity)
     && player.engineLevel < frontLoadTarget
     && config.totalTurns - state.currentTurn > 0) {
     // 뒤처짐 정도 + 마감(T6 floor 4) 임박 시 강하게 — urbanization(≤8)을 확실히 이겨 floor 보장.

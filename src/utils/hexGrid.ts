@@ -936,27 +936,41 @@ export function findReachableDestinations(
   engineLevel: number,
   cubeColor: CityColor
 ): City[] {
+  // 룰: 물품은 "같은 색 첫 도시"에 도착하면 멈춘다. 신규 도시도 board.cities에 있으므로 동등하게 적용.
+  // DFS로 트랙을 따라가며 같은 색 도시를 처음 만나면 그 도시를 목적지로 추가하고 거기서 멈춘다
+  // (그 도시를 지나 더 먼 같은 색 도시로 가는 경로는 차단 — 과거엔 신규 도시를 통과하던 버그).
   const reachable: City[] = [];
+  const foundKeys = new Set<string>();
 
-  // 같은 색상의 도시들 찾기
-  const sameColorCities = board.cities.filter(
-    c => c.color === cubeColor && !hexCoordsEqual(c.coord, startCityCoord)
-  );
+  function dfs(current: HexCoord, visited: Set<string>, linkCount: number, entryEdge?: number) {
+    const neighbors = getConnectedNeighbors(current, board, playerId, visited, entryEdge);
+    for (const neighbor of neighbors) {
+      const nbKey = hexToKey(neighbor);
+      if (visited.has(nbKey)) continue;
 
-  for (const city of sameColorCities) {
-    const path = findLongestPath(
-      startCityCoord,
-      city.coord,
-      board,
-      playerId,
-      engineLevel,
-      cubeColor
-    );
-    if (path) {
-      reachable.push(city);
+      const cityAt = board.cities.find(c => hexCoordsEqual(c.coord, neighbor));
+      const isTown = board.towns.some(t => hexCoordsEqual(t.coord, neighbor) && t.newCityColor === null);
+      const newLinkCount = (cityAt || isTown) ? linkCount + 1 : linkCount;
+      if (newLinkCount > engineLevel) continue;
+
+      if (cityAt) {
+        if (cityAt.color === cubeColor) {
+          // 같은 색 도시 도착 → 배달 목적지. 여기서 멈춘다(더 진행하지 않음 = 첫 도시 규칙).
+          if (!foundKeys.has(nbKey)) { foundKeys.add(nbKey); reachable.push(cityAt); }
+          continue;
+        }
+        // 다른 색 도시는 통과(멈추지 않음) — 아래에서 계속 탐색
+      }
+
+      const edgeFromCurrent = getConnectingEdge(current, neighbor);
+      const neighborEntryEdge = edgeFromCurrent !== null ? getOppositeEdge(edgeFromCurrent) : undefined;
+      visited.add(nbKey);
+      dfs(neighbor, visited, newLinkCount, neighborEntryEdge);
+      visited.delete(nbKey);
     }
   }
 
+  dfs(startCityCoord, new Set<string>([hexToKey(startCityCoord)]), 0, undefined);
   return reachable;
 }
 

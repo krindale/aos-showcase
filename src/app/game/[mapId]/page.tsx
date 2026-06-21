@@ -5,6 +5,7 @@ export function generateStaticParams() {
   return [
     { mapId: 'tutorial' },
     { mapId: 'st-lucia' },
+    { mapId: 'rust-belt' },
   ];
 }
 

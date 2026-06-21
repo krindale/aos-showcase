@@ -60,7 +60,7 @@ interface GamePageClientProps {
 }
 
 // 기본 플레이어 이름 생성 (튜토리얼은 AI 포함)
-const DEFAULT_NAMES = ['기차-하나', '컴퓨터-기차', '기차-셋', '기차-넷', '기차-다섯', '기차-여섯'];
+const DEFAULT_NAMES = ['기차-하나', '컴퓨터-기차', '컴퓨터-기차II', '컴퓨터-기차III', '컴퓨터-기차IV', '컴퓨터-기차V'];
 
 // 색상 이름 한글화
 const COLOR_NAMES: Record<string, string> = {
@@ -84,9 +84,9 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   const [playerNames, setPlayerNames] = useState<string[]>(DEFAULT_NAMES);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
   const [isLandscape, setIsLandscape] = useState(false);
-  // 플레이어 2는 기본적으로 AI (모든 맵)
+  // 기본: 플레이어 1(인덱스 0)만 사람, 나머지는 모두 AI (인원수만큼 — 모든 맵)
   const [aiPlayerIndexes, setAiPlayerIndexes] = useState<Set<number>>(
-    new Set([1])
+    () => new Set(Array.from({ length: supportedPlayers[0] - 1 }, (_, i) => i + 1))
   );
   const [showAIDebug, setShowAIDebug] = useState(false);
 
@@ -479,9 +479,9 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       {/* 생산 패널 (물품 성장 단계에서 Production 행동 선택 시) */}
       <ProductionPanel />
 
-      {/* 플레이어 패널 (동적 렌더링) */}
+      {/* 플레이어 패널 (동적 렌더링) — 3인+ 게임은 비활성 플레이어를 한 줄로 압축 */}
       {activePlayers.map(playerId => (
-        <PlayerPanel key={playerId} playerId={playerId} />
+        <PlayerPanel key={playerId} playerId={playerId} compact={activePlayers.length >= 3} />
       ))}
     </>
   );
@@ -491,7 +491,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     <div className={`bg-background ${isLandscape ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
       {/* 헤더 */}
       <header className={`fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-md border-b border-foreground/10 ${isLandscape ? 'py-1' : ''}`}>
-        <div className={`max-w-7xl mx-auto px-2 sm:px-4 flex items-center justify-between gap-2 sm:gap-4 ${isLandscape ? 'py-1' : 'py-2 sm:py-3'}`}>
+        <div className={`max-w-[1800px] mx-auto px-2 sm:px-4 flex items-center justify-between gap-2 sm:gap-4 ${isLandscape ? 'py-1' : 'py-2 sm:py-3'}`}>
           <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             <button
               onClick={handleBack}
@@ -502,7 +502,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
             </button>
             <div className="min-w-0">
               <h1 className="text-sm sm:text-lg font-bold text-foreground truncate">Age of Steam</h1>
-              <p className="text-xs text-foreground-secondary hidden sm:block">Rust Belt</p>
+              <p className="text-xs text-foreground-secondary hidden sm:block">{mapConfig.name}</p>
             </div>
           </div>
 
@@ -541,13 +541,13 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
 
       {/* 메인 콘텐츠 */}
       <main className={`${isLandscape ? 'pt-12 pb-2 px-2 h-[calc(100vh-3.5rem)] overflow-y-auto' : 'pt-20 pb-8 px-4 md:pb-8 pb-[30vh]'}`}>
-        <div className={`mx-auto ${isLandscape ? '' : 'max-w-7xl'}`}>
+        <div className={`mx-auto ${isLandscape ? '' : 'max-w-[1800px]'}`}>
           <div className={`grid grid-cols-1 md:grid-cols-12 ${isLandscape ? 'gap-2' : 'gap-6'}`}>
             {/* 왼쪽: 게임 보드 + 물품 디스플레이 */}
             <div className={`
               col-span-1
               ${isPanelCollapsed ? 'md:col-span-12' : 'md:col-span-8'}
-              lg:col-span-8
+              lg:col-span-9
               ${isLandscape ? 'space-y-2' : 'space-y-4'}
             `}>
               <GameBoard />
@@ -563,7 +563,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: 20 }}
                   transition={{ duration: 0.3 }}
-                  className="hidden md:block md:col-span-4 lg:col-span-4 space-y-4 md:sticky md:top-20 md:self-start md:max-h-[calc(100vh-6rem)] md:overflow-y-auto md:pr-1"
+                  className="hidden md:block md:col-span-4 lg:col-span-3 space-y-4 md:sticky md:top-20 md:self-start md:max-h-[calc(100vh-6rem)] md:overflow-y-auto md:pr-1"
                 >
                   {renderPanelContent()}
                 </motion.div>

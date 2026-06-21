@@ -41,6 +41,9 @@ export abstract class MapProfile {
   get forceFirstTurnUrbanization(): boolean { return false; }
   /** 도시에 자기 색과 같은 화물은 배치하지 않음 (초기 배치 + 물품 성장 모두). 튜토리얼 하우스룰. */
   get noOwnColorCubes(): boolean { return false; }
+  /** 도시별 초기 큐브 수 오버라이드 (미지정 도시는 INITIAL_CUBES_PER_CITY=2).
+   *  Rust Belt: Pittsburgh/Wheeling 3개, 그 외 2개 (룰북 셋업). */
+  get cityCubeCounts(): Record<string, number> { return {}; }
 
   // ── AI 설정 (기본 = 룰북 기본값; 맵 규모/특성에 따라 override) ──
   /** AI가 올릴 엔진 레벨 전략 상한 */

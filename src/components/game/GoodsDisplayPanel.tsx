@@ -2,44 +2,15 @@
 
 import { motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
-import { CUBE_COLORS, CubeColor, GOODS_DISPLAY_CONFIG, GoodsColumnId } from '@/types/game';
-import { TUTORIAL_COLUMN_MAPPING, TUTORIAL_CITIES } from '@/utils/tutorialMap';
+import { CUBE_COLORS, CubeColor, GoodsColumnMapping } from '@/types/game';
+import { getMapData } from '@/utils/mapRegistry';
 import { Package, Plus } from 'lucide-react';
-
-// 열 정보 조회 헬퍼 함수
-function getColumnInfo(columnId: GoodsColumnId): { label: string; cityName: string; isNewCity: boolean } {
-  const mapping = TUTORIAL_COLUMN_MAPPING.find(m => m.columnId === columnId);
-  if (!mapping) {
-    return { label: columnId, cityName: '?', isNewCity: false };
-  }
-
-  // 기존 도시인 경우 도시 이름 조회
-  if (!mapping.isNewCity) {
-    // cityId가 비어있으면 마을/미사용 열 (예: 마을이 된 Wheeling) — 물품 생산 없음
-    if (!mapping.cityId) {
-      return { label: columnId, cityName: '—', isNewCity: false };
-    }
-    const city = TUTORIAL_CITIES.find(c => c.id === mapping.cityId);
-    return {
-      label: columnId,
-      cityName: city?.name || mapping.cityId,
-      isNewCity: false,
-    };
-  }
-
-  // 신규 도시인 경우
-  return {
-    label: columnId,
-    cityName: `New City ${columnId}`,
-    isNewCity: true,
-  };
-}
 
 // 큐브 렌더링 컴포넌트
 function CubeSlot({
   color,
   globalIndex,
-  columnIndex,
+  columnLabel,
   rowIndex,
   isProductionMode,
   isSelected,
@@ -49,7 +20,7 @@ function CubeSlot({
 }: {
   color: CubeColor | null;
   globalIndex: number;
-  columnIndex: number;
+  columnLabel: string;
   rowIndex: number;
   isProductionMode: boolean;
   isSelected: boolean;
@@ -80,7 +51,7 @@ function CubeSlot({
       `}
       style={color ? { backgroundColor: CUBE_COLORS[color] } : undefined}
       title={color
-        ? `${color} 큐브 (열 ${GOODS_DISPLAY_CONFIG.COLUMNS[columnIndex]}, ${rowIndex + 1}번)`
+        ? `${color} 큐브 (열 ${columnLabel}, ${rowIndex + 1}번)`
         : isSelected
         ? `선택됨 (${selectionOrder + 1}번)`
         : `빈 칸`
@@ -111,14 +82,14 @@ function CubeSlot({
 
 // 열 헤더 컴포넌트
 function ColumnHeader({
-  columnId,
-  isNewCity
+  label,
+  cityName,
+  isNewCity,
 }: {
-  columnId: GoodsColumnId;
+  label: string;
+  cityName: string;
   isNewCity: boolean;
 }) {
-  const info = getColumnInfo(columnId);
-
   return (
     <div className={`
       text-center pb-1 border-b mb-2
@@ -131,44 +102,41 @@ function ColumnHeader({
         text-sm font-bold
         ${isNewCity ? 'text-accent' : 'text-foreground'}
       `}>
-        {info.label}
+        {label}
       </div>
-      <div className="text-[10px] truncate" title={info.cityName}>
-        {info.cityName}
+      <div className="text-[10px] truncate" title={cityName}>
+        {cityName}
       </div>
     </div>
   );
 }
 
 export default function GoodsDisplayPanel() {
-  const { goodsDisplay, ui, selectProductionSlot } = useGameStore();
+  const { mapId, board, goodsDisplay, ui, selectProductionSlot } = useGameStore();
+
+  const columns = getMapData(mapId).columnMapping;
 
   const isProductionMode = ui.productionMode;
   const selectedSlots = ui.selectedProductionSlots;
   const productionCubes = ui.productionCubes;
 
-  // 슬롯을 열별로 분할
-  const getColumnSlots = (columnIndex: number): (CubeColor | null)[] => {
-    const rowCount = GOODS_DISPLAY_CONFIG.ROWS_PER_COLUMN[columnIndex];
-    let startIndex = 0;
+  // 열별 헤더 라벨: 주사위 열은 주사위 번호, 신규 도시 열은 columnId
+  const columnLabel = (m: GoodsColumnMapping): string =>
+    m.isNewCity ? m.columnId : String(m.diceNumber ?? m.columnId);
 
-    for (let i = 0; i < columnIndex; i++) {
-      startIndex += GOODS_DISPLAY_CONFIG.ROWS_PER_COLUMN[i];
-    }
-
-    return goodsDisplay.slots.slice(startIndex, startIndex + rowCount);
+  // 열이 가리키는 도시 이름 (신규 도시 / 미사용 마을 열 처리)
+  const columnCityName = (m: GoodsColumnMapping): string => {
+    if (m.isNewCity) return `New City ${m.columnId}`;
+    if (!m.cityId) return '—';
+    return board.cities.find(c => c.id === m.cityId)?.name || m.cityId;
   };
 
-  // 열의 시작 인덱스 계산
-  const getColumnStartIndex = (columnIndex: number): number => {
-    let startIndex = 0;
-    for (let i = 0; i < columnIndex; i++) {
-      startIndex += GOODS_DISPLAY_CONFIG.ROWS_PER_COLUMN[i];
-    }
-    return startIndex;
-  };
+  // 열의 시작 인덱스 계산 (앞 열들의 rowCount 누적)
+  const startIndexOf = (columnIndex: number): number =>
+    columns.slice(0, columnIndex).reduce((sum, m) => sum + m.rowCount, 0);
 
   // 남은 큐브 수 계산
+  const totalSlots = goodsDisplay.slots.length;
   const remainingCubes = goodsDisplay.slots.filter(s => s !== null).length;
   const bagCubes = goodsDisplay.bag.length;
 
@@ -185,32 +153,32 @@ export default function GoodsDisplayPanel() {
           <h3 className="font-semibold text-foreground text-sm">물품 디스플레이</h3>
         </div>
         <div className="flex items-center gap-3 text-xs text-foreground-secondary">
-          <span>디스플레이: {remainingCubes}/52</span>
+          <span>디스플레이: {remainingCubes}/{totalSlots}</span>
           <span>주머니: {bagCubes}</span>
         </div>
       </div>
 
       {/* 물품 그리드 */}
-      <div className="p-3">
+      <div className="p-3 overflow-x-auto">
         <div className="flex gap-1">
-          {GOODS_DISPLAY_CONFIG.COLUMNS.map((columnId, columnIndex) => {
-            const slots = getColumnSlots(columnIndex);
-            const isNewCity = columnIndex >= 6; // A, B, C, D는 신규 도시
+          {columns.map((m, columnIndex) => {
+            const startIndex = startIndexOf(columnIndex);
+            const slots = goodsDisplay.slots.slice(startIndex, startIndex + m.rowCount);
+            const label = columnLabel(m);
 
             return (
               <div
-                key={columnId}
+                key={m.columnId}
                 className={`
                   flex flex-col
-                  ${isNewCity ? 'bg-accent/5 rounded p-1' : 'p-1'}
+                  ${m.isNewCity ? 'bg-accent/5 rounded p-1' : 'p-1'}
                 `}
               >
-                <ColumnHeader columnId={columnId} isNewCity={isNewCity} />
+                <ColumnHeader label={label} cityName={columnCityName(m)} isNewCity={m.isNewCity} />
 
                 {/* 큐브 슬롯들 (위에서 아래로) */}
                 <div className="flex flex-col gap-1">
                   {slots.map((color, rowIndex) => {
-                    const startIndex = getColumnStartIndex(columnIndex);
                     const globalIndex = startIndex + rowIndex;
                     const isSelected = selectedSlots.includes(globalIndex);
                     const selectionOrder = selectedSlots.indexOf(globalIndex);
@@ -218,10 +186,10 @@ export default function GoodsDisplayPanel() {
 
                     return (
                       <CubeSlot
-                        key={`${columnId}-${rowIndex}`}
+                        key={`${m.columnId}-${rowIndex}`}
                         color={color}
                         globalIndex={globalIndex}
-                        columnIndex={columnIndex}
+                        columnLabel={label}
                         rowIndex={rowIndex}
                         isProductionMode={isProductionMode}
                         isSelected={isSelected}

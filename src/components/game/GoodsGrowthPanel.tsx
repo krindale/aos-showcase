@@ -4,12 +4,13 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 import { CUBE_COLORS, CubeColor } from '@/types/game';
-import { TUTORIAL_COLUMN_MAPPING } from '@/utils/tutorialMap';
+import { getMapData } from '@/utils/mapRegistry';
 import DiceRoller from './DiceRoller';
 import { Sparkles, Package, Check, ArrowRight } from 'lucide-react';
 
 export default function GoodsGrowthPanel() {
   const {
+    mapId,
     players,
     goodsDisplay,
     board,
@@ -17,6 +18,8 @@ export default function GoodsGrowthPanel() {
     growGoods,
     nextPhase,
   } = useGameStore();
+
+  const columns = getMapData(mapId).columnMapping;
 
   const [diceResults, setDiceResults] = useState<number[]>([]);
   const [growthApplied, setGrowthApplied] = useState(false);
@@ -30,20 +33,11 @@ export default function GoodsGrowthPanel() {
   const activePlayers = Object.values(players).filter(p => !p.eliminated);
   const diceCount = activePlayers.length;
 
-  // 열별 큐브 수 계산
-  const getColumnCubes = (columnId: string): (CubeColor | null)[] => {
-    const columnIndex = TUTORIAL_COLUMN_MAPPING.findIndex(m => m.columnId === columnId);
-    if (columnIndex === -1) return [];
+  // 열의 시작 인덱스 (앞 열들의 rowCount 누적)
+  const startIndexOf = (columnIndex: number): number =>
+    columns.slice(0, columnIndex).reduce((sum, m) => sum + m.rowCount, 0);
 
-    const startIndex = TUTORIAL_COLUMN_MAPPING.slice(0, columnIndex).reduce(
-      (sum, m) => sum + m.rowCount,
-      0
-    );
-    const mapping = TUTORIAL_COLUMN_MAPPING[columnIndex];
-    return goodsDisplay.slots.slice(startIndex, startIndex + mapping.rowCount);
-  };
-
-  // 주사위 결과에 따른 이동할 큐브 계산
+  // 주사위 결과에 따른 이동할 큐브 계산 (한 주사위 번호를 여러 도시 열이 공유 가능)
   const calculateGrowthResults = () => {
     if (diceResults.length === 0) return [];
 
@@ -55,26 +49,32 @@ export default function GoodsGrowthPanel() {
       diceCountMap[d] = (diceCountMap[d] || 0) + 1;
     });
 
-    // 각 열별로 이동할 큐브 계산
+    // 주사위 번호 → diceNumber가 일치하는 모든 도시 열에서 이동할 큐브 계산
     for (const [diceValue, count] of Object.entries(diceCountMap)) {
-      const columnId = diceValue;
-      const mapping = TUTORIAL_COLUMN_MAPPING.find(m => m.columnId === columnId);
+      const dnum = Number(diceValue);
+      columns.forEach((m, columnIndex) => {
+        if (m.isNewCity) return;
+        const dice = m.diceNumber ?? Number(m.columnId);
+        if (dice !== dnum) return;
 
-      if (mapping) {
-        const columnCubes = getColumnCubes(columnId).filter(c => c !== null) as CubeColor[];
+        const city = board.cities.find(c => c.id === m.cityId);
+        if (!city) return;
+
+        const startIndex = startIndexOf(columnIndex);
+        const columnCubes = goodsDisplay.slots
+          .slice(startIndex, startIndex + m.rowCount)
+          .filter(c => c !== null) as CubeColor[];
         const cubesToMove = columnCubes.slice(0, count);
 
-        const city = board.cities.find(c => c.id === mapping.cityId);
-
-        if (cubesToMove.length > 0 && city) {
+        if (cubesToMove.length > 0) {
           results.push({
-            columnId,
+            columnId: m.columnId,
             cityName: city.name,
             count: cubesToMove.length,
             cubes: cubesToMove,
           });
         }
-      }
+      });
     }
 
     return results;

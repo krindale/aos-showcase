@@ -50,8 +50,56 @@ export default function GameBoard() {
   // 맵 데이터(그리드 크기/지형 색): mapRegistry에서 주입 — 튜토리얼 하드코딩 금지
   const mapData = useMemo(() => getMapData(mapId), [mapId]);
   const terrainColors = mapData.colors.terrain;
+  // 도시 헥스에 표시할 물품 성장 주사위 번호 (cityId → diceNumber).
+  // Rust Belt처럼 도시가 많은 맵에서 어느 도시가 어느 주사위 번호로 보충되는지 보여준다.
+  const cityDiceNumber = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const col of mapData.columnMapping) {
+      if (!col.isNewCity && col.diceNumber != null) m[col.cityId] = col.diceNumber;
+    }
+    return m;
+  }, [mapData]);
   // flat-top 맵(St. Lucia): 모든 렌더 기하를 전치 — 데이터/게임 로직은 pointy-top 그대로 (인접 동형)
   const isFlat = mapData.orientation === 'flat';
+
+  // 강 흐름: 인접한 강 헥스 방향의 변중점을 헥스 중심으로 이어, 철도처럼 연속해서 흐르게 한다.
+  // (공유 변의 중점은 양쪽 헥스에서 같은 좌표라, 이웃 강 헥스의 곡선과 자연히 이어진다)
+  const riverHexKeys = useMemo(() => {
+    const s = new Set<string>();
+    board.hexTiles.forEach(h => {
+      if (h.terrain === 'river') s.add(`${h.coord.col},${h.coord.row}`);
+    });
+    return s;
+  }, [board.hexTiles]);
+
+  const riverFlowPath = (coord: HexCoord, x: number, y: number): string => {
+    const edges: number[] = [];
+    const mids: { x: number; y: number }[] = [];
+    for (let e = 0; e < 6; e++) {
+      const nb = getNeighborHex(coord, e);
+      if (riverHexKeys.has(`${nb.col},${nb.row}`)) {
+        edges.push(e);
+        mids.push(getEdgeMidpoint(x, y, e, HEX_SIZE, isFlat));
+      }
+    }
+    if (mids.length === 0) {
+      // 고립된 강: 양쪽 가장자리(좌우 변)에 닿게 관통
+      const a = getEdgeMidpoint(x, y, 3, HEX_SIZE, isFlat);
+      const b = getEdgeMidpoint(x, y, 0, HEX_SIZE, isFlat);
+      return `M ${a.x} ${a.y} Q ${x} ${y}, ${b.x} ${b.y}`;
+    }
+    if (mids.length === 1) {
+      // 강 끝(인접 강 1개): 들어온 변 → 중심 → 반대편 가장자리까지 관통해 흘러나감
+      const out = getEdgeMidpoint(x, y, (edges[0] + 3) % 6, HEX_SIZE, isFlat);
+      return `M ${mids[0].x} ${mids[0].y} Q ${x} ${y}, ${out.x} ${out.y}`;
+    }
+    if (mids.length === 2) {
+      // 변 → 중심 → 변: 두 변을 중심 경유로 부드럽게 이어 연속 흐름
+      return `M ${mids[0].x} ${mids[0].y} Q ${x} ${y}, ${mids[1].x} ${mids[1].y}`;
+    }
+    // 분기(3+): 각 변중점에서 중심으로
+    return mids.map(m => `M ${m.x} ${m.y} L ${x} ${y}`).join(' ');
+  };
 
   // Actions (참조가 변하지 않으므로 별도 selector)
   const {
@@ -413,7 +461,7 @@ export default function GameBoard() {
             {currentPhase === 'moveGoods' && !ui.selectedCube && !ui.movingCube && '물품 큐브를 클릭하세요'}
             {currentPhase === 'moveGoods' && ui.selectedCube && '금색 테두리의 목적지 도시를 클릭하세요'}
             {currentPhase === 'moveGoods' && ui.movingCube && '물품 이동 중...'}
-            {currentPhase !== 'buildTrack' && currentPhase !== 'moveGoods' && 'Tutorial'}
+            {currentPhase !== 'buildTrack' && currentPhase !== 'moveGoods' && mapData.name}
           </span>
           <div className="flex items-center gap-2 shrink-0">
             <span className="text-xs text-accent whitespace-nowrap">
@@ -505,14 +553,15 @@ export default function GameBoard() {
                   onClick={() => isClickable && handleHexClick(coord)}
                   onMouseEnter={() => handleHexHover(coord)}
                 />
-                {/* 강 헥스: 평지 위로 흐르는 강줄기 (공식 맵 스타일) */}
+                {/* 강 헥스: 인접 강 헥스와 변에서 이어지는 연속 강줄기 (철도 타일처럼 흐름) */}
                 {terrain === 'river' && !isHighlighted && (
                   <path
-                    d={`M ${x - HEX_SIZE * 0.85} ${y - HEX_SIZE * 0.25} Q ${x - HEX_SIZE * 0.3} ${y + HEX_SIZE * 0.3}, ${x + HEX_SIZE * 0.1} ${y} T ${x + HEX_SIZE * 0.85} ${y + HEX_SIZE * 0.2}`}
+                    d={riverFlowPath(coord, x, y)}
                     fill="none"
                     stroke={terrainColors.river}
                     strokeWidth="11"
                     strokeLinecap="round"
+                    strokeLinejoin="round"
                     opacity="0.95"
                     style={{ pointerEvents: 'none' }}
                   />
@@ -1024,7 +1073,7 @@ export default function GameBoard() {
                 fontFamily="system-ui, sans-serif"
                 style={{ pointerEvents: 'none' }}
               >
-                {city.id}
+                {cityDiceNumber[city.id] ?? city.id}
               </text>
 
               {/* 도시 이름 */}

@@ -18,9 +18,11 @@ import {
 
 interface PlayerPanelProps {
   playerId: PlayerId;
+  /** 3인+ 게임: 비활성 플레이어를 한 줄 요약으로 압축 (전원을 한눈에) */
+  compact?: boolean;
 }
 
-export default function PlayerPanel({ playerId }: PlayerPanelProps) {
+export default function PlayerPanel({ playerId, compact = false }: PlayerPanelProps) {
   const { players, currentPlayer, currentPhase, aiExecution } = useGameStore(
     useShallow((state) => ({
       players: state.players,
@@ -64,6 +66,39 @@ export default function PlayerPanel({ playerId }: PlayerPanelProps) {
 
   // 탈락 상태 체크
   const isEliminated = player.eliminated;
+
+  // 3인+ 게임: 현재 턴이 아닌 플레이어는 한 줄 요약으로 압축 (다른 사람 상황을 한눈에)
+  if (compact && !isActive) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, x: 20 }}
+        animate={{ opacity: 1, x: 0 }}
+        className={`rounded-lg border px-2 py-1.5 flex items-center justify-between gap-2 ${
+          isEliminated
+            ? 'border-red-500/40 bg-red-500/10 opacity-60'
+            : 'border-foreground/10 bg-background-secondary'
+        }`}
+      >
+        <div className="flex items-center gap-1.5 min-w-0">
+          <div
+            className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+            style={{ backgroundColor: isEliminated ? '#ef4444' : playerColor }}
+          />
+          <span className={`font-semibold text-xs truncate ${isEliminated ? 'text-red-400 line-through' : 'text-foreground'}`}>
+            {player.name}
+          </span>
+          {isAI && <Bot className="w-2.5 h-2.5 text-blue-400 flex-shrink-0" />}
+          {isEliminated && <Skull className="w-2.5 h-2.5 text-red-400 flex-shrink-0" />}
+        </div>
+        <div className="flex items-center gap-2 text-[11px] font-medium flex-shrink-0">
+          <span className="flex items-center gap-0.5 text-green-400" title="현금"><DollarSign className="w-3 h-3" />{player.cash}</span>
+          <span className="flex items-center gap-0.5 text-blue-400" title="수입"><TrendingUp className="w-3 h-3" />{player.income}</span>
+          <span className="flex items-center gap-0.5 text-yellow-400" title="엔진"><Train className="w-3 h-3" />{player.engineLevel}</span>
+          <span className="flex items-center gap-0.5 text-purple-400" title="발행 주식"><FileText className="w-3 h-3" />{player.issuedShares}</span>
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div

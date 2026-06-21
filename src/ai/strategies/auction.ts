@@ -124,8 +124,10 @@ export function decideTurnOrderOffer(
 function estimateFirstSeatVP(state: GameState, playerId: PlayerId): number {
   const plan = ensureTurnPlan(state, playerId);
 
-  // 행동 선택 우선권 기본 가치 (원하는 행동을 선점당하지 않음)
-  let vp = 0.3;
+  // 1등(선공)의 기본 가치 — 행동 선점 + 순서 이점.
+  // 다인(5인)에서는 좋은 도시/경로 선점 이점이 커서, 경합이 없어도 최소 입찰($1)은
+  // 하도록 0.3 → 0.8로 상향 (lambda 0.5 기준 maxBid ≥ 1). 과투자는 cashCeiling이 가드.
+  let vp = 0.8;
 
   // 경합 배달: 먼저 움직여 내 income 보호 + 상대 차단
   if (hasContestedDelivery(state, playerId)) {

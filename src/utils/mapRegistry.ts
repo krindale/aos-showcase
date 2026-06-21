@@ -7,6 +7,7 @@ import {
   BoardState,
   City,
   Town,
+  CubeColor,
   GoodsColumnMapping,
   SpecialAction,
   TerrainType,
@@ -28,6 +29,16 @@ import {
   ST_LUCIA_TOWN_NAMES,
   createStLuciaBoardState,
 } from './stLuciaMap';
+import {
+  RUST_BELT_MAP,
+  RUST_BELT_CITIES,
+  RUST_BELT_TOWNS,
+  RUST_BELT_COLUMN_MAPPING,
+  RUST_BELT_COLORS,
+  RUST_BELT_TOWN_NAMES,
+  RUST_BELT_CUBE_COUNTS,
+  createRustBeltBoardState,
+} from './rustBeltMap';
 
 /**
  * 맵별 특수 룰 플래그
@@ -94,6 +105,9 @@ export interface GameMapData {
   rules: MapRuleConfig;
   /** 초기 보드 상태 생성 (도시 큐브는 createInitialGameState에서 배치) */
   createBoardState: () => BoardState;
+  /** 물품 디스플레이 큐브 색 구성 (미지정 시 룰북 표준 — black 포함).
+   *  Rust Belt처럼 검정 도시가 없는 맵은 black 제외 구성을 지정 (배달 불가 데드 큐브 방지). */
+  goodsCubeCounts?: Partial<Record<CubeColor, number>>;
 }
 
 // 튜토리얼 맵은 3턴 (TUTORIAL_GAME_CONFIG.maxTurns와 동일해야 함)
@@ -154,6 +168,32 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
       forceFirstTurnUrbanization: true, // 첫 트랙은 도시 인접만 — 1턴엔 도시화 선택자만 건설 가능
     },
     createBoardState: createStLuciaBoardState,
+  },
+
+  'rust-belt': {
+    id: RUST_BELT_MAP.id,
+    name: RUST_BELT_MAP.name,
+    nameKo: RUST_BELT_MAP.nameKo,
+    description: RUST_BELT_MAP.description,
+    supportedPlayers: RUST_BELT_MAP.supportedPlayers,
+    cols: RUST_BELT_MAP.cols,
+    rows: RUST_BELT_MAP.rows,
+    startCol: RUST_BELT_MAP.startCol,
+    maxTurns: RUST_BELT_MAP.maxTurns,
+    cities: RUST_BELT_CITIES,
+    towns: RUST_BELT_TOWNS,
+    columnMapping: RUST_BELT_COLUMN_MAPPING,
+    townNames: RUST_BELT_TOWN_NAMES,
+    hideLakeHexes: true,         // 오대호/외곽은 빈 공간으로 (flat-top 렌더)
+    orientation: 'flat',
+    colors: {
+      terrain: RUST_BELT_COLORS.terrain,
+      background: RUST_BELT_COLORS.background,
+      border: RUST_BELT_COLORS.border,
+    },
+    rules: { ...DEFAULT_MAP_RULES }, // 룰북 표준 규칙
+    createBoardState: createRustBeltBoardState,
+    goodsCubeCounts: RUST_BELT_CUBE_COUNTS, // 검정 도시 없음 → black 큐브 제외
   },
 };
 

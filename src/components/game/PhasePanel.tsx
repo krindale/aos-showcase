@@ -99,11 +99,12 @@ export default function PhasePanel() {
       <button
         onClick={undoLastAction}
         disabled={isAIExecuting}
-        className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-steam-red/10 text-steam-red border border-steam-red/30 hover:bg-steam-red/20 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        className="flex-shrink-0 min-h-[44px] px-3 py-3 md:py-2 rounded-lg text-sm font-medium bg-steam-red/10 text-steam-red border border-steam-red/30 hover:bg-steam-red/20 transition-colors flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
         aria-label="실행 취소"
+        title={`취소: ${getUndoLabel() ?? '마지막 행동'}`}
       >
         <Undo2 className="w-4 h-4" />
-        취소: {getUndoLabel() ?? '마지막 행동'}
+        취소
       </button>
     ) : null;
 
@@ -160,18 +161,18 @@ export default function PhasePanel() {
                 </div>
               </div>
             ) : (
-              <>
-                {undoButton}
+              <div className="flex gap-2">
                 <button
                   onClick={handleNextPhase}
                   disabled={isAIExecuting}
-                  className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   aria-label="다음 단계로"
                 >
                   다음 단계로
                   <ChevronRight className="w-4 h-4" />
                 </button>
-              </>
+                {undoButton}
+              </div>
             )}
           </div>
         )}

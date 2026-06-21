@@ -141,23 +141,28 @@ export function generateTutorialHexTiles(): HexTile[] {
 }
 
 // === 물품 디스플레이 초기화 ===
-export function initializeGoodsDisplay(): GoodsDisplay {
-  // 물품 큐브 초기 수량 (2인 게임)
-  // 빨강 20, 파랑 20, 보라 20, 노랑 20, 검정 16
-  const cubes: CubeColor[] = [];
+// 맵별로 큐브 색 구성과 디스플레이 칸 수가 다를 수 있어 파라미터화한다.
+// 기본값은 룰북 표준 구성(빨강/파랑/보라/노랑 20 + 검정 16)과 52칸 — Tutorial 등 표준 맵.
+// Rust Belt처럼 검정 도시가 없는 맵은 검정 큐브를 빼고 호출한다 (배달 불가 데드 큐브 방지).
+export const DEFAULT_CUBE_COUNTS: Partial<Record<CubeColor, number>> = {
+  red: 20, blue: 20, purple: 20, yellow: 20, black: 16,
+};
 
-  for (let i = 0; i < 20; i++) cubes.push('red');
-  for (let i = 0; i < 20; i++) cubes.push('blue');
-  for (let i = 0; i < 20; i++) cubes.push('purple');
-  for (let i = 0; i < 20; i++) cubes.push('yellow');
-  for (let i = 0; i < 16; i++) cubes.push('black');
+export function initializeGoodsDisplay(
+  cubeCounts: Partial<Record<CubeColor, number>> = DEFAULT_CUBE_COUNTS,
+  totalSlots: number = 52
+): GoodsDisplay {
+  const cubes: CubeColor[] = [];
+  for (const [color, count] of Object.entries(cubeCounts)) {
+    for (let i = 0; i < (count ?? 0); i++) cubes.push(color as CubeColor);
+  }
 
   // 셔플
   const shuffled = [...cubes].sort(() => Math.random() - 0.5);
 
-  // 52칸 디스플레이 채우기
-  const slots: (CubeColor | null)[] = shuffled.slice(0, 52);
-  const bag = shuffled.slice(52);
+  // 디스플레이 채우기 (나머지는 주머니)
+  const slots: (CubeColor | null)[] = shuffled.slice(0, totalSlots);
+  const bag = shuffled.slice(totalSlots);
 
   return { slots, bag };
 }

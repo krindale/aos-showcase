@@ -161,7 +161,9 @@ export function createInitialGameState(
 ): GameState {
   const mapData = getMapData(mapId);
   const boardState = mapData.createBoardState();
-  let goodsDisplay = initializeGoodsDisplay();
+  // 디스플레이 칸 수는 맵의 columnMapping rowCount 합, 큐브 색 구성은 맵별(미지정 시 표준).
+  const totalGoodsSlots = mapData.columnMapping.reduce((sum, m) => sum + m.rowCount, 0) || 52;
+  let goodsDisplay = initializeGoodsDisplay(mapData.goodsCubeCounts, totalGoodsSlots);
 
   const setupRules = getMapProfile(mapId);
 
@@ -216,10 +218,13 @@ export function createInitialGameState(
     : goodsDisplay.slots;
 
   // 도시에 물품 배치 (헥스 큐브 셋업 맵은 도시 큐브 없음 — 룰북 St. Lucia)
+  const cityCubeCounts = setupRules.cityCubeCounts;
   const citiesWithCubes = boardState.cities.map((city) => {
     if (setupRules.hexCubeSetup) return { ...city, cubes: [] };
     const cubes: CubeColor[] = [];
-    for (let i = 0; i < GAME_CONSTANTS.INITIAL_CUBES_PER_CITY; i++) {
+    // 도시별 초기 큐브 수 (Rust Belt: Pittsburgh/Wheeling 3, 나머지 2)
+    const targetCubes = cityCubeCounts[city.id] ?? GAME_CONSTANTS.INITIAL_CUBES_PER_CITY;
+    for (let i = 0; i < targetCubes; i++) {
       if (bag.length === 0) break;
       // noOwnColorCubes: 도시 자기 색과 다른 큐브만 배치 (튜토리얼). 같은 색은 건너뛰고 다른 색을 찾음
       let idx = bag.length - 1;
@@ -1159,11 +1164,18 @@ export const useGameStore = create<GameStore>()(
       let nextBidder: PlayerId;
       if (activePlayers.length <= 1) {
         // 경매 종료 - 승자가 현재 플레이어가 됨
-        nextBidder = state.auction.highestBidder || state.playerOrder[0];
+        nextBidder = state.auction.highestBidder || activePlayers[0] || state.playerOrder[0];
       } else {
-        const currentIndex = activePlayers.indexOf(state.auction.lastActedPlayer || playerId);
-        const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % activePlayers.length;
-        nextBidder = activePlayers[nextIndex >= activePlayers.length ? 0 : nextIndex];
+        // 방금 포기한 playerId의 다음 순서부터 미포기 플레이어를 찾는다.
+        // (lastActedPlayer 기반 계산은 그 플레이어가 이미 포기했을 때 indexOf가 -1이 되어
+        //  첫 입찰자로 잘못 되돌아가는 버그 — 5인+ 경매에서 차례가 꼬임)
+        const order = state.playerOrder;
+        const start = order.indexOf(playerId);
+        nextBidder = activePlayers[0];
+        for (let i = 1; i <= order.length; i++) {
+          const cand = order[(start + i) % order.length];
+          if (activePlayers.includes(cand)) { nextBidder = cand; break; }
+        }
       }
 
       return {
@@ -2323,22 +2335,26 @@ export const useGameStore = create<GameStore>()(
         }
       }
 
-      // 파산한 플레이어의 미완성 트랙 소유권 제거
+      // 파산한 플레이어의 모든 트랙을 공용(미소유)으로 전환.
+      // 룰: 미완성 트랙은 소유 디스크를 제거하고, 완성 링크는 보드에 남되 파산자는 그 위
+      // 운송으로 수입을 받지 못한다. → 완성/미완성 모두 owner를 null로 만들면, 누구나 그
+      // 위로 이동할 수 있는 공용 철도가 되고, 소유자가 없으므로 그 링크 운송으로는 아무도
+      // 수입을 받지 못한다 (복합 트랙의 secondaryOwner, 마을 가닥 townSpur도 동일).
       if (bankruptPlayers.length > 0) {
-        console.log(`[payExpenses] 파산 플레이어: ${bankruptPlayers.join(', ')}`);
+        console.log(`[payExpenses] 파산 플레이어: ${bankruptPlayers.join(', ')} — 철도를 공용으로 전환`);
         const updatedTrackTiles = newBoard.trackTiles.map(track => {
-          if (track.owner && bankruptPlayers.includes(track.owner)) {
-            // 완성된 링크의 일부가 아닌 트랙만 소유권 제거
-            if (!isTrackPartOfCompletedLink(track.coord, newBoard)) {
-              return { ...track, owner: null };
-            }
-          }
-          return track;
+          let t = track;
+          if (track.owner && bankruptPlayers.includes(track.owner)) t = { ...t, owner: null };
+          if (t.secondaryOwner && bankruptPlayers.includes(t.secondaryOwner)) t = { ...t, secondaryOwner: null };
+          return t;
         });
-
+        const updatedTownSpurs = (newBoard.townSpurs ?? []).filter(
+          sp => !bankruptPlayers.includes(sp.owner)
+        );
         newBoard = {
           ...newBoard,
           trackTiles: updatedTrackTiles,
+          townSpurs: updatedTownSpurs,
         };
       }
 
@@ -2433,66 +2449,64 @@ export const useGameStore = create<GameStore>()(
       const newCities = state.board.cities.map(city => ({ ...city, cubes: [...city.cubes] }));
       const newLogs = [...state.logs];
 
-      // 열-도시 매핑 (맵 레지스트리의 columnMapping에서 유도)
-      // 1-6: 주사위 열, A-D: 신규 도시 열
+      // 열-도시 매핑 (맵 레지스트리의 columnMapping에서 유도).
+      // 한 주사위 번호를 여러 도시 열이 공유할 수 있다 (Rust Belt: 12도시가 6번호를 2개씩).
+      // diceNumber 미지정 시 columnId를 숫자로 해석 (Tutorial '1'~'6' 하위 호환).
       const columnMapping = getMapData(state.mapId).columnMapping;
-      const columnToCityId: Record<string, string> = {};
-      const columnStartIndex: Record<string, number> = {};
-      const columnRowCount: Record<string, number> = {};
+      type ColInfo = { cityId: string; startIndex: number; rowCount: number };
+      const colsByDice: Record<number, ColInfo[]> = {};
       {
         let slotIndex = 0;
         for (const m of columnMapping) {
-          columnStartIndex[m.columnId] = slotIndex;
-          columnRowCount[m.columnId] = m.rowCount;
+          const startIndex = slotIndex;
           slotIndex += m.rowCount;
-          // 주사위 열(1-6)만 도시로 직접 매핑 (신규 도시 열은 별도 처리)
-          if (!m.isNewCity) {
-            columnToCityId[m.columnId] = m.cityId;
-          }
+          // 신규 도시 열도 diceNumber가 있으면 보충 대상.
+          // 배치 안 된 신규 도시는 아래에서 city를 못 찾아(if (!city) continue) 자동으로 건너뛴다.
+          const dice = m.diceNumber ?? Number(m.columnId);
+          if (!Number.isFinite(dice)) continue;
+          if (!colsByDice[dice]) colsByDice[dice] = [];
+          colsByDice[dice].push({ cityId: m.cityId, startIndex, rowCount: m.rowCount });
         }
       }
 
-      // 주사위 결과에 따른 물품 배치
-      const columnCounts: Record<string, number> = {};
+      // 주사위 번호별 출현 횟수
+      const diceCounts: Record<number, number> = {};
       for (const result of diceResults) {
-        const key = String(result);
-        columnCounts[key] = (columnCounts[key] || 0) + 1;
+        diceCounts[result] = (diceCounts[result] || 0) + 1;
       }
 
       // noOwnColorCubes: 도시 자기 색 화물은 도시에 배치하지 않음 (튜토리얼)
       const skipOwnColor = getMapProfile(state.mapId).noOwnColorCubes;
 
-      // 각 열에서 도시로 큐브 이동
-      for (const [column, count] of Object.entries(columnCounts)) {
-        const cityId = columnToCityId[column];
-        if (!cityId) continue;
+      // 주사위 번호 → 그 번호를 공유하는 모든 도시 열에서 각각 count개씩 도시로 이동
+      for (const [diceStr, count] of Object.entries(diceCounts)) {
+        const cols = colsByDice[Number(diceStr)];
+        if (!cols) continue;
+        for (const col of cols) {
+          const city = newCities.find(c => c.id === col.cityId);
+          if (!city) continue;
 
-        const city = newCities.find(c => c.id === cityId);
-        if (!city) continue;
-
-        const startIdx = columnStartIndex[column];
-        const rowCount = columnRowCount[column] ?? 6;
-
-        // 위에서부터 큐브 가져오기 (자기 색 큐브는 건너뛰고 다음 큐브를 가져옴)
-        let moved = 0;
-        for (let i = 0; i < rowCount && moved < count; i++) {
-          const slotIdx = startIdx + i;
-          const cube = newSlots[slotIdx];
-          if (cube && (!skipOwnColor || cube !== city.color)) {
-            city.cubes.push(cube);
-            newSlots[slotIdx] = null;
-            moved++;
+          // 위에서부터 큐브 가져오기 (자기 색 큐브는 건너뛰고 다음 큐브를 가져옴)
+          let moved = 0;
+          for (let i = 0; i < col.rowCount && moved < count; i++) {
+            const slotIdx = col.startIndex + i;
+            const cube = newSlots[slotIdx];
+            if (cube && (!skipOwnColor || cube !== city.color)) {
+              city.cubes.push(cube);
+              newSlots[slotIdx] = null;
+              moved++;
+            }
           }
-        }
 
-        if (moved > 0) {
-          newLogs.push({
-            turn: state.currentTurn,
-            phase: state.currentPhase,
-            player: state.currentPlayer,
-            action: `물품 성장: ${city.name}에 ${moved}개 추가`,
-            timestamp: Date.now(),
-          });
+          if (moved > 0) {
+            newLogs.push({
+              turn: state.currentTurn,
+              phase: state.currentPhase,
+              player: state.currentPlayer,
+              action: `물품 성장: ${city.name}에 ${moved}개 추가`,
+              timestamp: Date.now(),
+            });
+          }
         }
       }
 
@@ -2592,7 +2606,9 @@ export const useGameStore = create<GameStore>()(
         return state;
       }
 
-      const nextPlayer = getNextPlayerId(state.currentPlayer, activePlayers);
+      // 다음 플레이어는 경매로 정해진 순서(playerOrder)를 따른다.
+      // (activePlayers는 player1,2,3… 고정 순서라 경매 1등이 밀리는 버그가 있었음 — 2인에선 동일해 안 드러남)
+      const nextPlayer = getNextPlayerId(state.currentPlayer, playerOrder);
 
       // 현재 플레이어가 마지막 플레이어인지 확인
       const isLast = isLastPlayer(state.currentPlayer, playerOrder);
@@ -2732,15 +2748,17 @@ export const useGameStore = create<GameStore>()(
           };
         }
 
-        // 다음 플레이어로 전환
-        console.log(`[빌드카운트 리셋] 차례 전환: ${state.currentPlayer}(${state.phaseState.builtTracksThisTurn}개 건설) → ${nextPlayer}, turn=${state.currentTurn}`);
+        // 다음 빌더: 경매 순서(playerOrder)에서 아직 건설 안 한 첫 플레이어.
+        // First Build 선택자가 순서와 무관하게 먼저 건설한 뒤에도, 나머지는 경매 순서를 따른다.
+        const nextBuilder = playerOrder.find(p => !updatedPlayerMoves[p]) ?? nextPlayer;
+        console.log(`[빌드카운트 리셋] 차례 전환: ${state.currentPlayer}(${state.phaseState.builtTracksThisTurn}개 건설) → ${nextBuilder}, turn=${state.currentTurn}`);
         return {
-          currentPlayer: nextPlayer,
+          currentPlayer: nextBuilder,
           phaseState: {
             ...state.phaseState,
             builtTracksThisTurn: 0,
             lastBuiltCoords: [],
-            maxTracksThisTurn: state.players[nextPlayer].selectedAction === 'engineer'
+            maxTracksThisTurn: state.players[nextBuilder].selectedAction === 'engineer'
               ? GAME_CONSTANTS.ENGINEER_TRACK_LIMIT
               : GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
             playerMoves: updatedPlayerMoves,
@@ -2764,7 +2782,7 @@ export const useGameStore = create<GameStore>()(
               turn: state.currentTurn,
               phase: state.currentPhase,
               player: state.currentPlayer,
-              action: `[시스템] 건설 차례 종료 (${state.phaseState.builtTracksThisTurn}개 건설) → ${state.players[nextPlayer]?.name} 차례`,
+              action: `[시스템] 건설 차례 종료 (${state.phaseState.builtTracksThisTurn}개 건설) → ${state.players[nextBuilder]?.name} 차례`,
               timestamp: Date.now(),
             },
           ],
@@ -2805,9 +2823,11 @@ export const useGameStore = create<GameStore>()(
           };
         }
 
-        // 다음 플레이어로 전환
+        // 다음 이동자: 경매 순서(playerOrder)에서 아직 이동 안 한 첫 플레이어.
+        // First Move 선택자가 먼저 이동한 뒤에도 나머지는 경매 순서를 따른다.
+        const nextMover = playerOrder.find(p => !updatedPlayerMoves[p]) ?? nextPlayer;
         return {
-          currentPlayer: nextPlayer,
+          currentPlayer: nextMover,
           phaseState: {
             ...state.phaseState,
             playerMoves: updatedPlayerMoves,
@@ -3641,6 +3661,12 @@ export const useGameStore = create<GameStore>()(
     }
     const tile = state.newCityTiles.find(t => t.id === selectedTileId);
     if (!tile) return false;
+    // 이미 사용된 타일/이미 배치된 신규 도시는 거부.
+    // (cities에 같은 id가 중복 추가되면 GameBoard에서 React 중복 key → 무한 리렌더 freeze)
+    if (tile.used || state.board.cities.some(c => c.id === selectedTileId)) {
+      console.warn(`[placeNewCity] 이미 배치된 신규 도시 타일: ${selectedTileId}`);
+      return false;
+    }
 
     const town = state.board.towns.find(t => hexCoordsEqual(t.coord, townCoord));
     if (!town) return false;

@@ -145,15 +145,22 @@ export interface GoodsDisplay {
   bag: CubeColor[];             // 주머니 속 물품
 }
 
-// 물품 디스플레이 열 정보 (1-6: 주사위, A-D: 신규 도시)
-export type GoodsColumnId = '1' | '2' | '3' | '4' | '5' | '6' | 'A' | 'B' | 'C' | 'D';
+// 물품 디스플레이 열 식별자.
+// 맵마다 열 구성이 다르다 — Tutorial은 '1'~'6'(주사위 번호) + 'A'~'D'(신규 도시)지만,
+// Rust Belt처럼 도시가 많아 여러 도시가 한 주사위 번호를 공유하는 맵은 도시별 고유 열이
+// 필요하므로 string으로 일반화한다 (열↔주사위 번호 매핑은 GoodsColumnMapping.diceNumber).
+export type GoodsColumnId = string;
 
 // 열-도시 매핑 (맵별로 다름)
 export interface GoodsColumnMapping {
   columnId: GoodsColumnId;
   cityId: string;           // 해당 열이 가리키는 도시 ID
   isNewCity: boolean;       // 신규 도시 열인지
-  rowCount: number;         // 해당 열의 칸 수 (보통 6개, 마지막 열은 4개)
+  rowCount: number;         // 해당 열의 칸 수
+  // 이 열이 물품을 보충받는 주사위 번호(1-6). 여러 열이 같은 번호를 공유할 수 있다
+  // (Rust Belt: 12도시가 6번호를 2개씩). 신규 도시 열은 주사위로 보충되지 않아 undefined.
+  // (지정 안 하면 columnId를 숫자로 해석 — Tutorial '1'~'6' 하위 호환)
+  diceNumber?: number;
 }
 
 // 물품 디스플레이 설정

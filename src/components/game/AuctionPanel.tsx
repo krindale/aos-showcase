@@ -8,11 +8,12 @@ import { PlayerId, PLAYER_COLORS } from '@/types/game';
 import { DollarSign, User, Crown, XCircle, Check } from 'lucide-react';
 
 export default function AuctionPanel() {
-  const { auction, players, playerOrder } = useGameStore(
+  const { auction, players, playerOrder, currentPlayer } = useGameStore(
     useShallow((state) => ({
       auction: state.auction,
       players: state.players,
       playerOrder: state.playerOrder,
+      currentPlayer: state.currentPlayer,
     }))
   );
   const { placeBid, passBid, skipBid, resolveAuction, nextPhase } = useGameStore();
@@ -31,30 +32,10 @@ export default function AuctionPanel() {
     }
   }, [auction]);
 
-  // 현재 입찰 차례인 플레이어 계산
-  const getCurrentBidder = (): PlayerId => {
-    if (!auction) return playerOrder[0];
-
-    // 패스한 플레이어 제외하고 다음 입찰자
-    const activePlayers = playerOrder.filter(p => !auction.passedPlayers.includes(p));
-
-    if (activePlayers.length === 0) return playerOrder[0];
-
-    // lastActedPlayer 또는 highestBidder 다음 플레이어
-    // Turn Order 패스 시 lastActedPlayer가 업데이트됨
-    const lastActor = auction.lastActedPlayer || auction.highestBidder;
-    if (lastActor) {
-      const lastIndex = activePlayers.indexOf(lastActor);
-      if (lastIndex !== -1) {
-        const nextIndex = (lastIndex + 1) % activePlayers.length;
-        return activePlayers[nextIndex];
-      }
-    }
-
-    return activePlayers[0];
-  };
-
-  const currentBidder = getCurrentBidder();
+  // 현재 입찰 차례 = store가 관리하는 currentPlayer (placeBid/passBid/skipBid가 정확히 갱신).
+  // 컴포넌트가 자체 계산하던 방식은 store와 어긋날 수 있어 제거.
+  // (경매 완료 시 currentPlayer는 승자이지만, 입찰 UI는 isAuctionComplete로 가려진다)
+  const currentBidder = currentPlayer;
   const currentBidderData = players[currentBidder];
   const playerColor = PLAYER_COLORS[currentBidderData.color];
 
@@ -150,7 +131,7 @@ export default function AuctionPanel() {
 
         {/* 플레이어 상태 */}
         <div className="grid grid-cols-2 gap-2">
-          {(['player1', 'player2'] as PlayerId[]).map((playerId) => {
+          {playerOrder.map((playerId) => {
             const player = players[playerId];
             const isCurrentBidder = currentBidder === playerId;
             const hasPassed = auction?.passedPlayers.includes(playerId);
@@ -324,7 +305,7 @@ export default function AuctionPanel() {
               {/* 비용 안내 */}
               <div className="p-2 rounded bg-background/30 text-xs text-foreground-secondary">
                 <p>* 첫 번째 포기: 마지막 순서, 비용 없음</p>
-                <p>* 2인 경매: 승자는 입찰액 전액 지불</p>
+                <p>* 마지막 두 명: 입찰액 전액 / 그 외 포기: 절반(올림)</p>
               </div>
             </motion.div>
           )}

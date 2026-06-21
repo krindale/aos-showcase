@@ -126,9 +126,21 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   pushUnique(findNetworkExpansionTarget(state, playerId, targetRoute ? [targetRoute.to] : []));
 
   // ===== 3. 순서대로 결정론적 경로 추적 건설 (A* 경로를 따라 frontier 다음 칸에 건설) =====
+  // 산발 방지(사용자 지침): 내 기존 네트워크와 분리된 새 도시에서 시작하는 경로는 깔지 않는다 —
+  //   출발·도착 둘 다 내 연결 도시가 아니면 분리된 새 조각이라 미완성으로 공용화되는 산발. 내 트랙이
+  //   아예 없는 첫 건설은 예외. 다인 cityCubes만(trackCubes 미완성 배달/튜토리얼 회귀 보존).
+  const banScatter = state.activePlayers.length >= 3 &&
+    !getMapAIConfig(state).incomeSources.includes('trackCubes');
+  const myConnectedCities = banScatter ? getConnectedCities(state, playerId) : [];
+  const hasMyTracks = state.board.trackTiles.some(t => t.owner === playerId);
   for (const route of candidateRoutes) {
     // 내 트랙만으로 이미 완성된 경로는 더 지을 필요 없음
     if (isRouteComplete(state, route, playerId)) continue;
+
+    if (banScatter && hasMyTracks &&
+        !myConnectedCities.includes(route.from) && !myConnectedCities.includes(route.to)) {
+      continue;
+    }
 
     const decision = tryDirectPathBuild(state, playerId, route);
     if (decision) {

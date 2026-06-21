@@ -4,7 +4,7 @@
  * 정적 시나리오 대신 실제 화물 배치를 기반으로 최적 배달 경로를 동적으로 선택
  */
 
-import { GameState, PlayerId, CubeColor } from '@/types/game';
+import { GameState, PlayerId, CubeColor, HexCoord } from '@/types/game';
 import { DeliveryRoute, DeliveryOpportunity } from './types';
 import {
   analyzeDeliveryOpportunities,
@@ -35,12 +35,22 @@ const PRECISE_EVAL_TOP_K = 8;
  */
 const AREA_BIAS_WEIGHT = 1.0;
 
+/** 혼잡 회피 — 출발 지역 근처(거리 < CROWD_RADIUS)에 있는 다른 플레이어 '명 수'만큼 그 경로의
+ *  우선순위(점수)를 낮춘다. 가까운 유저가 많을수록 그 지역 점수↓ (거리 가중 없이 카운트, 사용자 지침). */
+const CROWD_RADIUS = 5;
+const CROWD_WEIGHT = 3.0;
+
+/** 거점 farthest-first의 화면 좌우(row) 분산 가중 — 같은 row에 거점이 몰리지 않게.
+ *  측정: W=1 −7.4 / W=3 −3.2(정점). */
+const ROW_SPREAD_W = 3.0;
+
 /**
- * 거점(home base) 할당 — 게임 시작 시 1회. 큐브 많은 도시를 각 플레이어에게 서로 멀리 분산
- * (farthest-first): 첫 거점은 큐브 최다 도시, 이후엔 '기존 거점들에서 최소거리 + 큐브수'가 최대인 도시.
- * 모든 활성 플레이어에 할당(사람 포함) — AI가 사람/다른 AI 영역을 피하게.
+ * 거점(home base) 할당 — 게임 시작 시 1회. 큐브 많은 도시를 farthest-first로 분산 배정
+ * (첫 거점=큐브 최다, 이후=기존 거점들에서 최소거리 + row분산 + 큐브수가 최대인 도시).
+ * 6구획 그리드 명시 분할은 빈곤 구획 거점이 생겨 악화(-7.54)였음 — 큐브 분포에 적응적인
+ * farthest가 사실상 더 나은 '구획 분할'(서로 가장 먼 큐브 도시 5개)이라 최적(-2.28).
  */
-function assignHomeBases(state: GameState): void {
+export function assignHomeBases(state: GameState): void {
   const { board } = state;
   const cubeCities = board.cities
     .filter(c => c.cubes.length > 0)
@@ -57,7 +67,8 @@ function assignHomeBases(state: GameState): void {
       for (const c of cubeCities) {
         if (assigned.some(a => a.id === c.id)) continue;
         const minDist = Math.min(...assigned.map(a => hexDistance(a.coord, c.coord)));
-        const score = minDist + c.cubes.length * 0.5;
+        const minRowGap = Math.min(...assigned.map(a => Math.abs(a.coord.row - c.coord.row)));
+        const score = minDist + minRowGap * ROW_SPREAD_W + c.cubes.length * 0.5;
         if (score > bestScore) { bestScore = score; best = c; }
       }
       if (!best) best = cubeCities.find(c => !assigned.some(a => a.id === c.id)) ?? cubeCities[0];
@@ -181,6 +192,38 @@ export function selectStandardRoute(
     // 내 거점에서 먼 출발 도시의 경로는 깎아 자기 영역에 머물게 (충돌/boxed-out 완화)
     if (homeCity && score > -Infinity) {
       score -= hexDistance(opp.sourceCoord, homeCity.coord) * AREA_BIAS_WEIGHT;
+    }
+    // ★ 혼잡 회피: 출발 지역 근처에 있는 다른 플레이어 '명 수'만큼 그 경로 우선순위를 낮춘다
+    //   (가까운 유저 많을수록 그 지역 점수↓, 거리 가중 없음 — 사용자 지침). 다인 cityCubes만.
+    if (areaMulti && score > -Infinity) {
+      let nearby = 0;
+      for (const oid of state.activePlayers) {
+        if (oid === playerId) continue;
+        const refs: HexCoord[] = [];
+        const oh = state.board.cities.find(c => c.id === getHomeBase(oid));
+        if (oh) refs.push(oh.coord);
+        const orr = getCurrentRoute(oid);
+        if (orr) {
+          const oc = state.board.cities.find(c => c.id === orr.from);
+          if (oc) refs.push(oc.coord);
+        }
+        if (refs.some(rc => hexDistance(opp.sourceCoord, rc) < CROWD_RADIUS)) nearby++;
+      }
+      score -= nearby * CROWD_WEIGHT;
+    }
+    // ★ 타 플레이어가 이미 잡은 경로의 도시를 출발/도착으로 쓰는 경로 금지 (사용자 지침, 매 턴) —
+    //   순차 결정에서 앞 AI가 쓴 도시를 피해 각자 다른 도시에서 시작/도착하게 분산. 이번 세션 최대
+    //   효과(VP −2.28→+2.95, 첫 양수). 전부 금지 시 하단 opportunities[0] fallback (빈 위험 없음).
+    if (areaMulti && score > -Infinity) {
+      for (const oid of state.activePlayers) {
+        if (oid === playerId) continue;
+        const orr = getCurrentRoute(oid);
+        if (orr && (orr.from === opp.sourceCityId || orr.to === opp.sourceCityId ||
+                    orr.from === opp.targetCityId || orr.to === opp.targetCityId)) {
+          score = -Infinity;
+          break;
+        }
+      }
     }
     return { opp, score };
   });

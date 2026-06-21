@@ -674,7 +674,9 @@ export function getConnectedNeighbors(
 
     currentCoordTracks.forEach(t => {
       // 기본 경로 (edges) 처리
-      if (t.owner) {
+      // 공용(파산, owner=null) 트랙도 이동 가능해야 하므로 owner truthy 가드를 두지 않는다.
+      // (기존 `if (t.owner)`는 공용 트랙의 출구 계산을 통째로 막아, 진입은 되는데 통과가 안 되는 버그)
+      {
         const isEntryInPrimary = entryEdge !== undefined && t.edges.includes(entryEdge);
         const isEntryInSecondary = entryEdge !== undefined && t.secondaryEdges?.includes(entryEdge);
 
@@ -693,7 +695,8 @@ export function getConnectedNeighbors(
         }
 
         // entryEdge가 없거나, entryEdge가 secondary 경로에 있으면 secondary 출구 사용 가능
-        if (t.secondaryEdges && t.secondaryOwner) {
+        // (secondaryOwner=null인 공용 교차도 통과 가능 — 아래 소유권 체크에서 null 인정)
+        if (t.secondaryEdges) {
           if (entryEdge === undefined || isEntryInSecondary) {
             // secondary 경로가 자기 소유이거나 공용(파산)이면 사용 가능
             if (!playerId || t.secondaryOwner === playerId || t.secondaryOwner === null) {
@@ -745,8 +748,13 @@ export function getConnectedNeighbors(
         // 1. 소유권 확인: 현재 헥스의 해당 엣지를 나가는 소유자 중 하나가 이웃 트랙의 해당 엣지 소유자와 같아야 함
         // [핵심] 이웃 트랙에서도 entryEdge가 속한 경로의 소유자와 일치해야 함
         // 공용(파산, owner null) 트랙도 연결 인정 — currentEdgeOwners에 null이 담겨 있으면 매칭
-        const isBasicMatch = t.edges.includes(neighborEntryEdge) && (t.owner != null ? currentEdgeOwners.has(t.owner) : currentEdgeOwners.has(null));
-        const isSecondaryMatch = !!t.secondaryEdges && t.secondaryEdges.includes(neighborEntryEdge) && (t.secondaryOwner != null ? currentEdgeOwners.has(t.secondaryOwner) : currentEdgeOwners.has(null));
+        // 현재 헥스 출구가 공용(파산, null)이면 어떤 소유자 이웃과도 연결 가능, 이웃이 공용이어도 마찬가지.
+        // (기존엔 양쪽 소유자가 정확히 같아야 해서, 공용화된 내 트랙↔내 교차 secondary 연결이 끊겼다)
+        const curHasPublic = currentEdgeOwners.has(null);
+        const isBasicMatch = t.edges.includes(neighborEntryEdge)
+          && (t.owner == null || curHasPublic || currentEdgeOwners.has(t.owner));
+        const isSecondaryMatch = !!t.secondaryEdges && t.secondaryEdges.includes(neighborEntryEdge)
+          && (t.secondaryOwner == null || curHasPublic || currentEdgeOwners.has(t.secondaryOwner));
 
         // 2. 자기 망 또는 공용(파산) 트랙이면 사용 가능 (살아있는 타인 제외)
         const matchesRequest = !playerId || t.owner === playerId || t.secondaryOwner === playerId || t.owner === null || t.secondaryOwner === null;
@@ -1204,15 +1212,19 @@ function checkConnectionToCity(
       return false; // 끊긴 길
     }
 
-    // 5. 트랙 연결성 확인
+    // 5. 트랙 연결성 확인 — 복합 트랙(교차/공존)은 진입 엣지가 속한 경로(primary edges 또는
+    // secondaryEdges)로만 통과한다. (기존엔 edges만 봐서, 상대 트랙 위에 올린 내 교차의
+    // secondaryEdges로 이어진 완성 링크를 '미완성'으로 오판 → 소유권 부당 제거 + 배달 불가 버그)
     const entryEdge = getOppositeEdge(currentEdge);
-    if (!nextTrack.edges.includes(entryEdge)) {
-      return false; // 연결되지 않은 트랙
+    let pathEdges: number[] | null = null;
+    if (nextTrack.edges.includes(entryEdge)) pathEdges = nextTrack.edges;
+    else if (nextTrack.secondaryEdges?.includes(entryEdge)) pathEdges = nextTrack.secondaryEdges;
+    if (!pathEdges) {
+      return false; // 어느 경로에도 연결되지 않은 트랙
     }
 
-    // 6. 다음 나가는 엣지 찾기
-    // 단순 트랙(edges 2개)만 가정.
-    const exitEdge = nextTrack.edges.find(e => e !== entryEdge);
+    // 6. 같은 경로 안에서 나가는 엣지 찾기
+    const exitEdge = pathEdges.find(e => e !== entryEdge);
     if (exitEdge === undefined) {
       return false; // 막다른 길
     }

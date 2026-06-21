@@ -74,10 +74,16 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
   const headroom = config.incomeSources.includes('trackCubes')
     ? maxPossibleShares
     : Math.max(0, MAX_TOTAL_SHARES - player.issuedShares);
-  const sharesToIssue = Math.max(
+  let sharesToIssue = Math.max(
     survivalShares,
     Math.min(planShares, MAX_SHARES_PER_TURN, headroom, maxPossibleShares),
   );
+
+  // ★ 매턴 총 2주 하드캡 (다인 cityCubes, 생존 발행 포함) — 트레이스상 빈곤 거점이 생존 발행으로
+  // 주식 13까지 폭증(VP −29)하던 스파이럴 차단. 생존 부족분은 income 감소로 흡수(파산 위험은 측정).
+  if (state.activePlayers.length >= 3 && !config.incomeSources.includes('trackCubes')) {
+    sharesToIssue = Math.min(sharesToIssue, MAX_SHARES_PER_TURN);
+  }
 
   const routeStr = plan.targetRoute ? `${plan.targetRoute.from}→${plan.targetRoute.to}` : '없음';
   debugLog.preparation(

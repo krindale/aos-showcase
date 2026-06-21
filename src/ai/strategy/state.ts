@@ -21,6 +21,29 @@ export interface RouteState {
 const currentTargetRoutes: Map<PlayerId, RouteState> = new Map();
 
 /**
+ * 플레이어별 거점(home base) 도시 id 저장소 — 영역 분할 전략(다인 cityCubes).
+ * 게임 시작 시 각 AI에게 서로 멀리 떨어진 큐브 많은 도시를 할당해, 같은 중앙 허브를 두고
+ * 충돌(boxed-out)하는 대신 각자 자기 영역에서 한 덩어리를 키우게 한다.
+ */
+const homeBases: Map<PlayerId, string> = new Map();
+
+export function getHomeBase(playerId: PlayerId): string | null {
+  return homeBases.get(playerId) ?? null;
+}
+
+export function setHomeBase(playerId: PlayerId, cityId: string): void {
+  homeBases.set(playerId, cityId);
+}
+
+export function hasHomeBases(): boolean {
+  return homeBases.size > 0;
+}
+
+export function clearHomeBases(): void {
+  homeBases.clear();
+}
+
+/**
  * 현재 목표 경로 가져오기 (하위 호환)
  */
 export function getCurrentRoute(playerId: PlayerId): DeliveryRoute | null {
@@ -66,6 +89,7 @@ export function incrementInvestedTracks(playerId: PlayerId): void {
  */
 export function clearCurrentRoutes(): void {
   currentTargetRoutes.clear();
+  clearHomeBases();
   console.log('[AI 전략] 경로 상태 초기화');
 }
 

@@ -17,7 +17,7 @@ import {
   getMainNetworkStopIds,
 } from './analyzer';
 import { hexDistance, hexCoordsEqual } from '@/utils/hexGrid';
-import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, clearCurrentRoutes } from './state';
+import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, clearCurrentRoutes, getHomeBase, setHomeBase, hasHomeBases } from './state';
 import { estimateRouteVP, deliveryDeltaVP } from './vp';
 import { getMapAIConfig } from './mapConfig';
 import { getMapProfile } from '@/maps/getMapProfile';
@@ -28,6 +28,44 @@ import { debugLog } from '@/utils/debugConfig';
  * 큰 맵에서 기회 조합이 폭발해도 결정당 A* 호출이 O(K)로 유지되도록 가지치기
  */
 const PRECISE_EVAL_TOP_K = 8;
+
+/**
+ * 영역 편향 가중치 — 경로의 출발 도시가 내 거점에서 멀수록 ΔVP를 깎는다(다인 cityCubes).
+ * 각 AI가 자기 영역에 머물러 충돌(boxed-out)을 줄이는 강도. hexDistance(0~15) × 이 값.
+ */
+const AREA_BIAS_WEIGHT = 1.0;
+
+/**
+ * 거점(home base) 할당 — 게임 시작 시 1회. 큐브 많은 도시를 각 플레이어에게 서로 멀리 분산
+ * (farthest-first): 첫 거점은 큐브 최다 도시, 이후엔 '기존 거점들에서 최소거리 + 큐브수'가 최대인 도시.
+ * 모든 활성 플레이어에 할당(사람 포함) — AI가 사람/다른 AI 영역을 피하게.
+ */
+function assignHomeBases(state: GameState): void {
+  const { board } = state;
+  const cubeCities = board.cities
+    .filter(c => c.cubes.length > 0)
+    .sort((a, b) => b.cubes.length - a.cubes.length);
+  if (cubeCities.length === 0) return;
+
+  const assigned: { id: string; coord: typeof cubeCities[0]['coord'] }[] = [];
+  for (const pid of state.activePlayers) {
+    let best = null as null | (typeof cubeCities)[0];
+    if (assigned.length === 0) {
+      best = cubeCities[0];
+    } else {
+      let bestScore = -Infinity;
+      for (const c of cubeCities) {
+        if (assigned.some(a => a.id === c.id)) continue;
+        const minDist = Math.min(...assigned.map(a => hexDistance(a.coord, c.coord)));
+        const score = minDist + c.cubes.length * 0.5;
+        if (score > bestScore) { bestScore = score; best = c; }
+      }
+      if (!best) best = cubeCities.find(c => !assigned.some(a => a.id === c.id)) ?? cubeCities[0];
+    }
+    setHomeBase(pid, best.id);
+    assigned.push({ id: best.id, coord: best.coord });
+  }
+}
 
 /**
  * 사전 점수 (싼 휴리스틱) — 정밀 평가 대상을 추리는 용도
@@ -124,6 +162,13 @@ export function selectStandardRoute(
   const isFirstTurn = state.currentTurn === 1;
   const config = getMapAIConfig(state);
 
+  // 영역 분할(다인 cityCubes): 게임 시작 시 거점 할당, 이후 경로 점수에 거점 거리 편향
+  const areaMulti = state.activePlayers.length >= 3 && !config.incomeSources.includes('trackCubes');
+  if (areaMulti && !hasHomeBases()) assignHomeBases(state);
+  const homeCity = areaMulti
+    ? state.board.cities.find(c => c.id === getHomeBase(playerId)) ?? null
+    : null;
+
   const preciseTargets = [...opportunities]
     .sort((a, b) =>
       preliminaryScore(b, player.engineLevel, connectedCities) -
@@ -131,10 +176,14 @@ export function selectStandardRoute(
     )
     .slice(0, PRECISE_EVAL_TOP_K);
 
-  const allScoredOpps = preciseTargets.map(opp => ({
-    opp,
-    score: scoreOpportunity(opp, state, playerId),
-  }));
+  const allScoredOpps = preciseTargets.map(opp => {
+    let score = scoreOpportunity(opp, state, playerId);
+    // 내 거점에서 먼 출발 도시의 경로는 깎아 자기 영역에 머물게 (충돌/boxed-out 완화)
+    if (homeCity && score > -Infinity) {
+      score -= hexDistance(opp.sourceCoord, homeCity.coord) * AREA_BIAS_WEIGHT;
+    }
+    return { opp, score };
+  });
   // -Infinity(완성 불가능)를 정렬 전에 제거 — (-Inf) - (-Inf) = NaN 비교로 정렬이 깨지는 것 방지
   const scoredOpps = allScoredOpps.filter(s => s.score > -Infinity);
   scoredOpps.sort((a, b) => b.score - a.score);

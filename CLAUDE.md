@@ -511,30 +511,38 @@ setAllDebug(true);                   // 모든 로그 on/off
   베이스라인 측정(통과) + 목표 게이트(skip). 누적 결과(20시드): VP −21.8→**+3.8**, income→10.8,
   파산 17→7. tutorial VP 회귀 불변.
 
-#### Rust Belt 5인 AI income 개선 (2026-06, 진행 중)
+#### Rust Belt 5인 AI income 개선 (2026-06-22, VP −5.09→+4.13 첫 양수)
 
-5인 cityCubes 맵에서 AI income ~0.6·파산 4.4명/5명이던 것을 **income 6.0·파산 3.8**로 개선
-(10판 측정). 모두 **다인(activePlayers>=3) cityCubes 한정** — tutorial(2인)/St.Lucia(trackCubes)
-회귀 게이트(VP 9.x, 파산 0/20) 보존.
+5인 cityCubes 맵 AI를 income ~0.6·파산 4.4/5에서 **VP +4.13·income 8.59·파산 1.50·전원완주(20/20)**로
+개선(20시드). 모두 **다인(activePlayers>=3) cityCubes 한정** — tutorial(2인)/St.Lucia(trackCubes) 회귀
+게이트(VP 9.x, 파산 0/20) 보존. 측정 `rustBeltSimulation.test.ts` — ⚠️ **5인은 편차가 −45~+73로 극심
+→ 반드시 20시드 이상으로 측정**(8시드는 노이즈로 결론이 뒤집힌다, 실제로 ②·혼잡거리가중을 오판했음).
 
-- **엔진 정책 (moveGoods/selectAction)**: T4까지 move-round front-load로 엔진 3, T5+는 move-round
-  엔진업 금지하고 Locomotive 액션으로만 엔진 4까지 (장거리 4-5링크 배달 목표).
-- **장거리 경로 지속 (selector.selectStandardRoute)**: 진행 중이고 완성 가능한(estimateRouteVP
-  .completable) 경로면 새 화물로 갈아타지 않고 고수 → 미완성 트랙 공용화(소유권 상실) 방지.
-  (무조건 고수는 완성 불가 경로를 고집해 income↓ — completable 조건 필수.)
-- **마을/도시 경유 income (analyzer A* + vp)**: A* 비용에서 도시/마을 통과를 보너스(−1.5, 도착
-  제외)로 우대 → 일직선 최단 대신 마을·도시를 거쳐 링크↑. estimateRouteVP의 links를 hexDistance/3
-  추정이 아니라 **실제 A* 경로가 지나는 도시/마을 수**로 계산 (income = 지나는 링크 수).
-- **1턴 완성 최우선 (vp.estimateRouteVP)**: completionTurns가 늦을수록 −4VP/턴 페널티 +
-  timeFeasible을 2턴(이번턴+다음턴)으로 제한 → 완성 못할 먼 경로 배제, 이번 턴 완성 배달 우선.
-- **★ 도시화 작동 수정 (핵심, selectAction + AIPlayer)**: cityCubes 다인 도시화 가치 =
-  "내 트랙 근접(거리3) 도시의 큐브 색 ∩ 남은 신규 도시 타일 색" 수 × 3VP. decideUrbanizationPlacement는
-  도시 큐브(cityCubes의 실제 화물)가 있는 도시 근처 마을 우대(점수 +8).
-  **getConnectedCities가 "트랙 없을 때 빈 배열" 버그라 도시화가 한 번도 발동 안 했음** →
-  트랙 근접 도시 큐브로 우회하니 도시화 작동(평균 4.3개) + income 0.6→6.0 (10배).
+**핵심 메커니즘 (효자 순, 전부 사용자 직관):**
+- **★ 거점분산 (selector.assignHomeBases + AREA_BIAS_WEIGHT)**: 게임 시작 시 큐브 많은 도시를
+  farthest-first로 각 AI에 분산 배정(서로 가장 멀리 + row 분산), 경로 점수에서 거점 먼 출발지를 감점해
+  자기 영역에 머무름(boxed-out 충돌 완화). 6구획 그리드 명시분할은 빈곤구획 거점으로 악화(−7.54) → farthest가 최적.
+- **★ 도시 금지 (selector.allScoredOpps)**: 경로의 출발/도착 도시가 **다른 활성 플레이어 currentRoute의
+  from/to와 겹치면 score=−Infinity**. 순차 결정이라 앞 AI가 잡은 도시를 뒤 AI가 회피 → 매 턴 경로 겹침을
+  직접 차단(3명이 같은 화물에 몰리던 문제 해결). 전부 금지 시 opportunities[0] fallback(빈 위험 없음).
+- **★ 분리 산발 금지 (buildTrack candidateRoutes)**: 출발·도착 둘 다 내 connectedCities에 없는 경로는
+  skip(내 트랙 있을 때만, 첫 건설 예외) → 분리된 새 도시 시작 = 미완성 공용화 산발 차단, 한 덩어리 성장.
+- **혼잡 회피 (selector)**: 출발지 근처(거리<5) 다른 플레이어 '명 수'만큼 점수 차감(거리가중 아닌 카운트).
+- **교차 트랙 배달 버그 수정 (hexGrid checkConnectionToCity/getConnectedNeighbors)**: 교차트랙
+  secondaryEdges를 무시해 완성링크 오판→소유권 제거→공용철도 이동차단(보라화물 미배달)을 수정. `crossingDelivery.test.ts`.
+- **도시화 placement (AIPlayer.decideUrbanizationPlacement)**: 목표 경로/내 철도에 연결된 마을 우선
+  (배달 가능 도시화). 연결성을 큐브 보너스보다 우선.
 
-남은 작업: income 20 목표 향해 "도시화한 도시로 즉시 배달하는 경로를 1턴완성과 결합" +
-Engineer 4칸 건설을 완성 판정에 반영. (`getConnectedCities` 빈배열 버그 자체도 근본 수정 필요)
+**기존 유효 정책 (유지):** 장거리 경로 지속(완성 가능 경로 고수, completable 필수)·1턴완성 우선
+(vp lateCompletionPenalty, timeFeasible 2턴)·마을·도시 경유 income(A* −1.5 보너스, links=실제 경유 수)·
+엔진정책(T4 front-load 엔진3, T5+ Locomotive로만 엔진4).
+
+**시행착오 교훈**: ②"경로 전환차단"(흩뿌림 방지)은 −5 악화 — 흩뿌림(1타일)이 skip보다 income 유리.
+"분리 산발 금지"는 메모리에 −17 악화 기록이 있었으나 **도시금지로 분산된 뒤엔 +1.2 개선** — 악화 기록도
+선행조건(여기선 분산)이 바뀌면 뒤집힌다, 막다른길을 영구 배제 말 것.
+
+남은 작업: income 천장(목표 20) 향해 "도시화한 도시로 즉시 배달 + 1턴완성 결합", Engineer 4칸 건설을
+완성 판정에 반영, `getConnectedCities` 트랙0 빈배열 버그 근본수정(analyzer).
 
 #### 마을 가닥(스퍼) 모델 (2026-06-12 재설계, 모든 맵 공통)
 

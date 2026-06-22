@@ -16,6 +16,12 @@ export default function DebugPanel() {
   const { board, currentPlayer, ui } = useGameStore();
   const [isOpen, setIsOpen] = useState(false);
 
+  // 디버그 버튼/패널 숨김 (우측 하단 빨간 버튼 비표시)
+  const DEBUG_PANEL_ENABLED = false;
+  if (!DEBUG_PANEL_ENABLED) {
+    return null;
+  }
+
   // 트랙 연결 분석
   const analyzeConnections = (): TrackConnection[] => {
     const connections: TrackConnection[] = [];

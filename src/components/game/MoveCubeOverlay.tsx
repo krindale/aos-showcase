@@ -20,14 +20,12 @@ export default function MoveCubeOverlay() {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
-          className="fixed inset-0 z-40 bg-black/85 flex items-center justify-center p-3 md:p-6"
+          className="fixed inset-0 z-40 bg-black/80 flex items-center justify-center p-6 md:p-12"
         >
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-accent/20 border border-accent/40">
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-accent/20 border border-accent/40">
             <span className="text-accent text-xs md:text-sm font-medium">🚂 물품 이동 중…</span>
           </div>
-          <div className="w-full h-full flex items-center justify-center">
-            <GameBoard fitOverlay />
-          </div>
+          <GameBoard fitOverlay />
         </motion.div>
       )}
     </AnimatePresence>

@@ -314,8 +314,11 @@ function collectBuildCandidates(
   const getTerrainCost = (coord: { col: number; row: number }): number => {
     const hexTile = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
     if (!hexTile) return GAME_CONSTANTS.PLAIN_TRACK_COST;
+    if (hexTile.fixedCost !== undefined) return hexTile.fixedCost;
     switch (hexTile.terrain) {
-      case 'river': return GAME_CONSTANTS.RIVER_TRACK_COST;
+      case 'river':
+      case 'swamp':
+        return GAME_CONSTANTS.RIVER_TRACK_COST;
       case 'mountain': return GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
       default: return GAME_CONSTANTS.PLAIN_TRACK_COST;
     }

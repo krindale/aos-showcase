@@ -87,6 +87,9 @@ export interface City {
   /** 외국 터미널(Germany): 통과 불가·물품 생산 안 함. 셋업때 무작위 큐브1로 수용색(color)이 정해진다.
    *  터미널 위 큐브는 "물품"이 아니라 수용색 마커이며 배달 대상이 아니다. */
   isTerminal?: boolean;
+  /** Western US: 동/서 지역 분류 — 동↔서 배달 보너스 + 대륙횡단 연결 판정.
+   *  'west'/'east'는 서부/동부 시작 도시, 미지정은 중앙 도시(Denver/SLC, 트랙 시작 불가). */
+  region?: 'east' | 'west';
 }
 
 // 마을
@@ -98,7 +101,7 @@ export interface Town {
 }
 
 // 지형 타입
-export type TerrainType = 'plain' | 'river' | 'mountain' | 'lake';
+export type TerrainType = 'plain' | 'river' | 'mountain' | 'swamp' | 'lake';
 
 // 헥스 타일
 export interface HexTile {
@@ -124,6 +127,9 @@ export interface PlayerState {
   turnOrderPassUsed: boolean;  // Turn Order 패스 사용 여부
   eliminated: boolean;         // 파산으로 탈락 여부
   isAI: boolean;               // AI 플레이어 여부
+  /** Western US: 이 플레이어의 철도가 대륙횡단(서부 시작도시↔동부 시작도시)을 달성했는지.
+   *  달성 시 연속성 강제(분리 구간 금지) 해제. 다른 맵에서는 undefined. */
+  transcontinental?: boolean;
 }
 
 // === 게임 보드 상태 ===
@@ -380,6 +386,9 @@ export interface GameState {
   // 게임 결과
   winner: PlayerId | null;
   finalScores: Record<PlayerId, number> | null;
+
+  /** Western US: 대륙횡단 연결 보너스($4/$2)가 이미 1회 지급됐는지 (보드 전체 1회). */
+  transcontinentalAwarded?: boolean;
 }
 
 // === 게임 액션 타입 ===

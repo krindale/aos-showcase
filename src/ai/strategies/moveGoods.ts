@@ -14,6 +14,7 @@ import { findReachableDestinations, findLongestPath, hexCoordsEqual, countPathLi
 import { getSelectedStrategy, getCurrentRoute } from '../strategy/state';
 import { getConnectedCities } from '../strategy/analyzer';
 import { getMapAIConfig } from '../strategy/mapConfig';
+import { getMapProfile } from '@/maps/getMapProfile';
 import {
   deliveryDeltaVP,
   engineUpgradeDeltaVP,
@@ -63,6 +64,8 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
   const targetRoute = getCurrentRoute(playerId);
 
   const { board } = state;
+  const profile = getMapProfile(state.mapId);
+  const incomeSources = getMapAIConfig(state).incomeSources;
   const candidates: MoveCandidate[] = [];
 
   // 모든 도시의 모든 큐브에 대해 이동 가능 여부 확인
@@ -95,6 +98,10 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
 
         // 배달의 기본 ΔVP (내 income VP + 현금흐름 − 상대 income 페널티)
         let deltaVP = deliveryDeltaVP(state, playerId, ownTrackCount, linksCount - ownTrackCount);
+
+        // Western US: 동↔서 배달 보너스(+$1 income, 배달자에게) — ΔVP에 가산
+        const regionBonus = profile.regionDeliveryBonus(city.region, destCity.region);
+        if (regionBonus > 0) deltaVP += VP_PER_INCOME * regionBonus;
 
         // 선점 보너스: 상대도 같은 배달이 가능하면, 내가 먼저 옮겨 상대의 income 기회를 차단
         // (차단 가치 ≈ 상대 income +1을 막음 = VP_PER_INCOME × 상대 가중치)
@@ -139,6 +146,39 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
           linksCount,
           ownTrackCount,
         });
+      }
+    }
+  }
+
+  // Western US: 마을 위 큐브 배달 후보 ('townCubes' income 원천). 마을을 도시처럼 출발점으로,
+  // 완성 링크를 따라 같은 색 도시로 배달 → 일반 'move' 액션(sourceCityId='town:<id>')으로 실행.
+  if (incomeSources.includes('townCubes')) {
+    for (const town of board.towns) {
+      if (town.newCityColor !== null) continue; // 도시화된 마을은 도시 경로
+      for (let cubeIndex = 0; cubeIndex < town.cubes.length; cubeIndex++) {
+        const cubeColor = town.cubes[cubeIndex];
+        const reachable = findReachableDestinations(town.coord, board, playerId, player.engineLevel, cubeColor);
+        for (const destCity of reachable) {
+          const path = findLongestPath(town.coord, destCity.coord, board, playerId, player.engineLevel, cubeColor);
+          if (!path || path.length < 2) continue;
+          const linksCount = countPathLinks(path, board);
+          const ownTrackCount = countOwnLinksInPath(path, board, playerId);
+          let deltaVP = deliveryDeltaVP(state, playerId, ownTrackCount, linksCount - ownTrackCount);
+          // 마을 출발은 region 없음 → 동서 보너스 없음. 선점 보너스만 적용.
+          const opponents = state.activePlayers.filter(id => id !== playerId);
+          for (const oppId of opponents) {
+            const op = state.players[oppId];
+            if (!op || op.eliminated) continue;
+            const oppReach = findReachableDestinations(town.coord, board, oppId, op.engineLevel, cubeColor);
+            if (oppReach.some(d => hexCoordsEqual(d.coord, destCity.coord))) { deltaVP += VP_PER_INCOME * opponentWeight(state); break; }
+          }
+          candidates.push({
+            sourceCityId: `town:${town.id}`,
+            cubeIndex, cubeColor,
+            destinationCoord: destCity.coord, destinationCityId: destCity.id,
+            path, deltaVP, routeScore: 0, linksCount, ownTrackCount,
+          });
+        }
       }
     }
   }

@@ -49,6 +49,16 @@ import {
   GERMANY_CUBE_COUNTS,
   createGermanyBoardState,
 } from './germanyMap';
+import {
+  WESTERN_US_MAP,
+  WESTERN_US_CITIES,
+  WESTERN_US_TOWNS,
+  WESTERN_US_COLUMN_MAPPING,
+  WESTERN_US_COLORS,
+  WESTERN_US_TOWN_NAMES,
+  WESTERN_US_CUBE_COUNTS,
+  createWesternUsBoardState,
+} from './westernUsMap';
 
 /**
  * 맵별 특수 룰 플래그
@@ -101,7 +111,8 @@ export interface GameMapData {
   columnMapping: GoodsColumnMapping[];
   /** UI 색상 (지형/배경) */
   colors: {
-    terrain: Record<TerrainType, string>;
+    // swamp 등 일부 지형은 맵마다 없으므로 Partial — GameBoard가 `?? plain`으로 폴백
+    terrain: Partial<Record<TerrainType, string>>;
     background: string;
     border: string;
   };
@@ -111,6 +122,12 @@ export interface GameMapData {
   hideLakeHexes?: boolean;
   /** 헥스 배향: 공식 맵이 flat-top이면 'flat' — 렌더만 전치, 게임 로직은 동형 (기본 'pointy') */
   orientation?: 'pointy' | 'flat';
+  /** 헥스 건설비용 표기 방식:
+   *  'perHex'(기본, Germany) = 헥스마다 숫자 박스 / 'legend'(Western US) = 지도 모서리에 지형색→가격 범례.
+   *  지형별로 비용이 균일한 맵('legend')은 헥스마다 숫자를 찍으면 지저분하므로 범례로 표시한다. */
+  hexCostMode?: 'perHex' | 'legend';
+  /** viewBox 우측 여백을 헥스 N개 폭만큼 줄임 (calculateBoardDimensions가 우측을 약 1헥스 과대 산정 — 맵별 보정). */
+  trimRightHexes?: number;
   /** 맵별 특수 룰 */
   rules: MapRuleConfig;
   /** 초기 보드 상태 생성 (도시 큐브는 createInitialGameState에서 배치) */
@@ -231,6 +248,35 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     rules: { ...DEFAULT_MAP_RULES },
     createBoardState: createGermanyBoardState,
     goodsCubeCounts: GERMANY_CUBE_COUNTS,
+  },
+
+  'western-us': {
+    id: WESTERN_US_MAP.id,
+    name: WESTERN_US_MAP.name,
+    nameKo: WESTERN_US_MAP.nameKo,
+    description: WESTERN_US_MAP.description,
+    supportedPlayers: WESTERN_US_MAP.supportedPlayers,
+    cols: WESTERN_US_MAP.cols,
+    rows: WESTERN_US_MAP.rows,
+    startCol: WESTERN_US_MAP.startCol,
+    maxTurns: WESTERN_US_MAP.maxTurns,
+    cities: WESTERN_US_CITIES,
+    towns: WESTERN_US_TOWNS,
+    columnMapping: WESTERN_US_COLUMN_MAPPING,
+    townNames: WESTERN_US_TOWN_NAMES,
+    hideLakeHexes: true,         // 태평양/멕시코만 외곽은 안 그려 대륙 윤곽 표현
+    orientation: 'pointy',       // pointy-top 네이티브 — 전치 없음 (St.Lucia/Rust Belt/Germany와 다름)
+    hexCostMode: 'legend',       // 지형별 균일 비용(늪/강 $4·산 $5) → 헥스 숫자 대신 좌하단 범례
+    trimRightHexes: 1,           // 우측 과대 여백 1헥스 트림 (좌측과 대칭)
+    colors: {
+      terrain: WESTERN_US_COLORS.terrain,
+      background: WESTERN_US_COLORS.background,
+      border: WESTERN_US_COLORS.border,
+    },
+    // 특수 규칙(마을큐브/시작현금/지형비용/동서보너스/시작도시/대륙횡단)은 MapProfile getter로 주입
+    rules: { ...DEFAULT_MAP_RULES },
+    createBoardState: createWesternUsBoardState,
+    goodsCubeCounts: WESTERN_US_CUBE_COUNTS, // 검정 도시 없음 → black 큐브 제외
   },
 };
 

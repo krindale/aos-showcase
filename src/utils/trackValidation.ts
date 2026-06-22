@@ -78,14 +78,37 @@ export function isValidConnectionPoint(
 export function validateFirstTrackRule(
   targetCoord: HexCoord,
   edges: [number, number],
-  board: BoardState
+  board: BoardState,
+  /** Western US: 첫 트랙이 인접해야 하는 "시작 도시" id 집합 (미지정 시 모든 도시 허용). */
+  allowedCityIds?: Set<string>
 ): boolean {
   // 타겟 헥스의 각 엣지에서 이웃 확인 — 첫 트랙은 도시에 인접해야 함
   // (St. Lucia: 시작 도시 0개 → 1턴엔 도시화로 만든 도시 인접에만 건설 가능)
   for (const edge of edges) {
     const neighbor = getNeighborHex(targetCoord, edge);
-    const isCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
-    if (isCity) return true;
+    const city = board.cities.find(c => hexCoordsEqual(c.coord, neighbor));
+    if (city && (!allowedCityIds || allowedCityIds.has(city.id))) return true;
+  }
+  return false;
+}
+
+/**
+ * 플레이어의 네트워크(트랙/가닥)가 이 도시에 이미 닿아 있는지.
+ * (Western US 연속성 규칙: 새 트랙이 "아무 도시"에서 시작하는 분리 구간을 막기 위해 사용)
+ */
+export function playerNetworkTouchesCity(
+  cityCoord: HexCoord,
+  board: BoardState,
+  playerId: PlayerId
+): boolean {
+  for (let edge = 0; edge < 6; edge++) {
+    const neighbor = getNeighborHex(cityCoord, edge);
+    const oppositeEdge = getOppositeEdge(edge);
+    const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor));
+    if (track) {
+      if (track.owner === playerId && track.edges.includes(oppositeEdge)) return true;
+      if (track.secondaryOwner === playerId && track.secondaryEdges?.includes(oppositeEdge)) return true;
+    }
   }
   return false;
 }
@@ -99,14 +122,20 @@ export function validateTrackConnection(
   targetCoord: HexCoord,
   edges: [number, number],
   board: BoardState,
-  currentPlayer: PlayerId
+  currentPlayer: PlayerId,
+  /** Western US 연속성: true면 "아무 도시"에서 시작하는 분리 구간 금지 —
+   *  도시 연결은 그 도시에 내 네트워크가 이미 닿아 있을 때만 인정 (대륙횡단 전). */
+  requireNetwork = false
 ): boolean {
   for (const edge of edges) {
     const neighbor = getNeighborHex(targetCoord, edge);
 
     // 도시에 연결되는 경우
-    const isCity = board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
-    if (isCity) return true;
+    const city = board.cities.find(c => hexCoordsEqual(c.coord, neighbor));
+    if (city) {
+      if (!requireNetwork || playerNetworkTouchesCity(neighbor, board, currentPlayer)) return true;
+      // requireNetwork인데 내 네트워크가 안 닿은 도시 → 이 엣지로는 인정 안 함(다른 엣지 계속 확인)
+    }
 
     // 내 트랙이 진입해 있는 마을에 연결되는 경우 (마을은 진입 트랙을 모두 연결)
     if (playerConnectsToTown(neighbor, board, currentPlayer)) return true;

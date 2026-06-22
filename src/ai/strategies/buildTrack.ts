@@ -442,12 +442,14 @@ export function findNetworkExpansionTarget(
 /**
  * 지형에 따른 건설 비용
  */
-function getTerrainCost(coord: HexCoord, board: { hexTiles: { coord: HexCoord; terrain: string }[] }): number {
+function getTerrainCost(coord: HexCoord, board: { hexTiles: { coord: HexCoord; terrain: string; fixedCost?: number }[] }): number {
   const hexTile = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
   if (!hexTile) return GAME_CONSTANTS.PLAIN_TRACK_COST;
+  if (hexTile.fixedCost !== undefined) return hexTile.fixedCost; // 헥스 고정비용 우선 (Germany/Western US)
 
   switch (hexTile.terrain) {
     case 'river':
+    case 'swamp':
       return GAME_CONSTANTS.RIVER_TRACK_COST;
     case 'mountain':
       return GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
@@ -487,14 +489,30 @@ function tryDirectPathBuild(
     .filter((x): x is { coord: HexCoord; edges: number[] } => x !== null);
   const hasExistingTrack = playerTracks.length > 0;
 
+  const profile = getMapProfile(state.mapId);
+  // Western US: 첫 트랙은 "시작 도시"(서부/동부) 인접에서만 시작할 수 있다.
+  // 대륙횡단 전까지는 모든 신설 트랙이 네트워크에 연속이어야 한다.
+  const allowedStartCityIds = profile.startingCitiesOnly
+    ? new Set(board.cities.filter(c => profile.isStartingCity(c)).map(c => c.id))
+    : undefined;
+  const requireNetwork = profile.requireContiguousUntilTranscontinental && !player.transcontinental;
+
   // 첫 트랙은 도시 인접에서만 시작할 수 있다 (정규 룰). 경로가 마을→도시 방향이면
   // 마을 쪽 첫 칸은 도시 비인접이라 건설이 막히므로, source/target을 교환해
   // 도시 끝에서부터 건설을 시작한다 (배달 경로는 양방향 동일 — St. Lucia 도시화 1턴 등).
   if (!hasExistingTrack) {
-    const sourceIsCity = board.cities.some(c => hexCoordsEqual(c.coord, sourceCity!.coord));
-    const targetIsCity = board.cities.some(c => hexCoordsEqual(c.coord, targetCity!.coord));
-    if (!sourceIsCity && targetIsCity) {
-      [sourceCity, targetCity] = [targetCity, sourceCity];
+    if (allowedStartCityIds) {
+      // 시작 도시 끝에서부터 건설. 둘 다 시작 도시가 아니면 이 경로는 첫 건설 불가.
+      const sStart = allowedStartCityIds.has(sourceCity!.id);
+      const tStart = allowedStartCityIds.has(targetCity!.id);
+      if (!sStart && tStart) [sourceCity, targetCity] = [targetCity, sourceCity];
+      else if (!sStart && !tStart) return null;
+    } else {
+      const sourceIsCity = board.cities.some(c => hexCoordsEqual(c.coord, sourceCity!.coord));
+      const targetIsCity = board.cities.some(c => hexCoordsEqual(c.coord, targetCity!.coord));
+      if (!sourceIsCity && targetIsCity) {
+        [sourceCity, targetCity] = [targetCity, sourceCity];
+      }
     }
   }
 
@@ -789,14 +807,14 @@ function tryDirectPathBuild(
       }
     }
 
-    // 6. 연결 규칙 검증
+    // 6. 연결 규칙 검증 (Western US: 시작도시 제한 + 연속성 강제)
     if (hasExistingTrack) {
-      if (!validateTrackConnection(nextCoord, edges, board, playerId)) {
+      if (!validateTrackConnection(nextCoord, edges, board, playerId, requireNetwork)) {
         debugLog.trackBuilding(`[직접 경로] (${nextCoord.col},${nextCoord.row}) edges=[${edges}] 연결 검증 실패`);
         return null;
       }
     } else {
-      if (!validateFirstTrackRule(nextCoord, edges, board)) {
+      if (!validateFirstTrackRule(nextCoord, edges, board, allowedStartCityIds)) {
         debugLog.trackBuilding(`[직접 경로] (${nextCoord.col},${nextCoord.row}) edges=[${edges}] 첫 트랙 규칙 실패`);
         return null;
       }

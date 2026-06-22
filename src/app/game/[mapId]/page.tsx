@@ -7,6 +7,7 @@ export function generateStaticParams() {
     { mapId: 'st-lucia' },
     { mapId: 'rust-belt' },
     { mapId: 'germany' },
+    { mapId: 'western-us' },
   ];
 }
 

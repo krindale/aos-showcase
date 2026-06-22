@@ -204,6 +204,38 @@ function releaseUnextendedTrack(board: BoardState, currentTurn: number): { board
   return { board: { ...board, trackTiles: updated }, released: releaseKeys.size };
 }
 
+/**
+ * Germany 미완성 링크 금지: 한 플레이어의 트랙 건설이 끝났을 때, 이번 턴에 새로 깐 트랙 중
+ * 완성 링크(도시/마을↔도시/마을)에 속하지 않는 것을 제거하고 건설 비용을 환불한다.
+ * (룰북: "미완성 트랙 구간 건설 불가, 완성된 링크만 건설 가능")
+ */
+function removeIncompleteNewTracks(
+  board: BoardState,
+  currentTurn: number,
+  playerId: PlayerId
+): { board: BoardState; refund: number } {
+  const k = (c: HexCoord) => `${c.col},${c.row}`;
+  const incomplete = board.trackTiles.filter(
+    t => t.owner === playerId && t.builtTurn === currentTurn && !isTrackPartOfCompletedLink(t.coord, board)
+  );
+  if (incomplete.length === 0) return { board, refund: 0 };
+  const removeKeys = new Set(incomplete.map(t => k(t.coord)));
+  let refund = 0;
+  for (const t of incomplete) {
+    const hex = board.hexTiles.find(h => hexCoordsEqual(h.coord, t.coord));
+    refund += hex?.fixedCost !== undefined ? hex.fixedCost
+      : hex?.terrain === 'mountain' ? GAME_CONSTANTS.MOUNTAIN_TRACK_COST
+      : hex?.terrain === 'river' ? GAME_CONSTANTS.RIVER_TRACK_COST
+      : GAME_CONSTANTS.PLAIN_TRACK_COST;
+  }
+  const trackTiles = board.trackTiles.filter(t => !removeKeys.has(k(t.coord)));
+  // 제거된 트랙 좌표에 딸린 이번 턴 마을 가닥도 함께 제거 (미완성 노선의 일부)
+  const townSpurs = (board.townSpurs ?? []).filter(
+    sp => !(sp.owner === playerId && sp.builtTurn === currentTurn && removeKeys.has(k(sp.townCoord)))
+  );
+  return { board: { ...board, trackTiles, townSpurs }, refund };
+}
+
 export function createInitialGameState(
   mapId: string,
   playerNames: string[],
@@ -2880,6 +2912,19 @@ export const useGameStore = create<GameStore>()(
         console.log(`[buildTrack nextPhase] currentPlayer: ${state.currentPlayer}`);
         console.log(`[buildTrack nextPhase] playerMoves 전:`, JSON.stringify(state.phaseState.playerMoves));
 
+        // Germany 미완성 링크 금지: 방금 건설을 마친 플레이어의 이번 턴 미완성 신설 트랙 제거 + 환불
+        let bwBoard = state.board;
+        let bwPlayers = state.players;
+        if (getMapProfile(state.mapId).requireCompleteLinks) {
+          const r = removeIncompleteNewTracks(state.board, state.currentTurn, state.currentPlayer);
+          if (r.board !== state.board) {
+            bwBoard = r.board;
+            const p = state.players[state.currentPlayer];
+            bwPlayers = { ...state.players, [state.currentPlayer]: { ...p, cash: p.cash + r.refund } };
+            console.log(`[미완성 제거] ${state.currentPlayer}: 미완성 신설 트랙 제거, $${r.refund} 환불 (Germany 미완성 링크 금지)`);
+          }
+        }
+
         // 현재 플레이어를 완료 처리 (이미 완료된 경우 중복 마킹 방지)
         const alreadyCompleted = state.phaseState.playerMoves[state.currentPlayer];
         if (alreadyCompleted) {
@@ -2907,6 +2952,8 @@ export const useGameStore = create<GameStore>()(
           return {
             currentPhase: 'moveGoods' as GamePhase,
             currentPlayer: firstMover || playerOrder[0],
+            board: bwBoard,       // Germany 미완성 트랙 제거 반영
+            players: bwPlayers,   // 환불 반영
             phaseState: {
               ...state.phaseState,
               moveGoodsRound: 1,
@@ -2934,6 +2981,8 @@ export const useGameStore = create<GameStore>()(
         console.log(`[빌드카운트 리셋] 차례 전환: ${state.currentPlayer}(${state.phaseState.builtTracksThisTurn}개 건설) → ${nextBuilder}, turn=${state.currentTurn}`);
         return {
           currentPlayer: nextBuilder,
+          board: bwBoard,       // Germany 미완성 트랙 제거 반영
+          players: bwPlayers,   // 환불 반영
           phaseState: {
             ...state.phaseState,
             builtTracksThisTurn: 0,

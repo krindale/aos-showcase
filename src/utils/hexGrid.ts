@@ -1214,9 +1214,20 @@ function checkConnectionToCity(
     const nextHex = getNeighborHex(currentHex, currentEdge);
     const coordKey = `${nextHex.col},${nextHex.row}`;
 
-    // 2. 도시/마을인지 확인
-    if (isCityOrTown(nextHex, board)) {
-      return true;
+    // 2. 도시/마을인지 확인.
+    //    도시(도시화된 마을 포함=board.cities)는 모든 변이 연결된 것으로 간주.
+    //    미도시화 마을은 '진입 변에 가닥(townSpur)이 있을 때만' 연결로 인정한다
+    //    (가닥 없이 닿기만 한 트랙은 미완성 — 이 체크가 없으면 완성 링크로 오판됨).
+    {
+      const cityHere = board.cities.some(c => hexCoordsEqual(c.coord, nextHex));
+      if (cityHere) return true;
+      const townHere = board.towns.some(t => hexCoordsEqual(t.coord, nextHex) && t.newCityColor === null);
+      if (townHere) {
+        const entryEdge = getOppositeEdge(currentEdge);
+        return (board.townSpurs ?? []).some(
+          sp => hexCoordsEqual(sp.townCoord, nextHex) && sp.edge === entryEdge
+        );
+      }
     }
 
     // 3. 순환 감지 (이미 방문한 곳이면 실패)

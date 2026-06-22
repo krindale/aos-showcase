@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useGameStore, TUTORIAL_GAME_CONFIG } from '@/store/gameStore';
+import { useGameStore } from '@/store/gameStore';
 
 // 개발 모드에서 AI 디버거 활성화
 import '@/ai/debug';

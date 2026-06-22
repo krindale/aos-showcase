@@ -24,9 +24,10 @@ export class GermanyMapProfile extends StandardMapProfile {
   }
 
   // 룰북 셋업: "Place 4 goods on Wien, 3 on Königsberg, 2 on each other City"
+  // Berlin은 시작 큐브 0 — 매 턴 물품 성장 때 보너스 큐브 1개로만 채워진다(bonusCityCubeId).
   // (터미널은 셋업에서 무작위 큐브 1개 — gameStore의 isTerminal 분기가 처리)
   override get cityCubeCounts(): Record<string, number> {
-    return { wien: 4, koenigsberg: 3 };
+    return { wien: 4, koenigsberg: 3, berlin: 0 };
   }
 
   override get engineerHalfCost(): boolean { return true; }

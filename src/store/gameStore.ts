@@ -2713,6 +2713,7 @@ export const useGameStore = create<GameStore>()(
         const bonusCity = newCities.find(c => c.id === bonusCityId);
         if (bonusCity && cube) {
           bonusCity.cubes.push(cube);
+          console.log(`[Berlin 보너스] T${state.currentTurn} ${bonusCity.name}에 ${cube} 큐브 +1 (매 턴 물품 성장)`);
           newLogs.push({
             turn: state.currentTurn,
             phase: state.currentPhase,

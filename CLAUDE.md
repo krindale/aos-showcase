@@ -142,6 +142,8 @@ src/
 │       ├── fullSimulation.test.ts        # 2 AI 멀티턴 트랙 건설/링크 완성 시뮬레이션
 │       ├── fullGameSimulation.test.ts    # 실제 gameStore 구동 전체 게임 시뮬레이션 (파산율/재정 검증)
 │       ├── stLuciaSimulation.test.ts     # St.Lucia 2 AI 동기식 전체게임 러너 + 수익/건설 깔때기 측정
+│       ├── rustBeltSimulation.test.ts    # Rust Belt 5인 AI 동기식 전체게임 러너 + 베이스라인
+│       ├── germanySimulation.test.ts     # Germany 4인 AI 동기식 전체게임 러너(8턴) + 베이스라인
 │       └── helpers/
 │           └── mockState.ts    # 테스트용 Mock 데이터 헬퍼
 │
@@ -151,7 +153,9 @@ src/
 │   ├── getMapProfile.ts        # mapId → MapProfile 인스턴스 팩토리 (캐싱)
 │   └── profiles/
 │       ├── StandardMapProfile.ts   # 룰북 기본 맵 (튜토리얼 = engineMax 3 override)
-│       └── StLuciaMapProfile.ts    # St.Lucia override (헥스큐브 income/규칙/경로전략)
+│       ├── StLuciaMapProfile.ts    # St.Lucia override (헥스큐브 income/규칙/경로전략)
+│       ├── RustBeltMapProfile.ts   # Rust Belt override (Pittsburgh/Wheeling 큐브 3)
+│       └── GermanyMapProfile.ts    # Germany override (Engineer 절반/미완성금지/Berlin보너스/큐브수)
 │
 ├── components/                 # UI 컴포넌트
 │   ├── Navigation.tsx          # 글래스모피즘 네비게이션 바
@@ -199,6 +203,8 @@ src/
     ├── trackValidation.ts      # 트랙 건설 및 연결성 검증
     ├── tutorialMap.ts          # 튜토리얼 맵 데이터 정의 (좌표 0-base)
     ├── stLuciaMap.ts           # St. Lucia 맵 데이터 정의 (2인 전용, 헥스큐브, 좌표 0-base)
+    ├── rustBeltMap.ts          # Rust Belt 맵 데이터 정의 (5인 전용, flat-top 전치, 좌표 0-base)
+    ├── germanyMap.ts           # Germany 맵 데이터 정의 (4인 전용, flat-top 전치, 터미널/고정비용/직결)
     ├── mapRegistry.ts          # 맵 룰 분리 레지스트리 (MapRuleConfig)
     ├── debugConfig.ts          # 디버그 설정 (로그 카테고리 토글 + logAction 종합 액션 로깅)
     ├── pwaUtils.ts             # Service Worker 등록/관리 유틸리티
@@ -271,7 +277,7 @@ docs/
 - **Korea** - 한반도, 동적 도시 색상
 - **Western U.S.** - 대륙횡단 철도
 - **Southern U.S.** - 면화 운송
-- **Germany** - 녹색 외국 터미널
+- **Germany** (플레이 가능) - 외국 터미널·헥스 고정비용·도시 직결, 4인 8턴
 - **Barbados** - 솔로 게임
 - **St. Lucia** - 2인 전용
 
@@ -544,6 +550,35 @@ setAllDebug(true);                   // 모든 로그 on/off
 남은 작업: income 천장(목표 20) 향해 "도시화한 도시로 즉시 배달 + 1턴완성 결합", Engineer 4칸 건설을
 완성 판정에 반영, `getConnectedCities` 트랙0 빈배열 버그 근본수정(analyzer).
 
+#### Germany 맵 구현 (2026-06-22, feature/germany-map)
+
+공식 맵 PNG(`public/maps/germany.png`)를 색상 자동검출 + 테두리 자기상관 격자 피팅으로 추출한
+**4인 전용 8턴** 맵. 도시 13 + 외국 터미널 6 + 마을 14.
+
+- **flat-top 보드 (중요)**: 헥스가 flat-top(평평한 윗변)이다. St.Lucia/Rust Belt와 동일하게
+  **전치 저장(데이터 col=화면세로, row=화면가로) + `orientation:'flat'` 렌더**. 데이터 그리드 15×13.
+  ⚠️ 헥스 방향은 **테두리 자기상관**(가로/세로 주기 비 ≈0.86=flat, 1.155=pointy)이나 헥스 크롭으로
+  확정할 것 — pointy로 오판하면 격자가 2배 부풀려져 "전혀 다른 맵"이 된다(실제 겪음).
+- **맵 데이터** (`src/utils/germanyMap.ts`): 빈 외곽은 `lake`+`hideLakeHexes`로 안 그려 국경 윤곽 표현.
+  빈 상단 2칸은 col −2 평행이동으로 제거(odd-r 인접 무변경). 도시 주사위번호(=화면 표시+물품성장)는
+  원본대로: 1 München·Zürich / 2 Nürnberg·Stuttgart / 3 Essen·Düsseldorf / 4 Oldenburg·Wien /
+  5 Hannover·Dresden / 6 Königsberg·Breslau.
+- **외국 터미널 6** (`City.isTerminal`): 셋업때 무작위 큐브1로 수용색 결정(통과 불가·생산 안 함·
+  배달 출발 아님). gameStore 셋업 분기 + hexGrid 3개 DFS에 통과금지 + columnMapping에서 제외 +
+  analyzer `analyzeDeliveryOpportunities` 제외.
+- **헥스 고정비용** (`HexTile.fixedCost` €6~€12): 지형 기본비용 대신 사용. gameStore `buildTrack` +
+  analyzer 비용 2곳(`getTerrainCost`/`getTerrainBuildCost`). GameBoard에 박스+숫자로 표시(도시 번호 원과 통일).
+- **Engineer 절반 비용** (`MapProfile.engineerHalfCost` + `phaseState.engineerHalfUsed`, 빌더마다 리셋).
+- **미완성 링크 금지** (`MapProfile.requireCompleteLinks`): AI buildTrack 첫 착공 시 이번 턴 슬롯으로
+  완성 가능한 경로만(`countMissingTrackHexes` 게이트).
+- **Berlin 매 턴 무작위 물품 1개** (`MapProfile.bonusCityCubeId='berlin'` + growGoods).
+- **도시 직결 링크** (`BoardState.directLinks`/`DirectLink`, Essen↔Düsseldorf $2): 두 도시가 직접
+  인접(변 공유)이라 사이 헥스가 없어 일반 트랙으로 못 이음 → `buildDirectLink` 액션(건설1카운트),
+  `getConnectedNeighbors`에 직결을 도시 이웃으로(이동/완성/배달 자동 반영), `completeCubeMove` 직결구간
+  income+1, GameBoard 골드점선+$2원 클릭건설. **AI는 직결 미사용(사람 전용)**. 룰북: "$2, 흰색 원 소유 마커".
+- **측정** (`germanySimulation.test.ts`, 20시드): VP +14.88, income 11.2, 파산 1.15/4명, 19/20게임 8턴완주.
+  tutorial/St.Lucia/Rust Belt VP 회귀 게이트 보존. 남은 작업: AI 직결 활용·파산률(~29%) 밸런싱·강 표현 연속성.
+
 #### 마을 가닥(스퍼) 모델 (2026-06-12 재설계, 모든 맵 공통)
 
 마을 = 헥스 안의 원. **마을 헥스에는 트랙 타일을 배치할 수 없다** (도시처럼).
@@ -629,6 +664,8 @@ npx vitest run src/ai/__tests__/fullGameSimulation.test.ts -t "executeAITurn" # 
 - `src/ai/__tests__/fullSimulation.test.ts` - 2 AI 멀티턴 트랙 건설/링크 완성 시뮬레이션
 - `src/ai/__tests__/fullGameSimulation.test.ts` - 실제 gameStore 구동 전체 게임 시뮬레이션 (파산율 0%, 재정 건전성, 랜덤 시드 스트레스 테스트)
 - `src/ai/__tests__/stLuciaSimulation.test.ts` - St.Lucia 2 AI 동기식 전체게임 러너 + 수익/건설 깔때기 측정 (income/VP 베이스라인 + 목표 게이트)
+- `src/ai/__tests__/rustBeltSimulation.test.ts` - Rust Belt 5인 AI 동기식 전체게임 러너 + 베이스라인
+- `src/ai/__tests__/germanySimulation.test.ts` - Germany 4인 AI 동기식 전체게임 러너(8턴) + 베이스라인
 - `src/ai/strategy/__tests__/analyzer.test.ts` - A* 경로 탐색 테스트
 - `src/ai/strategy/__tests__/selector.test.ts` - 전략 선택 테스트
 - `src/ai/strategies/__tests__/buildTrack.test.ts` - 트랙 건설 전략 테스트
@@ -687,9 +724,10 @@ export default function ComponentName() {
 
 ## 향후 개선 사항
 
-- [ ] **Rust Belt 맵 3-6인 플레이어블** (다음 큰 작업) — 공식 맵 PDF 픽셀 측정으로 데이터 추출,
-  다인 경매/순서/물품성장 헤드리스 검증, AI 다인 밸런스(VP 베이스라인 신규 측정).
-  맵 레지스트리/가닥 모델/AI N인 정규화 인프라는 준비됨
+- [x] **Rust Belt 5인 플레이어블** — flat-top 데이터 추출, 다인 엔진/AI 밸런스(VP +4.13)
+- [x] **Germany 맵 4인 플레이어블** — 외국 터미널·헥스 고정비용·도시 직결·Engineer 절반·Berlin 보너스 (8턴)
+- [ ] **Western U.S. 맵** (다음 큰 작업) — 공식 맵 추출, 대륙횡단 보너스·동서 도시 규칙
+- [ ] Germany/Rust Belt AI 추가 밸런싱 (파산률↓, AI 직결 링크 활용)
 - [ ] Three.js로 3D 게임보드 구현
 - [ ] GSAP ScrollTrigger 고급 애니메이션 (라이브러리는 설치됨, 미적용)
 - [ ] i18n 다국어 지원

@@ -1042,40 +1042,6 @@ export default function GameBoard() {
           );
         })}
 
-        {/* Germany 도시-도시 직결 링크 (Essen↔Düsseldorf $2) — 미건설은 골드 점선, 건설 시 소유자 색 */}
-        {(board.directLinks ?? []).map((dl, i) => {
-          const a = board.cities.find(c => c.id === dl.cityA);
-          const b = board.cities.find(c => c.id === dl.cityB);
-          if (!a || !b) return null;
-          const pa = hexToPixel(a.coord.col, a.coord.row, undefined, undefined, undefined, isFlat);
-          const pb = hexToPixel(b.coord.col, b.coord.row, undefined, undefined, undefined, isFlat);
-          const mx = (pa.x + pb.x) / 2, my = (pa.y + pb.y) / 2;
-          const buildable = currentPhase === 'buildTrack' && dl.owner === null;
-          const ownerColor = dl.owner ? PLAYER_COLORS[players[dl.owner].color] : null;
-          return (
-            <g
-              key={`directlink-${i}`}
-              className={buildable ? 'cursor-pointer' : ''}
-              onClick={() => buildable && buildDirectLink(dl.cityA, dl.cityB)}
-            >
-              <line
-                x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y}
-                stroke={ownerColor ?? '#d4a853'}
-                strokeWidth={dl.owner ? 9 : 6}
-                strokeDasharray={dl.owner ? undefined : '10 7'}
-                strokeLinecap="round"
-                opacity={0.95}
-              />
-              <circle cx={mx} cy={my} r="13" fill={ownerColor ?? 'rgba(255,255,255,0.9)'} stroke="rgba(0,0,0,0.6)" strokeWidth="2" />
-              {!dl.owner && (
-                <text x={mx} y={my + 5} textAnchor="middle" fill="#1a1a1a" fontSize="15" fontWeight="bold" fontFamily="system-ui, sans-serif" style={{ pointerEvents: 'none' }}>
-                  {dl.cost}
-                </text>
-              )}
-            </g>
-          );
-        })}
-
         {/* 도시 */}
         {board.cities.map((city) => {
           const { x, y } = hexToPixel(city.coord.col, city.coord.row, undefined, undefined, undefined, isFlat);
@@ -1198,6 +1164,43 @@ export default function GameBoard() {
                   );
                 })}
               </g>
+            </g>
+          );
+        })}
+
+        {/* Germany 도시-도시 직결 링크 (Essen↔Düsseldorf $2) — 도시 위 레이어라야 클릭이 도시에 가로채이지 않음 */}
+        {(board.directLinks ?? []).map((dl, i) => {
+          const a = board.cities.find(c => c.id === dl.cityA);
+          const b = board.cities.find(c => c.id === dl.cityB);
+          if (!a || !b) return null;
+          const pa = hexToPixel(a.coord.col, a.coord.row, undefined, undefined, undefined, isFlat);
+          const pb = hexToPixel(b.coord.col, b.coord.row, undefined, undefined, undefined, isFlat);
+          const mx = (pa.x + pb.x) / 2, my = (pa.y + pb.y) / 2;
+          const buildable = currentPhase === 'buildTrack' && dl.owner === null;
+          const ownerColor = dl.owner ? PLAYER_COLORS[players[dl.owner].color] : null;
+          return (
+            <g
+              key={`directlink-${i}`}
+              className={buildable ? 'cursor-pointer' : ''}
+              onClick={() => buildable && buildDirectLink(dl.cityA, dl.cityB)}
+            >
+              <line
+                x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y}
+                stroke={ownerColor ?? '#d4a853'}
+                strokeWidth={dl.owner ? 9 : 6}
+                strokeDasharray={dl.owner ? undefined : '10 7'}
+                strokeLinecap="round"
+                opacity={dl.owner ? 0.95 : 0.85}
+                style={{ pointerEvents: 'none' }}
+              />
+              {/* 클릭 히트영역(투명, 큰 원) — 건설 가능할 때만 */}
+              {buildable && <circle cx={mx} cy={my} r="22" fill="transparent" />}
+              <circle cx={mx} cy={my} r="14" fill={ownerColor ?? 'rgba(255,255,255,0.92)'} stroke="rgba(0,0,0,0.65)" strokeWidth="2" style={{ pointerEvents: 'none' }} />
+              {!dl.owner && (
+                <text x={mx} y={my + 5} textAnchor="middle" fill="#1a1a1a" fontSize="15" fontWeight="bold" fontFamily="system-ui, sans-serif" style={{ pointerEvents: 'none' }}>
+                  {dl.cost}
+                </text>
+              )}
             </g>
           );
         })}

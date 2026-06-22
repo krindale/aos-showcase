@@ -105,12 +105,11 @@ const maps = [
     image: '/maps/germany.png',
     description: '산업 혁명기의 독일. 외국 터미널, 헥스별 고정 건설비용, 알프스 산악을 낀 4인 대결 맵입니다.',
     features: [
-      '13개 도시 · 14개 마을 · 외국 터미널 6',
+      '도시 13 · 마을 14 · 외국 터미널 6',
       '헥스별 고정 건설비용 (€2~€12)',
-      'Berlin 매 턴 물품 보너스',
       '4인 전용 · 6턴',
     ],
-    specialRules: 'Engineer 절반 비용, 미완성 링크 금지, 외국 터미널(자기 색 물품만 수용·통과 불가), Berlin 매 턴 무작위 물품 1개',
+    specialRules: 'Engineer 절반 비용, 미완성 링크 금지, 외국 터미널(자기 색만 수용·통과 불가), Berlin 매 턴 물품 1개',
     playable: true,
   },
   {

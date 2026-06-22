@@ -220,7 +220,8 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     towns: GERMANY_TOWNS,
     columnMapping: GERMANY_COLUMN_MAPPING,
     townNames: GERMANY_TOWN_NAMES,
-    orientation: 'pointy',       // 윗변 뾰족 (전치 없이 그대로)
+    hideLakeHexes: true,         // 맵 밖(lake) 헥스는 안 그려 독일 국경 윤곽 표현
+    orientation: 'flat',         // flat-top 보드 — 전치 저장 + 렌더 전치 (St.Lucia/Rust Belt와 동일)
     colors: {
       terrain: GERMANY_COLORS.terrain,
       background: GERMANY_COLORS.background,

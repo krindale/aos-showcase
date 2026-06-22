@@ -1340,11 +1340,18 @@ export function getConnectedCities(
   const { board } = state;
   const playerTracks = board.trackTiles.filter(t => t.owner === playerId);
 
-  if (playerTracks.length === 0) {
-    return []; // 트랙 없으면 연결된 도시 없음 (모든 도시 반환하면 연결성 보너스가 무의미)
+  const connectedCities: string[] = [];
+
+  // Germany 도시 직결 링크(내가 건설한 것)로 이어진 두 도시도 내 네트워크에 속한다
+  for (const dl of board.directLinks ?? []) {
+    if (dl.owner === playerId) {
+      connectedCities.push(dl.cityA, dl.cityB);
+    }
   }
 
-  const connectedCities: string[] = [];
+  if (playerTracks.length === 0 && connectedCities.length === 0) {
+    return []; // 트랙/직결 없으면 연결된 도시 없음 (모든 도시 반환하면 연결성 보너스가 무의미)
+  }
 
   for (const city of board.cities) {
     for (const track of playerTracks) {
@@ -1359,7 +1366,7 @@ export function getConnectedCities(
     }
   }
 
-  return connectedCities;
+  return Array.from(new Set(connectedCities));
 }
 
 /**

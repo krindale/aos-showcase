@@ -2262,6 +2262,7 @@ export const useGameStore = create<GameStore>()(
 
       let currentLinkOwner: PlayerId | null = null;
       let inLink = false;
+      let prevStopCoord: HexCoord | null = null;
 
       for (let i = 0; i < path.length; i++) {
         const coord = path[i];
@@ -2272,10 +2273,22 @@ export const useGameStore = create<GameStore>()(
           if (inLink && currentLinkOwner) {
             // 도시/마을에 도착했으므로 이전 링크 완료, 소유자 수입 +1
             incomeChanges[currentLinkOwner] = (incomeChanges[currentLinkOwner] || 0) + 1;
+          } else if (inLink && !currentLinkOwner && prevStopCoord) {
+            // Germany 직결 링크: 사이 트랙 없이 두 도시가 바로 이어진 구간 → 직결 owner 수입 +1
+            const a = state.board.cities.find(c => hexCoordsEqual(c.coord, prevStopCoord!));
+            const b = state.board.cities.find(c => hexCoordsEqual(c.coord, coord));
+            if (a && b) {
+              const dl = (state.board.directLinks ?? []).find(d => d.owner &&
+                ((d.cityA === a.id && d.cityB === b.id) || (d.cityA === b.id && d.cityB === a.id)));
+              if (dl?.owner && state.activePlayers.includes(dl.owner)) {
+                incomeChanges[dl.owner] = (incomeChanges[dl.owner] || 0) + 1;
+              }
+            }
           }
           // 새 링크 시작
           inLink = true;
           currentLinkOwner = null;
+          prevStopCoord = coord;
         } else {
           // 트랙 구간: 소유자 확인 (한 링크는 한 소유자만 가짐)
           if (inLink && !currentLinkOwner) {
@@ -2661,8 +2674,8 @@ export const useGameStore = create<GameStore>()(
       // Germany: Berlin은 매 물품 성장마다 주머니에서 무작위 큐브 1개를 받는다
       const bonusCityId = getMapProfile(state.mapId).bonusCityCubeId;
       if (bonusCityId && newBag.length > 0) {
-        const idx = Math.floor(Math.random() * newBag.length);
-        const cube = newBag.splice(idx, 1)[0];
+        // 주머니는 이미 셔플돼 있으므로 pop으로 무작위 1개 — Math.random 미사용(시드 결정성 유지)
+        const cube = newBag.pop();
         const bonusCity = newCities.find(c => c.id === bonusCityId);
         if (bonusCity && cube) {
           bonusCity.cubes.push(cube);

@@ -107,7 +107,7 @@ export interface HexTile {
   /** 헥스 위 물품 큐브 (St. Lucia 셋업 — 건설 시 트랙 위로 이동) */
   cube?: CubeColor | null;
   /** 헥스별 고정 건설 비용(Germany €6~€12). 지정되면 지형별 기본 비용을 무시하고 이 값을 쓴다.
-   *  Essen/Dortmund↔Düsseldorf/Köln 직결 링크($2)도 중간 헥스의 fixedCost=2로 표현한다. */
+   *  (도시-도시 직결 링크는 별도 BoardState.directLinks로 표현 — fixedCost와 무관) */
   fixedCost?: number;
 }
 

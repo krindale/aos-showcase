@@ -1666,9 +1666,11 @@ export const useGameStore = create<GameStore>()(
 
       // Engineer 효과
       if (action === 'engineer') {
+        // Germany: Engineer는 '트랙 1개를 절반 비용으로'(룰북)이며 4타일 혜택은 없다 → 표준 타일 수 유지
+        const engineerHalfCost = getMapProfile(state.mapId).engineerHalfCost;
         newState.phaseState = {
           ...state.phaseState,
-          maxTracksThisTurn: GAME_CONSTANTS.ENGINEER_TRACK_LIMIT,
+          maxTracksThisTurn: engineerHalfCost ? GAME_CONSTANTS.NORMAL_TRACK_LIMIT : GAME_CONSTANTS.ENGINEER_TRACK_LIMIT,
         };
       }
 
@@ -2837,8 +2839,8 @@ export const useGameStore = create<GameStore>()(
               builtTracksThisTurn: 0,
               lastBuiltCoords: [],
               engineerHalfUsed: false, // Germany: 빌더마다 Engineer 절반 할인 재설정
-              // 첫 번째로 건설할 플레이어의 Engineer 효과 확인
-              maxTracksThisTurn: state.players[firstBuilder].selectedAction === 'engineer'
+              // 첫 번째로 건설할 플레이어의 Engineer 효과 확인 (Germany는 4타일 혜택 없음 — 절반 비용만)
+              maxTracksThisTurn: state.players[firstBuilder].selectedAction === 'engineer' && !getMapProfile(state.mapId).engineerHalfCost
                 ? GAME_CONSTANTS.ENGINEER_TRACK_LIMIT
                 : GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
               // 모든 플레이어의 건설 완료 상태 초기화
@@ -2924,7 +2926,7 @@ export const useGameStore = create<GameStore>()(
             builtTracksThisTurn: 0,
             lastBuiltCoords: [],
             engineerHalfUsed: false, // Germany: 빌더마다 Engineer 절반 할인 재설정
-            maxTracksThisTurn: state.players[nextBuilder].selectedAction === 'engineer'
+            maxTracksThisTurn: state.players[nextBuilder].selectedAction === 'engineer' && !getMapProfile(state.mapId).engineerHalfCost
               ? GAME_CONSTANTS.ENGINEER_TRACK_LIMIT
               : GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
             playerMoves: updatedPlayerMoves,

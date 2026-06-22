@@ -23,6 +23,7 @@ import {
   getAnimationPoints,
 } from '@/utils/hexGrid';
 import { getMapData } from '@/utils/mapRegistry';
+import { getMapProfile } from '@/maps/getMapProfile';
 import { isValidConnectionPoint as isValidConnectionPointUtil } from '@/utils/trackValidation';
 import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId } from '@/types/game';
 
@@ -49,6 +50,8 @@ export default function GameBoard() {
   const currentTurn = useGameStore((state) => state.currentTurn);
   // 맵 데이터(그리드 크기/지형 색): mapRegistry에서 주입 — 튜토리얼 하드코딩 금지
   const mapData = useMemo(() => getMapData(mapId), [mapId]);
+  // 큰 라벨을 생략할 도시(물품성장 안 받는 외국 터미널·Berlin 보너스 도시) — id 풀네임 노출 방지
+  const bonusCityId = useMemo(() => getMapProfile(mapId).bonusCityCubeId, [mapId]);
   const terrainColors = mapData.colors.terrain;
   // 도시 헥스에 표시할 물품 성장 주사위 번호 (cityId → diceNumber).
   // Rust Belt처럼 도시가 많은 맵에서 어느 도시가 어느 주사위 번호로 보충되는지 보여준다.
@@ -1115,46 +1118,55 @@ export default function GameBoard() {
                 onClick={handleCityClick}
               />
 
-              {/* 물품성장 주사위 번호 (번호가 있는 도시만 — 터미널/Berlin 등 번호 없는 도시는 생략) */}
-              {cityDiceNumber[city.id] !== undefined && (
-                <>
-                  <circle
-                    cx={x}
-                    cy={y - 12}
-                    r="18"
-                    fill="rgba(255,255,255,0.15)"
-                    stroke="rgba(255,255,255,0.5)"
-                    strokeWidth="2"
-                    style={{ pointerEvents: 'none' }}
-                  />
-                  <text
-                    x={x}
-                    y={y - 6}
-                    textAnchor="middle"
-                    fill="#ffffff"
-                    fontSize="20"
-                    fontWeight="bold"
-                    fontFamily="system-ui, sans-serif"
-                    style={{ pointerEvents: 'none' }}
-                  >
-                    {cityDiceNumber[city.id]}
-                  </text>
-                </>
-              )}
-
-              {/* 도시 이름 (번호 없으면 헥스 중앙 위쪽에) */}
-              <text
-                x={x}
-                y={cityDiceNumber[city.id] !== undefined ? y + 18 : y - 2}
-                textAnchor="middle"
-                fill="#ffffff"
-                fontSize="12"
-                fontWeight="600"
-                fontFamily="system-ui, sans-serif"
-                style={{ pointerEvents: 'none' }}
-              >
-                {city.name}
-              </text>
+              {/* 큰 라벨: 주사위 번호(있으면) → 없으면 도시 ID 약자.
+                  단 외국 터미널·Berlin(물품성장 안 받고 id가 풀네임)은 생략하고 이름만 표시. */}
+              {(() => {
+                const dice = cityDiceNumber[city.id];
+                const bigLabel = dice != null
+                  ? String(dice)
+                  : (city.isTerminal || city.id === bonusCityId) ? null : city.id;
+                return (
+                  <>
+                    {bigLabel !== null && (
+                      <>
+                        <circle
+                          cx={x}
+                          cy={y - 12}
+                          r="18"
+                          fill="rgba(255,255,255,0.15)"
+                          stroke="rgba(255,255,255,0.5)"
+                          strokeWidth="2"
+                          style={{ pointerEvents: 'none' }}
+                        />
+                        <text
+                          x={x}
+                          y={y - 6}
+                          textAnchor="middle"
+                          fill="#ffffff"
+                          fontSize="20"
+                          fontWeight="bold"
+                          fontFamily="system-ui, sans-serif"
+                          style={{ pointerEvents: 'none' }}
+                        >
+                          {bigLabel}
+                        </text>
+                      </>
+                    )}
+                    <text
+                      x={x}
+                      y={bigLabel !== null ? y + 18 : y - 2}
+                      textAnchor="middle"
+                      fill="#ffffff"
+                      fontSize="12"
+                      fontWeight="600"
+                      fontFamily="system-ui, sans-serif"
+                      style={{ pointerEvents: 'none' }}
+                    >
+                      {city.name}
+                    </text>
+                  </>
+                );
+              })()}
 
               {/* 물품 큐브 */}
               <g>

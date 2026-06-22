@@ -18,6 +18,7 @@ import {
   getNeighborHex,
   getOppositeEdge,
   HEX_SIZE,
+  HEX_WIDTH,
   findCompletedLinks,
   getMovementPathSVG,
   getAnimationPoints,
@@ -25,7 +26,7 @@ import {
 import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { isValidConnectionPoint as isValidConnectionPointUtil } from '@/utils/trackValidation';
-import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId } from '@/types/game';
+import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId, TerrainType } from '@/types/game';
 
 export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean } = {}) {
   // fitOverlay: 화물 이동 애니메이션을 전체 화면에 꽉 차게(fit) 보여주는 비인터랙티브 오버레이 모드
@@ -128,6 +129,27 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     () => calculateBoardDimensions(mapData.cols, mapData.rows, undefined, undefined, isFlat),
     [mapData, isFlat]
   );
+  // viewBox 폭 — 맵별 우측 여백 보정(trimRightHexes). 내부 좌표 계산엔 원래 boardWidth를 그대로 쓰고,
+  // 표시 viewBox만 줄여 우측 과대 여백을 없앤다 (콘텐츠는 더 왼쪽까지라 클립 없음).
+  const viewWidth = boardWidth - (mapData.trimRightHexes ?? 0) * HEX_WIDTH;
+
+  // 지형색 → 건설비용 범례 (hexCostMode: 'legend' 맵 — Western US). 지도에 헥스마다 숫자를
+  // 찍지 않고 모서리에 한 번만 표시. 비용은 보드 hexTiles에서 직접 추출(맵 하드코딩 없음).
+  const costLegend = useMemo(() => {
+    if (mapData.hexCostMode !== 'legend') return [];
+    const NAME: Partial<Record<TerrainType, string>> = { plain: '평지', river: '강', swamp: '늪', mountain: '산' };
+    const order: TerrainType[] = ['plain', 'river', 'swamp', 'mountain'];
+    const costByTerrain = new Map<TerrainType, number>();
+    for (const h of board.hexTiles) {
+      if (h.terrain === 'lake') continue;
+      // 평지는 fixedCost가 없어 기본 $2, 그 외는 헥스에 주입된 fixedCost(늪/강 $4·산 $5)
+      const cost = h.fixedCost ?? 2;
+      costByTerrain.set(h.terrain, cost);
+    }
+    return order
+      .filter(t => costByTerrain.has(t))
+      .map(t => ({ terrain: t, name: NAME[t] ?? t, cost: costByTerrain.get(t)! }));
+  }, [mapData.hexCostMode, board.hexTiles]);
 
   // 터치 제스처 (핀치 줌, 팬) 지원
   const {
@@ -491,7 +513,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
       <svg
         width="100%"
         height={fitOverlay ? undefined : undefined}
-        viewBox={`0 0 ${boardWidth} ${boardHeight}`}
+        viewBox={`0 0 ${viewWidth} ${boardHeight}`}
         preserveAspectRatio="xMidYMid meet"
         className="block"
         onTouchStart={fitOverlay ? undefined : handleTouchStart}
@@ -572,7 +594,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                   <path
                     d={riverFlowPath(coord, x, y)}
                     fill="none"
-                    stroke={terrainColors.river}
+                    stroke={terrainColors.river ?? '#5FA3D4'}
                     strokeWidth="11"
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -580,8 +602,9 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                     style={{ pointerEvents: 'none' }}
                   />
                 )}
-                {/* Germany 헥스 고정 건설비용 — 박스 안에 숫자 (그 칸에 트랙을 깔 때 드는 비용) */}
-                {hexTile?.fixedCost !== undefined && !isHighlighted && (
+                {/* Germany 헥스 고정 건설비용 — 박스 안에 숫자 (그 칸에 트랙을 깔 때 드는 비용).
+                    'legend' 맵(Western US)은 지형별 비용이 균일 → 헥스 숫자 대신 좌하단 범례로 표시. */}
+                {hexTile?.fixedCost !== undefined && !isHighlighted && mapData.hexCostMode !== 'legend' && (
                   <g style={{ pointerEvents: 'none' }}>
                     <rect
                       x={x - 15}
@@ -889,7 +912,9 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           if (isUrbanized) return null;
           const townColor = '#ffffff';
           const isSourceSelected = ui.sourceHex && hexCoordsEqual(ui.sourceHex, town.coord);
-          const isTownClickable = currentPhase === 'buildTrack' && !ui.urbanizationMode;
+          const isTownClickable = (currentPhase === 'buildTrack' && !ui.urbanizationMode)
+            // 물품 이동 단계: 큐브가 있는(미도시화) 마을은 출발점으로 클릭 가능 (Western US)
+            || (currentPhase === 'moveGoods' && !ui.movingCube && town.newCityColor === null && town.cubes.length > 0);
 
           // 도시화 가능 여부 확인
           const canUrbanize = ui.urbanizationMode && ui.selectedNewCityTile && !isUrbanized;
@@ -907,6 +932,11 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             // 도시화 모드인 경우
             if (ui.urbanizationMode && isUrbanizationClickable) {
               placeNewCity(town.coord);
+              return;
+            }
+            // 물품 이동 단계: 마을 위 큐브 선택 (Western US — 'town:<id>' 컨벤션)
+            if (currentPhase === 'moveGoods' && !ui.movingCube && town.newCityColor === null && town.cubes.length > 0) {
+              selectCube(`town:${town.id}`, 0);
               return;
             }
             // 일반 트랙 건설 모드인 경우
@@ -1365,6 +1395,37 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             </text>
           );
         })}
+
+        {/* 지형색 → 건설비용 범례 (Western US 등 hexCostMode:'legend') — 좌하단 빈 바다(0,13 부근) */}
+        {costLegend.length > 0 && (() => {
+          const a = hexToPixel(0, 13, undefined, undefined, undefined, isFlat);
+          const pad = 12, rowH = 30, swatch = 22, w = 168;
+          const h = 36 + costLegend.length * rowH + 8;
+          const x0 = Math.max(10, a.x - 66);
+          const y0 = Math.min(boardHeight - h - 10, Math.max(10, a.y - 96));
+          return (
+            <g style={{ pointerEvents: 'none' }}>
+              <rect x={x0} y={y0} width={w} height={h} rx={10}
+                fill="rgba(8,28,38,0.82)" stroke="#d4a853" strokeWidth={2} />
+              <text x={x0 + pad} y={y0 + 25} fill="#e6c77a" fontSize={19} fontWeight="bold"
+                fontFamily="system-ui, sans-serif">건설 비용</text>
+              {costLegend.map((e, i) => {
+                const ry = y0 + 36 + i * rowH;
+                return (
+                  <g key={`legend-${e.terrain}`}>
+                    <rect x={x0 + pad} y={ry} width={swatch} height={swatch} rx={3}
+                      fill={terrainColors[e.terrain] ?? terrainColors.plain}
+                      stroke="rgba(0,0,0,0.5)" strokeWidth={1.5} />
+                    <text x={x0 + pad + swatch + 10} y={ry + swatch - 5} fill="#f5f5f5"
+                      fontSize={17} fontWeight="600" fontFamily="system-ui, sans-serif">{e.name}</text>
+                    <text x={x0 + w - pad} y={ry + swatch - 5} fill="#ffffff" fontSize={17}
+                      fontWeight="bold" textAnchor="end" fontFamily="system-ui, sans-serif">${e.cost}</text>
+                  </g>
+                );
+              })}
+            </g>
+          );
+        })()}
       </svg>
 
 
@@ -1416,7 +1477,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
         <div className="flex items-center gap-2">
           <div
             className="w-5 h-5 rounded"
-            style={{ backgroundColor: terrainColors.lake }}
+            style={{ backgroundColor: terrainColors.lake ?? '#0a3a44' }}
           />
           <span className="text-xs text-foreground-secondary">호수</span>
         </div>

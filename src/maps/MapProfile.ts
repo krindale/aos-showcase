@@ -7,12 +7,12 @@
 // 의존 방향: maps/ 는 저수준 기반 — types/game 만 의존하고 ai/ 나 store/ 를 import 하지 않는다.
 // (AI 전략·게임 엔진이 maps/ 를 의존하는 단방향. AI 액션 메서드는 의존 방향을 정리한 뒤 단계적으로 추가)
 
-import { BoardState, SpecialAction, GAME_CONSTANTS, GameState, PlayerId } from '@/types/game';
+import { BoardState, SpecialAction, GAME_CONSTANTS, GameState, PlayerId, City } from '@/types/game';
 import { DeliveryRoute } from '@/ai/strategy/types';
 import { MapId } from './MapId';
 
 /** income(배달) 원천 — 맵마다 화물이 있는 곳이 다르다 (도시 안 / 트랙 위 헥스큐브 / 향후 마을·항구 등). */
-export type IncomeSource = 'cityCubes' | 'trackCubes';
+export type IncomeSource = 'cityCubes' | 'trackCubes' | 'townCubes';
 
 export abstract class MapProfile {
   // ── 정체성 ──
@@ -50,6 +50,27 @@ export abstract class MapProfile {
   get requireCompleteLinks(): boolean { return false; }
   /** Germany: 매 턴 시작에 이 도시(id)에 주머니에서 무작위 큐브 1개 추가 (Berlin). null이면 없음. */
   get bonusCityCubeId(): string | null { return null; }
+
+  // ── Western US 특수룰 (기본값 = 영향 없음) ──
+  /** 셋업: 마을별 초기 큐브 수 (Western US: 모든 마을 1). 미지정 마을은 0. */
+  get townCubeCounts(): Record<string, number> { return {}; }
+  /** 플레이어 시작 현금 오버라이드 ($). null이면 표준(주식×$5 = $10). Western US: $20. */
+  get startingCash(): number | null { return null; }
+  /** 첫 트랙이 특정 "시작 도시"에 인접해야만 하는가 (Western US: 서부/동부 시작도시만). */
+  get startingCitiesOnly(): boolean { return false; }
+  /** 이 도시가 트랙을 시작할 수 있는 "시작 도시"인가. 기본: 모든 도시 허용.
+   *  Western US: region이 east/west인 도시만(중앙 Denver/SLC·신도시 제외). */
+  isStartingCity(city: City): boolean { void city; return true; }
+  /** 대륙횡단(서부↔동부 시작도시) 연결 전까지 모든 트랙이 연속이어야 하는가 (Western US). */
+  get requireContiguousUntilTranscontinental(): boolean { return false; }
+  /** 대륙횡단 연결 보너스($4/$2)를 쓰는 맵인가 (Western US). */
+  get transcontinentalBonus(): boolean { return false; }
+  /** 마을이 도시화될 때 부여할 지역(배달/대륙횡단 판정). Western US: KansasCity→east, SanDiego/Portland→west. */
+  newCityRegion(townId: string): 'east' | 'west' | undefined { void townId; return undefined; }
+  /** 출발/도착 도시 지역에 따른 배달 income 보너스 ($). Western US: 동↔서 +1. */
+  regionDeliveryBonus(fromRegion?: 'east' | 'west', toRegion?: 'east' | 'west'): number {
+    void fromRegion; void toRegion; return 0;
+  }
 
   // ── AI 설정 (기본 = 룰북 기본값; 맵 규모/특성에 따라 override) ──
   /** AI가 올릴 엔진 레벨 전략 상한 */

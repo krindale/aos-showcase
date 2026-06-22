@@ -54,7 +54,7 @@ export function findOptimalPath(
     if (hex.terrain === 'lake') return Infinity; // 호수는 건설 불가
     if (hex.fixedCost !== undefined) return hex.fixedCost; // Germany: 헥스 고정비용 우선
     if (hex.terrain === 'mountain') return GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
-    if (hex.terrain === 'river') return GAME_CONSTANTS.RIVER_TRACK_COST;
+    if (hex.terrain === 'river' || hex.terrain === 'swamp') return GAME_CONSTANTS.RIVER_TRACK_COST;
     return GAME_CONSTANTS.PLAIN_TRACK_COST;
   };
 
@@ -181,6 +181,7 @@ export function getTerrainBuildCost(coord: HexCoord, board: BoardState): number 
 
   switch (hexTile.terrain) {
     case 'river':
+    case 'swamp':
       return GAME_CONSTANTS.RIVER_TRACK_COST;
     case 'mountain':
       return GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
@@ -670,7 +671,7 @@ export function findOptimalPathAvoidingOpponent(
     let baseCost = GAME_CONSTANTS.PLAIN_TRACK_COST;
     if (hex.fixedCost !== undefined) baseCost = hex.fixedCost; // Germany: 헥스 고정비용 우선
     else if (hex.terrain === 'mountain') baseCost = GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
-    else if (hex.terrain === 'river') baseCost = GAME_CONSTANTS.RIVER_TRACK_COST;
+    else if (hex.terrain === 'river' || hex.terrain === 'swamp') baseCost = GAME_CONSTANTS.RIVER_TRACK_COST;
 
     // [Refinement] 내 트랙이 있으면 매우 낮은 비용 (기존 경로 유지 강력 유도)
     // AI가 한 번 길을 닦기 시작하면, 그 길을 최단 경로로 인식하게 함

@@ -144,6 +144,7 @@ src/
 │       ├── stLuciaSimulation.test.ts     # St.Lucia 2 AI 동기식 전체게임 러너 + 수익/건설 깔때기 측정
 │       ├── rustBeltSimulation.test.ts    # Rust Belt 5인 AI 동기식 전체게임 러너 + 베이스라인
 │       ├── germanySimulation.test.ts     # Germany 4인 AI 동기식 전체게임 러너(8턴) + 베이스라인
+│       ├── westernUsSimulation.test.ts   # Western US 6인 AI 동기식 전체게임 러너(6턴) + 베이스라인
 │       └── helpers/
 │           └── mockState.ts    # 테스트용 Mock 데이터 헬퍼
 │
@@ -155,7 +156,8 @@ src/
 │       ├── StandardMapProfile.ts   # 룰북 기본 맵 (튜토리얼 = engineMax 3 override)
 │       ├── StLuciaMapProfile.ts    # St.Lucia override (헥스큐브 income/규칙/경로전략)
 │       ├── RustBeltMapProfile.ts   # Rust Belt override (Pittsburgh/Wheeling 큐브 3)
-│       └── GermanyMapProfile.ts    # Germany override (Engineer 절반/미완성금지/Berlin보너스/큐브수)
+│       ├── GermanyMapProfile.ts    # Germany override (Engineer 절반/미완성금지/Berlin보너스/큐브수)
+│       └── WesternUsMapProfile.ts  # Western US override (마을큐브/$20시작/시작도시제한/연속성/동서보너스/대륙횡단)
 │
 ├── components/                 # UI 컴포넌트
 │   ├── Navigation.tsx          # 글래스모피즘 네비게이션 바
@@ -205,6 +207,7 @@ src/
     ├── stLuciaMap.ts           # St. Lucia 맵 데이터 정의 (2인 전용, 헥스큐브, 좌표 0-base)
     ├── rustBeltMap.ts          # Rust Belt 맵 데이터 정의 (5인 전용, flat-top 전치, 좌표 0-base)
     ├── germanyMap.ts           # Germany 맵 데이터 정의 (4인 전용, flat-top 전치, 터미널/고정비용/직결)
+    ├── westernUsMap.ts         # Western US 맵 데이터 정의 (6인 전용, pointy-top 네이티브, 마을큐브/지형fixedCost/동서region)
     ├── mapRegistry.ts          # 맵 룰 분리 레지스트리 (MapRuleConfig)
     ├── debugConfig.ts          # 디버그 설정 (로그 카테고리 토글 + logAction 종합 액션 로깅)
     ├── pwaUtils.ts             # Service Worker 등록/관리 유틸리티
@@ -275,7 +278,7 @@ docs/
 7개 맵 갤러리:
 - **Rust Belt** (기본) - 미국 북동부
 - **Korea** - 한반도, 동적 도시 색상
-- **Western U.S.** - 대륙횡단 철도
+- **Western U.S.** (플레이 가능) - 대륙횡단 철도, 6인 6턴 (마을 큐브·동서 배달 보너스·대륙횡단 연결 보너스)
 - **Southern U.S.** - 면화 운송
 - **Germany** (플레이 가능) - 외국 터미널·헥스 고정비용·도시 직결, 4인 8턴
 - **Barbados** - 솔로 게임
@@ -599,6 +602,34 @@ setAllDebug(true);                   // 모든 로그 on/off
   전체 맵을 **우측에 작게**(fit) 띄워 진행을 보여줌. 왼쪽 메인 지도는 안 가림. 가로 넓은 맵(Rust Belt 등)은
   종횡비(`calculateBoardDimensions` height>width) 자동 판정으로 끔. GameBoard `fitOverlay` prop(비인터랙티브 fit).
 
+#### Western US 맵 구현 (2026-06-22, feature/western-us-map)
+
+공식 맵 PNG(`public/maps/western-us.png`, 3368×2382)를 색상 검출 + 헥스 내부 라벨링(면적 ~33020px) +
+행/열 클러스터링으로 추출한 **6인 전용 6턴** 맵. 도시 12 + 마을 20.
+
+- **pointy-top 네이티브 (중요)**: Rust Belt/Germany(flat-top 전치)와 달리 **전치 없이 그대로 저장**,
+  `orientation:'pointy'`(기본). ⚠️ 원본은 **even-r 오프셋**(짝수행 우측 시프트)인데 엔진은 odd-r →
+  추출 시 `engine_row = data_row + 1`로 패리티 정렬(맨 위 row 0은 비어 lake). 유효 좌표 col 0~13, row 1~13.
+  헥스 방향은 **바운딩박스 가로/세로 비**로 확정(H>W=pointy) — 육안만으로 판단 말 것(실제로 오판했음).
+- **맵 데이터** (`src/utils/westernUsMap.ts`): 서부 시작도시(Seattle/SanFrancisco/LosAngeles, region:'west'),
+  동부 시작도시(Duluth/Minneapolis/DesMoines/StLouis/Memphis/Vicksburg/NewOrleans, region:'east'),
+  중앙 비시작(SaltLakeCity/Denver, region 없음 — 트랙 시작 불가). 미시시피 강 6칸·우하단 늪·좌중앙 산악.
+- **특수룰은 전부 `WesternUsMapProfile` getter로 주입** (mapId 분기 없음):
+  - **마을 큐브** (`townCubeCounts` 모든 마을 1) + **시작 현금 $20** (`startingCash`) — gameStore 셋업 분기.
+  - **지형 비용** 늪/강 $4·산 $5 — Germany처럼 헥스 `fixedCost`로 주입(모든 비용 헬퍼가 자동 적용, swamp 지형 추가).
+  - **동↔서 배달 +$1** (`regionDeliveryBonus`) — completeCubeMove income 정산 + AI(moveGoods/vp) ΔVP 가산.
+  - **마을 큐브 배달** (`incomeSources`에 `'townCubes'`): 마을을 도시처럼 출발점으로 `selectCube('town:<id>')`
+    컨벤션(St.Lucia `track:` 패턴 모방), 일반 'move' 액션으로 실행. AI는 moveGoods 마을 후보 + vp 경로상 마을큐브 가산.
+  - **시작 도시 제한** (`startingCitiesOnly`/`isStartingCity`): 첫 트랙은 서부/동부 시작도시 인접만
+    (Denver/SLC/신도시 제외). `validateFirstTrackRule(allowedCityIds)` + AI tryDirectPathBuild 시작도시 끝 앵커.
+  - **연속성 강제** (`requireContiguousUntilTranscontinental`): 대륙횡단 전까지 새 트랙은 내 네트워크에 연속
+    (`validateTrackConnection(requireNetwork)` — 내 네트워크 안 닿은 도시 시작 금지). `PlayerState.transcontinental`로 해제.
+  - **대륙횡단 연결 보너스** (`transcontinentalBonus`): 서부↔동부 시작도시 최초 연결(완성 링크 BFS) 시 1회
+    income 보너스(1철도+$4/2철도각+$2), `computeTranscontinental`(gameStore). 건설/가닥 후 `applyTranscontinental` 호출.
+  - **도시화 특례** (`newCityRegion`): KansasCity→east, SanDiego/Portland→west (배달/대륙횡단 판정). 단 신도시는 시작도시 아님.
+- **측정** (`westernUsSimulation.test.ts`, 12시드): VP ~10.2, income ~9.0, 건설 ~59/배달 ~36/도시화 6, 파산 ~1.7명/6, 6턴완주.
+  tutorial/St.Lucia/Rust Belt/Germany VP 회귀 게이트 보존. 남은 작업: 파산률↓·AI 대륙횡단 적극 활용·도시 region 표식 UI.
+
 #### 마을 가닥(스퍼) 모델 (2026-06-12 재설계, 모든 맵 공통)
 
 마을 = 헥스 안의 원. **마을 헥스에는 트랙 타일을 배치할 수 없다** (도시처럼).
@@ -686,6 +717,7 @@ npx vitest run src/ai/__tests__/fullGameSimulation.test.ts -t "executeAITurn" # 
 - `src/ai/__tests__/stLuciaSimulation.test.ts` - St.Lucia 2 AI 동기식 전체게임 러너 + 수익/건설 깔때기 측정 (income/VP 베이스라인 + 목표 게이트)
 - `src/ai/__tests__/rustBeltSimulation.test.ts` - Rust Belt 5인 AI 동기식 전체게임 러너 + 베이스라인
 - `src/ai/__tests__/germanySimulation.test.ts` - Germany 4인 AI 동기식 전체게임 러너(8턴) + 베이스라인
+- `src/ai/__tests__/westernUsSimulation.test.ts` - Western US 6인 AI 동기식 전체게임 러너(6턴) + 베이스라인
 - `src/ai/strategy/__tests__/analyzer.test.ts` - A* 경로 탐색 테스트
 - `src/ai/strategy/__tests__/selector.test.ts` - 전략 선택 테스트
 - `src/ai/strategies/__tests__/buildTrack.test.ts` - 트랙 건설 전략 테스트
@@ -746,8 +778,9 @@ export default function ComponentName() {
 
 - [x] **Rust Belt 5인 플레이어블** — flat-top 데이터 추출, 다인 엔진/AI 밸런스(VP +4.13)
 - [x] **Germany 맵 4인 플레이어블** — 외국 터미널·헥스 고정비용·도시 직결·Engineer 절반·Berlin 보너스 (8턴)
-- [ ] **Western U.S. 맵** (다음 큰 작업) — 공식 맵 추출, 대륙횡단 보너스·동서 도시 규칙
-- [ ] Germany/Rust Belt AI 추가 밸런싱 (파산률↓, AI 직결 링크 활용)
+- [x] **Western U.S. 맵 6인 플레이어블** — pointy-top 추출, 마을 큐브·$20 시작·늪/산 비용·동서 배달 보너스·시작도시 제한·연속성·대륙횡단 보너스 (6턴)
+- [ ] **Southern U.S. 맵** (다음 큰 작업) — 공식 맵 추출, 면화/항구 배달·남북전쟁(4턴 Atlanta 파괴)
+- [ ] Western/Germany/Rust Belt AI 추가 밸런싱 (파산률↓, AI 대륙횡단·직결 링크 활용)
 - [ ] Three.js로 3D 게임보드 구현
 - [ ] GSAP ScrollTrigger 고급 애니메이션 (라이브러리는 설치됨, 미적용)
 - [ ] i18n 다국어 지원

@@ -39,6 +39,7 @@ import {
   canRedirectTrack,
   getRedirectableEdges,
   isEndpointOfIncompleteSection,
+  findAllCompletedLinks,
 } from '@/utils/trackValidation';
 import {
   getBuildableNeighbors,
@@ -225,7 +226,7 @@ function removeIncompleteNewTracks(
     const hex = board.hexTiles.find(h => hexCoordsEqual(h.coord, t.coord));
     refund += hex?.fixedCost !== undefined ? hex.fixedCost
       : hex?.terrain === 'mountain' ? GAME_CONSTANTS.MOUNTAIN_TRACK_COST
-      : hex?.terrain === 'river' ? GAME_CONSTANTS.RIVER_TRACK_COST
+      : (hex?.terrain === 'river' || hex?.terrain === 'swamp') ? GAME_CONSTANTS.RIVER_TRACK_COST
       : GAME_CONSTANTS.PLAIN_TRACK_COST;
   }
   const trackTiles = board.trackTiles.filter(t => !removeKeys.has(k(t.coord)));
@@ -234,6 +235,38 @@ function removeIncompleteNewTracks(
     sp => !(sp.owner === playerId && sp.builtTurn === currentTurn && removeKeys.has(k(sp.townCoord)))
   );
   return { board: { ...board, trackTiles, townSpurs }, refund };
+}
+
+/**
+ * 주머니(bag)에서 색 균형을 맞춰 큐브 N개를 뽑는다 (도시·마을 셋업 공용).
+ *  ① 이 칸에 아직 없는 색 우선(칸 내 중복 회피) ② 그 중 전역 사용량(colorUsage)이 가장 적은 색.
+ *  excludeColor 지정 시 그 색은 후보에서 완전히 제외(튜토리얼 noOwnColorCubes).
+ * bag/colorUsage를 in-place로 갱신하고 뽑은 큐브 배열을 반환.
+ */
+function drawBalancedCubes(
+  bag: CubeColor[],
+  count: number,
+  colorUsage: Map<CubeColor, number>,
+  excludeColor?: CubeColor,
+): CubeColor[] {
+  const cubes: CubeColor[] = [];
+  for (let i = 0; i < count; i++) {
+    if (bag.length === 0) break;
+    let bestIdx = -1, bestUsed = Infinity, fallbackIdx = -1;
+    for (let j = bag.length - 1; j >= 0; j--) {
+      const c = bag[j];
+      if (excludeColor && c === excludeColor) continue;
+      if (fallbackIdx === -1) fallbackIdx = j;
+      if (cubes.includes(c)) continue;
+      const used = colorUsage.get(c) ?? 0;
+      if (used < bestUsed) { bestUsed = used; bestIdx = j; }
+    }
+    const idx = bestIdx !== -1 ? bestIdx : fallbackIdx;
+    if (idx === -1) break;
+    const cube = bag.splice(idx, 1)[0];
+    if (cube) { cubes.push(cube); colorUsage.set(cube, (colorUsage.get(cube) ?? 0) + 1); }
+  }
+  return cubes;
 }
 
 export function createInitialGameState(
@@ -320,33 +353,9 @@ export function createInitialGameState(
       return { ...city, color: cube, cubes: [cube] };
     }
     if (setupRules.hexCubeSetup) return { ...city, cubes: [] };
-    const cubes: CubeColor[] = [];
-    // 도시별 초기 큐브 수 (Rust Belt: Pittsburgh/Wheeling 3, 나머지 2)
+    // 도시별 초기 큐브 수 (Rust Belt: Pittsburgh/Wheeling 3, 나머지 2). 색 균형 배치(공용 헬퍼).
     const targetCubes = cityCubeCounts[city.id] ?? GAME_CONSTANTS.INITIAL_CUBES_PER_CITY;
-    for (let i = 0; i < targetCubes; i++) {
-      if (bag.length === 0) break;
-      // 후보 선택: ① 이 도시에 아직 없는 색 우선(도시 내 중복 회피)
-      //           ② 그 중 전역 사용량이 가장 적은 색(전체 균형)
-      //  noOwnColorCubes(튜토리얼)는 도시 자기 색을 후보에서 제외.
-      let bestIdx = -1;
-      let bestUsed = Infinity;
-      let fallbackIdx = -1; // 자기색 제약만 통과(도시 내 중복 허용)하는 차선책
-      for (let j = bag.length - 1; j >= 0; j--) {
-        const c = bag[j];
-        if (setupRules.noOwnColorCubes && c === city.color) continue;
-        if (fallbackIdx === -1) fallbackIdx = j;
-        if (cubes.includes(c)) continue;
-        const used = colorUsage.get(c) ?? 0;
-        if (used < bestUsed) { bestUsed = used; bestIdx = j; }
-      }
-      const idx = bestIdx !== -1 ? bestIdx : fallbackIdx;
-      if (idx === -1) break; // 배치 가능한 색이 전혀 없음(튜토리얼 극단)
-      const cube = bag.splice(idx, 1)[0];
-      if (cube) {
-        cubes.push(cube);
-        colorUsage.set(cube, (colorUsage.get(cube) ?? 0) + 1);
-      }
-    }
+    const cubes = drawBalancedCubes(bag, targetCubes, colorUsage, setupRules.noOwnColorCubes ? city.color : undefined);
     return { ...city, cubes };
   });
 
@@ -364,6 +373,17 @@ export function createInitialGameState(
     })
     : boardState.hexTiles;
 
+  // 마을 큐브 셋업 (Western US: "Place 1 good on each Town"). townCubeCounts에 지정된 마을만.
+  // 도시 큐브와 동일한 전역 색 균형(colorUsage)을 공유한다. hexCubeSetup 맵은 마을 큐브 없음.
+  const townCubeCounts = setupRules.townCubeCounts;
+  const townsWithCubes = (setupRules.hexCubeSetup
+    ? boardState.towns
+    : boardState.towns.map((town) => {
+        const target = townCubeCounts[town.id] ?? 0;
+        if (target <= 0) return { ...town, cubes: [] };
+        return { ...town, cubes: drawBalancedCubes(bag, target, colorUsage) };
+      }));
+
   // 동적 플레이어 초기화
   const playerCount = playerNames.length;
   const activePlayers = PLAYER_ID_ORDER.slice(0, playerCount);
@@ -375,12 +395,16 @@ export function createInitialGameState(
   const players: Partial<Record<PlayerId, PlayerState>> = {};
   activePlayers.forEach((playerId, index) => {
     const isAI = aiPlayerIndexes.has(index);
-    players[playerId] = createInitialPlayerState(
+    const p = createInitialPlayerState(
       playerId,
       playerNames[index],
       PLAYER_COLOR_ORDER[index],
       isAI
     );
+    // 시작 현금 오버라이드 (Western US: 2주에 $20 — 추가 $10은 개인 자산)
+    const sc = setupRules.startingCash;
+    if (sc != null) p.cash = sc;
+    players[playerId] = p;
   });
 
   // playerMoves 동적 생성
@@ -419,6 +443,7 @@ export function createInitialGameState(
     board: {
       ...boardState,
       cities: citiesWithCubes,
+      towns: townsWithCubes,
       hexTiles: hexTilesWithCubes,
     },
     goodsDisplay: {
@@ -487,6 +512,137 @@ export function createInitialGameState(
     winner: null,
     finalScores: null,
   };
+}
+
+// ============================================================
+// Western US: 대륙횡단(서부 시작도시↔동부 시작도시) 연결 감지 + 보너스
+// ============================================================
+
+/** 완성 링크 그래프에서 starts → goals 경로의 트랙 소유자 목록(중복 포함). 없으면 null. */
+function bfsConnectingOwners(
+  adj: Map<string, { to: string; owner: PlayerId }[]>,
+  starts: Set<string>,
+  goals: Set<string>
+): PlayerId[] | null {
+  const queue = Array.from(starts);
+  const visited = new Set<string>(starts);
+  const parent = new Map<string, { from: string; owner: PlayerId }>();
+  while (queue.length) {
+    const cur = queue.shift()!;
+    if (goals.has(cur)) {
+      const owners: PlayerId[] = [];
+      let node = cur;
+      while (parent.has(node)) { const p = parent.get(node)!; owners.push(p.owner); node = p.from; }
+      return owners;
+    }
+    for (const e of adj.get(cur) ?? []) {
+      if (!visited.has(e.to)) { visited.add(e.to); parent.set(e.to, { from: cur, owner: e.owner }); queue.push(e.to); }
+    }
+  }
+  return null;
+}
+
+/**
+ * 대륙횡단 연결을 평가해 (1) 각 플레이어의 transcontinental 플래그(연속성 해제)와
+ * (2) 1회성 연결 보너스($4/$2 income)를 적용한 새 상태 조각을 반환. 변화 없으면 null.
+ * 룰북: 1철도 연결=+$4, 2철도=각 +$2, 3철도+=연결 트랙 놓은 플레이어가 2철도 선택 +$2.
+ */
+function computeTranscontinental(state: GameState, builder: PlayerId):
+  { players: Record<PlayerId, PlayerState>; awarded: boolean; log: string } | null {
+  const profile = getMapProfile(state.mapId);
+  if (!profile.transcontinentalBonus) return null;
+  // 효율: 보너스 이미 지급 + 모든 활성 플레이어가 대륙횡단 달성 → 더 스캔할 것 없음
+  // (매 건설마다 findAllCompletedLinks×N 전수 스캔을 후반에 회피)
+  if ((state.transcontinentalAwarded ?? false) &&
+      state.activePlayers.every(p => state.players[p]?.transcontinental || state.players[p]?.eliminated)) {
+    return null;
+  }
+  const board = state.board;
+
+  const westStops = board.cities.filter(c => c.region === 'west' && profile.isStartingCity(c));
+  const eastStops = board.cities.filter(c => c.region === 'east' && profile.isStartingCity(c));
+  if (!westStops.length || !eastStops.length) return null;
+
+  const stopKey = (coord: HexCoord): string => {
+    const c = board.cities.find(ct => hexCoordsEqual(ct.coord, coord));
+    return c ? `c:${c.id}` : `t:${coord.col},${coord.row}`;
+  };
+  const westKeys = new Set(westStops.map(c => `c:${c.id}`));
+  const eastKeys = new Set(eastStops.map(c => `c:${c.id}`));
+
+  // 완성 링크(소유자별) 수집 → 합집합/플레이어별 인접그래프
+  const allEdges: { a: string; b: string; owner: PlayerId }[] = [];
+  for (const pid of state.activePlayers) {
+    for (const link of findAllCompletedLinks(board, pid)) {
+      allEdges.push({ a: stopKey(link.from), b: stopKey(link.to), owner: pid });
+    }
+  }
+  if (!allEdges.length) return null;
+  const buildAdj = (filter?: PlayerId) => {
+    const adj = new Map<string, { to: string; owner: PlayerId }[]>();
+    const add = (a: string, b: string, owner: PlayerId) => {
+      if (!adj.has(a)) adj.set(a, []);
+      adj.get(a)!.push({ to: b, owner });
+    };
+    for (const e of allEdges) {
+      if (filter && e.owner !== filter) continue;
+      add(e.a, e.b, e.owner); add(e.b, e.a, e.owner);
+    }
+    return adj;
+  };
+
+  let players = state.players;
+  let changed = false;
+  const ensureCopy = () => { if (!changed) { players = { ...players }; changed = true; } };
+
+  // (1) 플레이어별 연속성 해제: 자기 완성 링크만으로 서부↔동부 연결 시 플래그
+  for (const pid of state.activePlayers) {
+    if (players[pid]?.transcontinental || players[pid]?.eliminated) continue;
+    if (bfsConnectingOwners(buildAdj(pid), westKeys, eastKeys)) {
+      ensureCopy();
+      players[pid] = { ...players[pid], transcontinental: true };
+    }
+  }
+
+  // (2) 1회성 연결 보너스 (보드 전체 최초 연결 — 임의 소유자 경로 허용)
+  let awarded = state.transcontinentalAwarded ?? false;
+  let log = '';
+  if (!awarded) {
+    const ownersOnPath = bfsConnectingOwners(buildAdj(), westKeys, eastKeys);
+    if (ownersOnPath && ownersOnPath.length) {
+      // 경로상 각 철도의 트랙 기여 수(빈도)
+      const freq = new Map<PlayerId, number>();
+      for (const o of ownersOnPath) freq.set(o, (freq.get(o) ?? 0) + 1);
+      const distinct = Array.from(freq.keys());
+      // 룰북: 1철도 → +$4. 2철도 → 각 +$2. 3철도+ → "연결 트랙 놓은 플레이어가 2철도 선택" →
+      //   연결을 완성한 builder를 우선 포함하고, 나머지 한 자리는 경로 트랙이 가장 많은 철도로.
+      let recipients: PlayerId[];
+      let amt: number;
+      if (distinct.length === 1) {
+        recipients = distinct; amt = 4;
+      } else {
+        const ranked = distinct.slice().sort((a, b) => (freq.get(b)! - freq.get(a)!));
+        const ordered = distinct.includes(builder) ? [builder, ...ranked.filter(o => o !== builder)] : ranked;
+        recipients = ordered.slice(0, 2); amt = 2;
+      }
+      ensureCopy();
+      const parts: string[] = [];
+      for (const pid of recipients) {
+        players[pid] = {
+          ...players[pid],
+          income: Math.min(players[pid].income + amt, GAME_CONSTANTS.MAX_INCOME),
+          transcontinental: true,
+        };
+        parts.push(`${players[pid].name} +${amt} income`);
+      }
+      awarded = true;
+      log = `🌉 대륙횡단 연결 보너스: ${parts.join(', ')}`;
+      logAction('trackBuilding', 'transcontinental', { owners: distinct, recipients, amt }, 'error');
+    }
+  }
+
+  if (!changed && awarded === (state.transcontinentalAwarded ?? false)) return null;
+  return { players, awarded, log };
 }
 
 // ============================================================
@@ -644,6 +800,8 @@ interface GameStore extends GameState {
   buildTrack: (coord: HexCoord, edges: [number, number]) => boolean;
   /** 트랙 건설 가능 여부 확인 */
   canBuildTrack: (coord: HexCoord, edges: [number, number]) => boolean;
+  /** Western US: 대륙횡단 연결 감지 → 연속성 해제 플래그 + 1회성 보너스 적용 (건설 후 호출) */
+  applyTranscontinental: () => void;
   /** 복합 트랙 건설 (교차/공존) */
   buildComplexTrack: (
     coord: HexCoord,
@@ -1757,22 +1915,35 @@ export const useGameStore = create<GameStore>()(
       }
     }
 
-    // 연결성 검증
+    // 연결성 검증 (Western US: 시작도시 제한 + 대륙횡단 전 연속성 강제)
     const hasExistingTrack = playerHasTrack(board, currentPlayer);
+    const profile = getMapProfile(state.mapId);
+    const allowedStartCityIds = profile.startingCitiesOnly
+      ? new Set(board.cities.filter(c => profile.isStartingCity(c)).map(c => c.id))
+      : undefined;
+    const requireNetwork = profile.requireContiguousUntilTranscontinental
+      && !state.players[currentPlayer]?.transcontinental;
 
     if (!hasExistingTrack) {
-      // 첫 트랙: 도시에 인접해야 함
-      if (!validateFirstTrackRule(coord, edges, board)) {
+      // 첫 트랙: (시작) 도시에 인접해야 함
+      if (!validateFirstTrackRule(coord, edges, board, allowedStartCityIds)) {
         return false;
       }
     } else {
-      // 후속 트랙: 기존 트랙/도시에 연결되어야 함
-      if (!validateTrackConnection(coord, edges, board, currentPlayer)) {
+      // 후속 트랙: 기존 트랙/도시에 연결되어야 함 (연속성 강제 시 분리 구간 금지)
+      if (!validateTrackConnection(coord, edges, board, currentPlayer, requireNetwork)) {
         return false;
       }
     }
 
     return true;
+  },
+
+  applyTranscontinental: () => {
+    const result = computeTranscontinental(get(), get().currentPlayer);
+    if (!result) return;
+    set({ players: result.players, transcontinentalAwarded: result.awarded });
+    if (result.log) get().addLog(result.log);
   },
 
   buildTrack: (coord, edges) => {
@@ -1847,7 +2018,7 @@ export const useGameStore = create<GameStore>()(
         cost = fixedCost;
       } else {
         cost = GAME_CONSTANTS.PLAIN_TRACK_COST;
-        if (terrain === 'river') cost = GAME_CONSTANTS.RIVER_TRACK_COST;
+        if (terrain === 'river' || terrain === 'swamp') cost = GAME_CONSTANTS.RIVER_TRACK_COST;
         if (terrain === 'mountain') cost = GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
       }
     }
@@ -1952,6 +2123,9 @@ export const useGameStore = create<GameStore>()(
 
     // [PLAY] 사람 플레이 분석용 — 건설 좌표/엣지 (긴 라인 추적)
     console.log(`[PLAY] T${state.currentTurn} ${currentPlayer} 건설 (${coord.col},${coord.row}) edges[${edges}] [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]${newSpurs.length > 0 ? ` +가닥${newSpurs.length}` : ''}`);
+
+    // Western US: 이 건설로 대륙횡단(서부↔동부)이 완성됐는지 확인 → 연속성 해제 + 보너스
+    get().applyTranscontinental();
     return true;
   },
 
@@ -1992,7 +2166,11 @@ export const useGameStore = create<GameStore>()(
     console.log(`복합 트랙 타입: ${trackType}`);
 
     // 연결성 검증: 새 경로가 현재 플레이어의 기존 트랙/도시에 연결되어야 함
-    if (!validateTrackConnection(coord, newEdges, state.board, currentPlayer)) {
+    // (Western US: 대륙횡단 전 연속성 강제 — 단순 트랙과 동일하게 분리 구간 금지)
+    const ctProfile = getMapProfile(state.mapId);
+    const ctRequireNetwork = ctProfile.requireContiguousUntilTranscontinental
+      && !state.players[currentPlayer]?.transcontinental;
+    if (!validateTrackConnection(coord, newEdges, state.board, currentPlayer, ctRequireNetwork)) {
       return false;
     }
 
@@ -2099,6 +2277,8 @@ export const useGameStore = create<GameStore>()(
 
     // [PLAY] 사람 플레이 분석용 — 복합 건설 좌표
     console.log(`[PLAY] T${state.currentTurn} ${currentPlayer} 복합건설(${trackType}) (${coord.col},${coord.row}) edges[${newEdges}] [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`);
+    // Western US: 복합 트랙으로 서부↔동부가 이어졌는지 확인 (보너스/연속성 해제)
+    get().applyTranscontinental();
     return true;
   },
 
@@ -2207,6 +2387,9 @@ export const useGameStore = create<GameStore>()(
 
     // [PLAY] 사람 플레이 분석용 — 마을 가닥 완성(링크 완성 = 깊은 배달 핵심)
     console.log(`[PLAY] T${state.currentTurn} ${currentPlayer} 가닥완성 @(${townCoord.col},${townCoord.row}) 가닥${missing.length}개`);
+
+    // Western US: 가닥 연결로 대륙횡단이 완성됐는지 확인
+    get().applyTranscontinental();
     return true;
   },
 
@@ -2260,6 +2443,7 @@ export const useGameStore = create<GameStore>()(
         },
       ],
     });
+    get().applyTranscontinental();
     return true;
   },
 
@@ -3265,6 +3449,32 @@ export const useGameStore = create<GameStore>()(
       return;
     }
 
+    // 마을 위 큐브 선택 (Western US — 'town:<townId>' 컨벤션). 마을은 도시처럼 출발점이 되며
+    // 완성 링크를 따라 같은 색 도시로 배달된다(마을이 연결되어 있어야 함).
+    if (cityId.startsWith('town:')) {
+      const townId = cityId.slice('town:'.length);
+      const town = state.board.towns.find(t => t.id === townId);
+      if (!town || town.newCityColor !== null) return; // 도시화된 마을은 도시 큐브 경로로 처리
+      const cubeColor = town.cubes[cubeIndex];
+      if (!cubeColor) return;
+      const player = state.players[state.currentPlayer];
+      const reachable = findReachableDestinations(
+        town.coord, state.board, state.currentPlayer, player.engineLevel, cubeColor
+      );
+      let bestPath: HexCoord[] = [];
+      let bestLinks = -1;
+      for (const dest of reachable) {
+        const p = findLongestPath(town.coord, dest.coord, state.board, state.currentPlayer, player.engineLevel, cubeColor);
+        if (p) { const links = countPathLinks(p, state.board); if (links > bestLinks) { bestLinks = links; bestPath = p; } }
+      }
+      logAction('goodsMovement', 'townCubeSelect', { player: state.currentPlayer, town: townId, color: cubeColor, cities: reachable.map(c => c.id) });
+      if (reachable.length === 0) get().addLog('이 마을 화물은 배달할 수 있는 도시가 없습니다 (트랙으로 연결된 같은 색 도시 필요)');
+      set({
+        ui: { ...state.ui, selectedCube: { cityId, cubeIndex }, reachableDestinations: reachable.map(c => c.coord), movePath: bestPath },
+      });
+      return;
+    }
+
     const city = state.board.cities.find(c => c.id === cityId);
     if (!city) return;
 
@@ -3805,6 +4015,7 @@ export const useGameStore = create<GameStore>()(
       ],
     });
 
+    get().applyTranscontinental();
     return true;
   },
 
@@ -3927,12 +4138,16 @@ export const useGameStore = create<GameStore>()(
     });
 
     // 2. 새 도시를 cities 배열에 추가
+    // Western US 도시화 특례: Kansas City→동부, San Diego/Portland→서부 (배달/대륙횡단 판정용).
+    // 단 신도시는 "시작 도시"가 아니므로 isStartingCity는 여전히 false (트랙 시작 불가).
+    const newCityRegion = getMapProfile(state.mapId).newCityRegion(town.id);
     const newCity: City = {
       id: selectedTileId,  // 타일 ID를 도시 ID로 사용
       name: `New City ${selectedTileId}`,
       coord: townCoord,
       color: tile.color,
       cubes: [],  // 처음에는 물품 없음
+      ...(newCityRegion ? { region: newCityRegion } : {}),
     };
 
     // 3. 해당 헥스의 트랙 타일 제거 (룰북: 신규 도시 배치 시 기존 트랙 제거)
@@ -3985,6 +4200,8 @@ export const useGameStore = create<GameStore>()(
 
     // [PLAY] 사람 플레이 분석용 — 도시화 위치/색
     console.log(`[PLAY] T${state.currentTurn} ${state.currentPlayer} 도시화 ${tile.color} 도시(${selectedTileId}) @${town.id}(${townCoord.col},${townCoord.row})`);
+    // Western US: 도시화로 마지막 칸이 이어져 서부↔동부가 연결될 수 있음
+    get().applyTranscontinental();
     return true;
   },
 
@@ -4166,6 +4383,19 @@ export const useGameStore = create<GameStore>()(
       return;
     }
 
+    // 마을 위 큐브 배달 (Western US) — 마을 좌표에서 일반 배달과 동일 흐름
+    if (sourceCityId.startsWith('town:')) {
+      const town = state.board.towns.find(t => t.id === sourceCityId.slice('town:'.length));
+      if (!town) return;
+      const cubeColor = town.cubes[cubeIndex];
+      if (!cubeColor) return;
+      const player = state.players[state.currentPlayer];
+      const path = findLongestPath(town.coord, coord, state.board, state.currentPlayer, player.engineLevel, cubeColor);
+      if (!path || path.length < 2) return;
+      state.startCubeAnimation(path, cubeColor);
+      return;
+    }
+
     const sourceCity = state.board.cities.find(c => c.id === sourceCityId);
     if (!sourceCity) return;
 
@@ -4194,11 +4424,13 @@ export const useGameStore = create<GameStore>()(
     const state = get();
     if (!state.ui.selectedCube) return;
 
-    // 출발 도시에서 큐브 즉시 제거
+    // 출발지에서 큐브 즉시 제거 (도시 또는 마을)
     const sourceCityId = state.ui.selectedCube.cityId;
     const cubeIndex = state.ui.selectedCube.cubeIndex;
+    const isTownSource = sourceCityId.startsWith('town:');
+    const sourceTownId = isTownSource ? sourceCityId.slice('town:'.length) : null;
 
-    const newCities = state.board.cities.map(city => {
+    const newCities = isTownSource ? state.board.cities : state.board.cities.map(city => {
       if (city.id === sourceCityId) {
         const newCubes = [...city.cubes];
         newCubes.splice(cubeIndex, 1);
@@ -4206,6 +4438,14 @@ export const useGameStore = create<GameStore>()(
       }
       return city;
     });
+    const newTowns = isTownSource ? state.board.towns.map(town => {
+      if (town.id === sourceTownId) {
+        const newCubes = [...town.cubes];
+        newCubes.splice(cubeIndex, 1);
+        return { ...town, cubes: newCubes };
+      }
+      return town;
+    }) : state.board.towns;
 
     // 실행 컨텍스트 캡처 (completeCubeMove에서 사용)
     const context: MovingCubeContext = {
@@ -4218,6 +4458,7 @@ export const useGameStore = create<GameStore>()(
       board: {
         ...state.board,
         cities: newCities,
+        towns: newTowns,
       },
       ui: {
         ...state.ui,
@@ -4318,6 +4559,18 @@ export const useGameStore = create<GameStore>()(
           }
         }
         linkStartIndex = i; // 다음 링크 시작점 업데이트
+      }
+    }
+
+    // Western US: 동(east)↔서(west) 배달 +$1 income 보너스 (배달한 플레이어에게).
+    // 출발/도착이 모두 east/west 도시여야 함 — 중앙 도시(Denver/SLC)·마을·트랙 출발은 보너스 없음.
+    {
+      const profile = getMapProfile(state.mapId);
+      const fromCity = cities.find(c => hexCoordsEqual(c.coord, path[0]));
+      const toCity = cities.find(c => hexCoordsEqual(c.coord, path[path.length - 1]));
+      const regionBonus = profile.regionDeliveryBonus(fromCity?.region, toCity?.region);
+      if (regionBonus > 0 && state.activePlayers.includes(movingPlayerId)) {
+        incomeChanges[movingPlayerId] = (incomeChanges[movingPlayerId] || 0) + regionBonus;
       }
     }
 

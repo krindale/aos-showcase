@@ -15,6 +15,7 @@
 
 import { GameState, PlayerId, GamePhase, HexCoord, GAME_CONSTANTS } from '@/types/game';
 import { getMapAIConfig } from './mapConfig';
+import { getMapProfile } from '@/maps/getMapProfile';
 import { DeliveryOpportunity, DeliveryRoute } from './types';
 import {
   findOptimalPathAvoidingOpponent,
@@ -309,7 +310,16 @@ export function estimateRouteVP(
   const trackCubesOnPath = board.trackTiles.filter(t =>
     t.cube === targetCity.color && fullPath.some(pc => hexCoordsEqual(pc, t.coord))
   ).length;
-  const matchingCubes = cityCubes + trackCubesOnPath;
+  //   ③ 이 경로 위 마을에 놓인 큐브 중 도착 도시 색 (Western US townCubes) — 경로가 마을을
+  //      지나면 그 마을 큐브도 같은 색 도시로 배달 가능 → 경로 가치 가산.
+  const townCubesOnPath = config.incomeSources.includes('townCubes')
+    ? board.towns.filter(t =>
+        t.newCityColor === null &&
+        t.cubes.includes(targetCity.color) &&
+        fullPath.some(pc => hexCoordsEqual(pc, t.coord))
+      ).length
+    : 0;
+  const matchingCubes = cityCubes + trackCubesOnPath + townCubesOnPath;
   const expectedDeliveries = Math.max(0, Math.min(deliverableTurns, matchingCubes));
 
   // 5. 경쟁 할인 ρ
@@ -339,7 +349,9 @@ export function estimateRouteVP(
   // 트랙 1개를 이 경로에 쓰면 다른 경로의 트랙 VP를 벌 기회를 잃는다.
   // (안 그러면 "트랙이 많이 필요한 먼 경로"가 가까운 경로보다 점수가 높아지는 왜곡 발생)
   const lambda = cashToVPRate(state, playerId);
-  const perDeliveryVP = deliveryDeltaVP(state, playerId, links, 0);
+  // Western US: 동↔서 배달이면 매 배달 +$1 income 보너스를 ΔVP에 반영
+  const regionBonus = getMapProfile(state.mapId).regionDeliveryBonus(sourceCity?.region, targetCity.region);
+  const perDeliveryVP = deliveryDeltaVP(state, playerId, links, 0) + regionBonus * VP_PER_INCOME;
   const fundShares = Math.ceil(Math.max(0, buildCost - player.cash) / GAME_CONSTANTS.SHARE_VALUE);
   const netTrackVP = tracksToBuild * VP_PER_LINK_TRACK * 0.5;
 

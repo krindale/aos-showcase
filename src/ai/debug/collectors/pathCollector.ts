@@ -50,8 +50,9 @@ export function collectPathAnalysis(
         }
         const hex = board.hexTiles.find(h => h.coord.col === coord.col && h.coord.row === coord.row);
         if (hex) {
-          switch (hex.terrain) {
-            case 'river': pathCost += 3; break;
+          if (hex.fixedCost !== undefined) pathCost += hex.fixedCost; // Germany/Western US 헥스 고정비용 우선
+          else switch (hex.terrain) {
+            case 'river': case 'swamp': pathCost += 3; break;
             case 'mountain': pathCost += 4; break;
             default: pathCost += 2; break;
           }

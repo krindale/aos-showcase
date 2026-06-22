@@ -576,8 +576,28 @@ setAllDebug(true);                   // 모든 로그 on/off
   인접(변 공유)이라 사이 헥스가 없어 일반 트랙으로 못 이음 → `buildDirectLink` 액션(건설1카운트),
   `getConnectedNeighbors`에 직결을 도시 이웃으로(이동/완성/배달 자동 반영), `completeCubeMove` 직결구간
   income+1, GameBoard 골드점선+$2원 클릭건설. **AI는 직결 미사용(사람 전용)**. 룰북: "$2, 흰색 원 소유 마커".
-- **측정** (`germanySimulation.test.ts`, 20시드): VP +14.88, income 11.2, 파산 1.15/4명, 19/20게임 8턴완주.
-  tutorial/St.Lucia/Rust Belt VP 회귀 게이트 보존. 남은 작업: AI 직결 활용·파산률(~29%) 밸런싱·강 표현 연속성.
+- **측정** (`germanySimulation.test.ts`, 20시드): VP +14.88, income 11.2, 파산~1명/4, 8턴완주.
+  tutorial/St.Lucia/Rust Belt VP 회귀 게이트 보존. 남은 작업: AI 직결 활용·파산률 밸런싱·강 표현 연속성.
+
+**후속 수정/실측 검증 (2026-06-22, 플레이 피드백 반영):**
+- **미완성 링크 금지 강제(엔진)**: AI 첫착공 게이트뿐 아니라, 각 플레이어 트랙 건설 종료(buildTrack
+  단계 전환) 시 `removeIncompleteNewTracks`로 이번 턴 신설 미완성 트랙 제거+비용 환불(딸린 마을 가닥도).
+  AI·사람 모두 보드에 미완성 트랙이 안 남는다(requireCompleteLinks 맵 한정).
+- **★ 완성 링크 판정 근본 버그 수정(모든 맵)**: `checkConnectionToCity`가 마을을 가닥(spur) 없이
+  닿기만 해도 연결로 오판 → dangling 트랙이 완성으로 잘못 판정됐다. 미도시화 마을은 **진입 변에
+  townSpur가 있을 때만** 연결 인정으로 수정(도시는 모든 변). 회귀 없음(186 테스트 통과).
+- **Engineer 절반비용**: 평지($2)에 낭비 말고 `cost > PLAIN_TRACK_COST`인 비싼 헥스에 우선 적용.
+- **직결 링크 클릭**: 도시 위 레이어로 + 투명 히트영역(도시 헥스에 클릭 가로채이던 것 수정). `germanyDirectLink.test.ts`.
+- **Berlin 시작 큐브 0** (cityCubeCounts berlin:0) — 매 턴 물품성장 보너스로만 충전(`growGoods` 안, `[Berlin 보너스]` 로그). `germanyBerlin.test.ts`.
+- **도시 주사위번호 원본대로**(columnMapping.diceNumber): 화면 표시+물품성장 결정. 1 München·Zürich…6 Königsberg·Breslau.
+- **도시 큰 라벨**: 번호 있으면 번호, 없으면 city.id, 단 터미널/Berlin(풀네임)은 생략(GameBoard 전역).
+- **액션 UI**: 독일 Engineer 설명을 "트랙 1개 절반 비용"으로 표시(engineerHalfCost).
+
+**UI 공통 개선:**
+- **Production 패널**: 전체화면 모달이 물품 디스플레이를 가려 배치 불가하던 것 → 우하단 고정 패널로(디스플레이 직접 클릭).
+- **이동/AI건설 미니 오버레이** (`MoveCubeOverlay`): 세로로 긴 맵(독일/세인트루시아)에서만, 화물 이동·AI 철도건설 중
+  전체 맵을 **우측에 작게**(fit) 띄워 진행을 보여줌. 왼쪽 메인 지도는 안 가림. 가로 넓은 맵(Rust Belt 등)은
+  종횡비(`calculateBoardDimensions` height>width) 자동 판정으로 끔. GameBoard `fitOverlay` prop(비인터랙티브 fit).
 
 #### 마을 가닥(스퍼) 모델 (2026-06-12 재설계, 모든 맵 공통)
 

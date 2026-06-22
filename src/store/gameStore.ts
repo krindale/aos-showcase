@@ -1851,9 +1851,11 @@ export const useGameStore = create<GameStore>()(
         if (terrain === 'mountain') cost = GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
       }
     }
-    // Germany: Engineer 절반 비용 — 이번 턴 1회, 타일 비용에만 (마을 가닥 제외)
+    // Germany: Engineer 절반 비용 — 이번 턴 1회, 타일 비용에만 (마을 가닥 제외).
+    // 평지($2)에 낭비하지 않고 비용이 더 비싼 헥스(강/산/고정비용)에 우선 적용한다.
     let engineerDiscountApplied = false;
-    if (mapProfile.engineerHalfCost && player.selectedAction === 'engineer' && !state.phaseState.engineerHalfUsed) {
+    if (mapProfile.engineerHalfCost && player.selectedAction === 'engineer'
+        && !state.phaseState.engineerHalfUsed && cost > GAME_CONSTANTS.PLAIN_TRACK_COST) {
       cost = Math.ceil(cost / 2);
       engineerDiscountApplied = true;
     }

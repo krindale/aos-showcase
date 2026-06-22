@@ -627,6 +627,8 @@ interface GameStore extends GameState {
   /** 마을 가닥(스퍼) 단독 건설. edge 지정 시 그 변 가닥만(방향 선택 — 트랙 없이도 가능),
    *  생략 시 마을에 닿은 미연결 트랙 변 전부 연결. (이번 턴 그 마을 첫 변경 1카운트 + $1) */
   buildTownSpur: (townCoord: HexCoord, edge?: number) => boolean;
+  /** 도시-도시 직결 링크 건설 (Germany: Essen↔Düsseldorf $2). 건설 1회로 카운트 */
+  buildDirectLink: (cityAId: string, cityBId: string) => boolean;
   /** 마을 가닥 단독 건설 가능 여부 (edge 지정 시 그 변) */
   canBuildTownSpur: (townCoord: HexCoord, edge?: number) => boolean;
 
@@ -2169,6 +2171,59 @@ export const useGameStore = create<GameStore>()(
 
     // [PLAY] 사람 플레이 분석용 — 마을 가닥 완성(링크 완성 = 깊은 배달 핵심)
     console.log(`[PLAY] T${state.currentTurn} ${currentPlayer} 가닥완성 @(${townCoord.col},${townCoord.row}) 가닥${missing.length}개`);
+    return true;
+  },
+
+  buildDirectLink: (cityAId, cityBId) => {
+    const state = get();
+    const link = (state.board.directLinks ?? []).find(
+      d => (d.cityA === cityAId && d.cityB === cityBId) || (d.cityA === cityBId && d.cityB === cityAId)
+    );
+    if (!link) return false;
+    if (link.owner !== null) return false; // 이미 건설됨
+    if (state.currentPhase !== 'buildTrack') return false;
+    // 건설 제한 (타일 1개 카운트)
+    if (state.phaseState.builtTracksThisTurn >= state.phaseState.maxTracksThisTurn) {
+      console.warn('[buildDirectLink] 건설 제한 초과');
+      return false;
+    }
+    const currentPlayer = state.currentPlayer;
+    const player = state.players[currentPlayer];
+    if (!player) return false;
+    // 직결 링크는 두 도시를 직접 잇는 완성 링크 — 항상 도시에 붙으므로 첫 트랙 규칙 자동 충족
+    if (player.cash < link.cost) {
+      console.warn(`[buildDirectLink] 현금 부족 ($${player.cash} < $${link.cost})`);
+      return false;
+    }
+
+    captureUndo(state, `직결 링크 건설 (${link.cityA}↔${link.cityB})`);
+    const newBuiltCount = state.phaseState.builtTracksThisTurn + 1;
+
+    set({
+      board: {
+        ...state.board,
+        directLinks: (state.board.directLinks ?? []).map(d =>
+          d === link ? { ...d, owner: currentPlayer, builtTurn: state.currentTurn } : d
+        ),
+      },
+      players: {
+        ...state.players,
+        [currentPlayer]: { ...player, cash: player.cash - link.cost },
+      },
+      undoCount: undoSnapshots.length,
+      phaseState: { ...state.phaseState, builtTracksThisTurn: newBuiltCount },
+      ui: { ...state.ui, buildMode: 'idle', sourceHex: null, buildableNeighbors: [], previewTrack: null, targetHex: null, entryEdge: null, exitDirections: [] },
+      logs: [
+        ...state.logs,
+        {
+          turn: state.currentTurn,
+          phase: state.currentPhase,
+          player: currentPlayer,
+          action: `직결 링크 건설 (${link.cityA} ↔ ${link.cityB}) - $${link.cost} [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`,
+          timestamp: Date.now(),
+        },
+      ],
+    });
     return true;
   },
 
@@ -4174,11 +4229,25 @@ export const useGameStore = create<GameStore>()(
     for (let i = linkStartIndex + 1; i < path.length; i++) {
       if (isStopAt(path[i])) {
         // 이 링크(linkStartIndex → i) 구간의 트랙 소유자 찾기
+        let credited = false;
         for (let j = linkStartIndex + 1; j < i; j++) {
           const track = trackTiles.find(t => hexCoordsEqual(t.coord, path[j]));
           if (track?.owner) {
             incomeChanges[track.owner] = (incomeChanges[track.owner] || 0) + 1;
+            credited = true;
             break; // 링크당 한 번만 계산 (같은 링크 내 트랙은 같은 소유자)
+          }
+        }
+        // Germany 직결 링크: 사이 트랙 없이 두 도시가 바로 이어진 구간 → 직결 owner에게 수입 +1
+        if (!credited) {
+          const a = cities.find(c => hexCoordsEqual(c.coord, path[linkStartIndex]));
+          const b = cities.find(c => hexCoordsEqual(c.coord, path[i]));
+          if (a && b) {
+            const dl = (state.board.directLinks ?? []).find(d => d.owner &&
+              ((d.cityA === a.id && d.cityB === b.id) || (d.cityA === b.id && d.cityB === a.id)));
+            if (dl?.owner && state.activePlayers.includes(dl.owner)) {
+              incomeChanges[dl.owner] = (incomeChanges[dl.owner] || 0) + 1;
+            }
           }
         }
         linkStartIndex = i; // 다음 링크 시작점 업데이트

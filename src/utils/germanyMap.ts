@@ -179,6 +179,12 @@ export function generateGermanyHexTiles(): HexTile[] {
   return tiles;
 }
 
+// === 도시-도시 직결 링크 (룰북: Essen/Dortmund↔Düsseldorf/Köln $2) ===
+// 두 도시가 보드에서 직접 인접(변 공유)이라 사이 헥스가 없어 일반 트랙으로 못 잇는다.
+export const GERMANY_DIRECT_LINKS = [
+  { cityA: 'essen', cityB: 'duesseldorf', cost: 2, owner: null as null },
+];
+
 // === 초기 보드 상태 ===
 export function createGermanyBoardState(): BoardState {
   return {
@@ -187,6 +193,7 @@ export function createGermanyBoardState(): BoardState {
     trackTiles: [],
     townSpurs: [],
     hexTiles: generateGermanyHexTiles(),
+    directLinks: GERMANY_DIRECT_LINKS.map((d) => ({ ...d })),
   };
 }
 

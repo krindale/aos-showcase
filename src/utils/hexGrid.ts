@@ -657,6 +657,18 @@ export function getConnectedNeighbors(
         }
       }
     }
+    // Germany 직결 링크: 현재 도시와 directLink(건설된 것)로 이어진 상대 도시를 이웃으로 인정
+    if (isCurrentCity) {
+      const cityHere = board.cities.find(c => hexCoordsEqual(c.coord, currentCoord));
+      for (const dl of board.directLinks ?? []) {
+        if (dl.owner === null) continue;
+        if (playerId !== undefined && playerId !== null && dl.owner !== playerId) continue;
+        const otherId = cityHere?.id === dl.cityA ? dl.cityB : cityHere?.id === dl.cityB ? dl.cityA : null;
+        if (!otherId) continue;
+        const other = board.cities.find(c => c.id === otherId);
+        if (other && !visitedKey.has(hexToKey(other.coord))) neighbors.push(other.coord);
+      }
+    }
   } else if (currentTrack) {
     // 트랙에서: 트랙의 경로를 따라 이동
     // [핵심 수정] 복합 트랙에서는 같은 경로(edges 또는 secondaryEdges) 내에서만 이동 가능

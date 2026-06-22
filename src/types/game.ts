@@ -134,6 +134,18 @@ export interface BoardState {
   hexTiles: HexTile[];         // 모든 헥스 타일 (지형 정보)
   /** 마을 안 철길 가닥 (원→변). 노선이 마을에 연결될 때 함께 건설되며 건설 1회로 카운트 */
   townSpurs?: TownSpur[];
+  /** 인접 도시 간 직접 링크(Germany: Essen/Dortmund↔Düsseldorf/Köln $2).
+   *  보드에서 변을 공유하는 두 도시를 사이 헥스 없이 직접 잇는 특수 링크. owner가 있으면 건설된 완성 링크. */
+  directLinks?: DirectLink[];
+}
+
+/** 도시-도시 직접 링크 (사이 헥스 없이 인접한 두 도시를 잇는 특수 트랙) */
+export interface DirectLink {
+  cityA: string;           // 도시 id
+  cityB: string;           // 도시 id
+  cost: number;            // 건설 비용 ($)
+  owner: PlayerId | null;  // 건설한 플레이어 (null=미건설)
+  builtTurn?: number;
 }
 
 /** 마을 안 철길 가닥: 마을 원에서 특정 변까지. 실제 건설물 (비용/카운트 발생) */

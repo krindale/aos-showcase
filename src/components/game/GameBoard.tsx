@@ -27,7 +27,8 @@ import { getMapProfile } from '@/maps/getMapProfile';
 import { isValidConnectionPoint as isValidConnectionPointUtil } from '@/utils/trackValidation';
 import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId } from '@/types/game';
 
-export default function GameBoard() {
+export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean } = {}) {
+  // fitOverlay: 화물 이동 애니메이션을 전체 화면에 꽉 차게(fit) 보여주는 비인터랙티브 오버레이 모드
   // 디버그: 헥스 좌표 표시 토글 (우측 상단 버튼)
   const [showCoords, setShowCoords] = useState(false);
   // Zustand selector 최적화: useShallow로 불필요한 리렌더링 방지
@@ -163,9 +164,10 @@ export default function GameBoard() {
     [completedLinks]
   );
 
-  // 큐브 이동 애니메이션 처리 - 1초 후 완료
+  // 큐브 이동 애니메이션 처리 - 1초 후 완료.
+  // (오버레이 모드 GameBoard는 표시만 담당 — 메인 GameBoard가 completeCubeMove를 호출하므로 중복 방지)
   useEffect(() => {
-    if (!ui.movingCube) return;
+    if (fitOverlay || !ui.movingCube) return;
 
     // 애니메이션 완료 후 처리 (1초)
     const timeout = setTimeout(() => {
@@ -173,7 +175,7 @@ export default function GameBoard() {
     }, 1000);
 
     return () => clearTimeout(timeout);
-  }, [ui.movingCube, completeCubeMove]);
+  }, [fitOverlay, ui.movingCube, completeCubeMove]);
 
   // 끊어진 트랙 연결 감지
   const disconnectedConnections = useMemo(() => {
@@ -446,14 +448,17 @@ export default function GameBoard() {
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.3, ease: 'easeOut' }}
-      className="rounded-xl overflow-hidden border border-foreground/10"
+      className={fitOverlay
+        ? 'w-full h-full flex items-center justify-center'
+        : 'rounded-xl overflow-hidden border border-foreground/10'}
       style={{
         backgroundColor: mapData.colors.background,
         contain: 'layout style paint', // Performance optimization
         transform: 'translateZ(0)', // GPU acceleration
       }}
     >
-      {/* 보드 헤더 */}
+      {/* 보드 헤더 (오버레이 모드에선 숨김) */}
+      {!fitOverlay && (
       <div className="px-4 py-3 bg-background-secondary/50 border-b border-foreground/10">
         <div className="flex items-center justify-between">
           <span className="text-sm text-foreground-secondary">
@@ -480,23 +485,27 @@ export default function GameBoard() {
           </div>
         </div>
       </div>
+      )}
 
       {/* SVG 보드 */}
       <svg
         width="100%"
+        height={fitOverlay ? '100%' : undefined}
         viewBox={`0 0 ${boardWidth} ${boardHeight}`}
+        preserveAspectRatio="xMidYMid meet"
         className="block"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
+        onTouchStart={fitOverlay ? undefined : handleTouchStart}
+        onTouchMove={fitOverlay ? undefined : handleTouchMove}
+        onTouchEnd={fitOverlay ? undefined : handleTouchEnd}
         style={{
           touchAction: 'none',
           willChange: 'transform', // Optimize for transforms
+          ...(fitOverlay ? { maxHeight: '92vh' } : {}),
         }}
         shapeRendering="optimizeSpeed" // Prioritize speed over quality for hex grid
       >
         <g
-          transform={`translate(${position.x}, ${position.y}) scale(${scale})`}
+          transform={fitOverlay ? undefined : `translate(${position.x}, ${position.y}) scale(${scale})`}
           style={{
             transformOrigin: 'center',
             willChange: 'transform', // GPU acceleration for zoom/pan

@@ -42,6 +42,7 @@ import ComplexTrackPanel from '@/components/game/ComplexTrackPanel';
 import RedirectTrackPanel from '@/components/game/RedirectTrackPanel';
 import UrbanizationPanel from '@/components/game/UrbanizationPanel';
 import ProductionPanel from '@/components/game/ProductionPanel';
+import MoveCubeOverlay from '@/components/game/MoveCubeOverlay';
 import DebugPanel from '@/components/game/DebugPanel';
 import AIDebugModal from '@/components/game/AIDebugModal';
 import BottomSheet from '@/components/game/BottomSheet';
@@ -478,6 +479,9 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
 
       {/* 생산 패널 (물품 성장 단계에서 Production 행동 선택 시) */}
       <ProductionPanel />
+
+      {/* 화물 이동 시 전체 맵을 화면에 꽉 차게 보여주는 오버레이 (큰 맵 가독성) */}
+      <MoveCubeOverlay />
 
       {/* 플레이어 패널 (동적 렌더링) — 3인+ 게임은 비활성 플레이어를 한 줄로 압축 */}
       {activePlayers.map(playerId => (

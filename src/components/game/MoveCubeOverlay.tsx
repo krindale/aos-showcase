@@ -28,13 +28,14 @@ export default function MoveCubeOverlay() {
     <AnimatePresence>
       {movingCube && isTallMap && (
         <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
+          initial={{ opacity: 0, x: 24 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: 24 }}
           transition={{ duration: 0.2 }}
-          className="fixed inset-0 z-40 bg-black/80 flex items-center justify-center p-6 md:p-12"
+          // 전체 화면을 가리지 않고(왼쪽 지도는 그대로 보임) 우측 컨트롤 패널 영역에만 띄운다.
+          className="fixed top-20 right-3 z-40 w-[clamp(280px,30vw,440px)] max-h-[82vh] rounded-2xl border border-accent/40 shadow-2xl overflow-hidden bg-background-secondary"
         >
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-accent/20 border border-accent/40">
+          <div className="px-3 py-1.5 bg-accent/15 border-b border-accent/30 text-center">
             <span className="text-accent text-xs md:text-sm font-medium">🚂 물품 이동 중…</span>
           </div>
           <GameBoard fitOverlay />

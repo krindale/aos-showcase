@@ -449,7 +449,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.3, ease: 'easeOut' }}
       className={fitOverlay
-        ? 'inline-block rounded-2xl overflow-hidden border border-accent/30 shadow-2xl'
+        ? 'w-full'
         : 'rounded-xl overflow-hidden border border-foreground/10'}
       style={{
         backgroundColor: mapData.colors.background,
@@ -489,8 +489,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
 
       {/* SVG 보드 */}
       <svg
-        width={fitOverlay ? boardWidth : '100%'}
-        height={fitOverlay ? boardHeight : undefined}
+        width="100%"
+        height={fitOverlay ? undefined : undefined}
         viewBox={`0 0 ${boardWidth} ${boardHeight}`}
         preserveAspectRatio="xMidYMid meet"
         className="block"
@@ -500,8 +500,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
         style={{
           touchAction: 'none',
           willChange: 'transform', // Optimize for transforms
-          // 오버레이: 화면을 꽉 채우지 않고 적당한 크기로 비율 유지 fit (마진 확보)
-          ...(fitOverlay ? { maxWidth: '88vw', maxHeight: '78vh', width: 'auto', height: 'auto', display: 'block' } : {}),
+          // 오버레이: 우측 팝업 폭(100%)에 맞춰 비율 유지, 세로 제한
+          ...(fitOverlay ? { maxHeight: '74vh', display: 'block' } : {}),
         }}
         shapeRendering="optimizeSpeed" // Prioritize speed over quality for hex grid
       >

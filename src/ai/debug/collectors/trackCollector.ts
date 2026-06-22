@@ -46,12 +46,13 @@ export function collectTrackEvaluation(
   let lastConnectedPosition = -1;
   let nextBuildPosition = 0;
 
-  // 지형 비용
+  // 지형 비용 (헥스 fixedCost 우선: Germany/Western US 늪/강 $4·산 $5)
   let terrainCost = GAME_CONSTANTS.PLAIN_TRACK_COST;
   const hex = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
   if (hex) {
-    switch (hex.terrain) {
-      case 'river': terrainCost = GAME_CONSTANTS.RIVER_TRACK_COST; break;
+    if (hex.fixedCost !== undefined) terrainCost = hex.fixedCost;
+    else switch (hex.terrain) {
+      case 'river': case 'swamp': terrainCost = GAME_CONSTANTS.RIVER_TRACK_COST; break;
       case 'mountain': terrainCost = GAME_CONSTANTS.MOUNTAIN_TRACK_COST; break;
     }
   }

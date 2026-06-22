@@ -237,6 +237,38 @@ function removeIncompleteNewTracks(
   return { board: { ...board, trackTiles, townSpurs }, refund };
 }
 
+/**
+ * 주머니(bag)에서 색 균형을 맞춰 큐브 N개를 뽑는다 (도시·마을 셋업 공용).
+ *  ① 이 칸에 아직 없는 색 우선(칸 내 중복 회피) ② 그 중 전역 사용량(colorUsage)이 가장 적은 색.
+ *  excludeColor 지정 시 그 색은 후보에서 완전히 제외(튜토리얼 noOwnColorCubes).
+ * bag/colorUsage를 in-place로 갱신하고 뽑은 큐브 배열을 반환.
+ */
+function drawBalancedCubes(
+  bag: CubeColor[],
+  count: number,
+  colorUsage: Map<CubeColor, number>,
+  excludeColor?: CubeColor,
+): CubeColor[] {
+  const cubes: CubeColor[] = [];
+  for (let i = 0; i < count; i++) {
+    if (bag.length === 0) break;
+    let bestIdx = -1, bestUsed = Infinity, fallbackIdx = -1;
+    for (let j = bag.length - 1; j >= 0; j--) {
+      const c = bag[j];
+      if (excludeColor && c === excludeColor) continue;
+      if (fallbackIdx === -1) fallbackIdx = j;
+      if (cubes.includes(c)) continue;
+      const used = colorUsage.get(c) ?? 0;
+      if (used < bestUsed) { bestUsed = used; bestIdx = j; }
+    }
+    const idx = bestIdx !== -1 ? bestIdx : fallbackIdx;
+    if (idx === -1) break;
+    const cube = bag.splice(idx, 1)[0];
+    if (cube) { cubes.push(cube); colorUsage.set(cube, (colorUsage.get(cube) ?? 0) + 1); }
+  }
+  return cubes;
+}
+
 export function createInitialGameState(
   mapId: string,
   playerNames: string[],
@@ -321,33 +353,9 @@ export function createInitialGameState(
       return { ...city, color: cube, cubes: [cube] };
     }
     if (setupRules.hexCubeSetup) return { ...city, cubes: [] };
-    const cubes: CubeColor[] = [];
-    // 도시별 초기 큐브 수 (Rust Belt: Pittsburgh/Wheeling 3, 나머지 2)
+    // 도시별 초기 큐브 수 (Rust Belt: Pittsburgh/Wheeling 3, 나머지 2). 색 균형 배치(공용 헬퍼).
     const targetCubes = cityCubeCounts[city.id] ?? GAME_CONSTANTS.INITIAL_CUBES_PER_CITY;
-    for (let i = 0; i < targetCubes; i++) {
-      if (bag.length === 0) break;
-      // 후보 선택: ① 이 도시에 아직 없는 색 우선(도시 내 중복 회피)
-      //           ② 그 중 전역 사용량이 가장 적은 색(전체 균형)
-      //  noOwnColorCubes(튜토리얼)는 도시 자기 색을 후보에서 제외.
-      let bestIdx = -1;
-      let bestUsed = Infinity;
-      let fallbackIdx = -1; // 자기색 제약만 통과(도시 내 중복 허용)하는 차선책
-      for (let j = bag.length - 1; j >= 0; j--) {
-        const c = bag[j];
-        if (setupRules.noOwnColorCubes && c === city.color) continue;
-        if (fallbackIdx === -1) fallbackIdx = j;
-        if (cubes.includes(c)) continue;
-        const used = colorUsage.get(c) ?? 0;
-        if (used < bestUsed) { bestUsed = used; bestIdx = j; }
-      }
-      const idx = bestIdx !== -1 ? bestIdx : fallbackIdx;
-      if (idx === -1) break; // 배치 가능한 색이 전혀 없음(튜토리얼 극단)
-      const cube = bag.splice(idx, 1)[0];
-      if (cube) {
-        cubes.push(cube);
-        colorUsage.set(cube, (colorUsage.get(cube) ?? 0) + 1);
-      }
-    }
+    const cubes = drawBalancedCubes(bag, targetCubes, colorUsage, setupRules.noOwnColorCubes ? city.color : undefined);
     return { ...city, cubes };
   });
 
@@ -373,23 +381,7 @@ export function createInitialGameState(
     : boardState.towns.map((town) => {
         const target = townCubeCounts[town.id] ?? 0;
         if (target <= 0) return { ...town, cubes: [] };
-        const cubes: CubeColor[] = [];
-        for (let i = 0; i < target; i++) {
-          if (bag.length === 0) break;
-          let bestIdx = -1, bestUsed = Infinity, fallbackIdx = -1;
-          for (let j = bag.length - 1; j >= 0; j--) {
-            const c = bag[j];
-            if (fallbackIdx === -1) fallbackIdx = j;
-            if (cubes.includes(c)) continue;
-            const used = colorUsage.get(c) ?? 0;
-            if (used < bestUsed) { bestUsed = used; bestIdx = j; }
-          }
-          const idx = bestIdx !== -1 ? bestIdx : fallbackIdx;
-          if (idx === -1) break;
-          const cube = bag.splice(idx, 1)[0];
-          if (cube) { cubes.push(cube); colorUsage.set(cube, (colorUsage.get(cube) ?? 0) + 1); }
-        }
-        return { ...town, cubes };
+        return { ...town, cubes: drawBalancedCubes(bag, target, colorUsage) };
       }));
 
   // 동적 플레이어 초기화
@@ -555,10 +547,16 @@ function bfsConnectingOwners(
  * (2) 1회성 연결 보너스($4/$2 income)를 적용한 새 상태 조각을 반환. 변화 없으면 null.
  * 룰북: 1철도 연결=+$4, 2철도=각 +$2, 3철도+=연결 트랙 놓은 플레이어가 2철도 선택 +$2.
  */
-function computeTranscontinental(state: GameState):
+function computeTranscontinental(state: GameState, builder: PlayerId):
   { players: Record<PlayerId, PlayerState>; awarded: boolean; log: string } | null {
   const profile = getMapProfile(state.mapId);
   if (!profile.transcontinentalBonus) return null;
+  // 효율: 보너스 이미 지급 + 모든 활성 플레이어가 대륙횡단 달성 → 더 스캔할 것 없음
+  // (매 건설마다 findAllCompletedLinks×N 전수 스캔을 후반에 회피)
+  if ((state.transcontinentalAwarded ?? false) &&
+      state.activePlayers.every(p => state.players[p]?.transcontinental || state.players[p]?.eliminated)) {
+    return null;
+  }
   const board = state.board;
 
   const westStops = board.cities.filter(c => c.region === 'west' && profile.isStartingCity(c));
@@ -612,10 +610,21 @@ function computeTranscontinental(state: GameState):
   if (!awarded) {
     const ownersOnPath = bfsConnectingOwners(buildAdj(), westKeys, eastKeys);
     if (ownersOnPath && ownersOnPath.length) {
-      const distinct = Array.from(new Set(ownersOnPath));
-      // 1철도 → 한 명 +$4. 2철도 이상 → 경로상 앞쪽 2철도 각 +$2 (3+의 선택권은 단순화).
-      const recipients = distinct.length === 1 ? distinct : distinct.slice(0, 2);
-      const amt = distinct.length === 1 ? 4 : 2;
+      // 경로상 각 철도의 트랙 기여 수(빈도)
+      const freq = new Map<PlayerId, number>();
+      for (const o of ownersOnPath) freq.set(o, (freq.get(o) ?? 0) + 1);
+      const distinct = Array.from(freq.keys());
+      // 룰북: 1철도 → +$4. 2철도 → 각 +$2. 3철도+ → "연결 트랙 놓은 플레이어가 2철도 선택" →
+      //   연결을 완성한 builder를 우선 포함하고, 나머지 한 자리는 경로 트랙이 가장 많은 철도로.
+      let recipients: PlayerId[];
+      let amt: number;
+      if (distinct.length === 1) {
+        recipients = distinct; amt = 4;
+      } else {
+        const ranked = distinct.slice().sort((a, b) => (freq.get(b)! - freq.get(a)!));
+        const ordered = distinct.includes(builder) ? [builder, ...ranked.filter(o => o !== builder)] : ranked;
+        recipients = ordered.slice(0, 2); amt = 2;
+      }
       ensureCopy();
       const parts: string[] = [];
       for (const pid of recipients) {
@@ -1931,7 +1940,7 @@ export const useGameStore = create<GameStore>()(
   },
 
   applyTranscontinental: () => {
-    const result = computeTranscontinental(get());
+    const result = computeTranscontinental(get(), get().currentPlayer);
     if (!result) return;
     set({ players: result.players, transcontinentalAwarded: result.awarded });
     if (result.log) get().addLog(result.log);
@@ -2157,7 +2166,11 @@ export const useGameStore = create<GameStore>()(
     console.log(`복합 트랙 타입: ${trackType}`);
 
     // 연결성 검증: 새 경로가 현재 플레이어의 기존 트랙/도시에 연결되어야 함
-    if (!validateTrackConnection(coord, newEdges, state.board, currentPlayer)) {
+    // (Western US: 대륙횡단 전 연속성 강제 — 단순 트랙과 동일하게 분리 구간 금지)
+    const ctProfile = getMapProfile(state.mapId);
+    const ctRequireNetwork = ctProfile.requireContiguousUntilTranscontinental
+      && !state.players[currentPlayer]?.transcontinental;
+    if (!validateTrackConnection(coord, newEdges, state.board, currentPlayer, ctRequireNetwork)) {
       return false;
     }
 
@@ -2264,6 +2277,8 @@ export const useGameStore = create<GameStore>()(
 
     // [PLAY] 사람 플레이 분석용 — 복합 건설 좌표
     console.log(`[PLAY] T${state.currentTurn} ${currentPlayer} 복합건설(${trackType}) (${coord.col},${coord.row}) edges[${newEdges}] [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`);
+    // Western US: 복합 트랙으로 서부↔동부가 이어졌는지 확인 (보너스/연속성 해제)
+    get().applyTranscontinental();
     return true;
   },
 
@@ -2428,6 +2443,7 @@ export const useGameStore = create<GameStore>()(
         },
       ],
     });
+    get().applyTranscontinental();
     return true;
   },
 
@@ -3999,6 +4015,7 @@ export const useGameStore = create<GameStore>()(
       ],
     });
 
+    get().applyTranscontinental();
     return true;
   },
 
@@ -4183,6 +4200,8 @@ export const useGameStore = create<GameStore>()(
 
     // [PLAY] 사람 플레이 분석용 — 도시화 위치/색
     console.log(`[PLAY] T${state.currentTurn} ${state.currentPlayer} 도시화 ${tile.color} 도시(${selectedTileId}) @${town.id}(${townCoord.col},${townCoord.row})`);
+    // Western US: 도시화로 마지막 칸이 이어져 서부↔동부가 연결될 수 있음
+    get().applyTranscontinental();
     return true;
   },
 

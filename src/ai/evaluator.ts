@@ -75,10 +75,10 @@ export function evaluateTrackPosition(
     }
   }
 
-  // 4. 지형 비용 고려
+  // 4. 지형 비용 고려 (기존 맵 점수 보존 — 값 불변. swamp만 추가: Western US 늪 $4, 강과 동급 감점)
   const hexTile = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
   if (hexTile) {
-    if (hexTile.terrain === 'river') score -= 1;
+    if (hexTile.terrain === 'river' || hexTile.terrain === 'swamp') score -= 1;
     if (hexTile.terrain === 'mountain') score -= 2;
     if (hexTile.terrain === 'lake') score -= 100; // 호수는 건설 불가
   }

@@ -17,6 +17,7 @@ import {
 } from '../types';
 import { getCurrentRoute } from '../../strategy/state';
 import { getNextTargetRoute } from '../../strategy/selector';
+import { getMapProfile } from '@/maps/getMapProfile';
 import {
   evaluateTrackForRoute,
   analyzeDeliveryOpportunities,
@@ -311,6 +312,14 @@ function collectBuildCandidates(
   const candidates: TrackCandidate[] = [];
   const hasExistingTrack = playerHasTrack(board, playerId);
 
+  // Western US: 엔진과 동일한 시작도시 제한 + 대륙횡단 전 연속성 강제 (디버그 후보가 엔진과 일치하도록)
+  const dbgProfile = getMapProfile(state.mapId);
+  const dbgAllowedCityIds = dbgProfile.startingCitiesOnly
+    ? new Set(board.cities.filter(c => dbgProfile.isStartingCity(c)).map(c => c.id))
+    : undefined;
+  const dbgRequireNetwork = dbgProfile.requireContiguousUntilTranscontinental
+    && !state.players[playerId]?.transcontinental;
+
   const getTerrainCost = (coord: { col: number; row: number }): number => {
     const hexTile = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
     if (!hexTile) return GAME_CONSTANTS.PLAIN_TRACK_COST;
@@ -337,9 +346,9 @@ function collectBuildCandidates(
       const edges: [number, number] = [neighbor.targetEdge, exitDir.exitEdge];
 
       if (isFirstTrack) {
-        if (!validateFirstTrackRule(neighbor.coord, edges, board)) continue;
+        if (!validateFirstTrackRule(neighbor.coord, edges, board, dbgAllowedCityIds)) continue;
       } else {
-        if (!validateTrackConnection(neighbor.coord, edges, board, playerId)) continue;
+        if (!validateTrackConnection(neighbor.coord, edges, board, playerId, dbgRequireNetwork)) continue;
       }
 
       const cost = getTerrainCost(neighbor.coord);

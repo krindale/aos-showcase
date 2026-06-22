@@ -376,7 +376,10 @@ function canBuildComplexTrackForAI(
   }
 
   // 연결성 검증: 새 경로가 플레이어의 기존 트랙/도시에 연결되어야 함
-  if (!validateTrackConnection(coord, newEdges, board, playerId)) {
+  // (Western US: 대륙횡단 전 연속성 강제 — 엔진 canBuildComplexTrack과 동일)
+  const profile = getMapProfile(state.mapId);
+  const requireNetwork = profile.requireContiguousUntilTranscontinental && !state.players[playerId]?.transcontinental;
+  if (!validateTrackConnection(coord, newEdges, board, playerId, requireNetwork)) {
     return false;
   }
 

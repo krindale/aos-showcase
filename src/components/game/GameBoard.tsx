@@ -594,7 +594,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                   <path
                     d={riverFlowPath(coord, x, y)}
                     fill="none"
-                    stroke={terrainColors.river}
+                    stroke={terrainColors.river ?? '#5FA3D4'}
                     strokeWidth="11"
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -1477,7 +1477,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
         <div className="flex items-center gap-2">
           <div
             className="w-5 h-5 rounded"
-            style={{ backgroundColor: terrainColors.lake }}
+            style={{ backgroundColor: terrainColors.lake ?? '#0a3a44' }}
           />
           <span className="text-xs text-foreground-secondary">호수</span>
         </div>

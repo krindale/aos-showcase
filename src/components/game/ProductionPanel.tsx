@@ -76,20 +76,14 @@ export default function ProductionPanel() {
 
   return (
     <AnimatePresence>
+      {/* 전체 화면 모달이 아니라 우하단 고정 패널 — 물품 디스플레이(왼쪽)를 가리지 않아
+          빈 칸을 직접 클릭해 큐브를 배치할 수 있다. (배경 오버레이 제거) */}
       <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-        onClick={cancelProduction}
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 30 }}
+        className="fixed bottom-4 right-4 z-50 bg-background-secondary rounded-xl border border-accent/40 p-6 max-w-sm w-[calc(100%-2rem)] sm:w-96 shadow-2xl"
       >
-        <motion.div
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.9, opacity: 0 }}
-          className="bg-background-secondary rounded-xl border border-accent/30 p-6 max-w-md w-full mx-4"
-          onClick={(e) => e.stopPropagation()}
-        >
           {/* 헤더 */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
@@ -211,7 +205,6 @@ export default function ProductionPanel() {
               확인
             </button>
           </div>
-        </motion.div>
       </motion.div>
     </AnimatePresence>
   );

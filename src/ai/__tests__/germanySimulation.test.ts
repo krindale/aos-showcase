@@ -235,14 +235,14 @@ describe('Germany 4 AI 전체 게임 — 다인 실동작 + 베이스라인', ()
     console.log(`평균 accurateVP: ${m.avgVP.toFixed(2)} (min ${m.minVP}, max ${m.maxVP})`);
     console.log(`평균 발행주식: ${m.avgShares.toFixed(2)}, 평균 income: ${m.avgIncome.toFixed(2)}`);
     console.log(`건설/배달/도시화: 건설 ${m.avgBuilds.toFixed(1)}, 배달 ${m.avgDeliveries.toFixed(1)}, 도시화 ${m.avgUrban.toFixed(1)}`);
-    console.log(`파산: ${m.avgBankruptPerGame.toFixed(2)}명/게임, 평균 완주턴 ${m.avgTurns.toFixed(1)} (최대 6)`);
+    console.log(`파산: ${m.avgBankruptPerGame.toFixed(2)}명/게임, 평균 완주턴 ${m.avgTurns.toFixed(1)} (최대 8)`);
     console.log(`완주 턴 분포: ${JSON.stringify(m.finishedTurns)}`);
 
     // 핵심: 모든 게임이 정상 종료 (멈춤/무한루프 없음) — 독일 특수 규칙 실동작 보장
     expect(m.allReachedEnd).toBe(true);
     // 모든 게임이 최소 2턴 이상 진행
     expect(m.finishedTurns.every(t => t >= 2)).toBe(true);
-    // 독일 4인 = 6턴 — 정상 게임은 6턴 도달
-    expect(m.finishedTurns.some(t => t >= 6)).toBe(true);
+    // 독일 4인 = 8턴 (룰북) — 정상 게임은 8턴 도달
+    expect(m.finishedTurns.some(t => t >= 8)).toBe(true);
   }, 120_000);
 });

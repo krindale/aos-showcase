@@ -566,6 +566,23 @@ export default function GameBoard() {
                     style={{ pointerEvents: 'none' }}
                   />
                 )}
+                {/* Germany 헥스 고정 건설비용 숫자 (그 칸에 트랙을 깔 때 드는 비용) */}
+                {hexTile?.fixedCost !== undefined && !isHighlighted && (
+                  <text
+                    x={x}
+                    y={y + 7}
+                    textAnchor="middle"
+                    fill="#ffffff"
+                    fontSize="22"
+                    fontWeight="bold"
+                    fontFamily="system-ui, sans-serif"
+                    stroke="rgba(0,0,0,0.45)"
+                    strokeWidth="0.6"
+                    style={{ pointerEvents: 'none' }}
+                  >
+                    {hexTile.fixedCost}
+                  </text>
+                )}
                 {/* 헥스 위 물품 큐브 (St. Lucia 셋업) */}
                 {hexTile?.cube && (
                   <rect
@@ -1054,33 +1071,37 @@ export default function GameBoard() {
                 onClick={handleCityClick}
               />
 
-              {/* 도시 ID 원 */}
-              <circle
-                cx={x}
-                cy={y - 12}
-                r="18"
-                fill="rgba(255,255,255,0.15)"
-                stroke="rgba(255,255,255,0.5)"
-                strokeWidth="2"
-                style={{ pointerEvents: 'none' }}
-              />
-              <text
-                x={x}
-                y={y - 6}
-                textAnchor="middle"
-                fill="#ffffff"
-                fontSize="20"
-                fontWeight="bold"
-                fontFamily="system-ui, sans-serif"
-                style={{ pointerEvents: 'none' }}
-              >
-                {cityDiceNumber[city.id] ?? city.id}
-              </text>
+              {/* 물품성장 주사위 번호 (번호가 있는 도시만 — 터미널/Berlin 등 번호 없는 도시는 생략) */}
+              {cityDiceNumber[city.id] !== undefined && (
+                <>
+                  <circle
+                    cx={x}
+                    cy={y - 12}
+                    r="18"
+                    fill="rgba(255,255,255,0.15)"
+                    stroke="rgba(255,255,255,0.5)"
+                    strokeWidth="2"
+                    style={{ pointerEvents: 'none' }}
+                  />
+                  <text
+                    x={x}
+                    y={y - 6}
+                    textAnchor="middle"
+                    fill="#ffffff"
+                    fontSize="20"
+                    fontWeight="bold"
+                    fontFamily="system-ui, sans-serif"
+                    style={{ pointerEvents: 'none' }}
+                  >
+                    {cityDiceNumber[city.id]}
+                  </text>
+                </>
+              )}
 
-              {/* 도시 이름 */}
+              {/* 도시 이름 (번호 없으면 헥스 중앙 위쪽에) */}
               <text
                 x={x}
-                y={y + 18}
+                y={cityDiceNumber[city.id] !== undefined ? y + 18 : y - 2}
                 textAnchor="middle"
                 fill="#ffffff"
                 fontSize="12"

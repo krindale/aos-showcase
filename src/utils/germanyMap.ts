@@ -1,18 +1,16 @@
 // Germany 맵 데이터
-// Age of Steam Germany (John Bohrer, 2003 / James Mathias 아트 2018). 4인 전용(6턴).
+// Age of Steam Germany (John Bohrer, 2003 / James Mathias 아트 2018). 4인 전용(8턴).
 //
 // 공식 맵 시트(maps/germany-v2.pdf → public/maps/germany.png)를 고해상도 렌더 후
 // 색상 기반 자동 검출 + 테두리 자기상관 격자 피팅으로 추출했다.
 //   원본은 flat-top(평평한 윗변) 헥스 보드 — St.Lucia/Rust Belt와 동일하게 게임 좌표는
 //   전치(transpose)해 저장하고(인접 관계 동형이라 게임 로직 무변경), 렌더만 orientation:'flat'
-//   으로 다시 전치한다.
-//   화면 격자: flat-top odd-q, col간격 173.75px, row간격 200.2px (화면 13가로 × ~17세로)
-//   변환: 데이터(col,row) = (측정 화면세로 sr, 측정 화면가로 sc) — 즉 전치
-//   데이터 그리드 17열(0~16) × 13행(0~12).
+//   으로 다시 전치한다. 빈 상단 2칸은 col을 −2 평행이동해 제거(맵을 위로 당김).
+//   데이터 그리드 15열(0~14) × 13행(0~12).
 //
 // 특수 개념:
 //  - 외국 터미널 6 (isTerminal): 셋업때 무작위 큐브1로 수용색 결정, 통과 불가, 생산 안 함
-//  - 헥스 고정비용 (fixedCost €6~€12): 지형 기본비용 대신 사용 (이미지 숫자 판독)
+//  - 헥스 고정비용 (fixedCost €6~€12): 지형 기본비용 대신 사용 (이미지 숫자 판독, 화면에 숫자 표시)
 //  - 갈색 산악(mountain), 파란 강(river)
 //
 // 도시 13(터미널 제외), 외국터미널 6, 마을 14.
@@ -37,57 +35,57 @@ export const GERMANY_MAP = {
   players: { min: 4, max: 4 },
   supportedPlayers: [4],
   difficulty: 4,
-  cols: 17, // 유효 col: 0 ~ 16 (전치 — 화면 세로)
+  cols: 15, // 유효 col: 0 ~ 14 (전치 — 화면 세로)
   rows: 13, // 유효 row: 0 ~ 12 (전치 — 화면 가로)
   startCol: 0,
-  maxTurns: 6, // 4인 게임 6턴
+  maxTurns: 8, // 룰북 표준: 4인 게임 8턴 (3인10/4인8/5인7/6인6)
 };
 
 // === 도시 13 (전치 좌표 / 색) ===
 export const GERMANY_CITIES: City[] = [
-  { id: 'koenigsberg', name: 'Königsberg',      coord: { col: 4,  row: 12 }, color: 'yellow', cubes: [] },
-  { id: 'oldenburg',   name: 'Oldenburg/Bremen', coord: { col: 5,  row: 3 },  color: 'blue',   cubes: [] },
-  { id: 'hannover',    name: 'Hannover',         coord: { col: 6,  row: 5 },  color: 'red',    cubes: [] },
-  { id: 'berlin',      name: 'Berlin',           coord: { col: 6,  row: 9 },  color: 'black',  cubes: [] },
-  { id: 'essen',       name: 'Essen/Dortmund',   coord: { col: 8,  row: 3 },  color: 'blue',   cubes: [] },
-  { id: 'duesseldorf', name: 'Düsseldorf/Köln',  coord: { col: 9,  row: 2 },  color: 'red',    cubes: [] },
-  { id: 'dresden',     name: 'Dresden',          coord: { col: 10, row: 10 }, color: 'blue',   cubes: [] },
-  { id: 'breslau',     name: 'Breslau',          coord: { col: 10, row: 12 }, color: 'purple', cubes: [] },
-  { id: 'nuernberg',   name: 'Nürnberg',         coord: { col: 12, row: 7 },  color: 'red',    cubes: [] },
-  { id: 'stuttgart',   name: 'Stuttgart',        coord: { col: 13, row: 4 },  color: 'blue',   cubes: [] },
-  { id: 'muenchen',    name: 'München',          coord: { col: 14, row: 7 },  color: 'red',    cubes: [] },
-  { id: 'zuerich',     name: 'Zürich',           coord: { col: 16, row: 4 },  color: 'purple', cubes: [] },
-  { id: 'wien',        name: 'Wien',             coord: { col: 16, row: 12 }, color: 'yellow', cubes: [] },
+  { id: 'koenigsberg', name: 'Königsberg',      coord: { col: 2,  row: 12 }, color: 'yellow', cubes: [] },
+  { id: 'oldenburg',   name: 'Oldenburg/Bremen', coord: { col: 3,  row: 3 },  color: 'blue',   cubes: [] },
+  { id: 'hannover',    name: 'Hannover',         coord: { col: 4,  row: 5 },  color: 'red',    cubes: [] },
+  { id: 'berlin',      name: 'Berlin',           coord: { col: 4,  row: 9 },  color: 'black',  cubes: [] },
+  { id: 'essen',       name: 'Essen/Dortmund',   coord: { col: 6,  row: 3 },  color: 'blue',   cubes: [] },
+  { id: 'duesseldorf', name: 'Düsseldorf/Köln',  coord: { col: 7,  row: 2 },  color: 'red',    cubes: [] },
+  { id: 'dresden',     name: 'Dresden',          coord: { col: 8,  row: 10 }, color: 'blue',   cubes: [] },
+  { id: 'breslau',     name: 'Breslau',          coord: { col: 8,  row: 12 }, color: 'purple', cubes: [] },
+  { id: 'nuernberg',   name: 'Nürnberg',         coord: { col: 10, row: 7 },  color: 'red',    cubes: [] },
+  { id: 'stuttgart',   name: 'Stuttgart',        coord: { col: 11, row: 4 },  color: 'blue',   cubes: [] },
+  { id: 'muenchen',    name: 'München',          coord: { col: 12, row: 7 },  color: 'red',    cubes: [] },
+  { id: 'zuerich',     name: 'Zürich',           coord: { col: 14, row: 4 },  color: 'purple', cubes: [] },
+  { id: 'wien',        name: 'Wien',             coord: { col: 14, row: 12 }, color: 'yellow', cubes: [] },
 ];
 
 // === 외국 터미널 6 (isTerminal — 셋업때 수용색이 무작위로 정해진다; color는 placeholder) ===
 export const GERMANY_TERMINALS: City[] = [
-  { id: 'kopenhagen', name: 'Kopenhagen', coord: { col: 2,  row: 7 },  color: 'blue', cubes: [], isTerminal: true },
-  { id: 'rotterdam',  name: 'Rotterdam',  coord: { col: 7,  row: 0 },  color: 'blue', cubes: [], isTerminal: true },
-  { id: 'warschau',   name: 'Warschau',   coord: { col: 7,  row: 12 }, color: 'blue', cubes: [], isTerminal: true },
-  { id: 'antwerpen',  name: 'Antwerpen',  coord: { col: 10, row: 0 },  color: 'blue', cubes: [], isTerminal: true },
-  { id: 'paris',      name: 'Paris',      coord: { col: 13, row: 0 },  color: 'blue', cubes: [], isTerminal: true },
-  { id: 'lyon',       name: 'Lyon',       coord: { col: 16, row: 0 },  color: 'blue', cubes: [], isTerminal: true },
+  { id: 'kopenhagen', name: 'Kopenhagen', coord: { col: 0,  row: 7 },  color: 'blue', cubes: [], isTerminal: true },
+  { id: 'rotterdam',  name: 'Rotterdam',  coord: { col: 5,  row: 0 },  color: 'blue', cubes: [], isTerminal: true },
+  { id: 'warschau',   name: 'Warschau',   coord: { col: 5,  row: 12 }, color: 'blue', cubes: [], isTerminal: true },
+  { id: 'antwerpen',  name: 'Antwerpen',  coord: { col: 8,  row: 0 },  color: 'blue', cubes: [], isTerminal: true },
+  { id: 'paris',      name: 'Paris',      coord: { col: 11, row: 0 },  color: 'blue', cubes: [], isTerminal: true },
+  { id: 'lyon',       name: 'Lyon',       coord: { col: 14, row: 0 },  color: 'blue', cubes: [], isTerminal: true },
 ];
 
 export const GERMANY_ALL_CITIES: City[] = [...GERMANY_CITIES, ...GERMANY_TERMINALS];
 
 // === 마을 14 (전치 좌표) ===
 export const GERMANY_TOWNS: Town[] = [
-  { id: 'HAM', coord: { col: 4,  row: 5 },  newCityColor: null, cubes: [] }, // Hamburg
-  { id: 'ROS', coord: { col: 5,  row: 8 },  newCityColor: null, cubes: [] }, // Rostock
-  { id: 'STE', coord: { col: 5,  row: 11 }, newCityColor: null, cubes: [] }, // Stettin
-  { id: 'MAG', coord: { col: 7,  row: 7 },  newCityColor: null, cubes: [] }, // Magdeburg
-  { id: 'KAS', coord: { col: 8,  row: 5 },  newCityColor: null, cubes: [] }, // Kassel
-  { id: 'GOE', coord: { col: 8,  row: 11 }, newCityColor: null, cubes: [] }, // Görlitz
-  { id: 'LEI', coord: { col: 9,  row: 8 },  newCityColor: null, cubes: [] }, // Leipzig
-  { id: 'FRA', coord: { col: 11, row: 4 },  newCityColor: null, cubes: [] }, // Frankfurt
-  { id: 'WUR', coord: { col: 11, row: 6 },  newCityColor: null, cubes: [] }, // Würzburg
-  { id: 'PIL', coord: { col: 12, row: 10 }, newCityColor: null, cubes: [] }, // Pilsen
-  { id: 'PRA', coord: { col: 12, row: 12 }, newCityColor: null, cubes: [] }, // Prag
-  { id: 'SAA', coord: { col: 13, row: 2 },  newCityColor: null, cubes: [] }, // Saarbrücken
-  { id: 'PAS', coord: { col: 14, row: 10 }, newCityColor: null, cubes: [] }, // Passau
-  { id: 'FRE', coord: { col: 14, row: 3 },  newCityColor: null, cubes: [] }, // Freiburg
+  { id: 'HAM', coord: { col: 2,  row: 5 },  newCityColor: null, cubes: [] }, // Hamburg
+  { id: 'ROS', coord: { col: 3,  row: 8 },  newCityColor: null, cubes: [] }, // Rostock
+  { id: 'STE', coord: { col: 3,  row: 11 }, newCityColor: null, cubes: [] }, // Stettin
+  { id: 'MAG', coord: { col: 5,  row: 7 },  newCityColor: null, cubes: [] }, // Magdeburg
+  { id: 'KAS', coord: { col: 6,  row: 5 },  newCityColor: null, cubes: [] }, // Kassel
+  { id: 'GOE', coord: { col: 6,  row: 11 }, newCityColor: null, cubes: [] }, // Görlitz
+  { id: 'LEI', coord: { col: 7,  row: 8 },  newCityColor: null, cubes: [] }, // Leipzig
+  { id: 'FRA', coord: { col: 9,  row: 4 },  newCityColor: null, cubes: [] }, // Frankfurt
+  { id: 'WUR', coord: { col: 9,  row: 6 },  newCityColor: null, cubes: [] }, // Würzburg
+  { id: 'PIL', coord: { col: 10, row: 10 }, newCityColor: null, cubes: [] }, // Pilsen
+  { id: 'PRA', coord: { col: 10, row: 12 }, newCityColor: null, cubes: [] }, // Prag
+  { id: 'SAA', coord: { col: 11, row: 2 },  newCityColor: null, cubes: [] }, // Saarbrücken
+  { id: 'PAS', coord: { col: 12, row: 10 }, newCityColor: null, cubes: [] }, // Passau
+  { id: 'FRE', coord: { col: 12, row: 3 },  newCityColor: null, cubes: [] }, // Freiburg
 ];
 
 export const GERMANY_TOWN_NAMES: Record<string, string> = {
@@ -126,32 +124,28 @@ export const GERMANY_CUBE_COUNTS: Partial<Record<CubeColor, number>> = {
 
 // === 맵 밖(베이지 외곽) — lake로 생성 후 hideLakeHexes로 안 그려 독일 국경 윤곽 표현 (전치 좌표) ===
 const OFFMAP: [number, number][] = [
-  [0,0],[0,1],[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],[0,8],[0,9],[0,10],[0,11],[0,12],
-  [1,0],[1,1],[1,2],[1,3],[1,4],[1,5],[1,6],[1,7],[1,8],[1,9],[1,10],[1,11],[1,12],
-  [2,0],[2,1],[2,2],[2,3],[2,4],[2,6],[2,8],[2,9],[2,10],[2,11],[2,12],
-  [3,0],[3,1],[3,2],[3,3],[3,4],[3,7],[3,8],[3,9],[3,10],[3,11],[3,12],
-  [4,0],[4,1],[4,2],[4,3],[4,4],[4,6],[4,7],[4,8],[4,10],
-  [5,0],[5,2],[6,0],[6,12],[8,0],[8,12],[9,0],[11,0],[12,0],[14,0],[15,0],
-  [16,1],[16,3],[16,5],[16,7],[16,9],[16,11],
+  [0,0],[0,1],[0,2],[0,3],[0,4],[0,6],[0,8],[0,9],[0,10],[0,11],[0,12],
+  [1,0],[1,1],[1,2],[1,3],[1,4],[1,7],[1,8],[1,9],[1,10],[1,11],[1,12],
+  [2,0],[2,1],[2,2],[2,3],[2,4],[2,6],[2,7],[2,8],[2,10],
+  [3,0],[3,2],[4,0],[4,12],[6,0],[6,12],[7,0],[9,0],[10,0],[12,0],[13,0],
+  [14,1],[14,3],[14,5],[14,7],[14,9],[14,11],
 ];
 
 // === 산악(갈색) 헥스 (전치 좌표) ===
 const MOUNTAIN: [number, number][] = [
-  [10,5],[10,7],[11,8],[11,9],[11,10],[11,11],[12,9],[13,10],[13,11],
-  [14,2],[14,4],[14,5],[14,9],[14,11],[14,12],[15,2],[15,6],[15,7],[15,8],[15,9],[15,10],
-  [16,2],[16,6],[16,8],[16,10],
+  [8,5],[8,7],[9,8],[9,9],[9,10],[9,11],[10,9],[11,10],[11,11],[12,2],[12,4],[12,5],
+  [12,9],[12,11],[12,12],[13,2],[13,6],[13,7],[13,8],[13,9],[13,10],[14,2],[14,6],[14,8],[14,10],
 ];
 
 // === 강(파랑) 헥스 (전치 좌표) ===
 const RIVER: [number, number][] = [
-  [5,4],[5,5],[5,10],[7,5],[8,1],[8,2],[10,2],[10,3],[11,3],
+  [3,4],[3,5],[3,10],[5,5],[6,1],[6,2],[8,2],[8,3],[9,3],
 ];
 
 // === 헥스별 고정 건설비용 (€) — 이미지 숫자 판독 (전치 좌표) ===
 const FIXED_COST: Record<string, number> = {
-  '3,6':8,'4,11':12,'5,12':12,'6,1':6,'6,11':8,'7,1':6,'7,11':8,
-  '9,1':7,'9,11':9,'9,12':8,'10,1':7,'10,11':9,'11,12':9,'12,1':11,
-  '13,1':11,'15,1':10,'15,3':9,'15,4':9,'15,5':9,'15,11':10,'15,12':10,
+  '1,6':8,'2,11':12,'3,12':12,'4,1':6,'4,11':8,'5,1':6,'5,11':8,'7,1':7,'7,11':9,'7,12':8,
+  '8,1':7,'8,11':9,'9,12':9,'10,1':11,'11,1':11,'13,1':10,'13,3':9,'13,4':9,'13,5':9,'13,11':10,'13,12':10,
 };
 
 // === 헥스 타일 생성 ===

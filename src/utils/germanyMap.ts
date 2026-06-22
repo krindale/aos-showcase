@@ -95,19 +95,22 @@ export const GERMANY_TOWN_NAMES: Record<string, string> = {
 };
 
 // === 물품 디스플레이 열-도시 매핑 (터미널·Berlin 제외 → 일반 물품성장 안 받음) ===
+// diceNumber = 원본 맵 도시 헥스에 인쇄된 숫자 (그 도시가 물품을 받는 주사위 번호).
+//   1: München·Zürich  2: Nürnberg·Stuttgart  3: Essen·Düsseldorf
+//   4: Oldenburg·Wien  5: Hannover·Dresden    6: Königsberg·Breslau
 export const GERMANY_COLUMN_MAPPING: GoodsColumnMapping[] = [
-  { columnId: 'koenigsberg', cityId: 'koenigsberg', isNewCity: false, rowCount: 3, diceNumber: 1 },
   { columnId: 'muenchen',    cityId: 'muenchen',    isNewCity: false, rowCount: 3, diceNumber: 1 },
-  { columnId: 'oldenburg',   cityId: 'oldenburg',   isNewCity: false, rowCount: 3, diceNumber: 2 },
-  { columnId: 'zuerich',     cityId: 'zuerich',     isNewCity: false, rowCount: 3, diceNumber: 2 },
-  { columnId: 'hannover',    cityId: 'hannover',    isNewCity: false, rowCount: 3, diceNumber: 3 },
-  { columnId: 'wien',        cityId: 'wien',        isNewCity: false, rowCount: 3, diceNumber: 3 },
-  { columnId: 'essen',       cityId: 'essen',       isNewCity: false, rowCount: 3, diceNumber: 4 },
-  { columnId: 'dresden',     cityId: 'dresden',     isNewCity: false, rowCount: 3, diceNumber: 4 },
-  { columnId: 'duesseldorf', cityId: 'duesseldorf', isNewCity: false, rowCount: 3, diceNumber: 5 },
-  { columnId: 'breslau',     cityId: 'breslau',     isNewCity: false, rowCount: 3, diceNumber: 5 },
-  { columnId: 'nuernberg',   cityId: 'nuernberg',   isNewCity: false, rowCount: 3, diceNumber: 6 },
-  { columnId: 'stuttgart',   cityId: 'stuttgart',   isNewCity: false, rowCount: 3, diceNumber: 6 },
+  { columnId: 'zuerich',     cityId: 'zuerich',     isNewCity: false, rowCount: 3, diceNumber: 1 },
+  { columnId: 'nuernberg',   cityId: 'nuernberg',   isNewCity: false, rowCount: 3, diceNumber: 2 },
+  { columnId: 'stuttgart',   cityId: 'stuttgart',   isNewCity: false, rowCount: 3, diceNumber: 2 },
+  { columnId: 'essen',       cityId: 'essen',       isNewCity: false, rowCount: 3, diceNumber: 3 },
+  { columnId: 'duesseldorf', cityId: 'duesseldorf', isNewCity: false, rowCount: 3, diceNumber: 3 },
+  { columnId: 'oldenburg',   cityId: 'oldenburg',   isNewCity: false, rowCount: 3, diceNumber: 4 },
+  { columnId: 'wien',        cityId: 'wien',        isNewCity: false, rowCount: 3, diceNumber: 4 },
+  { columnId: 'hannover',    cityId: 'hannover',    isNewCity: false, rowCount: 3, diceNumber: 5 },
+  { columnId: 'dresden',     cityId: 'dresden',     isNewCity: false, rowCount: 3, diceNumber: 5 },
+  { columnId: 'koenigsberg', cityId: 'koenigsberg', isNewCity: false, rowCount: 3, diceNumber: 6 },
+  { columnId: 'breslau',     cityId: 'breslau',     isNewCity: false, rowCount: 3, diceNumber: 6 },
   { columnId: 'A' as GoodsColumnId, cityId: 'A', isNewCity: true, rowCount: 2, diceNumber: 1 },
   { columnId: 'B' as GoodsColumnId, cityId: 'B', isNewCity: true, rowCount: 2, diceNumber: 2 },
   { columnId: 'C' as GoodsColumnId, cityId: 'C', isNewCity: true, rowCount: 2, diceNumber: 3 },

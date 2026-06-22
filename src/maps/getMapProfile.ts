@@ -8,6 +8,7 @@ import { MapId } from './MapId';
 import { StandardMapProfile } from './profiles/StandardMapProfile';
 import { StLuciaMapProfile } from './profiles/StLuciaMapProfile';
 import { RustBeltMapProfile } from './profiles/RustBeltMapProfile';
+import { GermanyMapProfile } from './profiles/GermanyMapProfile';
 import { TUTORIAL_MAP, createInitialBoardState as createTutorialBoardState } from '@/utils/tutorialMap';
 
 // 튜토리얼 맵은 3턴 (mapRegistry의 TUTORIAL_MAX_TURNS와 동일해야 함)
@@ -22,6 +23,9 @@ function buildProfile(mapId: string): MapProfile {
 
     case MapId.RustBelt:
       return new RustBeltMapProfile();
+
+    case MapId.Germany:
+      return new GermanyMapProfile();
 
     case MapId.Tutorial:
       return new StandardMapProfile({

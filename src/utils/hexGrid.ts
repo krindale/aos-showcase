@@ -855,6 +855,10 @@ function findAllPaths(
       if (neighborCity && neighborCity.color === cubeColor && !hexCoordsEqual(neighbor, end)) {
         continue;
       }
+      // Germany: 외국 터미널은 통과 불가 — 목적지(end)가 아니면 그 경로 차단
+      if (neighborCity?.isTerminal && !hexCoordsEqual(neighbor, end)) {
+        continue;
+      }
 
       // 다음 노드의 entryEdge 계산
       const edgeFromCurrent = getConnectingEdge(current, neighbor);
@@ -979,9 +983,12 @@ export function findReachableDestinations(
       if (cityAt) {
         if (cityAt.color === cubeColor) {
           // 같은 색 도시 도착 → 배달 목적지. 여기서 멈춘다(더 진행하지 않음 = 첫 도시 규칙).
+          // (Germany 외국 터미널도 수용색이 같으면 여기서 배달 완료)
           if (!foundKeys.has(nbKey)) { foundKeys.add(nbKey); reachable.push(cityAt); }
           continue;
         }
+        // Germany: 외국 터미널은 통과할 수 없다 (종점만 가능) — 다른 색이면 막다른 길
+        if (cityAt.isTerminal) continue;
         // 다른 색 도시는 통과(멈추지 않음) — 아래에서 계속 탐색
       }
 
@@ -1599,6 +1606,8 @@ export function findTrackCubeDeliveries(
           }
           break;
         }
+        // Germany: 외국 터미널은 통과 불가 (수용색이 아니면 막다른 길)
+        if (city.isTerminal) break;
         // 다른 색 도시 → 통과 (도시는 모든 변이 연결됨, 한 번만 방문). 너머 같은 색 도시로 계속 탐색.
         // 탐색 상한을 이미 넘었으면 더 통과해봐야 의미 없음 → 중단 (로그 모드면 엔진+여유까지)
         if (linkCount >= exploreLimit) break;

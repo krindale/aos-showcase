@@ -84,6 +84,9 @@ export interface City {
   coord: HexCoord;
   color: CityColor;
   cubes: CubeColor[];      // 현재 배치된 물품
+  /** 외국 터미널(Germany): 통과 불가·물품 생산 안 함. 셋업때 무작위 큐브1로 수용색(color)이 정해진다.
+   *  터미널 위 큐브는 "물품"이 아니라 수용색 마커이며 배달 대상이 아니다. */
+  isTerminal?: boolean;
 }
 
 // 마을
@@ -103,6 +106,9 @@ export interface HexTile {
   terrain: TerrainType;
   /** 헥스 위 물품 큐브 (St. Lucia 셋업 — 건설 시 트랙 위로 이동) */
   cube?: CubeColor | null;
+  /** 헥스별 고정 건설 비용(Germany €6~€12). 지정되면 지형별 기본 비용을 무시하고 이 값을 쓴다.
+   *  Essen/Dortmund↔Düsseldorf/Köln 직결 링크($2)도 중간 헥스의 fixedCost=2로 표현한다. */
+  fixedCost?: number;
 }
 
 // === 플레이어 상태 ===
@@ -205,6 +211,8 @@ export interface PhaseState {
   // Urbanization으로 이번 턴 신규 도시를 배치했는지 (AI 중복 배치 방지)
   urbanizationUsed: boolean;
   locomotiveUsed: boolean;
+  /** Germany: Engineer 절반 비용 할인을 이번 턴에 이미 1회 사용했는지 (Engineer는 트랙 1개만 절반) */
+  engineerHalfUsed?: boolean;
 }
 
 // === AI 실행 동기화 ===

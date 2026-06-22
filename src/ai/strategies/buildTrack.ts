@@ -15,6 +15,7 @@ import { hexCoordsEqual, hexDistance, getNeighborHex, getOppositeEdge, playerEdg
 import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, incrementInvestedTracks } from '../strategy/state';
 import { getNextTargetRoute, findNextTargetRoute, getTopPriorityRoutes } from '../strategy/selector';
 import { getMapAIConfig } from '../strategy/mapConfig';
+import { getMapProfile } from '@/maps/getMapProfile';
 import {
   getConnectedCities,
   isRouteComplete,
@@ -133,6 +134,8 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     !getMapAIConfig(state).incomeSources.includes('trackCubes');
   const myConnectedCities = banScatter ? getConnectedCities(state, playerId) : [];
   const hasMyTracks = state.board.trackTiles.some(t => t.owner === playerId);
+  // Germany: 미완성 링크 금지 — 이번 턴 슬롯으로 완성 못 할 링크는 착공하지 않는다(다음 턴 이어붙이기 불가).
+  const requireCompleteLinks = getMapProfile(state.mapId).requireCompleteLinks;
   for (const route of candidateRoutes) {
     // 내 트랙만으로 이미 완성된 경로는 더 지을 필요 없음
     if (isRouteComplete(state, route, playerId)) continue;
@@ -140,6 +143,12 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     if (banScatter && hasMyTracks &&
         !myConnectedCities.includes(route.from) && !myConnectedCities.includes(route.to)) {
       continue;
+    }
+
+    // Germany 미완성 링크 금지: 첫 착공 시 이번 턴 잔여 슬롯으로 완성 가능한 경로만 시작한다.
+    if (requireCompleteLinks && state.phaseState.builtTracksThisTurn === 0) {
+      const missing = countMissingTrackHexes(state, route, playerId);
+      if (missing === null || missing > state.phaseState.maxTracksThisTurn) continue;
     }
 
     const decision = tryDirectPathBuild(state, playerId, route);
@@ -167,6 +176,29 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   // ===== 3. 모든 시도 실패 → 스킵 (미완성 트랙 = 0VP, 무리한 건설은 돈 낭비) =====
   debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 건설 가능한 경로 없음 → 스킵`);
   return { action: 'skip' };
+}
+
+/**
+ * Germany 미완성 링크 금지용: route(도시→도시) 완성에 아직 필요한 신규 트랙 타일 수.
+ * A* 경로상 헥스 중 도시/마을이 아니고 내 트랙이 아직 없는 칸 수. 경로가 없으면 null.
+ */
+function countMissingTrackHexes(state: GameState, route: DeliveryRoute, playerId: PlayerId): number | null {
+  const board = state.board;
+  const from = board.cities.find(c => c.id === route.from);
+  const to = board.cities.find(c => c.id === route.to);
+  if (!from || !to) return null;
+  const path = findOptimalPathAvoidingOpponent(from.coord, to.coord, board, playerId, undefined, false);
+  if (path.length < 3) return null;
+  let missing = 0;
+  for (let i = 1; i < path.length - 1; i++) {
+    const c = path[i];
+    if (board.cities.some(ci => hexCoordsEqual(ci.coord, c))) continue; // 도시 통과
+    if (board.towns.some(t => hexCoordsEqual(t.coord, c) && t.newCityColor === null)) continue; // 마을(가닥 별도)
+    const t = board.trackTiles.find(tt => hexCoordsEqual(tt.coord, c));
+    if (t && t.owner === playerId) continue; // 이미 내 트랙
+    missing++;
+  }
+  return missing;
 }
 
 /**

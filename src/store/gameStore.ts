@@ -273,6 +273,20 @@ export function createInitialGameState(
   // (순수 무작위면 한 도시에 같은 색 2개·특정 색 쏠림이 생겨 시각적으로 빈약함)
   const colorUsage = new Map<CubeColor, number>();
   const citiesWithCubes = boardState.cities.map((city) => {
+    // Germany 외국 터미널: 무작위 큐브 1개로 수용색(color)을 정하고 그 큐브를 마커로 올린다.
+    // (이 큐브는 "물품"이 아니라 수용색 표시 — 배달 대상이 아니며 물품 성장도 받지 않는다)
+    if (city.isTerminal) {
+      if (bag.length === 0) return { ...city, cubes: [] };
+      let tIdx = bag.length - 1;
+      let tUsed = Infinity;
+      for (let j = bag.length - 1; j >= 0; j--) {
+        const used = colorUsage.get(bag[j]) ?? 0;
+        if (used < tUsed) { tUsed = used; tIdx = j; }
+      }
+      const cube = bag.splice(tIdx, 1)[0];
+      colorUsage.set(cube, (colorUsage.get(cube) ?? 0) + 1);
+      return { ...city, color: cube, cubes: [cube] };
+    }
     if (setupRules.hexCubeSetup) return { ...city, cubes: [] };
     const cubes: CubeColor[] = [];
     // 도시별 초기 큐브 수 (Rust Belt: Pittsburgh/Wheeling 3, 나머지 2)
@@ -1776,6 +1790,13 @@ export const useGameStore = create<GameStore>()(
       (h) => hexCoordsEqual(h.coord, coord)
     )?.terrain || 'plain';
 
+    const player = state.players[currentPlayer];
+    if (!player) {
+      console.error(`[ERROR] buildTrack: 플레이어 없음 - currentPlayer: ${currentPlayer}`);
+      return false;
+    }
+    const mapProfile = getMapProfile(state.mapId);
+
     // 비용 계산
     let cost = 0;
     const existingTrack = state.board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
@@ -1784,19 +1805,25 @@ export const useGameStore = create<GameStore>()(
       // 리다이렉트 비용 적용
       cost = TRACK_REPLACE_COSTS.redirect;
     } else {
-      // 일반 건설 비용 계산
-      cost = GAME_CONSTANTS.PLAIN_TRACK_COST;
-      if (terrain === 'river') cost = GAME_CONSTANTS.RIVER_TRACK_COST;
-      if (terrain === 'mountain') cost = GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
+      // Germany: 헥스 고정비용(fixedCost)이 있으면 지형 기본비용 대신 사용
+      const fixedCost = state.board.hexTiles.find(h => hexCoordsEqual(h.coord, coord))?.fixedCost;
+      if (fixedCost !== undefined) {
+        cost = fixedCost;
+      } else {
+        cost = GAME_CONSTANTS.PLAIN_TRACK_COST;
+        if (terrain === 'river') cost = GAME_CONSTANTS.RIVER_TRACK_COST;
+        if (terrain === 'mountain') cost = GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
+      }
+    }
+    // Germany: Engineer 절반 비용 — 이번 턴 1회, 타일 비용에만 (마을 가닥 제외)
+    let engineerDiscountApplied = false;
+    if (mapProfile.engineerHalfCost && player.selectedAction === 'engineer' && !state.phaseState.engineerHalfUsed) {
+      cost = Math.ceil(cost / 2);
+      engineerDiscountApplied = true;
     }
     // 마을 안 가닥 비용 (가닥당 $1)
     cost += newSpurs.length * TOWN_SPUR_COST;
 
-    const player = state.players[currentPlayer];
-    if (!player) {
-      console.error(`[ERROR] buildTrack: 플레이어 없음 - currentPlayer: ${currentPlayer}`);
-      return false;
-    }
     if (player.cash < cost) {
       console.warn(`[WARN] buildTrack: 현금 부족 - 필요: $${cost}, 보유: $${player.cash}`);
       return false;
@@ -1868,6 +1895,7 @@ export const useGameStore = create<GameStore>()(
         ...state.phaseState,
         builtTracksThisTurn: newBuiltCount,
         lastBuiltCoords: [...state.phaseState.lastBuiltCoords, coord],
+        engineerHalfUsed: state.phaseState.engineerHalfUsed || engineerDiscountApplied,
       },
       logs: [
         ...state.logs,
@@ -2573,6 +2601,24 @@ export const useGameStore = create<GameStore>()(
         }
       }
 
+      // Germany: Berlin은 매 물품 성장마다 주머니에서 무작위 큐브 1개를 받는다
+      const bonusCityId = getMapProfile(state.mapId).bonusCityCubeId;
+      if (bonusCityId && newBag.length > 0) {
+        const idx = Math.floor(Math.random() * newBag.length);
+        const cube = newBag.splice(idx, 1)[0];
+        const bonusCity = newCities.find(c => c.id === bonusCityId);
+        if (bonusCity && cube) {
+          bonusCity.cubes.push(cube);
+          newLogs.push({
+            turn: state.currentTurn,
+            phase: state.currentPhase,
+            player: state.currentPlayer,
+            action: `${bonusCity.name} 보너스 물품 +1 (${cube})`,
+            timestamp: Date.now(),
+          });
+        }
+      }
+
       return {
         goodsDisplay: {
           slots: newSlots,
@@ -2735,6 +2781,7 @@ export const useGameStore = create<GameStore>()(
               ...state.phaseState,
               builtTracksThisTurn: 0,
               lastBuiltCoords: [],
+              engineerHalfUsed: false, // Germany: 빌더마다 Engineer 절반 할인 재설정
               // 첫 번째로 건설할 플레이어의 Engineer 효과 확인
               maxTracksThisTurn: state.players[firstBuilder].selectedAction === 'engineer'
                 ? GAME_CONSTANTS.ENGINEER_TRACK_LIMIT
@@ -2821,6 +2868,7 @@ export const useGameStore = create<GameStore>()(
             ...state.phaseState,
             builtTracksThisTurn: 0,
             lastBuiltCoords: [],
+            engineerHalfUsed: false, // Germany: 빌더마다 Engineer 절반 할인 재설정
             maxTracksThisTurn: state.players[nextBuilder].selectedAction === 'engineer'
               ? GAME_CONSTANTS.ENGINEER_TRACK_LIMIT
               : GAME_CONSTANTS.NORMAL_TRACK_LIMIT,

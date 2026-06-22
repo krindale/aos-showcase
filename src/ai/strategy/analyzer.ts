@@ -52,6 +52,7 @@ export function findOptimalPath(
     const hex = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
     if (!hex) return Infinity; // 맵 밖
     if (hex.terrain === 'lake') return Infinity; // 호수는 건설 불가
+    if (hex.fixedCost !== undefined) return hex.fixedCost; // Germany: 헥스 고정비용 우선
     if (hex.terrain === 'mountain') return GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
     if (hex.terrain === 'river') return GAME_CONSTANTS.RIVER_TRACK_COST;
     return GAME_CONSTANTS.PLAIN_TRACK_COST;
@@ -176,6 +177,7 @@ export function clearPathCache(): void {
 export function getTerrainBuildCost(coord: HexCoord, board: BoardState): number {
   const hexTile = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
   if (!hexTile) return GAME_CONSTANTS.PLAIN_TRACK_COST;
+  if (hexTile.fixedCost !== undefined) return hexTile.fixedCost; // Germany: 헥스 고정비용 우선
 
   switch (hexTile.terrain) {
     case 'river':
@@ -398,6 +400,8 @@ export function analyzeDeliveryOpportunities(
   const { board } = state;
 
   for (const city of board.cities) {
+    // Germany: 외국 터미널 위 큐브는 수용색 마커일 뿐 "물품"이 아니다 → 배달 출발점 제외
+    if (city.isTerminal) continue;
     // 각 도시의 각 큐브에 대해
     city.cubes.forEach((cubeColor, cubeIndex) => {
       // 해당 색상의 목적지 도시들 찾기
@@ -648,9 +652,10 @@ export function findOptimalPathAvoidingOpponent(
       return 100;
     }
 
-    // 도시는 통과 비용 0
-    if (board.cities.some(c => hexCoordsEqual(c.coord, coord))) {
-      return 0;
+    // 도시는 통과 비용 0 (단 Germany 외국 터미널은 통과 불가 → 무한대)
+    const cityHere = board.cities.find(c => hexCoordsEqual(c.coord, coord));
+    if (cityHere) {
+      return cityHere.isTerminal ? Infinity : 0;
     }
     // [trackCubes] 마을 우대 — 경로가 마을을 경유하면 stop(=링크 경계)이 늘어 화물이 더 많은
     // 링크를 지나 배달된다(4-5링크). 약간의 우회를 감수하고 마을을 거치도록 매우 낮은 비용 부여.
@@ -663,8 +668,9 @@ export function findOptimalPathAvoidingOpponent(
     if (hex.terrain === 'lake') return Infinity; // 호수는 건설 불가
 
     let baseCost = GAME_CONSTANTS.PLAIN_TRACK_COST;
-    if (hex.terrain === 'mountain') baseCost = GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
-    if (hex.terrain === 'river') baseCost = GAME_CONSTANTS.RIVER_TRACK_COST;
+    if (hex.fixedCost !== undefined) baseCost = hex.fixedCost; // Germany: 헥스 고정비용 우선
+    else if (hex.terrain === 'mountain') baseCost = GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
+    else if (hex.terrain === 'river') baseCost = GAME_CONSTANTS.RIVER_TRACK_COST;
 
     // [Refinement] 내 트랙이 있으면 매우 낮은 비용 (기존 경로 유지 강력 유도)
     // AI가 한 번 길을 닦기 시작하면, 그 길을 최단 경로로 인식하게 함

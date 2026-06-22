@@ -39,6 +39,16 @@ import {
   RUST_BELT_CUBE_COUNTS,
   createRustBeltBoardState,
 } from './rustBeltMap';
+import {
+  GERMANY_MAP,
+  GERMANY_ALL_CITIES,
+  GERMANY_TOWNS,
+  GERMANY_COLUMN_MAPPING,
+  GERMANY_COLORS,
+  GERMANY_TOWN_NAMES,
+  GERMANY_CUBE_COUNTS,
+  createGermanyBoardState,
+} from './germanyMap';
 
 /**
  * 맵별 특수 룰 플래그
@@ -194,6 +204,32 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     rules: { ...DEFAULT_MAP_RULES }, // 룰북 표준 규칙
     createBoardState: createRustBeltBoardState,
     goodsCubeCounts: RUST_BELT_CUBE_COUNTS, // 검정 도시 없음 → black 큐브 제외
+  },
+
+  germany: {
+    id: GERMANY_MAP.id,
+    name: GERMANY_MAP.name,
+    nameKo: GERMANY_MAP.nameKo,
+    description: GERMANY_MAP.description,
+    supportedPlayers: GERMANY_MAP.supportedPlayers,
+    cols: GERMANY_MAP.cols,
+    rows: GERMANY_MAP.rows,
+    startCol: GERMANY_MAP.startCol,
+    maxTurns: GERMANY_MAP.maxTurns,
+    cities: GERMANY_ALL_CITIES,
+    towns: GERMANY_TOWNS,
+    columnMapping: GERMANY_COLUMN_MAPPING,
+    townNames: GERMANY_TOWN_NAMES,
+    orientation: 'pointy',       // 윗변 뾰족 (전치 없이 그대로)
+    colors: {
+      terrain: GERMANY_COLORS.terrain,
+      background: GERMANY_COLORS.background,
+      border: GERMANY_COLORS.border,
+    },
+    // 특수 규칙(Engineer 절반/미완성 금지/Berlin 보너스)은 MapProfile getter로 주입 — 여기선 표준 플래그
+    rules: { ...DEFAULT_MAP_RULES },
+    createBoardState: createGermanyBoardState,
+    goodsCubeCounts: GERMANY_CUBE_COUNTS,
   },
 };
 

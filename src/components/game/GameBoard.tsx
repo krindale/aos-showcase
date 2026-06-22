@@ -566,22 +566,31 @@ export default function GameBoard() {
                     style={{ pointerEvents: 'none' }}
                   />
                 )}
-                {/* Germany 헥스 고정 건설비용 숫자 (그 칸에 트랙을 깔 때 드는 비용) */}
+                {/* Germany 헥스 고정 건설비용 — 박스 안에 숫자 (그 칸에 트랙을 깔 때 드는 비용) */}
                 {hexTile?.fixedCost !== undefined && !isHighlighted && (
-                  <text
-                    x={x}
-                    y={y + 7}
-                    textAnchor="middle"
-                    fill="#ffffff"
-                    fontSize="22"
-                    fontWeight="bold"
-                    fontFamily="system-ui, sans-serif"
-                    stroke="rgba(0,0,0,0.45)"
-                    strokeWidth="0.6"
-                    style={{ pointerEvents: 'none' }}
-                  >
-                    {hexTile.fixedCost}
-                  </text>
+                  <g style={{ pointerEvents: 'none' }}>
+                    <rect
+                      x={x - 15}
+                      y={y - 14}
+                      width="30"
+                      height="28"
+                      rx="5"
+                      fill="rgba(255,255,255,0.92)"
+                      stroke="rgba(0,0,0,0.55)"
+                      strokeWidth="2"
+                    />
+                    <text
+                      x={x}
+                      y={y + 6}
+                      textAnchor="middle"
+                      fill="#1a1a1a"
+                      fontSize="19"
+                      fontWeight="bold"
+                      fontFamily="system-ui, sans-serif"
+                    >
+                      {hexTile.fixedCost}
+                    </text>
+                  </g>
                 )}
                 {/* 헥스 위 물품 큐브 (St. Lucia 셋업) */}
                 {hexTile?.cube && (

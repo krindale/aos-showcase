@@ -49,7 +49,7 @@ const maps = [
     name: 'Korea',
     nameKo: '한국',
     region: '한반도',
-    players: '3-6',
+    players: '4',
     time: '120-180',
     difficulty: 4,
     theme: '동적 도시 색상',
@@ -65,7 +65,7 @@ const maps = [
       '평양/수원은 물품 보충 없음',
     ],
     specialRules: '물품은 같은 색 물품이 있는 도시로만 운반 가능. 산악 $3, 수원-서울/인천 $2',
-    playable: false,
+    playable: true,
   },
   {
     id: 3,

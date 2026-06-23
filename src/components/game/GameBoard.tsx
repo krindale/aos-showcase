@@ -19,6 +19,7 @@ import {
   getOppositeEdge,
   HEX_SIZE,
   HEX_WIDTH,
+  HEX_HEIGHT,
   findCompletedLinks,
   getMovementPathSVG,
   getAnimationPoints,
@@ -129,9 +130,12 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     () => calculateBoardDimensions(mapData.cols, mapData.rows, undefined, undefined, isFlat),
     [mapData, isFlat]
   );
-  // viewBox 폭 — 맵별 우측 여백 보정(trimRightHexes). 내부 좌표 계산엔 원래 boardWidth를 그대로 쓰고,
-  // 표시 viewBox만 줄여 우측 과대 여백을 없앤다 (콘텐츠는 더 왼쪽까지라 클립 없음).
-  const viewWidth = boardWidth - (mapData.trimRightHexes ?? 0) * HEX_WIDTH;
+  // viewBox 보정 — 맵별 빈 가장자리 트림. 내부 좌표 계산엔 원래 boardWidth를 그대로 쓰고,
+  // 표시 viewBox만 줄여 과대 여백을 없앤다 (콘텐츠는 클립되지 않는 범위에서).
+  // 한 행(좌우) 폭: flat 맵은 화면 가로가 row 방향(HEX_HEIGHT*0.75), pointy 맵은 HEX_WIDTH.
+  const rowPitch = isFlat ? HEX_HEIGHT * 0.75 : HEX_WIDTH;
+  const trimLeft = (mapData.trimLeftHexes ?? 0) * rowPitch; // 좌측 빈 열 가림 (Korea: row 0)
+  const viewWidth = boardWidth - (mapData.trimRightHexes ?? 0) * HEX_WIDTH - trimLeft;
 
   // 지형색 → 건설비용 범례 (hexCostMode: 'legend' 맵 — Western US). 지도에 헥스마다 숫자를
   // 찍지 않고 모서리에 한 번만 표시. 비용은 보드 hexTiles에서 직접 추출(맵 하드코딩 없음).
@@ -517,7 +521,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
       <svg
         width="100%"
         height={fitOverlay ? undefined : undefined}
-        viewBox={`0 0 ${viewWidth} ${boardHeight}`}
+        viewBox={`${trimLeft} 0 ${viewWidth} ${boardHeight}`}
         preserveAspectRatio="xMidYMid meet"
         className="block"
         onTouchStart={fitOverlay ? undefined : handleTouchStart}
@@ -1093,7 +1097,14 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           // "수용 화물색"(city.color)으로. 일반 도시: 도시 색으로 채움.
           const TERMINAL_GREEN = '#2c908c'; // 원본 germany.png 터미널 헥스에서 추출
           const goodsColor = CITY_COLORS[city.color];
-          const cityColor = city.isTerminal ? TERMINAL_GREEN : goodsColor;
+          // 한국(동적 색상): 도시는 고정색이 없으므로 회색 헥스로 그리고, 수요색은 하단 큐브로 표현.
+          // (빈 도시 = 수요 없음 = 회색, 신도시도 회색)
+          const DYNAMIC_CITY_GRAY = '#9aa0a8';
+          const cityColor = city.isTerminal
+            ? TERMINAL_GREEN
+            : board.dynamicCityColors
+            ? DYNAMIC_CITY_GRAY
+            : goodsColor;
           const isSourceSelected = ui.sourceHex && hexCoordsEqual(ui.sourceHex, city.coord);
           const isCityClickable = currentPhase === 'buildTrack';
           const isReachableDestination = ui.reachableDestinations.some(
@@ -1153,6 +1164,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                   ? String(dice)
                   : city.isTerminal
                   ? 'X'  // 외국 터미널: 원 안에 X (다른 도시는 주사위 번호)
+                  : board.dynamicCityColors
+                  ? 'X'  // 한국: 주사위 번호 없는 도시(평양·수원)는 긴 이름 대신 X
                   : city.id === bonusCityId ? null : city.id;
                 return (
                   <>

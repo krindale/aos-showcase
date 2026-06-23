@@ -57,6 +57,13 @@ export abstract class MapProfile {
   /** Germany: 매 턴 시작에 이 도시(id)에 주머니에서 무작위 큐브 1개 추가 (Berlin). null이면 없음. */
   get bonusCityCubeId(): string | null { return null; }
 
+  // ── 한국(Korea) 특수룰 (기본값 = 영향 없음) ──
+  /** 도시화 시 물품 디스플레이에서 신도시 위로 옮길 큐브 수 (Korea: 2). 0이면 신도시는 빈 회색. */
+  get urbanizeFromDisplayCount(): number { return 0; }
+  /** 물품 성장(IX) 단계에서 새 물품을 받지 않는 도시 id 목록 (Korea: 평양·수원).
+   *  columnMapping에서 빠진 도시는 어차피 성장하지 않지만, 의도를 코드로 명시하는 방어 가드. */
+  get noGrowthCityIds(): string[] { return []; }
+
   // ── Western US 특수룰 (기본값 = 영향 없음) ──
   /** 셋업: 마을별 초기 큐브 수 (Western US: 모든 마을 1). 미지정 마을은 0. */
   get townCubeCounts(): Record<string, number> { return {}; }

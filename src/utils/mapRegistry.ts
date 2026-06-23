@@ -59,6 +59,16 @@ import {
   WESTERN_US_CUBE_COUNTS,
   createWesternUsBoardState,
 } from './westernUsMap';
+import {
+  KOREA_MAP,
+  KOREA_CITIES,
+  KOREA_TOWNS,
+  KOREA_COLUMN_MAPPING,
+  KOREA_COLORS,
+  KOREA_TOWN_NAMES,
+  KOREA_CUBE_COUNTS,
+  createKoreaBoardState,
+} from './koreaMap';
 
 /**
  * 맵별 특수 룰 플래그
@@ -128,6 +138,8 @@ export interface GameMapData {
   hexCostMode?: 'perHex' | 'legend';
   /** viewBox 우측 여백을 헥스 N개 폭만큼 줄임 (calculateBoardDimensions가 우측을 약 1헥스 과대 산정 — 맵별 보정). */
   trimRightHexes?: number;
+  /** viewBox 좌측 빈 열을 헥스 N개 폭만큼 가림 (Korea: 좌측 row 0이 비어 있어 1). */
+  trimLeftHexes?: number;
   /** 게임 화면 보드 표시 배율 (1=기본=폭 100%). 세로로 긴 맵이 화면을 꽉 채워 과대해 보일 때
    *  컨테이너 폭을 줄여 보드를 축소한다 (예: St. Lucia 0.8 = 20% 축소). 미지정=1. */
   boardDisplayScale?: number;
@@ -281,6 +293,35 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     rules: { ...DEFAULT_MAP_RULES },
     createBoardState: createWesternUsBoardState,
     goodsCubeCounts: WESTERN_US_CUBE_COUNTS, // 검정 도시 없음 → black 큐브 제외
+  },
+
+  korea: {
+    id: KOREA_MAP.id,
+    name: KOREA_MAP.name,
+    nameKo: KOREA_MAP.nameKo,
+    description: KOREA_MAP.description,
+    supportedPlayers: KOREA_MAP.supportedPlayers,
+    cols: KOREA_MAP.cols,
+    rows: KOREA_MAP.rows,
+    startCol: KOREA_MAP.startCol,
+    maxTurns: KOREA_MAP.maxTurns,
+    cities: KOREA_CITIES,
+    towns: KOREA_TOWNS,
+    columnMapping: KOREA_COLUMN_MAPPING,
+    townNames: KOREA_TOWN_NAMES,
+    hideLakeHexes: true,         // 맵 밖(lake) 헥스는 안 그려 한반도 윤곽 표현
+    orientation: 'flat',         // flat-top 보드 — 전치 저장 + 렌더 전치 (Germany 등과 동일)
+    hexCostMode: 'legend',       // 산 단일 비용($3) → 헥스마다 숫자 대신 범례
+    trimLeftHexes: 1,            // 좌측 row 0이 빈 열이라 viewBox에서 가려 보드 확대
+    colors: {
+      terrain: KOREA_COLORS.terrain,
+      background: KOREA_COLORS.background,
+      border: KOREA_COLORS.border,
+    },
+    // 특수 규칙(동적 도시색/도시화 보충/no-growth)은 MapProfile getter + board 플래그로 주입 — 여기선 표준 플래그
+    rules: { ...DEFAULT_MAP_RULES },
+    createBoardState: createKoreaBoardState,
+    goodsCubeCounts: KOREA_CUBE_COUNTS,
   },
 };
 

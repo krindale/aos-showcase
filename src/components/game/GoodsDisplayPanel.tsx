@@ -160,7 +160,7 @@ export default function GoodsDisplayPanel() {
 
       {/* 물품 그리드 */}
       <div className="p-3 overflow-x-auto">
-        <div className="flex gap-1">
+        <div className="flex gap-1 justify-center min-w-min">
           {columns.map((m, columnIndex) => {
             const startIndex = startIndexOf(columnIndex);
             const slots = goodsDisplay.slots.slice(startIndex, startIndex + m.rowCount);

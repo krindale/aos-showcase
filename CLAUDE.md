@@ -145,6 +145,7 @@ src/
 │       ├── rustBeltSimulation.test.ts    # Rust Belt 5인 AI 동기식 전체게임 러너 + 베이스라인
 │       ├── germanySimulation.test.ts     # Germany 4인 AI 동기식 전체게임 러너(8턴) + 베이스라인
 │       ├── westernUsSimulation.test.ts   # Western US 6인 AI 동기식 전체게임 러너(6턴) + 베이스라인
+│       ├── koreaSimulation.test.ts       # Korea 4인 AI 동기식 전체게임 러너(8턴) + 베이스라인
 │       └── helpers/
 │           └── mockState.ts    # 테스트용 Mock 데이터 헬퍼
 │
@@ -157,7 +158,8 @@ src/
 │       ├── StLuciaMapProfile.ts    # St.Lucia override (헥스큐브 income/규칙/경로전략)
 │       ├── RustBeltMapProfile.ts   # Rust Belt override (Pittsburgh/Wheeling 큐브 3)
 │       ├── GermanyMapProfile.ts    # Germany override (Engineer 절반/미완성금지/Berlin보너스/큐브수)
-│       └── WesternUsMapProfile.ts  # Western US override (마을큐브/$20시작/시작도시제한/연속성/동서보너스/대륙횡단)
+│       ├── WesternUsMapProfile.ts  # Western US override (마을큐브/$20시작/시작도시제한/연속성/동서보너스/대륙횡단)
+│       └── KoreaMapProfile.ts     # Korea override (동적색은 board플래그/도시화 디스플레이보충/no-growth/큐브수)
 │
 ├── components/                 # UI 컴포넌트
 │   ├── Navigation.tsx          # 글래스모피즘 네비게이션 바
@@ -211,6 +213,7 @@ src/
     ├── rustBeltMap.ts          # Rust Belt 맵 데이터 정의 (5인 전용, flat-top 전치, 좌표 0-base)
     ├── germanyMap.ts           # Germany 맵 데이터 정의 (4인 전용, flat-top 전치, 터미널/고정비용/직결)
     ├── westernUsMap.ts         # Western US 맵 데이터 정의 (6인 전용, pointy-top 네이티브, 마을큐브/지형fixedCost/동서region)
+    ├── koreaMap.ts             # Korea 맵 데이터 정의 (4인 전용, flat-top 전치, 동적색 플래그/산fixedCost/수원 직결)
     ├── mapRegistry.ts          # 맵 룰 분리 레지스트리 (MapRuleConfig·columnMapping·boardDisplayScale 등)
     ├── debugConfig.ts          # 디버그 설정 (로그 카테고리 토글 + logAction 종합 액션 로깅)
     ├── pwaUtils.ts             # Service Worker 등록/관리 유틸리티
@@ -286,7 +289,7 @@ Next가 압축을 안 하므로 원본 대용량 PNG를 그대로 받으면 갤�
 
 7개 맵 갤러리:
 - **Rust Belt** (기본) - 미국 북동부
-- **Korea** - 한반도, 동적 도시 색상
+- **Korea** (플레이 가능) - 한반도, 동적 도시 색상, 4인 8턴 (도시 수요색=현재 큐브색·수원 직결 링크·신도시 회색)
 - **Western U.S.** (플레이 가능) - 대륙횡단 철도, 6인 6턴 (마을 큐브·동서 배달 보너스·대륙횡단 연결 보너스)
 - **Southern U.S.** - 면화 운송
 - **Germany** (플레이 가능) - 외국 터미널·헥스 고정비용·도시 직결, 4인 8턴
@@ -646,6 +649,33 @@ setAllDebug(true);                   // 모든 로그 on/off
 - **측정** (`westernUsSimulation.test.ts`, 12시드): VP ~10.2, income ~9.0, 건설 ~59/배달 ~36/도시화 6, 파산 ~1.7명/6, 6턴완주.
   tutorial/St.Lucia/Rust Belt/Germany VP 회귀 게이트 보존. 남은 작업: 파산률↓·AI 대륙횡단 적극 활용·도시 region 표식 UI.
 
+#### Korea 맵 구현 (2026-06-23, feature/korea-map)
+
+Age of Steam 확장맵 3 — 한국 (Martin Wallace 2004 / James Mathias 아트 2018). 공식 맵 시트
+(`maps/korea-v2.1.pdf` → `out/maps/korea.png`, 2381×3367)를 색상검출 + 테두리 자기상관 격자 피팅
+(피치 row 174 / col 200, 홀수 row 아래로 +100)으로 추출한 **4인 전용 8턴** 맵. 도시 14 + 마을 16.
+
+- **flat-top 보드**: Germany/Rust Belt/St.Lucia와 동일하게 **전치 저장**(데이터 col=화면세로 0~16,
+  row=화면가로 0~13) + `orientation:'flat'` 렌더. ⚠️ 가로/세로 피치 비 0.866 = flat 확정(pointy로 오판
+  말 것). 검증: SUWON{col5,row4}이 odd-r 규칙으로 INCHEON{col4,row3}=NW·SEOUL{col4,row5}=SW에 인접.
+- **★ 동적 도시 색상 (시그니처, 모든 맵에 영향 없는 헬퍼)**: 도시는 고정색이 없고 **수요색 = 현재 놓인
+  큐브색**. 빈 도시는 수요 없음(통과 가능), 같은 색 큐브 있는 도시는 통과 불가(거기서 배달 종료).
+  - `BoardState.dynamicCityColors` 플래그(`createKoreaBoardState`가 set) + `cityAcceptsCube(city, color,
+    board)` 헬퍼(hexGrid.ts) = `board.dynamicCityColors ? city.cubes.includes(color) : city.color===color`.
+    **비-한국 맵은 정확히 기존 `city.color===color` 동작** → 회귀 게이트 보존(핵심).
+  - 치환 지점: hexGrid 배달 경로탐색 4곳(blocker/목적지/stop) + analyzer 2곳(findDestinationCities/경로유효).
+    **`moveGoods`(gameStore)는 목적지 재검증 없음** — 경로탐색이 보증하므로 정산 코드 무변경.
+  - 렌더: GameBoard는 동적 맵 도시를 회색 헥스로 그리고 수요색은 하단 큐브로 표현(신도시도 회색).
+- **셋업**: 평양 4 / 부산·인천 3 / 나머지 2 (`cityCubeCounts`).
+- **수원 직결 링크**: 수원-서울 $2, 수원-인천 $2 (Germany `directLinks` 인프라 재사용 — 추가 엔진 코드 0).
+- **도시화 디스플레이 보충** (`urbanizeFromDisplayCount=2`): 신도시 칸(A~H)의 큐브 2개를 신도시에 놓고
+  빈 칸을 주머니에서 보충 (gameStore `placeNewCity`). 신도시 수요색이 이 큐브로 결정. 도시화 취소 시
+  복원 위해 `UndoSnapshot`에 `goodsDisplay` 추가.
+- **평양·수원 no-growth** (`noGrowthCityIds` + columnMapping 제외): 물품 성장 단계에서 새 물품 안 받음.
+- **측정** (`koreaSimulation.test.ts`, 8시드): VP 13.09, income 11.66, 건설 39.9/배달 38.6/도시화 7.9,
+  파산 1.13명/4, 8턴완주(8/8). tutorial/St.Lucia/Rust Belt/Germany/Western US VP 회귀 게이트 보존.
+  동적색 단위검증 `koreaDynamicColors.test.ts`(cityAcceptsCube + 직결 인접성). 남은 작업: 파산률↓·범례 위치 미세조정.
+
 #### 마을 가닥(스퍼) 모델 (2026-06-12 재설계, 모든 맵 공통)
 
 마을 = 헥스 안의 원. **마을 헥스에는 트랙 타일을 배치할 수 없다** (도시처럼).
@@ -734,6 +764,8 @@ npx vitest run src/ai/__tests__/fullGameSimulation.test.ts -t "executeAITurn" # 
 - `src/ai/__tests__/rustBeltSimulation.test.ts` - Rust Belt 5인 AI 동기식 전체게임 러너 + 베이스라인
 - `src/ai/__tests__/germanySimulation.test.ts` - Germany 4인 AI 동기식 전체게임 러너(8턴) + 베이스라인
 - `src/ai/__tests__/westernUsSimulation.test.ts` - Western US 6인 AI 동기식 전체게임 러너(6턴) + 베이스라인
+- `src/ai/__tests__/koreaSimulation.test.ts` - Korea 4인 AI 동기식 전체게임 러너(8턴) + 베이스라인
+- `src/utils/__tests__/koreaDynamicColors.test.ts` - 동적 도시 색상(cityAcceptsCube) + 한국 보드 무결성(직결 인접) 단위 테스트
 - `src/ai/strategy/__tests__/analyzer.test.ts` - A* 경로 탐색 테스트
 - `src/ai/strategy/__tests__/selector.test.ts` - 전략 선택 테스트
 - `src/ai/strategies/__tests__/buildTrack.test.ts` - 트랙 건설 전략 테스트
@@ -795,6 +827,7 @@ export default function ComponentName() {
 - [x] **Rust Belt 5인 플레이어블** — flat-top 데이터 추출, 다인 엔진/AI 밸런스(VP +4.13)
 - [x] **Germany 맵 4인 플레이어블** — 외국 터미널·헥스 고정비용·도시 직결·Engineer 절반·Berlin 보너스 (8턴)
 - [x] **Western U.S. 맵 6인 플레이어블** — pointy-top 추출, 마을 큐브·$20 시작·늪/산 비용·동서 배달 보너스·시작도시 제한·연속성·대륙횡단 보너스 (6턴)
+- [x] **Korea 맵 4인 플레이어블** — flat-top 추출, 동적 도시 색상·수원 직결 링크·도시화 디스플레이 보충·평양/수원 no-growth (8턴)
 - [ ] **Southern U.S. 맵** (다음 큰 작업) — 공식 맵 추출, 면화/항구 배달·남북전쟁(4턴 Atlanta 파괴)
 - [ ] Western/Germany/Rust Belt AI 추가 밸런싱 (파산률↓, AI 대륙횡단·직결 링크 활용)
 - [ ] Three.js로 3D 게임보드 구현

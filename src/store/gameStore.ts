@@ -51,6 +51,7 @@ import {
   findTrackCubeDeliveries,
   countPathLinks,
   getNeighborHex,
+  cityAcceptsCube,
   getOppositeEdge } from '@/utils/hexGrid';
 import {
   getNextPlayerId,
@@ -95,6 +96,7 @@ interface UndoSnapshot {
   players: GameState['players'];
   phaseState: GameState['phaseState'];
   newCityTiles: GameState['newCityTiles'];
+  goodsDisplay: GameState['goodsDisplay'];
   logs: GameState['logs'];
 }
 const undoSnapshots: UndoSnapshot[] = [];
@@ -109,6 +111,7 @@ function captureUndo(state: GameState, label: string) {
     players: structuredClone(state.players),
     phaseState: structuredClone(state.phaseState),
     newCityTiles: structuredClone(state.newCityTiles),
+    goodsDisplay: structuredClone(state.goodsDisplay), // 한국 도시화는 디스플레이를 변경하므로 복원 대상
     logs: state.logs, // 로그 배열은 불변 갱신이므로 참조 보관으로 충분
   });
   if (undoSnapshots.length > 30) undoSnapshots.shift();
@@ -2891,12 +2894,15 @@ export const useGameStore = create<GameStore>()(
 
       // noOwnColorCubes: 도시 자기 색 화물은 도시에 배치하지 않음 (튜토리얼)
       const skipOwnColor = getMapProfile(state.mapId).noOwnColorCubes;
+      // 한국: 평양·수원은 물품 성장 안 받음 (columnMapping에서 이미 제외되지만 방어 가드)
+      const noGrowthCityIds = new Set(getMapProfile(state.mapId).noGrowthCityIds);
 
       // 주사위 번호 → 그 번호를 공유하는 모든 도시 열에서 각각 count개씩 도시로 이동
       for (const [diceStr, count] of Object.entries(diceCounts)) {
         const cols = colsByDice[Number(diceStr)];
         if (!cols) continue;
         for (const col of cols) {
+          if (noGrowthCityIds.has(col.cityId)) continue; // 평양·수원 성장 제외
           const city = newCities.find(c => c.id === col.cityId);
           if (!city) continue;
 
@@ -3549,7 +3555,7 @@ export const useGameStore = create<GameStore>()(
     if (reachable.length === 0) {
       logAction('goodsMovement', 'cubeUndeliverable', {
         city: cityId, color: cubeColor, reason: 'noConnection',
-        sameColorCities: state.board.cities.filter(c => c.color === cubeColor).map(c => c.id),
+        sameColorCities: state.board.cities.filter(c => cityAcceptsCube(c, cubeColor, state.board)).map(c => c.id),
       }, 'error');
       get().addLog('이 화물은 배달할 수 있는 도시가 없습니다 (트랙으로 연결된 같은 색 도시 필요)');
     } else {
@@ -3615,6 +3621,7 @@ export const useGameStore = create<GameStore>()(
       players: snap.players,
       phaseState: snap.phaseState,
       newCityTiles: snap.newCityTiles,
+      goodsDisplay: snap.goodsDisplay,
       undoCount: undoSnapshots.length,
       logs: [
         ...snap.logs,
@@ -4160,6 +4167,33 @@ export const useGameStore = create<GameStore>()(
 
     captureUndo(state, `도시화 (${townCoord.col},${townCoord.row})`);
 
+    // 한국 룰: 도시화 시 디스플레이의 해당 신도시 칸에서 큐브 N개(=urbanizeFromDisplayCount)를
+    // 신도시 위로 옮기고, 빈 칸을 주머니에서 보충한다. 동적 색상이라 신도시 수요색이 이 큐브로 결정됨.
+    const urbanizeCount = getMapProfile(state.mapId).urbanizeFromDisplayCount;
+    const newCityCubes: CubeColor[] = [];
+    let updatedGoodsDisplay = state.goodsDisplay;
+    if (urbanizeCount > 0) {
+      const columnMapping = getMapData(state.mapId).columnMapping;
+      let startIndex = -1, rowCount = 0, slotIdx = 0;
+      for (const m of columnMapping) {
+        if (m.cityId === selectedTileId) { startIndex = slotIdx; rowCount = m.rowCount; break; }
+        slotIdx += m.rowCount;
+      }
+      if (startIndex >= 0) {
+        const slots = [...state.goodsDisplay.slots];
+        const bag = [...state.goodsDisplay.bag];
+        for (let i = 0; i < rowCount && newCityCubes.length < urbanizeCount; i++) {
+          const idx = startIndex + i;
+          const cube = slots[idx];
+          if (cube) {
+            newCityCubes.push(cube);
+            slots[idx] = bag.length > 0 ? bag.pop()! : null; // 빈 칸을 주머니에서 보충
+          }
+        }
+        updatedGoodsDisplay = { ...state.goodsDisplay, slots, bag };
+      }
+    }
+
     // 1. 마을을 신규 도시로 변환
     const updatedTowns = state.board.towns.map(t => {
       if (hexCoordsEqual(t.coord, townCoord)) {
@@ -4181,7 +4215,7 @@ export const useGameStore = create<GameStore>()(
       name: `New City ${selectedTileId}`,
       coord: townCoord,
       color: tile.color,
-      cubes: [],  // 처음에는 물품 없음
+      cubes: newCityCubes,  // 한국: 디스플레이에서 옮긴 큐브(수요색 결정). 그 외 맵: 빈 배열
       ...(newCityRegion ? { region: newCityRegion } : {}),
     };
 
@@ -4215,6 +4249,7 @@ export const useGameStore = create<GameStore>()(
         townSpurs: updatedTownSpurs,
       },
       newCityTiles: updatedNewCityTiles,
+      goodsDisplay: updatedGoodsDisplay, // 한국: 도시화로 옮긴 큐브만큼 디스플레이 보충 (그 외 맵 무변경)
       undoCount: undoSnapshots.length,
       ui: {
         ...state.ui,

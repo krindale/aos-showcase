@@ -2,7 +2,7 @@ import { GameState, PlayerId, HexCoord, CubeColor, BoardState, GAME_CONSTANTS } 
 import { debugLog } from '@/utils/debugConfig';
 import { DeliveryOpportunity, DeliveryRoute } from './types';
 import { getMapAIConfig } from './mapConfig';
-import { getNeighborHex, hexCoordsEqual, hexDistance, getConnectedNeighbors, hexToKey, getConnectingEdge, getOppositeEdge, playerEdgesAtTrack } from '@/utils/hexGrid';
+import { getNeighborHex, hexCoordsEqual, hexDistance, getConnectedNeighbors, hexToKey, getConnectingEdge, getOppositeEdge, playerEdgesAtTrack, cityAcceptsCube } from '@/utils/hexGrid';
 
 // 경로 캐시 (출발지-목적지 → 경로)
 const pathCache: Map<string, HexCoord[]> = new Map();
@@ -224,7 +224,7 @@ export function findDestinationCities(
   board: BoardState
 ): { cityId: string; coord: HexCoord }[] {
   return board.cities
-    .filter(city => city.color === cubeColor)
+    .filter(city => cityAcceptsCube(city, cubeColor, board))
     .map(city => ({ cityId: city.id, coord: city.coord }));
 }
 
@@ -476,8 +476,8 @@ export function hasMatchingCubes(
     return false;
   }
 
-  // 출발 도시에 목적지 색상의 큐브가 있는지 확인
-  const hasMatch = sourceCity.cubes.some(cube => cube === targetCity.color);
+  // 출발 도시에 목적지가 수용하는 색의 큐브가 있는지 확인 (한국: 목적지 수요색 = targetCity.cubes)
+  const hasMatch = sourceCity.cubes.some(cube => cityAcceptsCube(targetCity, cube, board));
 
   return hasMatch;
 }

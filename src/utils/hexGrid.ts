@@ -5,6 +5,18 @@ import { debugLog } from '@/utils/debugConfig';
 import { HexCoord, BoardState, PlayerId, CityColor, City, TrackTile } from '@/types/game';
 
 /**
+ * 도시가 특정 색 큐브를 "수용"하는가 (= 배달 목적지이자 통과 불가 지점).
+ * - 표준 맵: 도시는 고정색 → city.color === cubeColor.
+ * - 한국(board.dynamicCityColors): 도시 수요색 = 현재 놓인 큐브색 → city.cubes 에 cubeColor 포함.
+ *   빈 도시는 cubes=[] 이라 어떤 색도 수용 안 함(= 수요 없음, 통과 가능).
+ * 한국엔 터미널이 없고 표준 맵은 city.color 경로를 그대로 타므로, Germany 터미널(color=수용색)
+ * 배달 판정도 기존과 동일하게 유지된다. 터미널의 "통과 불가"는 호출부의 isTerminal 분기가 별도 처리.
+ */
+export function cityAcceptsCube(city: City, cubeColor: CityColor, board: BoardState): boolean {
+  return board.dynamicCityColors ? city.cubes.includes(cubeColor) : city.color === cubeColor;
+}
+
+/**
  * 한 트랙 타일에서 특정 플레이어가 통과 가능한(소유한) 엣지 목록.
  * 복합 트랙(crossing/coexist)에서 `secondaryOwner`로 가진 가닥도 "내 트랙"으로 인정한다.
  * (예: 상대 단순 트랙 위에 내가 크로싱을 깔면 그 타일의 owner는 상대지만 secondaryEdges는 내 것)
@@ -864,7 +876,7 @@ function findAllPaths(
       // 같은 색 도시는 물품이 거기서 멈추므로 통과할 수 없다.
       // 목적지(end)가 아닌데 cubeColor와 같은 색 도시를 만나면 그 경로는 차단한다
       // (가까운 같은 색 도시를 지나 더 먼 같은 색 도시로 가는 잘못된 가이드 방지).
-      if (neighborCity && neighborCity.color === cubeColor && !hexCoordsEqual(neighbor, end)) {
+      if (neighborCity && cityAcceptsCube(neighborCity, cubeColor, board) && !hexCoordsEqual(neighbor, end)) {
         continue;
       }
       // Germany: 외국 터미널은 통과 불가 — 목적지(end)가 아니면 그 경로 차단
@@ -930,8 +942,8 @@ export function findLongestPath(
   const targetCity = board.cities.find(c => hexCoordsEqual(c.coord, targetCityCoord));
   if (!targetCity) return null;
 
-  // 물품 색상과 도시 색상 일치 확인
-  if (targetCity.color !== cubeColor) return null;
+  // 물품 색상과 도시 수요색 일치 확인 (한국: city.cubes 기반 동적 색상)
+  if (!cityAcceptsCube(targetCity, cubeColor, board)) return null;
 
   // 출발지와 목적지가 같으면 안됨
   if (hexCoordsEqual(startCityCoord, targetCityCoord)) return null;
@@ -993,7 +1005,7 @@ export function findReachableDestinations(
       if (newLinkCount > engineLevel) continue;
 
       if (cityAt) {
-        if (cityAt.color === cubeColor) {
+        if (cityAcceptsCube(cityAt, cubeColor, board)) {
           // 같은 색 도시 도착 → 배달 목적지. 여기서 멈춘다(더 진행하지 않음 = 첫 도시 규칙).
           // (Germany 외국 터미널도 수용색이 같으면 여기서 배달 완료)
           if (!foundKeys.has(nbKey)) { foundKeys.add(nbKey); reachable.push(cityAt); }
@@ -1596,7 +1608,7 @@ export function findTrackCubeDeliveries(
       if (city) {
         // 같은 색 도시 → 배달 후보 + 종료 (룰: 같은 색 도시 도착 시 이동 멈춤).
         // 단 링크 수가 엔진 레벨 이하여야 배달 가능 (엔진 = 이동 가능 링크 수)
-        if (city.color === cubeColor) {
+        if (cityAcceptsCube(city, cubeColor, board)) {
           // 경로의 상대 철도 경유 수 — 적을수록 자기 철도 위주 (배달자 지정 시에만 의미)
           const oppLinks = playerId === null ? 0 : pathCoords.filter(pc => {
             const t = board.trackTiles.find(tt => hexCoordsEqual(tt.coord, pc));

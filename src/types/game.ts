@@ -143,6 +143,10 @@ export interface BoardState {
   /** 인접 도시 간 직접 링크(Germany: Essen/Dortmund↔Düsseldorf/Köln $2).
    *  보드에서 변을 공유하는 두 도시를 사이 헥스 없이 직접 잇는 특수 링크. owner가 있으면 건설된 완성 링크. */
   directLinks?: DirectLink[];
+  /** 한국(Korea): 도시에 고정색이 없고, 도시의 "수요색" = 현재 놓인 큐브들의 색.
+   *  true면 배달 목적지/통과 판정이 city.color 대신 city.cubes로 결정된다 (cityAcceptsCube 헬퍼 참조).
+   *  빈 도시는 수요 없음. 비-한국 맵은 미설정(falsy)이라 기존 city.color 동작 그대로. */
+  dynamicCityColors?: boolean;
 }
 
 /** 도시-도시 직접 링크 (사이 헥스 없이 인접한 두 도시를 잇는 특수 트랙) */

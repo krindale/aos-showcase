@@ -90,6 +90,9 @@ export async function registerServiceWorker(
 
     const registration = await navigator.serviceWorker.register(swPath, {
       scope: `${getBasePath()}/`,
+      // sw.js 자체를 HTTP 캐시에서 받지 않고 항상 네트워크로 확인 → 새 배포본 SW를 즉시 감지,
+      // activate 훅이 옛 캐시(옛 JS 청크)를 지워 청크 불일치(a[e] is not a function)를 방지
+      updateViaCache: 'none',
     });
 
     console.log('[PWA] Service worker registered:', registration);

@@ -1,7 +1,9 @@
 // Age of Steam PWA Service Worker
 // Handles offline caching and PWA functionality
 
-const CACHE_VERSION = 'aos-v2';
+// 빌드 시 scripts/version-sw.mjs 가 이 값을 빌드 ID로 치환한다(배포마다 유니크 → 옛 캐시 자동 무효화).
+// 아래 'aos-v3' 는 치환 실패/로컬용 기본값일 뿐 — 실제 배포본은 'aos-<buildId>' 가 된다.
+const CACHE_VERSION = 'aos-v3';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 const BASE_PATH = '/aos-showcase';

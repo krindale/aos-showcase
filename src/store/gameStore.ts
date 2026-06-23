@@ -4690,6 +4690,16 @@ export const useGameStore = create<GameStore>()(
       // (v3: 마을 허브 재설계 — 마을 헥스 안에 타일이 깔린 옛 보드 폐기)
       version: 3,
       migrate: () => ({}) as never,
+      // rehydrate(새로고침) 후 1회성/실행 상태는 항상 초기화한다.
+      // (저장본을 복원하면 닫지 않은 대륙횡단 모달·수입감소 배지가 다시 뜨거나,
+      //  AI 실행 플래그가 pending:true로 박제되는 문제를 방지)
+      merge: (persisted, current) => ({
+        ...current,
+        ...(persisted as Partial<GameStore>),
+        transcontinentalEvent: null,
+        incomeReductions: null,
+        aiExecution: { pending: false, executionId: 0 },
+      }),
     }
   )
 );

@@ -164,6 +164,8 @@ const maps = [
 export default function MapsPage() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  // 라이트박스 지도 전환 방향 (1=다음/오른쪽, -1=이전/왼쪽) — 슬라이드 애니메이션용
+  const [slideDir, setSlideDir] = useState(0);
   const heroRef = useRef<HTMLDivElement>(null);
   const isHeroInView = useInView(heroRef, { once: true });
 
@@ -174,6 +176,8 @@ export default function MapsPage() {
     if (!lightboxOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setLightboxOpen(false);
+      else if (e.key === 'ArrowRight') { setSlideDir(1); setCurrentIndex((prev) => (prev + 1) % maps.length); }
+      else if (e.key === 'ArrowLeft') { setSlideDir(-1); setCurrentIndex((prev) => (prev - 1 + maps.length) % maps.length); }
     };
     window.addEventListener('keydown', onKey);
     const prevOverflow = document.body.style.overflow;
@@ -185,10 +189,12 @@ export default function MapsPage() {
   }, [lightboxOpen]);
 
   const nextMap = () => {
+    setSlideDir(1);
     setCurrentIndex((prev) => (prev + 1) % maps.length);
   };
 
   const prevMap = () => {
+    setSlideDir(-1);
     setCurrentIndex((prev) => (prev - 1 + maps.length) % maps.length);
   };
 
@@ -512,29 +518,81 @@ export default function MapsPage() {
               <X className="w-6 h-6 text-foreground" />
             </button>
 
-            {/* 확대 이미지 (배경 클릭은 닫힘, 이미지 클릭은 유지) */}
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              transition={{ duration: 0.25 }}
-              onClick={(e) => e.stopPropagation()}
-              className="relative w-full max-w-6xl h-[85vh]"
+            {/* 좌우 지도 변경 버튼 */}
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); prevMap(); }}
+              aria-label="이전 지도"
+              className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 z-10 p-3 rounded-full bg-background/80 backdrop-blur-sm border border-glass-border hover:bg-accent hover:text-background transition-colors"
             >
-              <Image
+              <ChevronLeft className="w-6 h-6" />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); nextMap(); }}
+              aria-label="다음 지도"
+              className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 z-10 p-3 rounded-full bg-background/80 backdrop-blur-sm border border-glass-border hover:bg-accent hover:text-background transition-colors"
+            >
+              <ChevronRight className="w-6 h-6" />
+            </button>
+
+            {/* 확대 이미지 + 정보/플레이 (배경 클릭은 닫힘, 내부 클릭은 유지).
+                좌우 전환 시 방향에 따라 슬라이드 (AnimatePresence mode="wait"). */}
+            <AnimatePresence mode="wait" custom={slideDir} initial={false}>
+            <motion.div
+              key={currentMap.id}
+              custom={slideDir}
+              variants={{
+                enter: (d: number) => ({ x: d > 0 ? 80 : -80, opacity: 0 }),
+                center: { x: 0, opacity: 1 },
+                exit: (d: number) => ({ x: d > 0 ? -80 : 80, opacity: 0 }),
+              }}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ duration: 0.22, ease: 'easeInOut' }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-7xl h-[85vh] flex flex-col lg:flex-row items-center justify-center gap-4 lg:gap-6"
+            >
+              {/* 지도 이미지 — 자기 비율대로(높이 기준) 렌더해 메뉴가 바로 옆에 붙도록 */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
                 src={`${basePath}${currentMap.image}`}
                 alt={currentMap.name}
-                fill
-                sizes="100vw"
-                className="object-contain"
-                priority
+                className="max-h-[85vh] max-w-full lg:max-w-[calc(100%-20rem)] w-auto object-contain rounded-lg"
               />
-              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-lg bg-background/80 backdrop-blur-sm border border-glass-border">
-                <span className="text-foreground text-sm font-medium">
-                  {currentMap.name} · {currentMap.nameKo}
-                </span>
-              </div>
+
+              {/* 간략 정보 + 플레이 버튼 (지도 옆 패널, 아래 정렬) */}
+              <aside className="lg:w-72 flex-shrink-0 flex flex-col gap-4 px-4 py-4 rounded-xl bg-background/85 backdrop-blur-sm border border-glass-border lg:self-end">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-foreground font-bold text-lg">{currentMap.name}</span>
+                    {!currentMap.playable && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-foreground/10 text-foreground-secondary">준비 중</span>
+                    )}
+                  </div>
+                  <span className="text-foreground-secondary text-sm">{currentMap.nameKo}</span>
+                </div>
+
+                <div className="flex flex-col gap-2 text-sm text-foreground-secondary">
+                  <span className="flex items-center gap-2"><MapPin className="w-4 h-4 text-accent" />{currentMap.region}</span>
+                  <span className="flex items-center gap-2"><Users className="w-4 h-4 text-accent" />{currentMap.players}인</span>
+                  <span className="flex items-center gap-2"><Clock className="w-4 h-4 text-accent" />{currentMap.time}분</span>
+                  <span className="flex items-center gap-2"><Info className="w-4 h-4 text-accent" />{currentMap.theme}</span>
+                </div>
+
+                {currentMap.playable && (
+                  <Link
+                    href={`/game/${currentMap.slug}/`}
+                    className="btn-primary flex items-center justify-center gap-2 text-sm py-2.5 px-5 mt-auto"
+                  >
+                    <Play className="w-4 h-4" />
+                    지금 플레이하기
+                  </Link>
+                )}
+              </aside>
             </motion.div>
+            </AnimatePresence>
           </motion.div>
         )}
       </AnimatePresence>

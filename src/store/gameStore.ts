@@ -512,6 +512,11 @@ export function createInitialGameState(
     // 결과
     winner: null,
     finalScores: null,
+
+    // 1회성/임시 상태 — 새 게임마다 반드시 초기화 (persist 병합 시 이전 게임 값 잔존 방지)
+    transcontinentalAwarded: false,
+    transcontinentalEvent: null,
+    incomeReductions: null,
   };
 }
 

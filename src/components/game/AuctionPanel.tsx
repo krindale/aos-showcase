@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 import { useShallow } from 'zustand/react/shallow';
 import { PLAYER_COLORS } from '@/types/game';
-import { DollarSign, User, Crown, XCircle, Check } from 'lucide-react';
+import { DollarSign, User, Crown, XCircle, Check, Bot } from 'lucide-react';
 
 export default function AuctionPanel() {
   const { auction, players, playerOrder, currentPlayer } = useGameStore(
@@ -38,6 +38,8 @@ export default function AuctionPanel() {
   const currentBidder = currentPlayer;
   const currentBidderData = players[currentBidder];
   const playerColor = PLAYER_COLORS[currentBidderData.color];
+  // AI 차례엔 사람이 임의로 입찰/포기하지 못하게 컨트롤을 막는다 (AI가 자동 입찰).
+  const isAITurn = currentBidderData?.isAI ?? false;
 
   // 경매 종료 조건 확인
   const isAuctionComplete = () => {
@@ -246,67 +248,77 @@ export default function AuctionPanel() {
                 </p>
               </div>
 
-              {/* 입찰 금액 선택 */}
-              <div>
-                <label className="text-xs text-foreground-secondary block mb-2">
-                  입찰 금액 선택 (최소 ${minBid})
-                </label>
-                <div className="flex gap-2 flex-wrap">
-                  {bidButtons.map((amount) => (
-                    <button
-                      key={amount}
-                      onClick={() => setBidAmount(amount)}
-                      disabled={amount > maxBid}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                        bidAmount === amount
-                          ? 'bg-accent text-background'
-                          : 'bg-background/50 text-foreground hover:bg-background/70'
-                      } disabled:opacity-30 disabled:cursor-not-allowed`}
-                    >
-                      ${amount}
-                    </button>
-                  ))}
-                  {maxBid > minBid + 4 && (
-                    <span className="text-xs text-foreground-secondary self-center">
-                      ...${maxBid}
-                    </span>
-                  )}
+              {isAITurn ? (
+                /* AI 차례: 사람 컨트롤 숨김, AI 입찰 중 표시 */
+                <div className="p-3 rounded-lg bg-background/30 text-center text-sm text-foreground-secondary flex items-center justify-center gap-2">
+                  <Bot size={16} className="text-blue-400" />
+                  {currentBidderData.name} 입찰 중…
                 </div>
-              </div>
+              ) : (
+                <>
+                  {/* 입찰 금액 선택 */}
+                  <div>
+                    <label className="text-xs text-foreground-secondary block mb-2">
+                      입찰 금액 선택 (최소 ${minBid})
+                    </label>
+                    <div className="flex gap-2 flex-wrap">
+                      {bidButtons.map((amount) => (
+                        <button
+                          key={amount}
+                          onClick={() => setBidAmount(amount)}
+                          disabled={amount > maxBid}
+                          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                            bidAmount === amount
+                              ? 'bg-accent text-background'
+                              : 'bg-background/50 text-foreground hover:bg-background/70'
+                          } disabled:opacity-30 disabled:cursor-not-allowed`}
+                        >
+                          ${amount}
+                        </button>
+                      ))}
+                      {maxBid > minBid + 4 && (
+                        <span className="text-xs text-foreground-secondary self-center">
+                          ...${maxBid}
+                        </span>
+                      )}
+                    </div>
+                  </div>
 
-              {/* 입찰 버튼 */}
-              <button
-                onClick={handleBid}
-                disabled={bidAmount > maxBid || bidAmount < minBid}
-                className="w-full py-3 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-500 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <DollarSign size={18} />
-                ${bidAmount} 입찰
-              </button>
-
-              {/* 패스 버튼들 */}
-              <div className="flex gap-2">
-                {canUseTurnOrderPass() && (
+                  {/* 입찰 버튼 */}
                   <button
-                    onClick={handleTurnOrderPass}
-                    className="flex-1 py-2 rounded-lg text-sm font-medium bg-purple-600/20 text-purple-400 hover:bg-purple-600/30 transition-colors border border-purple-600/30"
+                    onClick={handleBid}
+                    disabled={bidAmount > maxBid || bidAmount < minBid}
+                    className="w-full py-3 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-500 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Turn Order 패스
+                    <DollarSign size={18} />
+                    ${bidAmount} 입찰
                   </button>
-                )}
-                <button
-                  onClick={handlePass}
-                  className={`${canUseTurnOrderPass() ? 'flex-1' : 'w-full'} py-2 rounded-lg text-sm font-medium bg-red-600/20 text-red-400 hover:bg-red-600/30 transition-colors border border-red-600/30`}
-                >
-                  포기 (마지막 순서)
-                </button>
-              </div>
 
-              {/* 비용 안내 */}
-              <div className="p-2 rounded bg-background/30 text-xs text-foreground-secondary">
-                <p>* 첫 번째 포기: 마지막 순서, 비용 없음</p>
-                <p>* 마지막 두 명: 입찰액 전액 / 그 외 포기: 절반(올림)</p>
-              </div>
+                  {/* 패스 버튼들 */}
+                  <div className="flex gap-2">
+                    {canUseTurnOrderPass() && (
+                      <button
+                        onClick={handleTurnOrderPass}
+                        className="flex-1 py-2 rounded-lg text-sm font-medium bg-purple-600/20 text-purple-400 hover:bg-purple-600/30 transition-colors border border-purple-600/30"
+                      >
+                        Turn Order 패스
+                      </button>
+                    )}
+                    <button
+                      onClick={handlePass}
+                      className={`${canUseTurnOrderPass() ? 'flex-1' : 'w-full'} py-2 rounded-lg text-sm font-medium bg-red-600/20 text-red-400 hover:bg-red-600/30 transition-colors border border-red-600/30`}
+                    >
+                      포기 (마지막 순서)
+                    </button>
+                  </div>
+
+                  {/* 비용 안내 */}
+                  <div className="p-2 rounded bg-background/30 text-xs text-foreground-secondary">
+                    <p>* 첫 번째 포기: 마지막 순서, 비용 없음</p>
+                    <p>* 마지막 두 명: 입찰액 전액 / 그 외 포기: 절반(올림)</p>
+                  </div>
+                </>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

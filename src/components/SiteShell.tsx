@@ -11,7 +11,8 @@ import Footer from './Footer';
  */
 export default function SiteShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isGameRoute = pathname?.startsWith('/game');
+  // 게임 화면(/game/<mapId>)에서만 전역 크롬 숨김. '/gameplay'(가이드)는 제외.
+  const isGameRoute = pathname === '/game' || pathname?.startsWith('/game/');
 
   return (
     <>

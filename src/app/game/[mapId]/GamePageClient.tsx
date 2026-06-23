@@ -595,12 +595,14 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       {/* 메인 콘텐츠 */}
       <main className={`${isLandscape ? 'pt-12 pb-2 px-2 h-[calc(100vh-3.5rem)] overflow-y-auto' : 'pt-20 pb-8 px-4 md:pb-8 pb-[30vh]'}`}>
         <div className={`mx-auto ${isLandscape ? '' : 'max-w-[1800px]'}`}>
-          <div className={`grid grid-cols-1 md:grid-cols-12 ${isLandscape ? 'gap-2' : 'gap-6'}`}>
+          {/* lg(데스크톱): 패널 320px 고정 + 지도 가변(나머지 전부) — 넓은 화면일수록 지도 최대.
+              md(태블릿): 12-그리드 유지(패널 토글). */}
+          <div className={`grid grid-cols-1 md:grid-cols-12 lg:grid-cols-[minmax(0,1fr)_340px] ${isLandscape ? 'gap-2' : 'gap-6'}`}>
             {/* 왼쪽: 게임 보드 + 물품 디스플레이 */}
             <div className={`
               col-span-1
               ${isPanelCollapsed ? 'md:col-span-12' : 'md:col-span-8'}
-              lg:col-span-9
+              lg:col-span-1
               ${isLandscape ? 'space-y-2' : 'space-y-4'}
             `}>
               <GameBoard />
@@ -616,7 +618,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: 20 }}
                   transition={{ duration: 0.3 }}
-                  className="hidden md:block md:col-span-4 lg:col-span-3 space-y-4 md:sticky md:top-20 md:self-start md:max-h-[calc(100vh-6rem)] md:overflow-y-auto md:pr-1"
+                  className="hidden md:block md:col-span-4 lg:col-span-1 space-y-4 md:sticky md:top-20 md:self-start md:max-h-[calc(100vh-6rem)] md:overflow-y-auto md:pr-1"
                 >
                   {renderPanelContent()}
                 </motion.div>

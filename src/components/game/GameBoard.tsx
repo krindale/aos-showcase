@@ -472,11 +472,15 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
       transition={{ duration: 0.3, ease: 'easeOut' }}
       className={fitOverlay
         ? 'w-full'
-        : 'rounded-xl overflow-hidden border border-foreground/10'}
+        : 'rounded-xl overflow-hidden border border-foreground/10 mx-auto'}
       style={{
         backgroundColor: mapData.colors.background,
         contain: 'layout style paint', // Performance optimization
         transform: 'translateZ(0)', // GPU acceleration
+        // 세로로 긴 맵(St. Lucia 등)은 표시 배율로 보드를 축소 (폭 제한 + 중앙 정렬)
+        ...(!fitOverlay && mapData.boardDisplayScale && mapData.boardDisplayScale !== 1
+          ? { maxWidth: `${mapData.boardDisplayScale * 100}%` }
+          : {}),
       }}
     >
       {/* 보드 헤더 (오버레이 모드에선 숨김) */}

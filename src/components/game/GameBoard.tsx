@@ -126,6 +126,10 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   const bonusCityId = useMemo(() => getMapProfile(mapId).bonusCityCubeId, [mapId]);
   const mapProfile = useMemo(() => getMapProfile(mapId), [mapId]);
   const terrainColors = mapData.colors.terrain;
+  // 산악 헥스: 바깥 밝은 갈색 테두리 + 안쪽 진한 갈색 (모든 맵 공통, 등고선 없음)
+  const MTN_RING_COLOR = '#a97736'; // 바깥 테두리: 밝은 갈색
+  const MTN_BASE_COLOR = '#7a5622'; // 안쪽 내부: 진한 갈색
+  const MTN_RING_INSET = 12;        // 테두리 두께(px, HEX_SIZE 기준)
   // 도시 헥스에 표시할 물품 성장 주사위 번호 (cityId → diceNumber).
   // Rust Belt처럼 도시가 많은 맵에서 어느 도시가 어느 주사위 번호로 보충되는지 보여준다.
   const cityDiceNumber = useMemo(() => {
@@ -719,6 +723,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                       ? 'rgba(212, 168, 83, 0.3)' // 건설 가능 헥스 하이라이트
                       : terrain === 'river'
                       ? terrainColors.plain // 강 헥스: 평지색 + 아래 강줄기 곡선 오버레이
+                      : terrain === 'mountain'
+                      ? MTN_RING_COLOR // 산악: 바깥 테두리색(안쪽은 inset 폴리곤이 내부색)
                       : terrainColors[terrain] ?? terrainColors.plain
                   }
                   stroke={
@@ -741,6 +747,14 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                   onClick={() => isClickable && handleHexClick(coord)}
                   onMouseEnter={() => handleHexHover(coord)}
                 />
+                {/* 산악: 안쪽 내부색 폴리곤 → 바깥 테두리색이 띠로 남음. 클릭은 메인 폴리곤이 처리 */}
+                {terrain === 'mountain' && !isHighlighted && (
+                  <polygon
+                    points={getHexPoints(x, y, HEX_SIZE - MTN_RING_INSET, isFlat)}
+                    fill={MTN_BASE_COLOR}
+                    style={{ pointerEvents: 'none' }}
+                  />
+                )}
                 {/* 강 헥스: 인접 강 헥스와 변에서 이어지는 연속 강줄기 (철도 타일처럼 흐름) */}
                 {terrain === 'river' && !isHighlighted && (
                   <path

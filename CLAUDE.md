@@ -672,9 +672,13 @@ Age of Steam 확장맵 3 — 한국 (Martin Wallace 2004 / James Mathias 아트 
   빈 칸을 주머니에서 보충 (gameStore `placeNewCity`). 신도시 수요색이 이 큐브로 결정. 도시화 취소 시
   복원 위해 `UndoSnapshot`에 `goodsDisplay` 추가.
 - **평양·수원 no-growth** (`noGrowthCityIds` + columnMapping 제외): 물품 성장 단계에서 새 물품 안 받음.
-- **측정** (`koreaSimulation.test.ts`, 8시드): VP 13.09, income 11.66, 건설 39.9/배달 38.6/도시화 7.9,
-  파산 1.13명/4, 8턴완주(8/8). tutorial/St.Lucia/Rust Belt/Germany/Western US VP 회귀 게이트 보존.
-  동적색 단위검증 `koreaDynamicColors.test.ts`(cityAcceptsCube + 직결 인접성). 남은 작업: 파산률↓·범례 위치 미세조정.
+- **측정** (`koreaSimulation.test.ts`, 8시드): VP 23.38, income ~12, 건설 44/배달 41/도시화 8,
+  파산 0.88명/4, 8턴완주(8/8). tutorial/St.Lucia/Rust Belt/Germany/Western US VP 회귀 게이트 보존.
+  동적색 단위검증 `koreaDynamicColors.test.ts`(cityAcceptsCube + 직결 인접성).
+- **동적색 함정(코드리뷰 발견)**: 배달 실행(hexGrid/analyzer)뿐 아니라 **AI 경로 평가**(vp.ts
+  estimateRouteVP, buildTrack.ts resolveTurnRoute)도 도시 수요색을 봐야 한다. 처음엔 이 둘이
+  `targetCity.color`(고정 placeholder)로 비교해 한국 경로를 오판(VP 13.75) → `cityAcceptsCube`로
+  통일 후 VP 23.38. 새 동적색 맵 추가 시 "도시색 매칭" 전 지점을 cityAcceptsCube로. 남은 작업: 범례 위치 미세조정.
 
 #### 마을 가닥(스퍼) 모델 (2026-06-12 재설계, 모든 맵 공통)
 

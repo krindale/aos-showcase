@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { motion, AnimatePresence, useInView } from 'framer-motion';
 import {
   ChevronLeft,
@@ -32,7 +33,7 @@ const maps = [
     icon: Factory,
     color: 'steam-red',
     bgColor: 'from-steam-red/30 via-background-secondary to-background',
-    image: '/maps/rust-belt.png',
+    image: '/maps/rust-belt.webp',
     description: '미국 북동부 산업 지대를 배경으로 한 Age of Steam 기본 맵입니다. 오대호와 산악, 두 강을 낀 5인 대결 맵.',
     features: [
       '12개 도시 · 14개 마을',
@@ -55,7 +56,7 @@ const maps = [
     icon: MapPin,
     color: 'steam-blue',
     bgColor: 'from-steam-blue/30 via-background-secondary to-background',
-    image: '/maps/korea.png',
+    image: '/maps/korea.webp',
     description: '도시의 색상이 고정되지 않고, 현재 놓인 물품 큐브에 따라 동적으로 결정되는 독특한 맵입니다. 평양에서 부산까지 한반도 전역을 연결하세요.',
     features: [
       '도시 색상 = 현재 물품 색상',
@@ -79,7 +80,7 @@ const maps = [
     icon: Mountain,
     color: 'steam-yellow',
     bgColor: 'from-steam-yellow/30 via-background-secondary to-background',
-    image: '/maps/western-us.png',
+    image: '/maps/western-us.webp',
     description: '태평양에서 미시시피까지 횡단하는 6인 철도 건설. 험준한 산맥·늪과 동서 연결 보너스가 특징입니다.',
     features: [
       '서부·동부 시작 도시에서만 건설',
@@ -102,7 +103,7 @@ const maps = [
     icon: Factory,
     color: 'steam-green',
     bgColor: 'from-steam-green/30 via-background-secondary to-background',
-    image: '/maps/germany.png',
+    image: '/maps/germany.webp',
     description: '산업 혁명기의 독일. 외국 터미널, 헥스별 고정 건설비용, 알프스 산악을 낀 4인 대결 맵입니다.',
     features: [
       '도시 13 · 마을 14 · 외국 터미널 6',
@@ -125,7 +126,7 @@ const maps = [
     icon: Palmtree,
     color: 'steam-purple',
     bgColor: 'from-steam-purple/30 via-background-secondary to-background',
-    image: '/maps/barbados.png',
+    image: '/maps/barbados.webp',
     description: '1인 전용 솔로 맵. 작은 섬에서 최적의 철도 네트워크를 구축하는 퍼즐입니다.',
     features: [
       '솔로 플레이 전용',
@@ -148,7 +149,7 @@ const maps = [
     icon: Palmtree,
     color: 'accent',
     bgColor: 'from-accent/30 via-background-secondary to-background',
-    image: '/maps/st-lucia.png',
+    image: '/maps/st-lucia.webp',
     description: '2인 전용 대결 맵. 작은 공간에서 벌어지는 치열한 1:1 경쟁입니다.',
     features: [
       '2인 플레이 전용',
@@ -163,6 +164,8 @@ const maps = [
 export default function MapsPage() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  // 라이트박스 지도 전환 방향 (1=다음/오른쪽, -1=이전/왼쪽) — 슬라이드 애니메이션용
+  const [slideDir, setSlideDir] = useState(0);
   const heroRef = useRef<HTMLDivElement>(null);
   const isHeroInView = useInView(heroRef, { once: true });
 
@@ -173,6 +176,8 @@ export default function MapsPage() {
     if (!lightboxOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setLightboxOpen(false);
+      else if (e.key === 'ArrowRight') { setSlideDir(1); setCurrentIndex((prev) => (prev + 1) % maps.length); }
+      else if (e.key === 'ArrowLeft') { setSlideDir(-1); setCurrentIndex((prev) => (prev - 1 + maps.length) % maps.length); }
     };
     window.addEventListener('keydown', onKey);
     const prevOverflow = document.body.style.overflow;
@@ -184,10 +189,12 @@ export default function MapsPage() {
   }, [lightboxOpen]);
 
   const nextMap = () => {
+    setSlideDir(1);
     setCurrentIndex((prev) => (prev + 1) % maps.length);
   };
 
   const prevMap = () => {
+    setSlideDir(-1);
     setCurrentIndex((prev) => (prev - 1 + maps.length) % maps.length);
   };
 
@@ -387,15 +394,15 @@ export default function MapsPage() {
                         )}
                       </div>
 
-                      {/* 플레이 가능한 맵: 게임 진입 버튼 */}
+                      {/* 플레이 가능한 맵: 게임 진입 버튼 (Link로 클라이언트 전환 — 하드 리로드 깜빡임 제거) */}
                       {currentMap.playable && (
-                        <a
-                          href={`${basePath}/game/${currentMap.slug}/`}
+                        <Link
+                          href={`/game/${currentMap.slug}/`}
                           className="btn-primary mt-4 flex items-center justify-center gap-2 text-sm py-3"
                         >
                           <Play className="w-4 h-4" />
                           지금 플레이하기
-                        </a>
+                        </Link>
                       )}
                     </div>
                   </div>
@@ -470,16 +477,16 @@ export default function MapsPage() {
                     {map.players}
                   </div>
                 </div>
-                {/* 플레이 가능한 맵: 그리드에서 바로 게임 진입 */}
+                {/* 플레이 가능한 맵: 그리드에서 바로 게임 진입 (Link로 클라이언트 전환) */}
                 {map.playable && (
-                  <a
-                    href={`${basePath}/game/${map.slug}/`}
+                  <Link
+                    href={`/game/${map.slug}/`}
                     onClick={(e) => e.stopPropagation()}
                     className="btn-primary mt-4 flex items-center justify-center gap-2 text-sm py-2"
                   >
                     <Play className="w-4 h-4" />
                     플레이
-                  </a>
+                  </Link>
                 )}
               </motion.div>
             ))}
@@ -511,29 +518,81 @@ export default function MapsPage() {
               <X className="w-6 h-6 text-foreground" />
             </button>
 
-            {/* 확대 이미지 (배경 클릭은 닫힘, 이미지 클릭은 유지) */}
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              transition={{ duration: 0.25 }}
-              onClick={(e) => e.stopPropagation()}
-              className="relative w-full max-w-6xl h-[85vh]"
+            {/* 좌우 지도 변경 버튼 */}
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); prevMap(); }}
+              aria-label="이전 지도"
+              className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 z-10 p-3 rounded-full bg-background/80 backdrop-blur-sm border border-glass-border hover:bg-accent hover:text-background transition-colors"
             >
-              <Image
+              <ChevronLeft className="w-6 h-6" />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); nextMap(); }}
+              aria-label="다음 지도"
+              className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 z-10 p-3 rounded-full bg-background/80 backdrop-blur-sm border border-glass-border hover:bg-accent hover:text-background transition-colors"
+            >
+              <ChevronRight className="w-6 h-6" />
+            </button>
+
+            {/* 확대 이미지 + 정보/플레이 (배경 클릭은 닫힘, 내부 클릭은 유지).
+                좌우 전환 시 방향에 따라 슬라이드 (AnimatePresence mode="wait"). */}
+            <AnimatePresence mode="wait" custom={slideDir} initial={false}>
+            <motion.div
+              key={currentMap.id}
+              custom={slideDir}
+              variants={{
+                enter: (d: number) => ({ x: d > 0 ? 80 : -80, opacity: 0 }),
+                center: { x: 0, opacity: 1 },
+                exit: (d: number) => ({ x: d > 0 ? -80 : 80, opacity: 0 }),
+              }}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ duration: 0.22, ease: 'easeInOut' }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-7xl h-[85vh] flex flex-col lg:flex-row items-center justify-center gap-4 lg:gap-6"
+            >
+              {/* 지도 이미지 — 자기 비율대로(높이 기준) 렌더해 메뉴가 바로 옆에 붙도록 */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
                 src={`${basePath}${currentMap.image}`}
                 alt={currentMap.name}
-                fill
-                sizes="100vw"
-                className="object-contain"
-                priority
+                className="max-h-[85vh] max-w-full lg:max-w-[calc(100%-20rem)] w-auto object-contain rounded-lg"
               />
-              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-lg bg-background/80 backdrop-blur-sm border border-glass-border">
-                <span className="text-foreground text-sm font-medium">
-                  {currentMap.name} · {currentMap.nameKo}
-                </span>
-              </div>
+
+              {/* 간략 정보 + 플레이 버튼 (지도 옆 패널, 아래 정렬) */}
+              <aside className="lg:w-72 flex-shrink-0 flex flex-col gap-4 px-4 py-4 rounded-xl bg-background/85 backdrop-blur-sm border border-glass-border lg:self-end">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-foreground font-bold text-lg">{currentMap.name}</span>
+                    {!currentMap.playable && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-foreground/10 text-foreground-secondary">준비 중</span>
+                    )}
+                  </div>
+                  <span className="text-foreground-secondary text-sm">{currentMap.nameKo}</span>
+                </div>
+
+                <div className="flex flex-col gap-2 text-sm text-foreground-secondary">
+                  <span className="flex items-center gap-2"><MapPin className="w-4 h-4 text-accent" />{currentMap.region}</span>
+                  <span className="flex items-center gap-2"><Users className="w-4 h-4 text-accent" />{currentMap.players}인</span>
+                  <span className="flex items-center gap-2"><Clock className="w-4 h-4 text-accent" />{currentMap.time}분</span>
+                  <span className="flex items-center gap-2"><Info className="w-4 h-4 text-accent" />{currentMap.theme}</span>
+                </div>
+
+                {currentMap.playable && (
+                  <Link
+                    href={`/game/${currentMap.slug}/`}
+                    className="btn-primary flex items-center justify-center gap-2 text-sm py-2.5 px-5 mt-auto"
+                  >
+                    <Play className="w-4 h-4" />
+                    지금 플레이하기
+                  </Link>
+                )}
+              </aside>
             </motion.div>
+            </AnimatePresence>
           </motion.div>
         )}
       </AnimatePresence>

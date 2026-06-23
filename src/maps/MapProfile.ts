@@ -14,6 +14,12 @@ import { MapId } from './MapId';
 /** income(배달) 원천 — 맵마다 화물이 있는 곳이 다르다 (도시 안 / 트랙 위 헥스큐브 / 향후 마을·항구 등). */
 export type IncomeSource = 'cityCubes' | 'trackCubes' | 'townCubes';
 
+/** 게임 시작 화면에서 보여줄 맵 특수룰 1줄 요약 (제목 + 설명). */
+export interface MapRuleSummary {
+  title: string;
+  detail: string;
+}
+
 export abstract class MapProfile {
   // ── 정체성 ──
   abstract readonly id: MapId;
@@ -71,6 +77,10 @@ export abstract class MapProfile {
   regionDeliveryBonus(fromRegion?: 'east' | 'west', toRegion?: 'east' | 'west'): number {
     void fromRegion; void toRegion; return 0;
   }
+
+  // ── UI: 게임 시작 화면 특수룰 안내 (기본 = 표준 맵, 특수룰 없음) ──
+  /** 게임 시작(플레이어 설정) 화면 우측에 표시할 이 맵만의 특수룰 목록. 빈 배열이면 패널 미표시. */
+  get specialRules(): MapRuleSummary[] { return []; }
 
   // ── AI 설정 (기본 = 룰북 기본값; 맵 규모/특성에 따라 override) ──
   /** AI가 올릴 엔진 레벨 전략 상한 */

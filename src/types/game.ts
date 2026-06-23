@@ -389,6 +389,28 @@ export interface GameState {
 
   /** Western US: 대륙횡단 연결 보너스($4/$2)가 이미 1회 지급됐는지 (보드 전체 1회). */
   transcontinentalAwarded?: boolean;
+
+  /**
+   * Western US: 서부↔동부 시작도시가 막 연결된 순간의 알림 이벤트.
+   * 보너스 수령자/연속성 해제 플레이어를 팝업으로 보여주기 위한 1회성 상태.
+   * 모달을 닫으면 null로 초기화 (dismissTranscontinental).
+   */
+  transcontinentalEvent?: TranscontinentalEvent | null;
+
+  /**
+   * 직전 수입 감소(Phase VIII)에서 각 플레이어가 잃은 수입량 (playerId → 감소량, >0만).
+   * "수입이 갑자기 줄었다"를 PlayerPanel에 "-N (수익 감소)" 배지로 알리는 용도.
+   * 다음 턴 수입 수집(collectIncome) 때 초기화된다.
+   */
+  incomeReductions?: Partial<Record<PlayerId, number>> | null;
+}
+
+/** 대륙횡단 연결 순간을 사람 플레이어에게 알리는 팝업 데이터. */
+export interface TranscontinentalEvent {
+  /** 보드 전체 최초 연결 보너스 수령자 (없으면 빈 배열 — 연속성 해제만 발생). */
+  bonusRecipients: { playerId: PlayerId; name: string; amount: number }[];
+  /** 이번 연결로 "한 줄 연속 건설" 규칙이 해제된 플레이어 (자기 철도로 서↔동 연결). */
+  unlockedPlayers: { playerId: PlayerId; name: string }[];
 }
 
 // === 게임 액션 타입 ===

@@ -78,17 +78,18 @@ export const TUTORIAL_TOWNS: Town[] = [
 // === 물품 디스플레이 열-도시 매핑 ===
 // Tutorial 맵에서 주사위 결과(1-6)가 어느 도시에 물품을 배치하는지 정의
 // A-D는 신규 도시(Urbanization)용 열
+// 튜토리얼 물품 디스플레이: 1~6 열은 칸 3개, 신도시(A~D) 열은 칸 2개 (좁은 튜토리얼 맵에 맞춘 축소 구성)
 export const TUTORIAL_COLUMN_MAPPING: GoodsColumnMapping[] = [
-  { columnId: '1' as GoodsColumnId, cityId: 'P', isNewCity: false, rowCount: 6 }, // Pittsburgh
-  { columnId: '2' as GoodsColumnId, cityId: 'C', isNewCity: false, rowCount: 6 }, // Cleveland
-  { columnId: '3' as GoodsColumnId, cityId: 'O', isNewCity: false, rowCount: 6 }, // Columbus
-  { columnId: '4' as GoodsColumnId, cityId: '', isNewCity: false, rowCount: 6 }, // Wheeling(마을) — 물품 생산 없음, 빈 열
-  { columnId: '5' as GoodsColumnId, cityId: 'I', isNewCity: false, rowCount: 6 }, // Cincinnati
-  { columnId: '6' as GoodsColumnId, cityId: 'P', isNewCity: false, rowCount: 6 }, // Pittsburgh (다시)
-  { columnId: 'A' as GoodsColumnId, cityId: 'A', isNewCity: true, rowCount: 4 },  // New City A
-  { columnId: 'B' as GoodsColumnId, cityId: 'B', isNewCity: true, rowCount: 4 },  // New City B
-  { columnId: 'C' as GoodsColumnId, cityId: 'C', isNewCity: true, rowCount: 4 },  // New City C (중복 주의)
-  { columnId: 'D' as GoodsColumnId, cityId: 'D', isNewCity: true, rowCount: 4 },  // New City D
+  { columnId: '1' as GoodsColumnId, cityId: 'P', isNewCity: false, rowCount: 3 }, // Pittsburgh
+  { columnId: '2' as GoodsColumnId, cityId: 'C', isNewCity: false, rowCount: 3 }, // Cleveland
+  { columnId: '3' as GoodsColumnId, cityId: 'O', isNewCity: false, rowCount: 3 }, // Columbus
+  { columnId: '4' as GoodsColumnId, cityId: '', isNewCity: false, rowCount: 3 }, // Wheeling(마을) — 물품 생산 없음, 빈 열
+  { columnId: '5' as GoodsColumnId, cityId: 'I', isNewCity: false, rowCount: 3 }, // Cincinnati
+  { columnId: '6' as GoodsColumnId, cityId: 'P', isNewCity: false, rowCount: 3 }, // Pittsburgh (다시)
+  { columnId: 'A' as GoodsColumnId, cityId: 'A', isNewCity: true, rowCount: 2 },  // New City A
+  { columnId: 'B' as GoodsColumnId, cityId: 'B', isNewCity: true, rowCount: 2 },  // New City B
+  { columnId: 'C' as GoodsColumnId, cityId: 'C', isNewCity: true, rowCount: 2 },  // New City C (중복 주의)
+  { columnId: 'D' as GoodsColumnId, cityId: 'D', isNewCity: true, rowCount: 2 },  // New City D
 ];
 
 // 주사위 결과에서 도시 ID 가져오기

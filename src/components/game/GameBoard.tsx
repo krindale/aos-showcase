@@ -472,11 +472,15 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
       transition={{ duration: 0.3, ease: 'easeOut' }}
       className={fitOverlay
         ? 'w-full'
-        : 'rounded-xl overflow-hidden border border-foreground/10'}
+        : 'rounded-xl overflow-hidden border border-foreground/10 mx-auto'}
       style={{
         backgroundColor: mapData.colors.background,
         contain: 'layout style paint', // Performance optimization
         transform: 'translateZ(0)', // GPU acceleration
+        // 세로로 긴 맵(St. Lucia 등)은 표시 배율로 보드를 축소 (폭 제한 + 중앙 정렬)
+        ...(!fitOverlay && mapData.boardDisplayScale && mapData.boardDisplayScale !== 1
+          ? { maxWidth: `${mapData.boardDisplayScale * 100}%` }
+          : {}),
       }}
     >
       {/* 보드 헤더 (오버레이 모드에선 숨김) */}
@@ -1085,7 +1089,11 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
         {/* 도시 */}
         {board.cities.map((city) => {
           const { x, y } = hexToPixel(city.coord.col, city.coord.row, undefined, undefined, undefined, isFlat);
-          const cityColor = CITY_COLORS[city.color];
+          // 외국 터미널(독일 녹색 헥스): 칸은 원본 맵의 teal 녹색으로 채우고 테두리를
+          // "수용 화물색"(city.color)으로. 일반 도시: 도시 색으로 채움.
+          const TERMINAL_GREEN = '#2c908c'; // 원본 germany.png 터미널 헥스에서 추출
+          const goodsColor = CITY_COLORS[city.color];
+          const cityColor = city.isTerminal ? TERMINAL_GREEN : goodsColor;
           const isSourceSelected = ui.sourceHex && hexCoordsEqual(ui.sourceHex, city.coord);
           const isCityClickable = currentPhase === 'buildTrack';
           const isReachableDestination = ui.reachableDestinations.some(
@@ -1113,9 +1121,11 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                     ? '#e6c77a'  // 골드 악센트 (accent-light)
                     : isSourceSelected
                     ? '#ffffff'
+                    : city.isTerminal
+                    ? goodsColor  // 터미널: 수용 화물색 테두리
                     : 'rgba(255,255,255,0.2)'
                 }
-                strokeWidth={isReachableDestination ? 4 : isSourceSelected ? 4 : 2}
+                strokeWidth={isReachableDestination ? 4 : isSourceSelected ? 4 : city.isTerminal ? 3.5 : 2}
                 className={
                   (isCityClickable || isReachableDestination)
                     ? 'cursor-pointer hover:opacity-90 transition-opacity'
@@ -1124,13 +1134,26 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                 onClick={handleCityClick}
               />
 
+              {/* 외국 터미널: 녹색 칸과 화물색 테두리 사이에 얇은 흰 띠 (비인터랙티브). */}
+              {city.isTerminal && (
+                <polygon
+                  points={getHexPoints(x, y, HEX_SIZE - 6, isFlat)}
+                  fill="none"
+                  stroke="rgba(255,255,255,0.9)"
+                  strokeWidth={2.5}
+                  style={{ pointerEvents: 'none' }}
+                />
+              )}
+
               {/* 큰 라벨: 주사위 번호(있으면) → 없으면 도시 ID 약자.
                   단 외국 터미널·Berlin(물품성장 안 받고 id가 풀네임)은 생략하고 이름만 표시. */}
               {(() => {
                 const dice = cityDiceNumber[city.id];
                 const bigLabel = dice != null
                   ? String(dice)
-                  : (city.isTerminal || city.id === bonusCityId) ? null : city.id;
+                  : city.isTerminal
+                  ? 'X'  // 외국 터미널: 원 안에 X (다른 도시는 주사위 번호)
+                  : city.id === bonusCityId ? null : city.id;
                 return (
                   <>
                     {bigLabel !== null && (

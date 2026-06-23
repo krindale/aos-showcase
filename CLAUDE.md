@@ -150,7 +150,7 @@ src/
 │
 ├── maps/                       # 맵 프로파일 (다형성 — 맵별 동작을 mapId 분기 대신 상속 override로)
 │   ├── MapId.ts                # 맵 식별자 enum (문자열 분기 제거, 라우트/저장 호환)
-│   ├── MapProfile.ts           # 추상 베이스 (세팅·규칙·AI설정·경로전략, 기본=표준 맵)
+│   ├── MapProfile.ts           # 추상 베이스 (세팅·규칙·AI설정·경로전략·specialRules 안내문, 기본=표준 맵)
 │   ├── getMapProfile.ts        # mapId → MapProfile 인스턴스 팩토리 (캐싱)
 │   └── profiles/
 │       ├── StandardMapProfile.ts   # 룰북 기본 맵 (튜토리얼 = engineMax 3 override)
@@ -161,12 +161,13 @@ src/
 │
 ├── components/                 # UI 컴포넌트
 │   ├── Navigation.tsx          # 글래스모피즘 네비게이션 바
+│   ├── SiteShell.tsx           # 전역 크롬 조건부 렌더 (게임 화면 /game/* 에선 Navigation/Footer 숨김)
 │   ├── Footer.tsx              # 푸터 (링크, 소셜)
 │   ├── HeroSection.tsx         # 풀스크린 히어로 + 패럴랙스
 │   ├── GameBoardPreview.tsx    # 헥스 그리드 인터랙티브 프리뷰
 │   ├── FeatureCards.tsx        # 피처 카드 + 숫자 카운트업
 │   ├── OfflineIndicator.tsx    # 오프라인/동기화 상태 표시 (PWA)
-│   └── game/                   # 게임 UI 컴포넌트 (17개)
+│   └── game/                   # 게임 UI 컴포넌트
 │       ├── GameBoard.tsx       # 헥스 그리드 게임보드 (SVG, 좌표 표시 토글, 화물 경로 골드 점선)
 │       ├── PlayerPanel.tsx     # 플레이어 정보 패널 (AI 표시 포함)
 │       ├── PhasePanel.tsx      # 현재 단계 표시 (AI 생각 중 상태)
@@ -179,9 +180,11 @@ src/
 │       ├── ComplexTrackPanel.tsx   # 복합 트랙 선택 UI
 │       ├── RedirectTrackPanel.tsx  # 트랙 방향 전환 UI
 │       ├── TurnTrack.tsx       # 턴 트랙 UI
-│       ├── DiceRoller.tsx      # 주사위 굴리기 UI
+│       ├── DiceRoller.tsx      # 주사위 굴리기 UI (1회 굴린 뒤 버튼 숨김 — 재굴림 방지)
 │       ├── DebugPanel.tsx      # 디버그 패널 UI
 │       ├── AIDebugModal.tsx    # AI 디버그 모달
+│       ├── TranscontinentalModal.tsx  # 대륙횡단 연결 팝업 (Western US: 보너스 수령자·연속성 해제 안내)
+│       ├── MoveCubeOverlay.tsx # 화물 이동·AI 건설 중 보드 미니맵 (모든 맵, 우측 하단 fit)
 │       ├── BottomSheet.tsx     # 모바일용 드래그 바텀 시트 (반응형)
 │       └── CollapsiblePanel.tsx    # 태블릿용 접이식 사이드 패널 (반응형)
 │
@@ -208,7 +211,7 @@ src/
     ├── rustBeltMap.ts          # Rust Belt 맵 데이터 정의 (5인 전용, flat-top 전치, 좌표 0-base)
     ├── germanyMap.ts           # Germany 맵 데이터 정의 (4인 전용, flat-top 전치, 터미널/고정비용/직결)
     ├── westernUsMap.ts         # Western US 맵 데이터 정의 (6인 전용, pointy-top 네이티브, 마을큐브/지형fixedCost/동서region)
-    ├── mapRegistry.ts          # 맵 룰 분리 레지스트리 (MapRuleConfig)
+    ├── mapRegistry.ts          # 맵 룰 분리 레지스트리 (MapRuleConfig·columnMapping·boardDisplayScale 등)
     ├── debugConfig.ts          # 디버그 설정 (로그 카테고리 토글 + logAction 종합 액션 로깅)
     ├── pwaUtils.ts             # Service Worker 등록/관리 유틸리티
     └── testHelpers.ts          # 단위 테스트 헬퍼 함수
@@ -273,7 +276,13 @@ docs/
 - 현금 부족 시 수입 감소, 파산 경고
 
 ### MapsPage
-풀스크린 슬라이더 (AnimatePresence 전환 효과, 맵 정보 오버레이)
+풀스크린 슬라이더 (AnimatePresence 전환 효과, 맵 정보 오버레이). 지도 클릭 시 라이트박스
+확대 — 좌우 버튼·키보드 ←→·방향 슬라이드, 우측 정보/플레이 패널. 현재 맵 이미지 1장만 지연 로드.
+
+**맵 이미지는 WebP** (`public/maps/*.webp`, 폭 1600·q84, 맵당 ~200KB). 새 맵 추가 시 원본을
+`cwebp -q 84`(필요 시 폭 1600 다운스케일)로 변환해 넣을 것 — `unoptimized: true`(static export)라
+Next가 압축을 안 하므로 원본 대용량 PNG를 그대로 받으면 갤러리가 무거워진다 (PNG 기준 맵당 1~5MB).
+게임 보드는 SVG 렌더라 이 이미지와 무관(갤러리 표시용일 뿐).
 
 7개 맵 갤러리:
 - **Rust Belt** (기본) - 미국 북동부
@@ -350,6 +359,13 @@ interface GameStore {
   nextPhase, resetGame, executeAITurn, ...
 }
 ```
+
+**persist + 1회성 상태 (중요)**: 스토어는 `persist`(localStorage, name `age-of-steam-game`)로
+게임을 새로고침 후에도 이어가게 한다. 따라서 **새 게임마다 비워야 하는 1회성/실행 상태는 두 곳을
+모두 챙겨야 한다** — ① `createInitialGameState`에 초기값(`initGame`/`resetGame`이 적용), ②
+persist `merge` 콜백에서 rehydrate 직후 초기화(새로고침 복원 시 잔존 방지). 현재 대상:
+`transcontinentalEvent`(대륙횡단 모달), `incomeReductions`(수입감소 배지), `aiExecution`(pending 박제).
+새 transient 필드 추가 시 이 둘을 빠뜨리면 "새로고침하면 옛 모달/배지가 다시 뜸" 버그가 난다.
 
 ### AI 시스템 (`src/ai/`)
 
@@ -591,7 +607,7 @@ setAllDebug(true);                   // 모든 로그 on/off
   townSpur가 있을 때만** 연결 인정으로 수정(도시는 모든 변). 회귀 없음(186 테스트 통과).
 - **Engineer 절반비용**: 평지($2)에 낭비 말고 `cost > PLAIN_TRACK_COST`인 비싼 헥스에 우선 적용.
 - **직결 링크 클릭**: 도시 위 레이어로 + 투명 히트영역(도시 헥스에 클릭 가로채이던 것 수정). `germanyDirectLink.test.ts`.
-- **Berlin 시작 큐브 0** (cityCubeCounts berlin:0) — 매 턴 물품성장 보너스로만 충전(`growGoods` 안, `[Berlin 보너스]` 로그). `germanyBerlin.test.ts`.
+- **Berlin 시작 큐브 2개** (룰북 "each other City" = 2) + 매 턴 물품성장 보너스 1개(`bonusCityCubeId`, `growGoods` 안 `[Berlin 보너스]` 로그). `germanyBerlin.test.ts`.
 - **도시 주사위번호 원본대로**(columnMapping.diceNumber): 화면 표시+물품성장 결정. 1 München·Zürich…6 Königsberg·Breslau.
 - **도시 큰 라벨**: 번호 있으면 번호, 없으면 city.id, 단 터미널/Berlin(풀네임)은 생략(GameBoard 전역).
 - **액션 UI**: 독일 Engineer 설명을 "트랙 1개 절반 비용"으로 표시(engineerHalfCost).

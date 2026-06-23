@@ -128,6 +128,9 @@ export interface GameMapData {
   hexCostMode?: 'perHex' | 'legend';
   /** viewBox 우측 여백을 헥스 N개 폭만큼 줄임 (calculateBoardDimensions가 우측을 약 1헥스 과대 산정 — 맵별 보정). */
   trimRightHexes?: number;
+  /** 게임 화면 보드 표시 배율 (1=기본=폭 100%). 세로로 긴 맵이 화면을 꽉 채워 과대해 보일 때
+   *  컨테이너 폭을 줄여 보드를 축소한다 (예: St. Lucia 0.8 = 20% 축소). 미지정=1. */
+  boardDisplayScale?: number;
   /** 맵별 특수 룰 */
   rules: MapRuleConfig;
   /** 초기 보드 상태 생성 (도시 큐브는 createInitialGameState에서 배치) */
@@ -180,6 +183,7 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     townNames: ST_LUCIA_TOWN_NAMES,
     hideLakeHexes: true,
     orientation: 'flat',
+    boardDisplayScale: 0.8, // 세로로 긴 2인 맵 — 게임 화면에서 20% 축소
     colors: {
       terrain: ST_LUCIA_COLORS.terrain,
       background: ST_LUCIA_COLORS.background,

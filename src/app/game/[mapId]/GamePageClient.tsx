@@ -45,6 +45,7 @@ import ProductionPanel from '@/components/game/ProductionPanel';
 import MoveCubeOverlay from '@/components/game/MoveCubeOverlay';
 import DebugPanel from '@/components/game/DebugPanel';
 import AIDebugModal from '@/components/game/AIDebugModal';
+import TranscontinentalModal from '@/components/game/TranscontinentalModal';
 import BottomSheet from '@/components/game/BottomSheet';
 import { calculateTrackScore } from '@/utils/trackValidation';
 import { ArrowLeft, RotateCcw, Users, Zap, X, Bot, Activity, ChevronRight, ChevronLeft } from 'lucide-react';
@@ -55,6 +56,7 @@ import {
   ACTION_INFO,
 } from '@/types/game';
 import { getMapData } from '@/utils/mapRegistry';
+import { getMapProfile } from '@/maps/getMapProfile';
 
 interface GamePageClientProps {
   mapId: string;
@@ -79,6 +81,8 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   // 맵 설정 (mapRegistry에서 맵별 주입)
   const mapConfig = getMapData(mapId);
   const supportedPlayers = mapConfig.supportedPlayers;
+  // 맵 특수룰 요약 (게임 시작 화면 우측 패널) — MapProfile 다형성으로 주입
+  const specialRules = getMapProfile(mapId).specialRules;
 
   const [showSetup, setShowSetup] = useState(true);
   const [playerCount, setPlayerCount] = useState(supportedPlayers[0]);
@@ -189,15 +193,32 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   // 셋업 화면
   if (showSetup) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <motion.div
+        className="min-h-screen bg-background flex items-center justify-center p-4"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.35, ease: 'easeOut' }}
+      >
         <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="w-full max-w-md"
+          initial="hidden"
+          animate="show"
+          variants={{
+            hidden: {},
+            show: { transition: { staggerChildren: 0.12, delayChildren: 0.05 } },
+          }}
+          className={`w-full flex flex-col lg:flex-row gap-4 lg:items-start justify-center ${
+            specialRules.length > 0 ? 'max-w-4xl' : 'max-w-md'
+          }`}
         >
-          <div className="glass-card p-8 rounded-2xl relative">
+          <motion.div
+            variants={{
+              hidden: { opacity: 0, y: 20, scale: 0.97 },
+              show: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] } },
+            }}
+            className="glass-card p-8 rounded-2xl relative w-full lg:max-w-md lg:flex-1"
+          >
             <button
-              onClick={() => router.back()}
+              onClick={handleBack}
               className="absolute top-4 right-4 p-2 text-foreground-secondary hover:text-foreground hover:bg-foreground/10 rounded-lg transition-colors"
               title="닫기"
             >
@@ -302,7 +323,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
               </h3>
               <ul className="text-xs text-foreground-secondary space-y-1">
                 <li>• {mapConfig.maxTurns || TURNS_BY_PLAYER_COUNT[playerCount]}턴 동안 진행</li>
-                <li>• 시작: $10, 2주 발행</li>
+                <li>• 시작: ${getMapProfile(mapId).startingCash ?? 10}, 2주 발행</li>
                 <li>• 매 턴 10단계 진행</li>
                 <li>• 최종 승점으로 승자 결정</li>
                 {aiPlayerIndexes.size > 0 && (
@@ -310,9 +331,37 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                 )}
               </ul>
             </div>
-          </div>
+          </motion.div>
+
+          {/* 맵 특수룰 안내 패널 (우측) */}
+          {specialRules.length > 0 && (
+            <motion.aside
+              variants={{
+                hidden: { opacity: 0, y: 20, scale: 0.97 },
+                show: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] } },
+              }}
+              className="glass-card p-6 rounded-2xl w-full lg:max-w-sm lg:flex-1 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto"
+            >
+              <h2 className="text-lg font-bold text-gradient mb-1">
+                {mapConfig.name} 특수룰
+              </h2>
+              <p className="text-xs text-foreground-secondary mb-4">
+                이 맵만의 규칙을 확인하세요.
+              </p>
+              <ul className="space-y-3">
+                {specialRules.map((rule, i) => (
+                  <li key={i} className="border-l-2 border-accent/40 pl-3">
+                    <div className="text-sm font-semibold text-foreground">{rule.title}</div>
+                    <div className="text-xs text-foreground-secondary leading-relaxed mt-0.5">
+                      {rule.detail}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </motion.aside>
+          )}
         </motion.div>
-      </div>
+      </motion.div>
     );
   }
 
@@ -546,12 +595,14 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       {/* 메인 콘텐츠 */}
       <main className={`${isLandscape ? 'pt-12 pb-2 px-2 h-[calc(100vh-3.5rem)] overflow-y-auto' : 'pt-20 pb-8 px-4 md:pb-8 pb-[30vh]'}`}>
         <div className={`mx-auto ${isLandscape ? '' : 'max-w-[1800px]'}`}>
-          <div className={`grid grid-cols-1 md:grid-cols-12 ${isLandscape ? 'gap-2' : 'gap-6'}`}>
+          {/* lg(데스크톱): 패널 320px 고정 + 지도 가변(나머지 전부) — 넓은 화면일수록 지도 최대.
+              md(태블릿): 12-그리드 유지(패널 토글). */}
+          <div className={`grid grid-cols-1 md:grid-cols-12 lg:grid-cols-[minmax(0,1fr)_340px] ${isLandscape ? 'gap-2' : 'gap-6'}`}>
             {/* 왼쪽: 게임 보드 + 물품 디스플레이 */}
             <div className={`
               col-span-1
               ${isPanelCollapsed ? 'md:col-span-12' : 'md:col-span-8'}
-              lg:col-span-9
+              lg:col-span-1
               ${isLandscape ? 'space-y-2' : 'space-y-4'}
             `}>
               <GameBoard />
@@ -567,7 +618,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: 20 }}
                   transition={{ duration: 0.3 }}
-                  className="hidden md:block md:col-span-4 lg:col-span-3 space-y-4 md:sticky md:top-20 md:self-start md:max-h-[calc(100vh-6rem)] md:overflow-y-auto md:pr-1"
+                  className="hidden md:block md:col-span-4 lg:col-span-1 space-y-4 md:sticky md:top-20 md:self-start md:max-h-[calc(100vh-6rem)] md:overflow-y-auto md:pr-1"
                 >
                   {renderPanelContent()}
                 </motion.div>
@@ -632,6 +683,9 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
           <Activity size={24} />
         </button>
       )}
+
+      {/* 대륙횡단 연결 팝업 (Western US) */}
+      <TranscontinentalModal />
 
       {/* AI 디버그 모달 */}
       <AIDebugModal

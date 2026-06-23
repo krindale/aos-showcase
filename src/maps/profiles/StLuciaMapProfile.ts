@@ -9,7 +9,7 @@ import { DeliveryRoute } from '@/ai/strategy/types';
 import { getHexCubeMapRoute } from '@/ai/strategy/selector';
 import { setCurrentRoute } from '@/ai/strategy/state';
 import { StandardMapProfile } from './StandardMapProfile';
-import { IncomeSource } from '../MapProfile';
+import { IncomeSource, MapRuleSummary } from '../MapProfile';
 import { MapId } from '../MapId';
 import { ST_LUCIA_MAP, createStLuciaBoardState } from '@/utils/stLuciaMap';
 
@@ -47,5 +47,17 @@ export class StLuciaMapProfile extends StandardMapProfile {
   override selectTopRoutes(state: GameState, playerId: PlayerId): DeliveryRoute[] {
     const route = getHexCubeMapRoute(state, playerId);
     return route ? [route] : [];
+  }
+
+  override get specialRules(): MapRuleSummary[] {
+    return [
+      { title: '2인 전용 8턴', detail: '세인트루시아 — 2명, 8턴으로 진행합니다.' },
+      { title: '시작 도시 없음', detail: '도시 없이 시작 — 1턴에 Urbanization으로 도시를 만든 사람만 그 도시 인접에 건설할 수 있습니다.' },
+      { title: '헥스 위 큐브', detail: '도시 큐브 대신 평지·강 헥스마다 큐브 1개. 트랙을 깔면 그 큐브가 트랙 위로 올라갑니다.' },
+      { title: '트랙 큐브 배달', detail: '트랙 위 큐브는 미완성 링크여도 같은 색 도시로 배달 가능 — 시작 구간 소유자에게 보너스 수입.' },
+      { title: '교대 선공권', detail: '경매 대신 번갈아 선공권. 먼저 가려면 $5를 냅니다 (둘 다 거부 시 무료).' },
+      { title: '행동 제한', detail: 'Production·Turn Order 행동은 사용할 수 없습니다.' },
+      { title: '물품 성장 생략', detail: '물품 성장(주사위) 단계가 없습니다.' },
+    ];
   }
 }

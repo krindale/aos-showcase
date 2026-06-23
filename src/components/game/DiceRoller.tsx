@@ -130,26 +130,20 @@ export default function DiceRoller({ diceCount, onRoll, disabled = false }: Dice
         </motion.div>
       )}
 
-      {/* 굴리기 버튼 */}
-      <button
-        onClick={rollDice}
-        disabled={disabled || isRolling}
-        className={`w-full py-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${
-          disabled || isRolling
-            ? 'bg-foreground/10 text-foreground-secondary cursor-not-allowed'
-            : 'bg-accent text-background hover:bg-accent-light'
-        }`}
-      >
-        {isRolling ? (
-          <>
-            🎲 굴리는 중...
-          </>
-        ) : results.length > 0 ? (
-          '다시 굴리기'
-        ) : (
-          <>🎲 주사위 굴리기</>
-        )}
-      </button>
+      {/* 굴리기 버튼 — 한 번 굴린 뒤에는 숨김(재굴림으로 결과를 바꾸지 못하게). */}
+      {(isRolling || results.length === 0) && (
+        <button
+          onClick={rollDice}
+          disabled={disabled || isRolling}
+          className={`w-full py-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+            disabled || isRolling
+              ? 'bg-foreground/10 text-foreground-secondary cursor-not-allowed'
+              : 'bg-accent text-background hover:bg-accent-light'
+          }`}
+        >
+          {isRolling ? <>🎲 굴리는 중...</> : <>🎲 주사위 굴리기</>}
+        </button>
+      )}
     </div>
   );
 }

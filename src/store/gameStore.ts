@@ -24,6 +24,7 @@ import {
   MovingCubeContext,
   BoardState,
   ACTION_INFO,
+  TranscontinentalEvent,
 } from '@/types/game';
 import { getAIDecision, AI_TURN_DELAY, isCurrentPlayerAI, aiPlayerManager } from '@/ai';
 import { addFailedBuildCoord, hasPendingFreeSpur } from '@/ai/strategies/buildTrack';
@@ -511,6 +512,11 @@ export function createInitialGameState(
     // 결과
     winner: null,
     finalScores: null,
+
+    // 1회성/임시 상태 — 새 게임마다 반드시 초기화 (persist 병합 시 이전 게임 값 잔존 방지)
+    transcontinentalAwarded: false,
+    transcontinentalEvent: null,
+    incomeReductions: null,
   };
 }
 
@@ -548,7 +554,7 @@ function bfsConnectingOwners(
  * 룰북: 1철도 연결=+$4, 2철도=각 +$2, 3철도+=연결 트랙 놓은 플레이어가 2철도 선택 +$2.
  */
 function computeTranscontinental(state: GameState, builder: PlayerId):
-  { players: Record<PlayerId, PlayerState>; awarded: boolean; log: string } | null {
+  { players: Record<PlayerId, PlayerState>; awarded: boolean; log: string; event: TranscontinentalEvent } | null {
   const profile = getMapProfile(state.mapId);
   if (!profile.transcontinentalBonus) return null;
   // 효율: 보너스 이미 지급 + 모든 활성 플레이어가 대륙횡단 달성 → 더 스캔할 것 없음
@@ -596,17 +602,20 @@ function computeTranscontinental(state: GameState, builder: PlayerId):
   const ensureCopy = () => { if (!changed) { players = { ...players }; changed = true; } };
 
   // (1) 플레이어별 연속성 해제: 자기 완성 링크만으로 서부↔동부 연결 시 플래그
+  const unlockedPlayers: { playerId: PlayerId; name: string }[] = [];
   for (const pid of state.activePlayers) {
     if (players[pid]?.transcontinental || players[pid]?.eliminated) continue;
     if (bfsConnectingOwners(buildAdj(pid), westKeys, eastKeys)) {
       ensureCopy();
       players[pid] = { ...players[pid], transcontinental: true };
+      unlockedPlayers.push({ playerId: pid, name: players[pid].name });
     }
   }
 
   // (2) 1회성 연결 보너스 (보드 전체 최초 연결 — 임의 소유자 경로 허용)
   let awarded = state.transcontinentalAwarded ?? false;
   let log = '';
+  const bonusRecipients: { playerId: PlayerId; name: string; amount: number }[] = [];
   if (!awarded) {
     const ownersOnPath = bfsConnectingOwners(buildAdj(), westKeys, eastKeys);
     if (ownersOnPath && ownersOnPath.length) {
@@ -634,6 +643,7 @@ function computeTranscontinental(state: GameState, builder: PlayerId):
           transcontinental: true,
         };
         parts.push(`${players[pid].name} +${amt} income`);
+        bonusRecipients.push({ playerId: pid, name: players[pid].name, amount: amt });
       }
       awarded = true;
       log = `🌉 대륙횡단 연결 보너스: ${parts.join(', ')}`;
@@ -642,7 +652,13 @@ function computeTranscontinental(state: GameState, builder: PlayerId):
   }
 
   if (!changed && awarded === (state.transcontinentalAwarded ?? false)) return null;
-  return { players, awarded, log };
+  // 보너스 수령자는 연속성도 함께 해제됨 — 팝업에 중복 표시하지 않도록 unlockedPlayers에서 제외
+  const bonusIds = new Set(bonusRecipients.map(r => r.playerId));
+  const event: TranscontinentalEvent = {
+    bonusRecipients,
+    unlockedPlayers: unlockedPlayers.filter(u => !bonusIds.has(u.playerId)),
+  };
+  return { players, awarded, log, event };
 }
 
 // ============================================================
@@ -802,6 +818,8 @@ interface GameStore extends GameState {
   canBuildTrack: (coord: HexCoord, edges: [number, number]) => boolean;
   /** Western US: 대륙횡단 연결 감지 → 연속성 해제 플래그 + 1회성 보너스 적용 (건설 후 호출) */
   applyTranscontinental: () => void;
+  /** 대륙횡단 연결 팝업 닫기 (transcontinentalEvent 초기화) */
+  dismissTranscontinental: () => void;
   /** 복합 트랙 건설 (교차/공존) */
   buildComplexTrack: (
     coord: HexCoord,
@@ -1942,9 +1960,17 @@ export const useGameStore = create<GameStore>()(
   applyTranscontinental: () => {
     const result = computeTranscontinental(get(), get().currentPlayer);
     if (!result) return;
-    set({ players: result.players, transcontinentalAwarded: result.awarded });
+    set({
+      players: result.players,
+      transcontinentalAwarded: result.awarded,
+      // 보너스 수령 or 연속성 해제가 발생한 순간 — 사람에게 팝업으로 알림 (모달이 닫으면 초기화)
+      transcontinentalEvent: result.event,
+    });
     if (result.log) get().addLog(result.log);
   },
+
+  /** 대륙횡단 팝업 닫기 — 이벤트 초기화. */
+  dismissTranscontinental: () => set({ transcontinentalEvent: null }),
 
   buildTrack: (coord, edges) => {
     const state = get();
@@ -2635,7 +2661,8 @@ export const useGameStore = create<GameStore>()(
         });
       }
 
-      return { players: newPlayers, logs: newLogs };
+      // 새 턴 수입 수집 시점에 직전 수입 감소 배지 초기화 (한 턴 동안만 노출)
+      return { players: newPlayers, logs: newLogs, incomeReductions: null };
     });
   },
 
@@ -2779,6 +2806,8 @@ export const useGameStore = create<GameStore>()(
     set((state) => {
       const newPlayers = { ...state.players };
       const newLogs = [...state.logs];
+      // 이번 감소량을 플레이어별로 기록 → PlayerPanel "-N (수익 감소)" 배지
+      const reductions: Partial<Record<PlayerId, number>> = {};
 
       for (const playerId of state.activePlayers) {
         const player = newPlayers[playerId];
@@ -2795,10 +2824,12 @@ export const useGameStore = create<GameStore>()(
         if (reduction > 0) {
           const oldIncome = player.income;
           const newIncome = Math.max(player.income - reduction, GAME_CONSTANTS.MIN_INCOME);
+          const applied = oldIncome - newIncome;
           newPlayers[playerId] = {
             ...player,
             income: newIncome,
           };
+          if (applied > 0) reductions[playerId] = applied;
 
           // 수입 감소 로깅
           newLogs.push({
@@ -2811,7 +2842,11 @@ export const useGameStore = create<GameStore>()(
         }
       }
 
-      return { players: newPlayers, logs: newLogs };
+      return {
+        players: newPlayers,
+        logs: newLogs,
+        incomeReductions: Object.keys(reductions).length > 0 ? reductions : null,
+      };
     });
   },
 
@@ -4655,6 +4690,16 @@ export const useGameStore = create<GameStore>()(
       // (v3: 마을 허브 재설계 — 마을 헥스 안에 타일이 깔린 옛 보드 폐기)
       version: 3,
       migrate: () => ({}) as never,
+      // rehydrate(새로고침) 후 1회성/실행 상태는 항상 초기화한다.
+      // (저장본을 복원하면 닫지 않은 대륙횡단 모달·수입감소 배지가 다시 뜨거나,
+      //  AI 실행 플래그가 pending:true로 박제되는 문제를 방지)
+      merge: (persisted, current) => ({
+        ...current,
+        ...(persisted as Partial<GameStore>),
+        transcontinentalEvent: null,
+        incomeReductions: null,
+        aiExecution: { pending: false, executionId: 0 },
+      }),
     }
   )
 );

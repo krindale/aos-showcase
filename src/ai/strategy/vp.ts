@@ -24,7 +24,7 @@ import {
   isRouteComplete,
 } from './analyzer';
 import { getCurrentRoute } from './state';
-import { hexCoordsEqual } from '@/utils/hexGrid';
+import { hexCoordsEqual, cityAcceptsCube } from '@/utils/hexGrid';
 
 // ===== VP 환산 상수 =====
 export const VP_PER_INCOME = 3;
@@ -306,16 +306,17 @@ export function estimateRouteVP(
   //   income 원천을 맵별로 일반화 — ① 출발 도시 안의 큐브(튜토리얼 등) +
   //   ② 이 경로 위에 놓인 트랙 큐브 중 도착 도시 색(St. Lucia 헥스큐브 등).
   //   (맵 이름 하드코딩 없이, 보드에 실제로 존재하는 income 원천만 본다)
-  const cityCubes = (sourceCity?.cubes ?? []).filter(cube => cube === targetCity.color).length;
+  // 도착 도시 수요색 매칭 — 한국(동적 색상)은 targetCity.cubes 기반 (cityAcceptsCube), 그 외 city.color
+  const cityCubes = (sourceCity?.cubes ?? []).filter(cube => cityAcceptsCube(targetCity, cube, board)).length;
   const trackCubesOnPath = board.trackTiles.filter(t =>
-    t.cube === targetCity.color && fullPath.some(pc => hexCoordsEqual(pc, t.coord))
+    t.cube != null && cityAcceptsCube(targetCity, t.cube, board) && fullPath.some(pc => hexCoordsEqual(pc, t.coord))
   ).length;
   //   ③ 이 경로 위 마을에 놓인 큐브 중 도착 도시 색 (Western US townCubes) — 경로가 마을을
   //      지나면 그 마을 큐브도 같은 색 도시로 배달 가능 → 경로 가치 가산.
   const townCubesOnPath = config.incomeSources.includes('townCubes')
     ? board.towns.filter(t =>
         t.newCityColor === null &&
-        t.cubes.includes(targetCity.color) &&
+        t.cubes.some(c => cityAcceptsCube(targetCity, c, board)) &&
         fullPath.some(pc => hexCoordsEqual(pc, t.coord))
       ).length
     : 0;

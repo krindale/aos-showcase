@@ -11,7 +11,7 @@ import {
   validateTrackConnection,
   isTrackPartOfCompletedLink,
 } from '@/utils/trackValidation';
-import { hexCoordsEqual, hexDistance, getNeighborHex, getOppositeEdge, playerEdgesAtTrack } from '@/utils/hexGrid';
+import { hexCoordsEqual, hexDistance, getNeighborHex, getOppositeEdge, playerEdgesAtTrack, cityAcceptsCube } from '@/utils/hexGrid';
 import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, incrementInvestedTracks } from '../strategy/state';
 import { getNextTargetRoute, findNextTargetRoute, getTopPriorityRoutes } from '../strategy/selector';
 import { getMapAIConfig } from '../strategy/mapConfig';
@@ -296,9 +296,10 @@ function resolveTurnRoute(state: GameState, playerId: PlayerId): DeliveryRoute |
     // 세그먼트인 경우 전체 경로의 최종 목적지도 화물 확인 대상에 포함
     const finalDestId = previousRoute.overallTo || previousRoute.to;
     const finalDestCity = state.board.cities.find(c => c.id === finalDestId);
+    // 도착 도시 수요색 매칭 — 한국(동적 색상)은 도시 cubes 기반 (cityAcceptsCube), 그 외 city.color
     const hasMatchingCargo = !!(sourceCity && (
-      (targetCity && sourceCity.cubes.some(cube => cube === targetCity.color)) ||
-      (finalDestCity && finalDestId !== previousRoute.to && sourceCity.cubes.some(cube => cube === finalDestCity.color))
+      (targetCity && sourceCity.cubes.some(cube => cityAcceptsCube(targetCity, cube, state.board))) ||
+      (finalDestCity && finalDestId !== previousRoute.to && sourceCity.cubes.some(cube => cityAcceptsCube(finalDestCity, cube, state.board)))
     ));
 
     const investedCount = getCurrentRouteState(playerId)?.investedTrackCount ?? 0;

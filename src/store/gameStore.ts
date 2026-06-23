@@ -3465,7 +3465,7 @@ export const useGameStore = create<GameStore>()(
           logAction('goodsMovement', 'cubeUndeliverable', {
             trackId, reason: 'noConnection',
             cube: stk?.cube, at: stk?.coord, edges: stk?.edges,
-            sameColorCities: state.board.cities.filter(c => c.color === stk?.cube).map(c => ({ id: c.id, c: c.coord })),
+            sameColorCities: state.board.cities.filter(c => stk?.cube != null && cityAcceptsCube(c, stk.cube, state.board)).map(c => ({ id: c.id, c: c.coord })),
             tracks: state.board.trackTiles.map(t => ({ c: t.coord, e: t.edges, se: t.secondaryEdges ?? null, tt: t.trackType, o: t.owner, so: t.secondaryOwner ?? null, cube: t.cube ?? null })),
             spurs: (state.board.townSpurs ?? []).map(s => ({ t: s.townCoord, e: s.edge, o: s.owner })),
             towns: state.board.towns.map(t => ({ c: t.coord, ncc: t.newCityColor })),

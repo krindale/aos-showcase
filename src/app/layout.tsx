@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import Navigation from "@/components/Navigation";
-import Footer from "@/components/Footer";
+import SiteShell from "@/components/SiteShell";
 import { ServiceWorkerRegistration } from "./service-worker-registration";
 
 // Use basePath for production (GitHub Pages) deployment
@@ -36,11 +35,7 @@ export default function RootLayout({
       <body className="antialiased min-h-screen flex flex-col">
         {/* Register serviceWorker for PWA support */}
         <ServiceWorkerRegistration />
-        <Navigation />
-        <main className="flex-1">
-          {children}
-        </main>
-        <Footer />
+        <SiteShell>{children}</SiteShell>
       </body>
     </html>
   );

@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { motion, AnimatePresence, useInView } from 'framer-motion';
 import {
   ChevronLeft,
@@ -387,15 +388,15 @@ export default function MapsPage() {
                         )}
                       </div>
 
-                      {/* 플레이 가능한 맵: 게임 진입 버튼 */}
+                      {/* 플레이 가능한 맵: 게임 진입 버튼 (Link로 클라이언트 전환 — 하드 리로드 깜빡임 제거) */}
                       {currentMap.playable && (
-                        <a
-                          href={`${basePath}/game/${currentMap.slug}/`}
+                        <Link
+                          href={`/game/${currentMap.slug}/`}
                           className="btn-primary mt-4 flex items-center justify-center gap-2 text-sm py-3"
                         >
                           <Play className="w-4 h-4" />
                           지금 플레이하기
-                        </a>
+                        </Link>
                       )}
                     </div>
                   </div>
@@ -470,16 +471,16 @@ export default function MapsPage() {
                     {map.players}
                   </div>
                 </div>
-                {/* 플레이 가능한 맵: 그리드에서 바로 게임 진입 */}
+                {/* 플레이 가능한 맵: 그리드에서 바로 게임 진입 (Link로 클라이언트 전환) */}
                 {map.playable && (
-                  <a
-                    href={`${basePath}/game/${map.slug}/`}
+                  <Link
+                    href={`/game/${map.slug}/`}
                     onClick={(e) => e.stopPropagation()}
                     className="btn-primary mt-4 flex items-center justify-center gap-2 text-sm py-2"
                   >
                     <Play className="w-4 h-4" />
                     플레이
-                  </a>
+                  </Link>
                 )}
               </motion.div>
             ))}

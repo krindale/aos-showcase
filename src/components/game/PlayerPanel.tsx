@@ -32,6 +32,8 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
     }))
   );
   const issueShare = useGameStore((state) => state.issueShare);
+  // 직전 수입 감소량 (수입이 갑자기 줄어든 이유 표시용)
+  const incomeReduction = useGameStore((state) => state.incomeReductions?.[playerId] ?? 0);
   const player = players[playerId];
   const isActive = currentPlayer === playerId;
   const playerColor = PLAYER_COLORS[player.color];
@@ -92,7 +94,12 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
         </div>
         <div className="flex items-center gap-2 text-[11px] font-medium flex-shrink-0">
           <span className="flex items-center gap-0.5 text-green-400" title="현금"><DollarSign className="w-3 h-3" />{player.cash}</span>
-          <span className="flex items-center gap-0.5 text-blue-400" title="수입"><TrendingUp className="w-3 h-3" />{player.income}</span>
+          <span className="flex items-center gap-0.5 text-blue-400" title="수입">
+            <TrendingUp className="w-3 h-3" />{player.income}
+            {incomeReduction > 0 && (
+              <span className="text-[9px] font-semibold text-red-400" title="수입 감소(시장 위축)">−{incomeReduction}</span>
+            )}
+          </span>
           <span className="flex items-center gap-0.5 text-yellow-400" title="엔진"><Train className="w-3 h-3" />{player.engineLevel}</span>
           <span className="flex items-center gap-0.5 text-purple-400" title="발행 주식"><FileText className="w-3 h-3" />{player.issuedShares}</span>
         </div>
@@ -172,7 +179,19 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
           <TrendingUp className="text-blue-400 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />
           <div className="min-w-0">
             <div className="text-[10px] md:text-xs text-foreground-secondary">수입</div>
-            <div className="text-sm md:text-base font-bold text-foreground truncate">{player.income}</div>
+            <div className="text-sm md:text-base font-bold text-foreground truncate flex items-center gap-1">
+              {player.income}
+              {incomeReduction > 0 && (
+                <motion.span
+                  initial={{ opacity: 0, scale: 0.7 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="text-[9px] md:text-[10px] font-semibold text-red-400 whitespace-nowrap"
+                  title="수입 감소 단계(시장 위축)로 수입이 줄었습니다"
+                >
+                  −{incomeReduction} 수익 감소
+                </motion.span>
+              )}
+            </div>
           </div>
         </div>
 

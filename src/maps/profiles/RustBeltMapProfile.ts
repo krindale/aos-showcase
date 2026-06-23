@@ -5,6 +5,7 @@
 // 경로 전략·incomeSources(cityCubes)·엔진 상한 등은 StandardMapProfile 기본을 상속.
 
 import { StandardMapProfile } from './StandardMapProfile';
+import { MapRuleSummary } from '../MapProfile';
 import { MapId } from '../MapId';
 import { RUST_BELT_MAP, createRustBeltBoardState } from '@/utils/rustBeltMap';
 
@@ -23,5 +24,13 @@ export class RustBeltMapProfile extends StandardMapProfile {
   // 룰북 셋업: "Place 3 goods on Pittsburgh and Wheeling, 2 on each other City"
   override get cityCubeCounts(): Record<string, number> {
     return { pittsburgh: 3, wheeling: 3 };
+  }
+
+  override get specialRules(): MapRuleSummary[] {
+    return [
+      { title: '표준 규칙 맵', detail: 'Age of Steam 기본 룰을 그대로 따르는 미국 북동부 맵입니다.' },
+      { title: '큐브 많은 도시', detail: 'Pittsburgh·Wheeling은 시작 큐브 3개, 그 외 도시는 2개입니다.' },
+      { title: '5인 7턴', detail: '플레이어 수에 따라 턴 수가 정해집니다 (5인 기준 7턴).' },
+    ];
   }
 }

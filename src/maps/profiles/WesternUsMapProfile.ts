@@ -10,7 +10,7 @@
 //  - 도시화 특례: Kansas City→동부, San Diego/Portland→서부
 
 import { StandardMapProfile } from './StandardMapProfile';
-import { IncomeSource } from '../MapProfile';
+import { IncomeSource, MapRuleSummary } from '../MapProfile';
 import { MapId } from '../MapId';
 import { City } from '@/types/game';
 import {
@@ -65,5 +65,18 @@ export class WesternUsMapProfile extends StandardMapProfile {
   // 동↔서 배달 +$1
   override regionDeliveryBonus(fromRegion?: 'east' | 'west', toRegion?: 'east' | 'west'): number {
     return fromRegion && toRegion && fromRegion !== toRegion ? 1 : 0;
+  }
+
+  override get specialRules(): MapRuleSummary[] {
+    return [
+      { title: '6인 6턴', detail: '서부 미국 대륙횡단 — 6명, 6턴으로 진행합니다.' },
+      { title: '시작 자금 $20', detail: '2주 발행으로 $20을 받고 시작합니다 (표준 $10보다 많음).' },
+      { title: '마을 큐브 배달', detail: '마을에도 큐브가 1개씩 있어 도시처럼 출발점이 됩니다 (보충 안 됨).' },
+      { title: '시작 도시 제한', detail: '첫 트랙은 서부(시애틀·샌프란시스코·LA)/동부 시작 도시에 인접해야 합니다. 덴버·솔트레이크는 시작 불가.' },
+      { title: '연속 건설 강제', detail: '대륙횡단 달성 전까지 모든 새 트랙은 내 철도망과 이어져야 합니다.' },
+      { title: '🌉 대륙횡단 보너스', detail: '서부↔동부 시작 도시를 최초로 연결하면 즉시 수입 보너스(+$4 또는 각 +$2). 이후 연속 건설 규칙 해제.' },
+      { title: '동↔서 배달 +$1', detail: '동부 도시→서부 도시(또는 반대) 배달 시 수입 +1 보너스.' },
+      { title: '지형 비용', detail: '늪·강 $4, 산 $5로 건설 비용이 높습니다.' },
+    ];
   }
 }

@@ -132,15 +132,17 @@ const MOUNTAIN_TILES: { col: number; row: number }[] = [
 ];
 
 // === 강 19헥스 (전치 좌표) — 원본 파란 곡선을 따라 연속 추출 ===
-const RIVER_TILES: { col: number; row: number }[] = [
+// edges = 강이 지나는 두 면 [면1, 면2] (0=E,1=SE,2=SW,3=W,4=NW,5=NE). 지정 시 그 두 면으로 그림(도시로 끝맺음 등).
+const RIVER_TILES: { col: number; row: number; edges?: [number, number] }[] = [
   // Mississippi: Minneapolis 남하 → St. Louis
   { col: 3, row: 2 }, { col: 3, row: 3 }, { col: 4, row: 4 }, { col: 5, row: 4 },
   { col: 6, row: 4 }, { col: 7, row: 4 }, { col: 8, row: 4 }, { col: 8, row: 5 },
   { col: 9, row: 6 }, { col: 10, row: 6 },
   // Niagara: Toronto–Buffalo
-  { col: 2, row: 16 },
+  { col: 2, row: 16, edges: [2, 0] }, // 2시(면2) 시작 → 6시(면0) 끝
   // Ohio: Pittsburgh → Cincinnati → 남서
-  { col: 7, row: 15 }, { col: 7, row: 16 }, { col: 6, row: 16 },
+  { col: 7, row: 15 }, { col: 7, row: 16 },
+  { col: 6, row: 16, edges: [0, 2] }, // E→(7,16) 강 / SW→Pittsburgh(5,17) — 강이 Pittsburgh로 끝남
   { col: 8, row: 13 }, { col: 8, row: 14 }, { col: 9, row: 11 }, { col: 9, row: 12 },
   { col: 10, row: 10 },
 ];
@@ -152,6 +154,7 @@ export function generateRustBeltHexTiles(): HexTile[] {
   const lakeKeys = new Set(LAKE_TILES.map((t) => `${t.col},${t.row}`));
   const mtnKeys = new Set(MOUNTAIN_TILES.map((t) => `${t.col},${t.row}`));
   const rivKeys = new Set(RIVER_TILES.map((t) => `${t.col},${t.row}`));
+  const rivEdges = new Map(RIVER_TILES.filter((t) => t.edges).map((t) => [`${t.col},${t.row}`, t.edges!] as const));
 
   for (let row = 0; row < RUST_BELT_MAP.rows; row++) {
     for (let col = RUST_BELT_MAP.startCol; col < RUST_BELT_MAP.cols; col++) {
@@ -163,7 +166,9 @@ export function generateRustBeltHexTiles(): HexTile[] {
       else if (mtnKeys.has(key)) terrain = 'mountain';
       else if (rivKeys.has(key)) terrain = 'river';
 
-      tiles.push({ coord: { col, row }, terrain });
+      const tile: HexTile = { coord: { col, row }, terrain };
+      if (terrain === 'river' && rivEdges.has(key)) tile.riverEdges = rivEdges.get(key);
+      tiles.push(tile);
     }
   }
 

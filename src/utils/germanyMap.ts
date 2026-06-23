@@ -140,9 +140,16 @@ const MOUNTAIN: [number, number][] = [
   [12,9],[12,11],[12,12],[13,2],[13,6],[13,7],[13,8],[13,9],[13,10],[14,2],[14,6],[14,8],[14,10],
 ];
 
-// === 강(파랑) 헥스 (전치 좌표) ===
-const RIVER: [number, number][] = [
-  [3,4],[3,5],[3,10],[5,5],[6,1],[6,2],[8,2],[8,3],[9,3],
+// === 강(파랑) 헥스 (전치 좌표). edges = 강이 지나는 두 면 [면1,면2] (0=E,1=SE,2=SW,3=W,4=NW,5=NE) ===
+const RIVER: { coord: [number, number]; edges?: [number, number] }[] = [
+  { coord: [3,4] },
+  { coord: [3,5], edges: [4,0] }, // 10시(면4) 시작 → 6시(면0) 끝
+  { coord: [3,10], edges: [3,1] }, // 12시(면3) 시작 → 4시(면1) 끝
+  { coord: [5,5] },
+  { coord: [6,1], edges: [4,2] }, // 10시(면4) 시작 → 2시(면2) 끝
+  { coord: [6,2], edges: [5,1] }, // 8시(면5) 시작 → 4시(면1) 끝
+  { coord: [8,2], edges: [3,1] }, // 12시(면3) 시작 → 4시(면1) 끝
+  { coord: [8,3] }, { coord: [9,3] },
 ];
 
 // === 헥스별 고정 건설비용 (€) — 이미지 숫자 판독 (전치 좌표) ===
@@ -157,7 +164,8 @@ export function generateGermanyHexTiles(): HexTile[] {
   const cityKeys = new Set(GERMANY_ALL_CITIES.map((c) => `${c.coord.col},${c.coord.row}`));
   const offKeys = new Set(OFFMAP.map(([c, r]) => `${c},${r}`));
   const mtnKeys = new Set(MOUNTAIN.map(([c, r]) => `${c},${r}`));
-  const rivKeys = new Set(RIVER.map(([c, r]) => `${c},${r}`));
+  const rivKeys = new Set(RIVER.map((r) => `${r.coord[0]},${r.coord[1]}`));
+  const rivEdges = new Map(RIVER.filter((r) => r.edges).map((r) => [`${r.coord[0]},${r.coord[1]}`, r.edges!] as const));
 
   for (let row = 0; row < GERMANY_MAP.rows; row++) {
     for (let col = GERMANY_MAP.startCol; col < GERMANY_MAP.cols; col++) {
@@ -173,7 +181,10 @@ export function generateGermanyHexTiles(): HexTile[] {
         else if (rivKeys.has(key)) terrain = 'river';
       }
 
-      tiles.push(fixedCost !== undefined ? { coord: { col, row }, terrain, fixedCost } : { coord: { col, row }, terrain });
+      const tile: HexTile = { coord: { col, row }, terrain };
+      if (fixedCost !== undefined) tile.fixedCost = fixedCost;
+      if (terrain === 'river' && rivEdges.has(key)) tile.riverEdges = rivEdges.get(key);
+      tiles.push(tile);
     }
   }
   return tiles;

@@ -33,7 +33,7 @@ const maps = [
     icon: Factory,
     color: 'steam-red',
     bgColor: 'from-steam-red/30 via-background-secondary to-background',
-    image: '/maps/rust-belt.png',
+    image: '/maps/rust-belt.webp',
     description: '미국 북동부 산업 지대를 배경으로 한 Age of Steam 기본 맵입니다. 오대호와 산악, 두 강을 낀 5인 대결 맵.',
     features: [
       '12개 도시 · 14개 마을',
@@ -56,7 +56,7 @@ const maps = [
     icon: MapPin,
     color: 'steam-blue',
     bgColor: 'from-steam-blue/30 via-background-secondary to-background',
-    image: '/maps/korea.png',
+    image: '/maps/korea.webp',
     description: '도시의 색상이 고정되지 않고, 현재 놓인 물품 큐브에 따라 동적으로 결정되는 독특한 맵입니다. 평양에서 부산까지 한반도 전역을 연결하세요.',
     features: [
       '도시 색상 = 현재 물품 색상',
@@ -80,7 +80,7 @@ const maps = [
     icon: Mountain,
     color: 'steam-yellow',
     bgColor: 'from-steam-yellow/30 via-background-secondary to-background',
-    image: '/maps/western-us.png',
+    image: '/maps/western-us.webp',
     description: '태평양에서 미시시피까지 횡단하는 6인 철도 건설. 험준한 산맥·늪과 동서 연결 보너스가 특징입니다.',
     features: [
       '서부·동부 시작 도시에서만 건설',
@@ -103,7 +103,7 @@ const maps = [
     icon: Factory,
     color: 'steam-green',
     bgColor: 'from-steam-green/30 via-background-secondary to-background',
-    image: '/maps/germany.png',
+    image: '/maps/germany.webp',
     description: '산업 혁명기의 독일. 외국 터미널, 헥스별 고정 건설비용, 알프스 산악을 낀 4인 대결 맵입니다.',
     features: [
       '도시 13 · 마을 14 · 외국 터미널 6',
@@ -126,7 +126,7 @@ const maps = [
     icon: Palmtree,
     color: 'steam-purple',
     bgColor: 'from-steam-purple/30 via-background-secondary to-background',
-    image: '/maps/barbados.png',
+    image: '/maps/barbados.webp',
     description: '1인 전용 솔로 맵. 작은 섬에서 최적의 철도 네트워크를 구축하는 퍼즐입니다.',
     features: [
       '솔로 플레이 전용',
@@ -149,7 +149,7 @@ const maps = [
     icon: Palmtree,
     color: 'accent',
     bgColor: 'from-accent/30 via-background-secondary to-background',
-    image: '/maps/st-lucia.png',
+    image: '/maps/st-lucia.webp',
     description: '2인 전용 대결 맵. 작은 공간에서 벌어지는 치열한 1:1 경쟁입니다.',
     features: [
       '2인 플레이 전용',

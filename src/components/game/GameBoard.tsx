@@ -1253,9 +1253,9 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                 );
               })()}
 
-              {/* 물품 큐브 (도시 하단 숫자 박스 가운데) — 터미널은 박스 색으로 표시하므로 생략 */}
+              {/* 물품 큐브 (도시 하단 숫자 박스 가운데) */}
               <g>
-                {!city.isTerminal && city.cubes.map((cubeColor, i) => {
+                {city.cubes.map((cubeColor, i) => {
                   const cubeEdge = isFlat ? SQRT3_2 * (HEX_SIZE - 2) : HEX_SIZE - 2;
                   // 4개 이상은 2줄로 배치
                   const n = city.cubes.length;
@@ -1264,8 +1264,10 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                   const colIdx = i % cols;
                   const colsInRow = row === 0 ? cols : n - cols;
                   const cubeX = x - ((colsInRow - 1) * 18) / 2 + colIdx * 18;
-                  // 화물 상단 테두리 ≈ 아래 숫자 박스 상단 테두리, 2줄이면 아래로 한 줄 더
-                  const cubeY = y + cubeEdge - HEX_SIZE * 0.58 + 4 + row * 15;
+                  // 일반 도시: 화물 상단 = 아래 박스 상단(2줄이면 아래로). 터미널: 아래 수용색 박스 정가운데.
+                  const cubeY = city.isTerminal
+                    ? y + cubeEdge - (HEX_SIZE * 0.58) / 2
+                    : y + cubeEdge - HEX_SIZE * 0.58 + 4 + row * 15;
                   const isSelected =
                     ui.selectedCube?.cityId === city.id &&
                     ui.selectedCube?.cubeIndex === i;

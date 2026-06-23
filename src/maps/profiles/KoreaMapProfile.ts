@@ -32,6 +32,12 @@ export class KoreaMapProfile extends StandardMapProfile {
 
   // 도시화: 디스플레이에서 큐브 2개를 신도시에 배치 후 보충 (신도시 수요색이 이 큐브로 결정됨)
   override get urbanizeFromDisplayCount(): number { return 2; }
+  // 공식 맵 시트 기준 숫자 박스 색 (도시별 지정 + 기본은 어두운 수요색만 검정)
+  override isCityNumberBoxBlack(cityId: string, demandColor: string): boolean {
+    if (['taejon', 'incheon', 'gangneung'].includes(cityId)) return false; // 흰 박스
+    if (['pohang', 'gwangju'].includes(cityId)) return true; // 검은 박스
+    return ['blue', 'purple', 'black'].includes(demandColor);
+  }
 
   // 평양·수원은 물품 성장 안 받음
   override get noGrowthCityIds(): string[] { return ['pyongyang', 'suwon']; }

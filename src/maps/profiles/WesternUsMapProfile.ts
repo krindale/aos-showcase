@@ -42,6 +42,14 @@ export class WesternUsMapProfile extends StandardMapProfile {
   }
   override get startingCash(): number { return 20; }
 
+  // 공식 맵 시트에서 숫자 박스가 검은색인 도시 (동부 도시)
+  private static readonly BLACK_BOX_IDS = new Set([
+    'duluth', 'minneapolis', 'desmoines', 'memphis', 'vicksburg', 'neworleans',
+  ]);
+  override isCityNumberBoxBlack(cityId: string): boolean {
+    return WesternUsMapProfile.BLACK_BOX_IDS.has(cityId);
+  }
+
   // 지형 비용(늪/강 $4, 산 $5)은 헥스 fixedCost로 주입됨 (westernUsMap.generateWesternUsHexTiles).
 
   // income 원천: 도시 큐브 + 마을 큐브

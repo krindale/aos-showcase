@@ -34,6 +34,13 @@ export class GermanyMapProfile extends StandardMapProfile {
   override get engineerHalfCost(): boolean { return true; }
   override get requireCompleteLinks(): boolean { return true; }
   override get bonusCityCubeId(): string | null { return 'berlin'; }
+  // 기본 검은 박스, 단 공식 시트에서 흰 박스인 도시는 예외
+  private static readonly WHITE_BOX_IDS = new Set([
+    'oldenburg', 'duesseldorf', 'breslau', 'stuttgart', 'zuerich',
+  ]);
+  override isCityNumberBoxBlack(cityId: string): boolean {
+    return !GermanyMapProfile.WHITE_BOX_IDS.has(cityId);
+  }
 
   override get specialRules(): MapRuleSummary[] {
     return [

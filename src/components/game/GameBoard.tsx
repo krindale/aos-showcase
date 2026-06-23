@@ -755,18 +755,25 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                     style={{ pointerEvents: 'none' }}
                   />
                 )}
-                {/* 강 헥스: 인접 강 헥스와 변에서 이어지는 연속 강줄기 (철도 타일처럼 흐름) */}
+                {/* 강 헥스: 인접 강 헥스와 변에서 이어지는 연속 강줄기 (철도 타일처럼 흐름).
+                    헥스 모양 clipPath로 강줄기가 외곽선을 넘어가지 않게 가둔다. */}
                 {terrain === 'river' && !isHighlighted && (
-                  <path
-                    d={riverFlowPath(coord, x, y)}
-                    fill="none"
-                    stroke={terrainColors.river ?? '#5FA3D4'}
-                    strokeWidth="11"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    opacity="0.95"
-                    style={{ pointerEvents: 'none' }}
-                  />
+                  <>
+                    <clipPath id={`river-clip-${col}-${row}`}>
+                      <polygon points={getHexPoints(x, y, HEX_SIZE, isFlat)} />
+                    </clipPath>
+                    <path
+                      d={riverFlowPath(coord, x, y)}
+                      fill="none"
+                      stroke={terrainColors.river ?? '#5FA3D4'}
+                      strokeWidth="11"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity="0.95"
+                      clipPath={`url(#river-clip-${col}-${row})`}
+                      style={{ pointerEvents: 'none' }}
+                    />
+                  </>
                 )}
                 {/* Germany 헥스 고정 건설비용 — 박스 안에 숫자 (그 칸에 트랙을 깔 때 드는 비용).
                     'legend' 맵(Western US)은 지형별 비용이 균일 → 헥스 숫자 대신 좌하단 범례로 표시. */}

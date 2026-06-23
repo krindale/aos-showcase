@@ -127,6 +127,26 @@ export function getUndoLabel(): string | null {
 }
 
 /**
+ * 두 인접 헥스 사이가 "철도 건설 불가 경계 변"인지 (한국 산맥 등 board.blockedEdges, a/b 순서 무관).
+ */
+function isBlockedEdgePair(board: BoardState, a: HexCoord, b: HexCoord): boolean {
+  if (!board.blockedEdges || board.blockedEdges.length === 0) return false;
+  return board.blockedEdges.some(be =>
+    (hexCoordsEqual(be.a, a) && hexCoordsEqual(be.b, b)) ||
+    (hexCoordsEqual(be.a, b) && hexCoordsEqual(be.b, a))
+  );
+}
+
+/**
+ * 철도 건설 불가 경계 변을 넘는 트랙인지 판정.
+ * edges 중 하나라도 막힌 경계(coord↔이웃)를 향하면 true → 건설 금지.
+ */
+function crossesBlockedEdge(board: BoardState, coord: HexCoord, edges: number[]): boolean {
+  if (!board.blockedEdges || board.blockedEdges.length === 0) return false;
+  return edges.some(e => isBlockedEdgePair(board, coord, getNeighborHex(coord, e)));
+}
+
+/**
  * 마을에서 빠져 있는 가닥(스퍼) 찾기 — 내 트랙이 마을 변에 닿아 있으나 가닥이 없는 변.
  * (카운트 부족으로 타일만 짓고 미연결된 트랙을 다음 턴에 buildTownSpur로 완성하는 용도)
  */
@@ -1927,6 +1947,9 @@ export const useGameStore = create<GameStore>()(
     const hexTile = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord));
     if (hexTile && hexTile.terrain === 'lake') return false;
 
+    // 철도 건설 불가 경계 변을 넘는 트랙 금지 (한국 산맥 등)
+    if (crossesBlockedEdge(board, coord, edges)) return false;
+
     // 이미 트랙이 있는지 확인
     const existingTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
     if (existingTrack) {
@@ -2170,6 +2193,9 @@ export const useGameStore = create<GameStore>()(
 
     // 마을 헥스에는 복합 트랙 불가 (마을은 타일 없는 연결점)
     if (state.board.towns.some(t => hexCoordsEqual(t.coord, coord))) return false;
+
+    // 철도 건설 불가 경계 변을 넘는 복합 트랙 금지 (한국 산맥 등)
+    if (crossesBlockedEdge(state.board, coord, newEdges)) return false;
 
     // 기존 트랙이 있어야 함
     const existingTrack = state.board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
@@ -3709,8 +3735,9 @@ export const useGameStore = create<GameStore>()(
       return;
     }
 
-    // 건설 가능한 이웃 헥스 계산 (교체/방향전환 포함)
-    const neighbors = getBuildableNeighbors(coord, state.board, currentPlayer, true);
+    // 건설 가능한 이웃 헥스 계산 (교체/방향전환 포함). 건설 불가 경계 변 쪽은 제외(가이드에서 숨김).
+    const neighbors = getBuildableNeighbors(coord, state.board, currentPlayer, true)
+      .filter(n => !isBlockedEdgePair(state.board, coord, n.coord));
 
     // 하이라이트할 헥스 목록
     const highlightedHexes = neighbors.map(n => n.coord);
@@ -3747,8 +3774,9 @@ export const useGameStore = create<GameStore>()(
       return;
     }
 
-    // 나갈 수 있는 방향들 계산 (들어오는 방향 제외)
-    let exitDirs = getExitDirections(coord, neighbor.targetEdge, state.board);
+    // 나갈 수 있는 방향들 계산 (들어오는 방향 제외). 건설 불가 경계 변 쪽 방향은 제외(가이드에서 숨김).
+    let exitDirs = getExitDirections(coord, neighbor.targetEdge, state.board)
+      .filter(d => !isBlockedEdgePair(state.board, coord, d.neighborCoord));
 
     // 기존 트랙이 있는 헥스: 기존 트랙의 엣지와 겹치는 방향 제외 (복합 트랙은 겹치지 않는 엣지만 허용)
     const existingTrack = state.board.trackTiles.find(
@@ -3994,6 +4022,9 @@ export const useGameStore = create<GameStore>()(
 
     // 새 엣지 설정
     const newEdges: [number, number] = [connectedEdge, newExitEdge];
+
+    // 철도 건설 불가 경계 변으로는 방향 전환 불가 (한국 산맥 등)
+    if (crossesBlockedEdge(state.board, coord, newEdges)) return false;
 
     // 가닥은 자동 생성하지 않음 — 타일만 1카운트. 마을 연결은 마을 클릭(buildTownSpur)으로.
     const redirectSpurs: { townCoord: HexCoord; edge: number }[] = [];

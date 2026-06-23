@@ -131,6 +131,20 @@ export const KOREA_DIRECT_LINKS = [
   { cityA: 'suwon', cityB: 'incheon', cost: 2, owner: null as null },
 ];
 
+// === 철도 건설 불가 경계 변 (산맥 등) — 두 인접 헥스 사이 변으로는 트랙을 잇지 못한다.
+//     렌더는 지도 외곽선의 2배 굵기 실선으로 표시. ===
+export const KOREA_BLOCKED_EDGES: { a: { col: number; row: number }; b: { col: number; row: number } }[] = [
+  { a: { col: 3,  row: 3 }, b: { col: 4,  row: 3 } },
+  { a: { col: 6,  row: 3 }, b: { col: 6,  row: 4 } },
+  { a: { col: 6,  row: 4 }, b: { col: 7,  row: 4 } },
+  { a: { col: 7,  row: 2 }, b: { col: 7,  row: 3 } },
+  { a: { col: 15, row: 2 }, b: { col: 14, row: 3 } },
+  { a: { col: 15, row: 2 }, b: { col: 15, row: 3 } },
+  { a: { col: 14, row: 6 }, b: { col: 13, row: 7 } },
+  { a: { col: 13, row: 7 }, b: { col: 13, row: 8 } },
+  { a: { col: 13, row: 8 }, b: { col: 13, row: 9 } },
+];
+
 // === 지형 좌표 (추출 결과, [col, row] — col=화면세로, row=화면가로) ===
 // 산악(갈색). 강은 없음. 산 건설비용 $3.
 const MOUNTAIN: [number, number][] = [
@@ -187,6 +201,7 @@ export function createKoreaBoardState(): BoardState {
     hexTiles: generateKoreaHexTiles(),
     directLinks: KOREA_DIRECT_LINKS.map((d) => ({ ...d })),
     dynamicCityColors: true, // 한국: 도시 수요색 = 현재 놓인 큐브 색 (cityAcceptsCube 헬퍼)
+    blockedEdges: KOREA_BLOCKED_EDGES.map((e) => ({ a: { ...e.a }, b: { ...e.b } })),
   };
 }
 

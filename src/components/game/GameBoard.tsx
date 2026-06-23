@@ -90,6 +90,14 @@ function numberBoxPath(
   return `M ${x0} ${base + rad} Q ${x0} ${base} ${x0 + rad} ${base} L ${x1 - rad} ${base} Q ${x1} ${base} ${x1} ${base + rad} L ${x1} ${shoulder} L ${x} ${apex} L ${x0} ${shoulder} Z`;
 }
 
+// 헥스 꼭짓점 i의 픽셀 좌표 (지도 바깥 외곽 실루엣 선을 그릴 때 사용). 변 e는 꼭짓점 e와 e+1 사이.
+function hexVertex(cx: number, cy: number, i: number, flat: boolean): { x: number; y: number } {
+  const angle = (Math.PI / 3) * i - Math.PI / 6;
+  const dx = HEX_SIZE * Math.cos(angle);
+  const dy = HEX_SIZE * Math.sin(angle);
+  return flat ? { x: cx + dy, y: cy + dx } : { x: cx + dx, y: cy + dy };
+}
+
 export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean } = {}) {
   // fitOverlay: 화물 이동 애니메이션을 전체 화면에 꽉 차게(fit) 보여주는 비인터랙티브 오버레이 모드
   // 디버그: 헥스 좌표 표시 토글 (우측 상단 버튼)
@@ -139,6 +147,50 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     });
     return s;
   }, [board.hexTiles]);
+
+  // 지도 바깥 외곽선 — 그려지는 헥스(도시 + lake 아닌 타일)의 "이웃이 없는 바깥 변"만 모아
+  // 두꺼운 실선으로 잇는다. 헥스 실루엣 = 지도 외곽. (모든 맵 generic)
+  const mapOutlinePath = useMemo(() => {
+    const solid = new Set<string>();
+    board.cities.forEach(c => solid.add(`${c.coord.col},${c.coord.row}`));
+    board.hexTiles.forEach(h => {
+      if (h.terrain !== 'lake' || !mapData.hideLakeHexes) solid.add(`${h.coord.col},${h.coord.row}`);
+    });
+    let d = '';
+    solid.forEach(k => {
+      const [col, row] = k.split(',').map(Number);
+      const { x, y } = hexToPixel(col, row, undefined, undefined, undefined, isFlat);
+      for (let e = 0; e < 6; e++) {
+        const nb = getNeighborHex({ col, row }, e);
+        if (!solid.has(`${nb.col},${nb.row}`)) {
+          const v1 = hexVertex(x, y, e, isFlat);
+          const v2 = hexVertex(x, y, (e + 1) % 6, isFlat);
+          d += `M ${v1.x.toFixed(1)} ${v1.y.toFixed(1)} L ${v2.x.toFixed(1)} ${v2.y.toFixed(1)} `;
+        }
+      }
+    });
+    return d;
+  }, [board.cities, board.hexTiles, mapData.hideLakeHexes, isFlat]);
+
+  // 철도 건설 불가 경계 변 — 두 인접 헥스의 공유 변을 외곽선 2배 굵기 실선으로 (한국 산맥 등)
+  const blockedEdgePath = useMemo(() => {
+    const list = board.blockedEdges;
+    if (!list || list.length === 0) return '';
+    let d = '';
+    for (const { a, b } of list) {
+      const { x, y } = hexToPixel(a.col, a.row, undefined, undefined, undefined, isFlat);
+      for (let e = 0; e < 6; e++) {
+        const nb = getNeighborHex(a, e);
+        if (nb.col === b.col && nb.row === b.row) {
+          const v1 = hexVertex(x, y, e, isFlat);
+          const v2 = hexVertex(x, y, (e + 1) % 6, isFlat);
+          d += `M ${v1.x.toFixed(1)} ${v1.y.toFixed(1)} L ${v2.x.toFixed(1)} ${v2.y.toFixed(1)} `;
+          break;
+        }
+      }
+    }
+    return d;
+  }, [board.blockedEdges, isFlat]);
 
   // 강 타일이 데이터로 "지나는 두 면"을 지정한 경우 (맵 데이터에 적힌 강 방향) — generic, 맵 분기 없음
   const riverEdgeMap = useMemo(() => {
@@ -783,12 +835,16 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             }
           };
 
+          // 트랙 건설 가이드: 마을 방향으로 지을 수 있을 때 노란 하이라이트 (헥스와 동일)
+          const isTownHighlighted = currentPhase === 'buildTrack'
+            && ui.highlightedHexes.some(h => hexCoordsEqual(h, town.coord));
+
           return (
             <g key={`town-${town.id}`}>
               {/* 마을 배경 헥스 */}
               <polygon
                 points={getHexPoints(x, y, HEX_SIZE, isFlat)}
-                fill={terrainColors.plain}
+                fill={isTownHighlighted ? 'rgba(212, 168, 83, 0.45)' : terrainColors.plain}
                 stroke={
                   isUrbanizationClickable
                     ? '#3B82F6'  // 도시화 가능: 파란색 테두리
@@ -796,9 +852,11 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                     ? '#f4a261'  // 미연결 가닥 완성 가능: 주황 점선 테두리
                     : isSourceSelected
                     ? '#ffffff'
+                    : isTownHighlighted
+                    ? '#d4a853'  // 트랙 건설 가능 방향: 노란(골드) 테두리
                     : '#2D4A2D'  // 배경 평지 헥스와 동일
                 }
-                strokeWidth={0.5}
+                strokeWidth={isTownHighlighted ? 1.5 : 0.5}
                 strokeDasharray={canCompleteSpur ? '6 4' : undefined}
                 className={(isTownClickable || isUrbanizationClickable) ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''}
                 onClick={handleTownClick}
@@ -1221,17 +1279,6 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                 onClick={handleCityClick}
               />
 
-              {/* 외국 터미널(독일): 수용 화물색 테두리 — 헥스 가장 바깥 변 위에 4px 굵게 덮어 그림 */}
-              {city.isTerminal && (
-                <polygon
-                  points={getHexPoints(x, y, HEX_SIZE, isFlat)}
-                  fill="none"
-                  stroke={goodsColor}
-                  strokeWidth={4}
-                  style={{ pointerEvents: 'none' }}
-                />
-              )}
-
               {/* 헥스 테두리 안쪽 얇은 inset 라인 (회색 도시=어두운 회색, 컬러 도시=흰색, 거의 안 보임) */}
               <polygon
                 points={getHexPoints(x, y, HEX_SIZE - 7, isFlat)}
@@ -1524,6 +1571,47 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             </g>
           );
         })()}
+
+        {/* 지도 바깥 외곽선 — 헥스 실루엣의 바깥 변(이웃 없는 변)을 두꺼운 실선으로 연결 (맵 테두리색) */}
+        {mapOutlinePath && (
+          <path
+            d={mapOutlinePath}
+            fill="none"
+            stroke={mapData.colors.border}
+            strokeWidth={4}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ pointerEvents: 'none' }}
+          />
+        )}
+
+        {/* 철도 건설 불가 내부 경계 변 — 외곽선 2배(8px) 굵기, 검은색 */}
+        {blockedEdgePath && (
+          <path
+            d={blockedEdgePath}
+            fill="none"
+            stroke="#000000"
+            strokeWidth={8}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ pointerEvents: 'none' }}
+          />
+        )}
+
+        {/* 외국 터미널(독일) 수용 화물색 테두리 — z 최상단(외곽선보다 위). 도시 그룹이 아닌 여기서 그림. */}
+        {board.cities.filter(c => c.isTerminal).map(city => {
+          const { x, y } = hexToPixel(city.coord.col, city.coord.row, undefined, undefined, undefined, isFlat);
+          return (
+            <polygon
+              key={`terminal-border-top-${city.id}`}
+              points={getHexPoints(x, y, HEX_SIZE, isFlat)}
+              fill="none"
+              stroke={CITY_COLORS[city.color]}
+              strokeWidth={4}
+              style={{ pointerEvents: 'none' }}
+            />
+          );
+        })}
         </g>
         {/* 좌표 오버레이 — 모든 요소 위(최상위). 노란 글자+검정 외곽으로 마을(흰 원)·도시 위에서도 보임.
             hexTiles에는 도시 헥스가 없으므로(generateHexTiles의 !isCity) 도시·마을 좌표를 합쳐 렌더 */}

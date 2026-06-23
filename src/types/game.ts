@@ -151,6 +151,9 @@ export interface BoardState {
    *  true면 배달 목적지/통과 판정이 city.color 대신 city.cubes로 결정된다 (cityAcceptsCube 헬퍼 참조).
    *  빈 도시는 수요 없음. 비-한국 맵은 미설정(falsy)이라 기존 city.color 동작 그대로. */
   dynamicCityColors?: boolean;
+  /** 철도 건설 불가 경계 변 — 두 인접 헥스의 공유 변을 막아 그 변으로는 트랙을 잇지 못한다(한국 산맥 등).
+   *  렌더는 지도 외곽선의 2배 굵기 실선으로 표시. (a,b 순서 무관) */
+  blockedEdges?: { a: HexCoord; b: HexCoord }[];
 }
 
 /** 도시-도시 직접 링크 (사이 헥스 없이 인접한 두 도시를 잇는 특수 트랙) */

@@ -631,7 +631,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             return (
               <g key={`hex-${col}-${row}`}>
                 <polygon
-                  points={getHexPoints(x, y, HEX_SIZE - 2, isFlat)}
+                  points={getHexPoints(x, y, HEX_SIZE, isFlat)}
                   fill={
                     isHighlighted
                       ? 'rgba(212, 168, 83, 0.3)' // 건설 가능 헥스 하이라이트
@@ -650,7 +650,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                       ? '#3A6A7A'
                       : '#2D4A2D'
                   }
-                  strokeWidth={isSourceSelected ? 3 : isHighlighted ? 3 : 2}
+                  strokeWidth={isSourceSelected ? 1.5 : isHighlighted ? 1.5 : 1}
                   className={
                     isClickable
                       ? 'cursor-pointer hover:opacity-80 transition-opacity'
@@ -757,7 +757,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             <g key={`town-${town.id}`}>
               {/* 마을 배경 헥스 */}
               <polygon
-                points={getHexPoints(x, y, HEX_SIZE - 2, isFlat)}
+                points={getHexPoints(x, y, HEX_SIZE, isFlat)}
                 fill={terrainColors.plain}
                 stroke={
                   isUrbanizationClickable
@@ -766,9 +766,9 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                     ? '#f4a261'  // 미연결 가닥 완성 가능: 주황 점선 테두리
                     : isSourceSelected
                     ? '#ffffff'
-                    : '#3D5A3D'
+                    : '#2D4A2D'  // 배경 평지 헥스와 동일
                 }
-                strokeWidth={isUrbanizationClickable ? 4 : canCompleteSpur ? 3 : isSourceSelected ? 3 : 2}
+                strokeWidth={isUrbanizationClickable ? 4 : canCompleteSpur ? 3 : isSourceSelected ? 1.5 : 1}
                 strokeDasharray={canCompleteSpur ? '6 4' : undefined}
                 className={(isTownClickable || isUrbanizationClickable) ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''}
                 onClick={handleTownClick}
@@ -1162,7 +1162,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             <g key={`city-${city.id}`}>
               {/* 도시 헥사곤 (검은 테두리 1px) */}
               <polygon
-                points={getHexPoints(x, y, HEX_SIZE - 2, isFlat)}
+                points={getHexPoints(x, y, HEX_SIZE, isFlat)}
                 fill={cityColor}
                 stroke={
                   isReachableDestination

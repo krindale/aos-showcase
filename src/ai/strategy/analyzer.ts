@@ -2,7 +2,7 @@ import { GameState, PlayerId, HexCoord, CubeColor, BoardState, GAME_CONSTANTS } 
 import { debugLog } from '@/utils/debugConfig';
 import { DeliveryOpportunity, DeliveryRoute } from './types';
 import { getMapAIConfig } from './mapConfig';
-import { getNeighborHex, hexCoordsEqual, hexDistance, getConnectedNeighbors, hexToKey, getConnectingEdge, getOppositeEdge, playerEdgesAtTrack, cityAcceptsCube } from '@/utils/hexGrid';
+import { getNeighborHex, hexCoordsEqual, hexDistance, getConnectedNeighbors, hexToKey, getConnectingEdge, getOppositeEdge, playerEdgesAtTrack, cityAcceptsCube, isBlockedEdge } from '@/utils/hexGrid';
 
 // 경로 캐시 (출발지-목적지 → 경로)
 const pathCache: Map<string, HexCoord[]> = new Map();
@@ -99,6 +99,10 @@ export function findOptimalPath(
     for (let edge = 0; edge < 6; edge++) {
       const neighbor = getNeighborHex(current.coord, edge);
       const neighborKey = coordKey(neighbor);
+
+      // ★ 철도 건설 불가 경계 변(한국 산맥 등)은 AI 경로에서도 넘지 않는다 — 막힌 변을 통과하는
+      // 경로를 짜면 건설 단계에서 거부돼 슬롯을 낭비한다(경로탐색 단계에서 원천 회피).
+      if (isBlockedEdge(board, current.coord, neighbor)) continue;
 
       // 이미 방문한 노드 스킵
       if (closedSet.has(neighborKey)) continue;
@@ -735,6 +739,10 @@ export function findOptimalPathAvoidingOpponent(
     for (let edge = 0; edge < 6; edge++) {
       const neighbor = getNeighborHex(current.coord, edge);
       const neighborKey = coordKey(neighbor);
+
+      // ★ 철도 건설 불가 경계 변(한국 산맥 등)은 AI 경로에서도 넘지 않는다 — 막힌 변을 통과하는
+      // 경로를 짜면 건설 단계에서 거부돼 슬롯을 낭비한다(경로탐색 단계에서 원천 회피).
+      if (isBlockedEdge(board, current.coord, neighbor)) continue;
 
       // 이미 방문한 노드 스킵
       if (closedSet.has(neighborKey)) continue;

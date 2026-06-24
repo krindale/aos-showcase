@@ -44,6 +44,26 @@ export const FUTURE_DELIVERY_DISCOUNT = 0.7;
 /** 같은 턴 내 실현 가능한 배달의 할인 (round 1 업그레이드 → round 2 배달) */
 export const SAME_TURN_DELIVERY_DISCOUNT = 0.9;
 
+// ===== 경매 1등 입찰 (Phase II) =====
+//
+// 1등(선공)의 가치 = "이번 턴 가장 절실한 행동을 남에게 뺏기지 않고 선점하는 가치".
+// 절실함 = (내 최선 행동 ΔVP − 차선 행동 ΔVP). 그 행동을 못 받으면 차선으로 떨어지는 손실이다.
+// "절실할 때만 적극" 정책: 절실한 행동이 없으면(THRESHOLD 미만) 양보($0~1), 절실하면 $FLOOR~$CAP.
+
+/** 절실함(ΔVP)이 이 미만이면 1등 가치가 낮아 양보(거의 입찰 안 함). 1.0→1.5: 입찰 빈도↓ → 현금 소모↓ */
+export const DESPERATION_BID_THRESHOLD = 1.5;
+/** 절실할 때 입찰 상한의 하한/상한 ($). $3~5→$2~3로 축소: 입찰 비용↓로 VP 손실 완화(고착 해소는 유지) */
+export const FIRST_SEAT_BID_FLOOR = 2;
+export const FIRST_SEAT_BID_CAP = 3;
+/** 이 절실함(ΔVP) 이상이면 상한($CAP)에 포화 */
+export const DESPERATION_BID_SAT = 2.5;
+/** Turn Order 행동의 순서 탈환 가치 (현재 꼴찌 기준 최대 ΔVP). 진짜 절실한 행동(engineer 등)보단 작게.
+ *  ※ 측정 결론(100시드, 전 구간 스윕): turnOrder 가중치로는 순서 균등화 불가 — 0.1~0.2는 무효(평범한
+ *    행동 0.3에 밀려 선택 안 됨), 0.3~0.4는 작동하나 VP 악화+독식 재현(Korea 20.2→10.5/9.4), 1.8은
+ *    심한 단조 독식. 0.1(거의 끔)이 최적: 단조 편향 해소 + VP 최고. 잔존 편향(Western 앞순서·Korea P2)은
+ *    경매 순서/거점이 원인(turnOrder 무관). */
+export const TURN_ORDER_SEAT_VP = 0.1;
+
 // ===== 수입 감소 (룰북 Phase VIII) =====
 
 /** income 위치에서 매턴 깎이는 수입 감소량 */
@@ -111,6 +131,24 @@ export function cashToVPRate(state: GameState, playerId: PlayerId): number {
   if (!player || player.eliminated) return 0;
 
   return remainingBuildTurns(state) > 0 ? LAMBDA_BASE : 0;
+}
+
+// ===== 경매 1등 입찰 상한 환산 =====
+
+/**
+ * 행동 절실함(최선−차선 ΔVP)을 1등 입찰 상한($)으로 환산.
+ *
+ * - 절실함 < THRESHOLD: 1등 가치가 낮아 양보 → floor(절실함/λ) ≈ $0~1.
+ *   (평범한 턴엔 모두 양보 → 경매 규칙상 순서가 자연 역전되어 순환한다)
+ * - 절실함 ≥ THRESHOLD: $FLOOR~$CAP 구간에서 절실함에 비례해 입찰 상한 결정.
+ */
+export function firstSeatBidCeiling(desperation: number, lambda: number): number {
+  const d = Math.max(0, desperation);
+  if (d < DESPERATION_BID_THRESHOLD) {
+    return Math.floor(d / (lambda || LAMBDA_BASE));
+  }
+  const t = Math.min(1, d / DESPERATION_BID_SAT);
+  return Math.round(FIRST_SEAT_BID_FLOOR + t * (FIRST_SEAT_BID_CAP - FIRST_SEAT_BID_FLOOR));
 }
 
 // ===== 상대 견제 가중치 =====

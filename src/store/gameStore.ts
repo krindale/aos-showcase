@@ -52,6 +52,7 @@ import {
   countPathLinks,
   getNeighborHex,
   cityAcceptsCube,
+  isBlockedEdge,
   getOppositeEdge } from '@/utils/hexGrid';
 import {
   getNextPlayerId,
@@ -127,23 +128,13 @@ export function getUndoLabel(): string | null {
 }
 
 /**
- * 두 인접 헥스 사이가 "철도 건설 불가 경계 변"인지 (한국 산맥 등 board.blockedEdges, a/b 순서 무관).
- */
-function isBlockedEdgePair(board: BoardState, a: HexCoord, b: HexCoord): boolean {
-  if (!board.blockedEdges || board.blockedEdges.length === 0) return false;
-  return board.blockedEdges.some(be =>
-    (hexCoordsEqual(be.a, a) && hexCoordsEqual(be.b, b)) ||
-    (hexCoordsEqual(be.a, b) && hexCoordsEqual(be.b, a))
-  );
-}
-
-/**
  * 철도 건설 불가 경계 변을 넘는 트랙인지 판정.
  * edges 중 하나라도 막힌 경계(coord↔이웃)를 향하면 true → 건설 금지.
+ * (변 단위 판정은 hexGrid.isBlockedEdge — AI 경로탐색과 동일 함수 공유)
  */
 function crossesBlockedEdge(board: BoardState, coord: HexCoord, edges: number[]): boolean {
   if (!board.blockedEdges || board.blockedEdges.length === 0) return false;
-  return edges.some(e => isBlockedEdgePair(board, coord, getNeighborHex(coord, e)));
+  return edges.some(e => isBlockedEdge(board, coord, getNeighborHex(coord, e)));
 }
 
 /**
@@ -3737,7 +3728,7 @@ export const useGameStore = create<GameStore>()(
 
     // 건설 가능한 이웃 헥스 계산 (교체/방향전환 포함). 건설 불가 경계 변 쪽은 제외(가이드에서 숨김).
     const neighbors = getBuildableNeighbors(coord, state.board, currentPlayer, true)
-      .filter(n => !isBlockedEdgePair(state.board, coord, n.coord));
+      .filter(n => !isBlockedEdge(state.board, coord, n.coord));
 
     // 하이라이트할 헥스 목록
     const highlightedHexes = neighbors.map(n => n.coord);
@@ -3776,7 +3767,7 @@ export const useGameStore = create<GameStore>()(
 
     // 나갈 수 있는 방향들 계산 (들어오는 방향 제외). 건설 불가 경계 변 쪽 방향은 제외(가이드에서 숨김).
     let exitDirs = getExitDirections(coord, neighbor.targetEdge, state.board)
-      .filter(d => !isBlockedEdgePair(state.board, coord, d.neighborCoord));
+      .filter(d => !isBlockedEdge(state.board, coord, d.neighborCoord));
 
     // 기존 트랙이 있는 헥스: 기존 트랙의 엣지와 겹치는 방향 제외 (복합 트랙은 겹치지 않는 엣지만 허용)
     const existingTrack = state.board.trackTiles.find(

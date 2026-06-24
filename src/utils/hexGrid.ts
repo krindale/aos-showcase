@@ -277,6 +277,19 @@ export function getNeighborHex(coord: HexCoord, edge: number): HexCoord {
 }
 
 /**
+ * 두 인접 헥스 사이가 "철도 건설 불가 경계 변"인지 (한국 산맥 등 board.blockedEdges, a/b 순서 무관).
+ * 게임 엔진의 건설 가드와 동일 판정 — AI 경로탐색/건설이 이 변을 넘지 않게 하는 데 쓴다.
+ */
+export function isBlockedEdge(board: BoardState, a: HexCoord, b: HexCoord): boolean {
+  const be = board.blockedEdges;
+  if (!be || be.length === 0) return false;
+  return be.some(e =>
+    (hexCoordsEqual(e.a, a) && hexCoordsEqual(e.b, b)) ||
+    (hexCoordsEqual(e.a, b) && hexCoordsEqual(e.b, a))
+  );
+}
+
+/**
  * 두 헥스가 인접한지 확인
  */
 export function areHexesAdjacent(a: HexCoord, b: HexCoord): boolean {

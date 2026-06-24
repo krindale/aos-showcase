@@ -9,6 +9,7 @@
 
 import { GameState, PlayerId, SpecialAction, HexCoord, NewCityTileId } from '@/types/game';
 import { hexDistance, hexCoordsEqual } from '@/utils/hexGrid';
+import { getMapData } from '@/utils/mapRegistry';
 import {
   DeliveryRoute,
   DynamicStrategy,
@@ -24,7 +25,6 @@ void _getNextTargetRoute; // 향후 확장용
 // 전역 상태 동기화용
 import { getCurrentRoute } from './strategy/state';
 import { refreshTurnPlan, ensureTurnPlan } from './strategy/turnPlan';
-import { getConnectedCities } from './strategy/analyzer';
 import { getMapAIConfig } from './strategy/mapConfig';
 
 // 분석 함수들 (순수 함수)
@@ -304,74 +304,111 @@ export function decideUrbanizationPlacement(
   const availableTiles = state.newCityTiles.filter(t => !t.used);
   if (towns.length === 0 || availableTiles.length === 0) return null;
 
-  // 보드 위 큐브 색 분포 (헥스 큐브 + 트랙 큐브 + 도시 큐브)
-  const colorCount = new Map<string, number>();
-  const bump = (c: string | null | undefined) => {
-    if (c) colorCount.set(c, (colorCount.get(c) ?? 0) + 1);
-  };
-  // 내 네트워크가 닿는 도시의 큐브만 센다 (사용자 지침: 트랙으로 수송할 화물과 연관된 도시화 —
-  // 보드 전체 큐브를 보면 못 옮길 먼 큐브까지 세서 엉뚱한 색을 도시화하게 된다).
-  // trackCubes 맵(St. Lucia)은 트랙/헥스 위 큐브도 수송원이므로 함께 본다.
-  const connectedForUrban = new Set(getConnectedCities(state, playerId));
-  board.cities.forEach(city => {
-    if (connectedForUrban.has(city.id)) city.cubes.forEach(bump);
-  });
-  board.hexTiles.forEach(h => bump(h.cube));
-  board.trackTiles.forEach(t => bump(t.cube));
-
-  // 이미 같은 색 도시가 있으면 후순위 (목적지 중복)
-  const existingColors = new Set(board.cities.map(c => c.color));
-
-  let bestTile = availableTiles[0];
-  let bestTileScore = -1;
-  for (const tile of availableTiles) {
-    const cubes = colorCount.get(tile.color) ?? 0;
-    const score = cubes - (existingColors.has(tile.color) ? 100 : 0);
-    if (score > bestTileScore) {
-      bestTileScore = score;
-      bestTile = tile;
-    }
-  }
-
-  // ★ 마을 점수: "내가 실제로 연결해서 배달할 수 있는 마을"을 최우선 (사용자 지적: 철도와 무관한
-  // 곳에 도시화 = 배달 불가 = 낭비). 연결성(목표 경로/내 철도)을 큐브 보너스보다 우선하고,
-  // 연결 안 되는 마을은 강하게 배제한다. (다인 cityCubes 한정 — 그 외 맵은 기존 동작 유지)
   const myTracks = board.trackTiles.filter(t => t.owner === playerId);
+  // 그 도시가 해당 색 화물을 받는 수요 도시인지 (동적색 맵=현재 큐브, 그 외=고정 색).
+  const acceptsColor = (c: { color?: string | null; cubes: string[] }, color: string) =>
+    board.dynamicCityColors ? c.cubes.some(cu => (cu as string) === color) : (c.color as string) === color;
+
+  // ★ 도시화 타일 색 선택 (사용자 지침): "내 철도에 있는(픽업 가능한) 화물색" 중에서,
+  // "그 화물의 목적지(같은 색 수요 도시)가 내 철도 기준 멀리 있는(또는 없는) 색"을 우선한다.
+  // → 가까이 없는 목적지를 신도시로 신설해 그 화물 배달을 연다. 이미 가까운 그 색 도시가 있으면 중복.
+  // 1) 내가 픽업 가능한 화물색별 수 = 내 철도 근처(≤3) 도시 큐브 + 내 트랙 위 큐브 (+헥스큐브: trackCubes 맵)
+  const cargoByColor = new Map<string, number>();
+  const bumpCargo = (c: string | null | undefined) => { if (c) cargoByColor.set(c, (cargoByColor.get(c) ?? 0) + 1); };
+  board.cities.forEach(c => {
+    if (myTracks.some(tr => hexDistance(tr.coord, c.coord) <= 3)) c.cubes.forEach(bumpCargo);
+  });
+  board.trackTiles.forEach(t => { if (t.owner === playerId) bumpCargo(t.cube); });
+  board.hexTiles.forEach(h => bumpCargo(h.cube));
+
+  // 2) 색별 목적지 거리: 내 철도 기준 그 색을 받는 수요 도시까지 최소 거리 (없으면 ∞=가장 우선).
+  const destDistOf = (color: string): number => {
+    if (myTracks.length === 0) return Infinity;
+    let best = Infinity;
+    board.cities.forEach(c => {
+      if (!acceptsColor(c, color)) return;
+      const d = Math.min(...myTracks.map(tr => hexDistance(tr.coord, c.coord)));
+      if (d < best) best = d;
+    });
+    return best;
+  };
+
+  // ★ 타일의 "예상 신도시 수요색": 동적색+디스플레이 보충 맵(한국)은 신도시 수요색이 tile.color가 아니라
+  // placeNewCity가 그 타일 칸(A~H)에서 옮겨오는 디스플레이 큐브로 정해진다 → 그 칸 큐브색으로 평가.
+  // (그 외 맵은 [tile.color] 그대로 — 기존 동작 보존)
+  const displayCount = getMapProfile(state.mapId).urbanizeFromDisplayCount;
+  const useDisplayColor = board.dynamicCityColors && displayCount > 0;
+  const columnMapping = useDisplayColor ? getMapData(state.mapId).columnMapping : null;
+  const expectedColorsOf = (tileId: string, tileColor: string): string[] => {
+    if (!useDisplayColor || !columnMapping) return [tileColor];
+    let startIndex = -1, rowCount = 0, slotIdx = 0;
+    for (const m of columnMapping) {
+      if (m.cityId === tileId) { startIndex = slotIdx; rowCount = m.rowCount; break; }
+      slotIdx += m.rowCount;
+    }
+    if (startIndex < 0) return [];
+    const colors: string[] = [];
+    for (let i = 0; i < rowCount && colors.length < displayCount; i++) {
+      const cube = state.goodsDisplay.slots[startIndex + i];
+      if (cube) colors.push(cube as string);
+    }
+    return colors;
+  };
+
+  // 3) 타일 색 점수: 그 타일이 만들 신도시 수요색이 "내 화물색 + 목적지 먼 색"일수록 높음.
+  const colorScore = (color: string): number => {
+    const cargo = cargoByColor.get(color) ?? 0;
+    if (cargo === 0) return -100;                                   // 내 철도에 그 색 화물 없음 → 무의미
+    const dd = destDistOf(color);
+    const farBonus = dd === Infinity ? 30 : Math.min(30, dd * 5);   // 목적지 멀수록/없을수록 우선
+    return cargo * 2 + farBonus;
+  };
+  let bestTile = availableTiles[0];
+  let bestTileScore = -Infinity;
+  for (const tile of availableTiles) {
+    const colors = expectedColorsOf(tile.id, tile.color as string);
+    // 타일이 만들 수요색 중 최고가치로 평가 (한국은 디스플레이 큐브 2개 = 2색 수요 가능)
+    const score = colors.length ? Math.max(...colors.map(colorScore)) : -100;
+    if (score > bestTileScore) { bestTileScore = score; bestTile = tile; }
+  }
+  const bestTileColors = expectedColorsOf(bestTile.id, bestTile.color as string);
+
+  // ★ 마을 점수: "이번 턴에 철도로 연결할 수 있는 범위"의 마을만 — 가까울수록 가점 (사용자 지침).
   const areaMulti = state.activePlayers.length >= 3 && !getMapAIConfig(state).incomeSources.includes('trackCubes');
   // 이번 턴 목표 경로(트랙 건설 전 도시화 시점에 이 경로로 연결할 계획) — 그 경로가 지나는 마을 우선
   const planPath = areaMulti ? (ensureTurnPlan(state, playerId).fullPath ?? null) : null;
   const onPlanPath = (t: { coord: HexCoord }) =>
     planPath ? planPath.some(c => hexCoordsEqual(c, t.coord)) : false;
+  // ★ 이번 턴에 철도로 연결할 수 있는 범위 = 남은 건설 슬롯 수 (도시화는 build 단계 첫머리라 0개 건설 상태).
+  // 마을까지 거리가 이 슬롯을 넘으면 이번 턴에 못 잇는다 → 그런 마을은 도시화 후보에서 제외 (사용자 지침).
+  const slots = state.phaseState.maxTracksThisTurn ?? 3;
 
-  let bestTown = towns[0];
+  let bestTown: { coord: HexCoord } | null = null;
   let bestTownScore = -Infinity;
   for (const town of towns) {
     let score = 0;
-    let connected = false;
 
-    // 1) 연결성 (최우선): 이번 턴 목표 경로가 지나거나, 내 철도에 인접한 마을만 실제로 배달 가능
-    if (onPlanPath(town)) { score += 30; connected = true; }
+    // 1) 연결성: 트랙이 있으면 이번 턴 연결 가능 범위(슬롯) 안의 마을만 허용, 가까울수록 가점.
     if (myTracks.length > 0) {
       const minDist = Math.min(...myTracks.map(t => hexDistance(t.coord, town.coord)));
-      if (minDist <= 1) { score += 20; connected = true; }       // 연결망 인접 = 즉시 합류
-      else if (minDist <= 2) { score += 6; connected = true; }   // 한 칸이면 이번 턴 닿을 수 있음
-      else score += Math.max(0, 4 - minDist);                    // 멀수록 파편
+      if (minDist > slots) continue;                       // 이번 턴 연결 불가 → 도시화 후보 제외
+      if (onPlanPath(town)) score += 30;
+      if (minDist <= 1) score += 20;                       // 즉시 합류
+      else if (minDist <= 2) score += 14;                  // 한두 칸이면 이번 턴 닿음
+      else score += Math.max(0, 10 - minDist * 2);         // 슬롯 내 더 먼 곳도 연결 가능(가점만 체감)
     } else {
-      // 트랙이 아직 없으면(초반) 연결성 판단 불가 → 큐브 근처로만, connected는 false 유지
+      // 트랙이 아직 없으면(초반 첫 도시화) 연결 판단 불가 → 도시 생성 자체가 목적, 큐브 근처로만
+      if (onPlanPath(town)) score += 30;
     }
 
-    // 2) 큐브 배달 잠재력 (보조): 그 색 큐브가 가까이 있으면 배달처로서 가치
+    // 2) 큐브 배달 잠재력 (보조): 신도시가 가질 수요색 큐브가 가까이 있으면 배달처로서 가치
     for (const city of board.cities) {
-      if (city.cubes.some(c => (c as string) === (bestTile.color as string))
+      if (city.cubes.some(c => bestTileColors.includes(c as string))
           && hexDistance(city.coord, town.coord) <= 2) score += 8;
     }
     for (const hex of board.hexTiles) {
-      if (hex.cube === bestTile.color && hexDistance(hex.coord, town.coord) <= 3) score += 2;
+      if (hex.cube && bestTileColors.includes(hex.cube as string) && hexDistance(hex.coord, town.coord) <= 3) score += 2;
     }
-
-    // 3) ★ 연결 불가 페널티(다인 cityCubes): 내 철도가 있는데도 닿지 않는(경로상도 아닌) 마을은
-    // 도시화해도 배달이 불가능하므로 강하게 배제 — "철도와 상관없는 도시화" 차단.
-    if (areaMulti && myTracks.length > 0 && !connected) score -= 25;
 
     if (score > bestTownScore) {
       bestTownScore = score;
@@ -379,5 +416,7 @@ export function decideUrbanizationPlacement(
     }
   }
 
+  // 트랙이 있는데 이번 턴 연결 가능 범위에 마을이 하나도 없으면 도시화 보류(엉뚱한 먼 곳에 안 만든다).
+  if (!bestTown) return null;
   return { townCoord: bestTown.coord, tileId: bestTile.id };
 }

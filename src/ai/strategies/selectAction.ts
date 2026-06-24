@@ -25,6 +25,7 @@ import {
   SAME_TURN_DELIVERY_DISCOUNT,
   FUTURE_DELIVERY_DISCOUNT,
   cashToVPRate,
+  TURN_ORDER_SEAT_VP,
 } from '../strategy/vp';
 import { findReachableDestinations, hexCoordsEqual, getNeighborHex, findTrackCubeDeliveries, hexDistance } from '@/utils/hexGrid';
 import { debugLog } from '@/utils/debugConfig';
@@ -65,21 +66,17 @@ const TIE_BREAK_ORDER: SpecialAction[] = [
 ];
 
 /**
- * 행동 선택 결정 — 모든 후보를 ΔVP로 평가해 최대값 선택
+ * 사용 가능한 행동을 ΔVP 내림차순으로 랭킹 (동점은 TIE_BREAK_ORDER).
+ *
+ * 행동 선택(decideAction)뿐 아니라 경매(auction.ts의 estimateFirstSeatVP)에서도
+ * "1등이면 선점할 절실한 행동"의 가치를 얻기 위해 재사용한다.
  */
-export function decideAction(state: GameState, playerId: PlayerId): SpecialAction {
-  const available = getAvailableActions(state);
-  const player = state.players[playerId];
-
-  if (available.length === 0) {
-    console.error('[AI 행동] 선택 가능한 행동 없음');
-    return 'turnOrder';
-  }
-  if (!player) return available[0];
-
-  const plan = ensureTurnPlan(state, playerId);
-
-  const ranking = available
+export function rankActionsByDeltaVP(
+  state: GameState,
+  playerId: PlayerId,
+  plan: TurnPlan,
+): { action: SpecialAction; deltaVP: number }[] {
+  return getAvailableActions(state)
     .map(action => ({
       action,
       deltaVP: evaluateActionDeltaVP(state, playerId, action, plan),
@@ -88,6 +85,21 @@ export function decideAction(state: GameState, playerId: PlayerId): SpecialActio
       if (b.deltaVP !== a.deltaVP) return b.deltaVP - a.deltaVP;
       return TIE_BREAK_ORDER.indexOf(a.action) - TIE_BREAK_ORDER.indexOf(b.action);
     });
+}
+
+/**
+ * 행동 선택 결정 — 모든 후보를 ΔVP로 평가해 최대값 선택
+ */
+export function decideAction(state: GameState, playerId: PlayerId): SpecialAction {
+  const player = state.players[playerId];
+  const plan = ensureTurnPlan(state, playerId);
+  const ranking = rankActionsByDeltaVP(state, playerId, plan);
+
+  if (ranking.length === 0) {
+    console.error('[AI 행동] 선택 가능한 행동 없음');
+    return 'turnOrder';
+  }
+  if (!player) return ranking[0].action;
 
   const best = ranking[0];
   const routeStr = plan.targetRoute ? `${plan.targetRoute.from}→${plan.targetRoute.to}` : '없음';
@@ -166,7 +178,7 @@ function evaluateActionDeltaVP(
       }
       return 0.2;
     }
-    case 'turnOrder': return 0.1;
+    case 'turnOrder': return evaluateTurnOrder(state, playerId);
     default: return 0;
   }
 }
@@ -394,6 +406,21 @@ export function hasContestedBuildHex(state: GameState, playerId: PlayerId, plan:
   }
 
   return false;
+}
+
+/**
+ * Turn Order: 순서 탈환의 가치 — 내 현재 순번이 뒤일수록 높다.
+ *
+ * 룰북의 정식 행동(경매에서 무료 패스 1회)을 사람처럼 전략적으로 쓴다:
+ * "계속 뒤로 밀리는 사람이 Turn Order를 잡아 순서를 되찾는다" → 순서 고착의 자연 해소.
+ * 같은 ΔVP 단위라 engineer(최대 9) 같은 진짜 절실한 행동이 있으면 그게 우선되고,
+ * 순서 외엔 절실한 게 없는 뒷순번 플레이어만 Turn Order를 선택하게 된다.
+ */
+function evaluateTurnOrder(state: GameState, playerId: PlayerId): number {
+  const rank = state.playerOrder.indexOf(playerId); // 0 = 1번
+  const n = state.activePlayers.length;
+  if (n <= 1 || rank <= 0) return 0.1; // 이미 1번이거나 단독이면 순서 탈환 가치 없음
+  return TURN_ORDER_SEAT_VP * (rank / (n - 1)); // 꼴찌(rank=n-1)일수록 최대
 }
 
 /**

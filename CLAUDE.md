@@ -227,6 +227,7 @@ public/
 
 docs/
 ├── ai-strategy.md              # AI 전략 알고리즘 심층 가이드
+├── ai-auction-baseline-100seed.md  # ★ AI 다인 맵 성능 베이스라인(100시드) — 로직 변경 시 비교 기준(VP·파산·선공/승자 분포)
 └── presentation-script.md      # 프레젠테이션 스크립트
 ```
 
@@ -769,6 +770,8 @@ npx vitest run src/ai/__tests__/fullGameSimulation.test.ts -t "executeAITurn" # 
 - `src/ai/__tests__/germanySimulation.test.ts` - Germany 4인 AI 동기식 전체게임 러너(8턴) + 베이스라인
 - `src/ai/__tests__/westernUsSimulation.test.ts` - Western US 6인 AI 동기식 전체게임 러너(6턴) + 베이스라인
 - `src/ai/__tests__/koreaSimulation.test.ts` - Korea 4인 AI 동기식 전체게임 러너(8턴) + 베이스라인
+- **다인 맵 시뮬은 모두 100시드로 측정** (8/20시드는 편차가 커 노이즈). 변경 전/후 비교 기준 수치는
+  [`docs/ai-auction-baseline-100seed.md`](ai-auction-baseline-100seed.md)에 표로 저장 — AI 로직 변경 시 이 표와 비교해 회귀/개선 판정
 - `src/utils/__tests__/koreaDynamicColors.test.ts` - 동적 도시 색상(cityAcceptsCube) + 한국 보드 무결성(직결 인접) 단위 테스트
 - `src/ai/strategy/__tests__/analyzer.test.ts` - A* 경로 탐색 테스트
 - `src/ai/strategy/__tests__/selector.test.ts` - 전략 선택 테스트

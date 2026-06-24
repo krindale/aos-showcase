@@ -45,6 +45,10 @@ interface RBResult {
   deliveries: number;
   builds: number;
   urbanizations: number;
+  firstSeatCounts: Record<PlayerId, number>;  // 이 게임에서 각 플레이어가 1번(선공)이었던 턴 수
+  buildsByPlayer: Record<PlayerId, number>;    // player별 철도 건설 횟수
+  deliveriesByPlayer: Record<PlayerId, number>; // player별 수송(배달) 횟수
+  engine: Record<PlayerId, number>;            // player별 최종 엔진 레벨
 }
 
 /** Rust Belt 한 게임(5 AI)을 동기식으로 끝까지 구동하고 결과 측정 */
@@ -61,6 +65,11 @@ function runRustBeltGame(seed: number): RBResult {
   vi.restoreAllMocks();
 
   let deliveries = 0, builds = 0, urbanizations = 0;
+  const firstSeatCounts = {} as Record<PlayerId, number>;
+  const buildsByPlayer = {} as Record<PlayerId, number>;
+  const deliveriesByPlayer = {} as Record<PlayerId, number>;
+  PLAYERS.forEach(p => { firstSeatCounts[p] = 0; buildsByPlayer[p] = 0; deliveriesByPlayer[p] = 0; });
+  let lastSeatTurn = 0;
   const MAX_ITER = 80000;
   let iter = 0, stale = 0, lastSig = '';
   let reachedEnd = false;
@@ -68,6 +77,13 @@ function runRustBeltGame(seed: number): RBResult {
   while (iter++ < MAX_ITER) {
     const s = useGameStore.getState();
     if (s.currentPhase === 'gameOver') { reachedEnd = true; break; }
+
+    // 턴별 1번(선공) 점유 기록 — 경매로 순서가 확정된 뒤(selectActions) 턴당 1회
+    if (s.currentPhase === 'selectActions' && s.currentTurn !== lastSeatTurn) {
+      const first = s.playerOrder[0];
+      if (first) firstSeatCounts[first] = (firstSeatCounts[first] ?? 0) + 1;
+      lastSeatTurn = s.currentTurn;
+    }
 
     // 진행 중 큐브 애니메이션 완료(배달 수입 정산 + nextPhase)
     if (s.ui.movingCube) { s.completeCubeMove(); continue; }
@@ -134,17 +150,17 @@ function runRustBeltGame(seed: number): RBResult {
         const d = decision.decision;
         if (d.action === 'build') {
           if (!store.buildTrack(d.coord, d.edges)) { addFailedBuildCoord(cp, d.coord, s.currentTurn); break; }
-          builds++;
+          builds++; buildsByPlayer[cp]++;
           const ps = useGameStore.getState().phaseState;
           if (ps.builtTracksThisTurn >= ps.maxTracksThisTurn) useGameStore.getState().nextPhase();
         } else if (d.action === 'buildSpur') {
           if (!store.buildTownSpur(d.townCoord)) { useGameStore.getState().nextPhase(); break; }
-          builds++;
+          builds++; buildsByPlayer[cp]++;
           const ps = useGameStore.getState().phaseState;
           if (ps.builtTracksThisTurn >= ps.maxTracksThisTurn) useGameStore.getState().nextPhase();
         } else if (d.action === 'buildComplex') {
           if (!store.buildComplexTrack(d.coord, d.edges, d.trackType)) { addFailedBuildCoord(cp, d.coord, s.currentTurn); break; }
-          builds++;
+          builds++; buildsByPlayer[cp]++;
           const ps = useGameStore.getState().phaseState;
           if (ps.builtTracksThisTurn >= ps.maxTracksThisTurn) useGameStore.getState().nextPhase();
         } else {
@@ -158,7 +174,7 @@ function runRustBeltGame(seed: number): RBResult {
         if (d.action === 'move') {
           store.selectCube(d.sourceCityId, d.cubeIndex);
           useGameStore.getState().selectDestinationCity(d.destinationCoord);
-          deliveries++;
+          deliveries++; deliveriesByPlayer[cp]++;
           if (!useGameStore.getState().ui.movingCube) useGameStore.getState().nextPhase();
         } else if (d.action === 'upgradeEngine') {
           store.upgradeEngine(cp);
@@ -180,6 +196,7 @@ function runRustBeltGame(seed: number): RBResult {
   const income = {} as Record<PlayerId, number>;
   const shares = {} as Record<PlayerId, number>;
   const completedTracks = {} as Record<PlayerId, number>;
+  const engine = {} as Record<PlayerId, number>;
   let bankruptcies = 0;
 
   for (const pid of PLAYERS) {
@@ -191,12 +208,14 @@ function runRustBeltGame(seed: number): RBResult {
     income[pid] = p.income;
     shares[pid] = p.issuedShares;
     completedTracks[pid] = completed;
+    engine[pid] = p.engineLevel;
     if (p.eliminated) bankruptcies++;
   }
 
   return {
     accurateVP, income, shares, completedTracks, bankruptcies,
     finalTurn: f.currentTurn, reachedEnd, deliveries, builds, urbanizations,
+    firstSeatCounts, buildsByPlayer, deliveriesByPlayer, engine,
   };
 }
 
@@ -218,10 +237,42 @@ describe('Rust Belt 5 AI 전체 게임 — 다인 실동작 + 베이스라인', 
 
     const allVPs: number[] = [];
     let totalBankrupt = 0;
+    // 순서 고착 지표: 전 게임 합산 1번 점유 횟수 + 최종 승자(VP 최대) 분포
+    const firstSeatTotal = {} as Record<PlayerId, number>;
+    const winnerCounts = {} as Record<PlayerId, number>;
+    // player별 평균 지표(건설/수송/엔진/주식/income/VP/완성트랙) — player-index 편향 진단용
+    type PerPlayer = { vp: number; income: number; shares: number; engine: number; builds: number; deliveries: number; tracks: number };
+    const perPlayer = {} as Record<PlayerId, PerPlayer>;
+    PLAYERS.forEach(p => {
+      firstSeatTotal[p] = 0; winnerCounts[p] = 0;
+      perPlayer[p] = { vp: 0, income: 0, shares: 0, engine: 0, builds: 0, deliveries: 0, tracks: 0 };
+    });
     for (const r of results) {
       for (const pid of PLAYERS) allVPs.push(r.accurateVP[pid] ?? 0);
       totalBankrupt += r.bankruptcies;
+      for (const pid of PLAYERS) {
+        firstSeatTotal[pid] += r.firstSeatCounts[pid] ?? 0;
+        const x = perPlayer[pid];
+        x.vp += r.accurateVP[pid] ?? 0;
+        x.income += r.income[pid] ?? 0;
+        x.shares += r.shares[pid] ?? 0;
+        x.engine += r.engine[pid] ?? 0;
+        x.builds += r.buildsByPlayer[pid] ?? 0;
+        x.deliveries += r.deliveriesByPlayer[pid] ?? 0;
+        x.tracks += r.completedTracks[pid] ?? 0;
+      }
+      let best = PLAYERS[0], bestVP = -Infinity;
+      for (const pid of PLAYERS) {
+        const v = r.accurateVP[pid] ?? -Infinity;
+        if (v > bestVP) { bestVP = v; best = pid; }
+      }
+      winnerCounts[best]++;
     }
+    PLAYERS.forEach(p => {
+      const x = perPlayer[p];
+      x.vp /= seeds; x.income /= seeds; x.shares /= seeds; x.engine /= seeds;
+      x.builds /= seeds; x.deliveries /= seeds; x.tracks /= seeds;
+    });
     const avgVP = allVPs.reduce((a, b) => a + b, 0) / allVPs.length;
     const sum = (f: (r: RBResult) => number) => results.reduce((a, r) => a + f(r), 0);
     return {
@@ -236,19 +287,28 @@ describe('Rust Belt 5 AI 전체 게임 — 다인 실동작 + 베이스라인', 
       avgTurns: sum(r => r.finalTurn) / seeds,
       finishedTurns: results.map(r => r.finalTurn),
       allReachedEnd: results.every(r => r.reachedEnd),
+      firstSeatTotal, winnerCounts, perPlayer,
     };
   }
 
   // 측정 + 핵심 게이트: 모든 5인 게임이 정상 종료(무한루프/멈춤 없음)하고 최소 진행한다.
-  it('5인 게임 완주 + 베이스라인 측정 (8 시드)', () => {
-    const m = measure(8);
+  it('5인 게임 완주 + 베이스라인 측정 (100 시드)', () => {
+    const m = measure(100);
     logSpy.mockRestore();
-    console.log('\n===== Rust Belt 5인 VP 통계 (8 시드) =====');
+    console.log('\n===== Rust Belt 5인 VP 통계 (100 시드) =====');
     console.log(`평균 accurateVP: ${m.avgVP.toFixed(2)} (min ${m.minVP}, max ${m.maxVP})`);
     console.log(`평균 발행주식: ${m.avgShares.toFixed(2)}, 평균 income: ${m.avgIncome.toFixed(2)}`);
     console.log(`건설/배달/도시화: 건설 ${m.avgBuilds.toFixed(1)}, 배달 ${m.avgDeliveries.toFixed(1)}, 도시화 ${m.avgUrban.toFixed(1)}`);
     console.log(`파산: ${m.avgBankruptPerGame.toFixed(2)}명/게임, 평균 완주턴 ${m.avgTurns.toFixed(1)} (최대 7)`);
     console.log(`완주 턴 분포: ${JSON.stringify(m.finishedTurns)}`);
+    // 순서 고착 진단: 5인이면 이상적으로 1번 점유·승자가 각 ~20% (고착이면 한 명이 독점)
+    console.log(`1번(선공) 점유 횟수(전 게임 합): ${JSON.stringify(m.firstSeatTotal)}`);
+    console.log(`최종 승자 분포: ${JSON.stringify(m.winnerCounts)}`);
+    console.log('--- player별 평균 (건설/수송/엔진/주식) ---');
+    PLAYERS.forEach(p => {
+      const x = m.perPlayer[p];
+      console.log(`${p}: VP ${x.vp.toFixed(1)} | 건설 ${x.builds.toFixed(1)} | 수송 ${x.deliveries.toFixed(1)} | 엔진 ${x.engine.toFixed(1)} | 주식 ${x.shares.toFixed(1)} | income ${x.income.toFixed(1)} | 완성트랙 ${x.tracks.toFixed(1)}`);
+    });
 
     // 핵심: 모든 게임이 정상 종료 (멈춤/무한루프 없음) — 다인 엔진 실동작 보장
     expect(m.allReachedEnd).toBe(true);
@@ -256,5 +316,5 @@ describe('Rust Belt 5 AI 전체 게임 — 다인 실동작 + 베이스라인', 
     expect(m.finishedTurns.every(t => t >= 2)).toBe(true);
     // 5인 게임은 7턴 — 정상 게임은 7턴 도달 (조기 종료=전원 파산은 비정상)
     expect(m.finishedTurns.some(t => t >= 7)).toBe(true);
-  }, 120_000);
+  }, 900_000);
 });

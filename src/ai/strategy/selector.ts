@@ -44,6 +44,12 @@ const CROWD_WEIGHT = 3.0;
  *  측정: W=1 −7.4 / W=3 −3.2(정점). */
 const ROW_SPREAD_W = 3.0;
 
+/** 동적색 맵(Korea) 경로 겹침 페널티 — 완전 차단(-Infinity) 대신 감점으로 완화.
+ *  Korea는 고립 거점(부산)이 경로 겹침을 안 당해 독점하고 중앙 거점 플레이어는 완전 차단이
+ *  누적돼 경로가 고갈된다(player2 승률 74%). 감점으로 바꾸면 중앙 플레이어도 차선 경로를 써
+ *  승률 분포가 균등해진다. 다른 cityCubes 맵은 완전 차단 유지(Rust Belt 도시금지 핵심 보존). */
+const DYNAMIC_MAP_OVERLAP_PENALTY = 6;
+
 /**
  * 거점(home base) 할당 — 게임 시작 시 1회. 큐브 많은 도시를 farthest-first로 분산 배정
  * (첫 거점=큐브 최다, 이후=기존 거점들에서 최소거리 + row분산 + 큐브수가 최대인 도시).
@@ -190,7 +196,10 @@ export function selectStandardRoute(
   const allScoredOpps = preciseTargets.map(opp => {
     let score = scoreOpportunity(opp, state, playerId);
     // 내 거점에서 먼 출발 도시의 경로는 깎아 자기 영역에 머물게 (충돌/boxed-out 완화)
-    if (homeCity && score > -Infinity) {
+    // 단 동적색 맵(Korea)은 거점 묶기를 끈다 — 거점 가치 차이(부산 고립 우위 + 평양 고립으로
+    // 인한 긴 건설→현금난)가 승부를 좌우하던 것을 무력화. 각 플레이어가 거점에 묶이지 않고
+    // 가까운 좋은 경로를 자유 선택해 승률 분포가 균등해진다(부산/평양 거점 운빨 제거).
+    if (homeCity && score > -Infinity && !state.board.dynamicCityColors) {
       score -= hexDistance(opp.sourceCoord, homeCity.coord) * AREA_BIAS_WEIGHT;
     }
     // ★ 혼잡 회피: 출발 지역 근처에 있는 다른 플레이어 '명 수'만큼 그 경로 우선순위를 낮춘다
@@ -220,8 +229,10 @@ export function selectStandardRoute(
         const orr = getCurrentRoute(oid);
         if (orr && (orr.from === opp.sourceCityId || orr.to === opp.sourceCityId ||
                     orr.from === opp.targetCityId || orr.to === opp.targetCityId)) {
-          score = -Infinity;
-          break;
+          // 동적색 맵(Korea)은 완전 차단 대신 감점 — 중앙 거점 플레이어의 경로 고갈을 막아
+          // 승률 분포를 균등화(부산 고립 거점 독점 완화). 그 외 맵은 완전 차단 유지.
+          if (state.board.dynamicCityColors) { score -= DYNAMIC_MAP_OVERLAP_PENALTY; }
+          else { score = -Infinity; break; }
         }
       }
     }

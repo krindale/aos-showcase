@@ -165,7 +165,7 @@ export function generateGermanyHexTiles(): HexTile[] {
   const offKeys = new Set(OFFMAP.map(([c, r]) => `${c},${r}`));
   const mtnKeys = new Set(MOUNTAIN.map(([c, r]) => `${c},${r}`));
   const rivKeys = new Set(RIVER.map((r) => `${r.coord[0]},${r.coord[1]}`));
-  const rivEdges = new Map(RIVER.filter((r) => r.edges).map((r) => [`${r.coord[0]},${r.coord[1]}`, r.edges!] as const));
+  const rivEdges = new Map<string, [number, number]>(RIVER.filter((r) => r.edges).map((r) => [`${r.coord[0]},${r.coord[1]}`, r.edges!] as const));
 
   for (let row = 0; row < GERMANY_MAP.rows; row++) {
     for (let col = GERMANY_MAP.startCol; col < GERMANY_MAP.cols; col++) {

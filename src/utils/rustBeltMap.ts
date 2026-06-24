@@ -154,7 +154,7 @@ export function generateRustBeltHexTiles(): HexTile[] {
   const lakeKeys = new Set(LAKE_TILES.map((t) => `${t.col},${t.row}`));
   const mtnKeys = new Set(MOUNTAIN_TILES.map((t) => `${t.col},${t.row}`));
   const rivKeys = new Set(RIVER_TILES.map((t) => `${t.col},${t.row}`));
-  const rivEdges = new Map(RIVER_TILES.filter((t) => t.edges).map((t) => [`${t.col},${t.row}`, t.edges!] as const));
+  const rivEdges = new Map<string, [number, number]>(RIVER_TILES.filter((t) => t.edges).map((t) => [`${t.col},${t.row}`, t.edges!] as const));
 
   for (let row = 0; row < RUST_BELT_MAP.rows; row++) {
     for (let col = RUST_BELT_MAP.startCol; col < RUST_BELT_MAP.cols; col++) {

@@ -6,7 +6,6 @@ import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { useGameStore } from '@/store/gameStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useTouchGestures } from '@/hooks/useTouchGestures';
-import { useMediaQuery } from '@/hooks/useMediaQuery';
 import {
   hexToPixel,
   getHexPoints,
@@ -309,10 +308,6 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     contentWidth: viewWidth,
     contentHeight: boardHeight,
   });
-
-  // 모바일/태블릿 감지 (줌 컨트롤 표시용)
-  const isMobile = useMediaQuery('(max-width: 767px)');
-  const isTablet = useMediaQuery('(min-width: 768px) and (max-width: 1023px)');
 
   // 완성된 링크 계산 (소유 마커 표시용)
   const completedLinks = useMemo(

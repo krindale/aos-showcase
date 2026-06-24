@@ -208,9 +208,11 @@ export function useTouchGestures(
    */
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return;
+    // 새 누름마다 직전 드래그 흔적 초기화 — 확대 중 드래그 후 축소(scale<=1)했을 때
+    // moved가 남아 다음 클릭이 isMousePanning()에 먹히는 버그 방지 (early-return 전에 비움).
+    mouseStateRef.current.moved = false;
     if (scale <= 1) return; // 확대(+ 버튼) 상태에서만 드래그로 이동 — 기본 배율에선 클릭 동작 보존
     mouseStateRef.current.isPanning = true;
-    mouseStateRef.current.moved = false;
     mouseStateRef.current.startPos = { x: e.clientX, y: e.clientY };
     mouseStateRef.current.initialPosition = { ...position };
   }, [position, scale]);

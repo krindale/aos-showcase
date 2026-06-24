@@ -23,7 +23,9 @@ import {
   findOptimalPathAvoidingOpponent,
   getEdgeBetweenHexes,
   findStopById,
+  analyzeDeliveryOpportunities,
 } from '../strategy/analyzer';
+import { estimateRouteVP } from '../strategy/vp';
 import type { DeliveryRoute } from '../strategy/types';
 import { debugLog } from '@/utils/debugConfig';
 
@@ -309,7 +311,21 @@ function resolveTurnRoute(state: GameState, playerId: PlayerId): DeliveryRoute |
     );
 
     if (!isComplete && (hasMatchingCargo || investedCount >= 2)) {
-      return previousRoute;
+      // ★ 건설 차례에 그 경로가 "지금도" 완성 가능한지 재확인 (사용자 지침: 인터랙션 게임에서
+      //   다른 사람 건설을 100% 예측 못 하니, 내 차례에 현재 보드로 경로를 다시 검증해야 한다).
+      //   턴 시작에 잡은 경로가 다른 플레이어 건설로 막혔으면(completable=false) 고집하지 않고
+      //   아래로 떨어져 재평가 → 막힌 경로에 미완성 트랙을 흩뿌리는 것을 막는다. (다인 cityCubes만)
+      const config = getMapAIConfig(state);
+      const interactive = state.activePlayers.length >= 3 && !config.incomeSources.includes('trackCubes');
+      if (!interactive) return previousRoute;
+      const opp = analyzeDeliveryOpportunities(state).find(
+        o => o.sourceCityId === previousRoute.from && o.targetCityId === previousRoute.to
+      );
+      // 기회가 아직 있고 현재 보드에서 완성 가능하면 고수, 아니면(막힘/화물소진) 재평가
+      if (opp && estimateRouteVP(state, playerId, opp).completable) {
+        return previousRoute;
+      }
+      debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player?.name}: 이전 경로 ${previousRoute.from}→${previousRoute.to}가 더 이상 완성 불가(막힘) → 재평가`);
     }
   }
 

@@ -14,8 +14,6 @@ import { debugLog } from '@/utils/debugConfig';
 
 /** 턴당 발행 상한 (과도한 영구 부채 방지) */
 const MAX_SHARES_PER_TURN = 2;
-/** 총 주식 안전망 (생존 발행은 예외) */
-const MAX_TOTAL_SHARES = 5;
 
 /**
  * 주식 발행량 결정
@@ -68,19 +66,16 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
     debugLog.preparation(`[Phase I: 주식 발행] ${player.name}: 목표 경로 없음 → 계획 발행 생략`);
   }
 
-  // === 5. 상한 적용 ===
-  // 턴당 상한 + 총 주식 안전망 (생존 발행은 안전망 무시).
-  // trackCubes 맵: 누적 상한 없음 — 빚내서 라인을 이어 짓는다(사용자 지침).
-  const headroom = config.incomeSources.includes('trackCubes')
-    ? maxPossibleShares
-    : Math.max(0, MAX_TOTAL_SHARES - player.issuedShares);
+  // === 5. 상한 적용 (사용자 지침) ===
+  // 현금이 15 이상이면 계획 발행 안 함(자금 충분), 15 미만일 때만 발행. 누적 상한 없음 —
+  // 단 턴당 2주 캡은 유지(매턴 폭증 방지). 게임 규칙 상한(MAX_SHARES)까지.
+  if (player.cash >= 15) planShares = 0;
   let sharesToIssue = Math.max(
     survivalShares,
-    Math.min(planShares, MAX_SHARES_PER_TURN, headroom, maxPossibleShares),
+    Math.min(planShares, MAX_SHARES_PER_TURN, maxPossibleShares),
   );
 
-  // ★ 매턴 총 2주 하드캡 (다인 cityCubes, 생존 발행 포함) — 트레이스상 빈곤 거점이 생존 발행으로
-  // 주식 13까지 폭증(VP −29)하던 스파이럴 차단. 생존 부족분은 income 감소로 흡수(파산 위험은 측정).
+  // ★ 매턴 총 2주 하드캡 (다인 cityCubes, 생존 발행 포함)
   if (state.activePlayers.length >= 3 && !config.incomeSources.includes('trackCubes')) {
     sharesToIssue = Math.min(sharesToIssue, MAX_SHARES_PER_TURN);
   }

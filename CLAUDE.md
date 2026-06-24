@@ -415,10 +415,10 @@ AI는 **객체 지향 아키텍처**로 설계되어 있으며, 각 AI 플레이
 - 의존 방향 단방향: `maps/`는 `types/game`만 의존(저수준), AI 전략·게임 엔진이 `maps/`를 의존
 
 **Phase별 결정**:
-- `issueShares`: TurnPlan.cashNeeded 부족분만 발행. 생존 발행(파산 방지) 절대 우선, 마지막 턴 생존 외 발행 금지, 턴당 2주/총 5주 상한
-- `auction`: 1등 순서의 가치(경합배달 + 경합건설 + 행동선점)를 λ로 달러 환산한 입찰 상한. 경합 없으면 일찍 포기 (첫 포기 무료 규칙 활용). 건설 예산 절대 침범 금지
-- `selectAction`: 행동별 ΔVP 랭킹 (engineer=완성 가능/조기화/다음 경로 착공, locomotive=해금 배달 가치, firstMove/firstBuild=경합 감지 기반)
-- `buildTrack`: 경로 커밋 + 결정론적 경로 추적(`tryDirectPathBuild`). 후보 경로(목표 → 상위 우선순위 → 네트워크 확장)를 순서대로 시도, 전부 실패 시 skip (미완성 트랙 = 0VP)
+- `issueShares`: TurnPlan.cashNeeded 부족분만 발행. **현금 15 이상이면 계획 발행 안 함**(자금 충분), 15 미만일 때만. 생존 발행(파산 방지) 절대 우선, 마지막 턴 생존 외 발행 금지, **턴당 2주 캡**(다인 cityCubes는 생존 발행 포함 하드캡). 누적 상한(MAX_TOTAL_SHARES)은 폐지
+- `auction`: **절실함 기반**(ΔVP) — 1등 가치 = (내 최선 행동 ΔVP − 차선 행동 ΔVP). `firstSeatBidCeiling`로 달러 환산(절실 미만이면 양보 $0~1, 절실하면 $2~3 바닥). 절실할 때만 적극 입찰 → 평범한 턴은 모두 양보해 경매 규칙상 순서가 자연 순환. `rankActionsByDeltaVP`(selectAction)를 재사용(turnOrder 행동 제외). 건설 예산·운영비 절대 침범 금지(파산 방지 안전판). St.Lucia 교대 선공권은 매턴 비용 구조라 바닥 없는 보수 환산(`floor(절실함/λ)`)
+- `selectAction`: 행동별 ΔVP 랭킹 (engineer=완성 가능/조기화/다음 경로 착공, locomotive=해금 배달 가치, firstMove/firstBuild=경합 감지 기반, **turnOrder=`evaluateTurnOrder` 순서 탈환 가치**=내 순번이 뒤일수록↑·꼴찌 최대). 순서 고착을 사람처럼 Turn Order 행동으로 자연 해소
+- `buildTrack`: 경로 커밋 + 결정론적 경로 추적(`tryDirectPathBuild`). 후보 경로(목표 → 상위 우선순위 → 네트워크 확장)를 순서대로 시도, 전부 실패 시 skip (미완성 트랙 = 0VP). **건설 차례에 이전 경로 재평가**(`resolveTurnRoute`): 다인 cityCubes에서 턴 시작에 잡은 경로가 다른 플레이어 건설로 막혔으면(`estimateRouteVP().completable=false`) 고집하지 않고 재평가 — 막힌 경로에 미완성 트랙 흩뿌림 차단
 - `moveGoods`: 배달 vs 엔진 업그레이드 vs 스킵을 동일 ΔVP 단위로 비교. 상대만 이득인 배달(ΔVP≤0)은 스킵
 
 **확장성 (큰 맵 대비)**:
@@ -680,6 +680,34 @@ Age of Steam 확장맵 3 — 한국 (Martin Wallace 2004 / James Mathias 아트 
   estimateRouteVP, buildTrack.ts resolveTurnRoute)도 도시 수요색을 봐야 한다. 처음엔 이 둘이
   `targetCity.color`(고정 placeholder)로 비교해 한국 경로를 오판(VP 13.75) → `cityAcceptsCube`로
   통일 후 VP 23.38. 새 동적색 맵 추가 시 "도시색 매칭" 전 지점을 cityAcceptsCube로. 남은 작업: 범례 위치 미세조정.
+
+#### AI 순서 순환 + 도시화/경로 정밀화 (2026-06-24, feature/ai-urbanization-blocked-edges)
+
+다인 맵에서 순서 고착(특정 player-index 독식)·엉뚱한 도시화·막힌 변 통과 경로를 개선.
+**측정은 모두 100시드** ([`docs/ai-auction-baseline-100seed.md`](docs/ai-auction-baseline-100seed.md) 표와 비교).
+
+- **경매 절실함 입찰 (auction.ts + vp.ts)**: ΔVP 직접환산 → **절실함(최선−차선 행동 ΔVP)** 기반으로 재설계.
+  상수는 vp.ts 상단 집중: `DESPERATION_BID_THRESHOLD`(1.5 미만이면 양보)·`FIRST_SEAT_BID_FLOOR/CAP`($2~3)·
+  `DESPERATION_BID_SAT`(2.5). "절실할 때만 적극, 평범하면 양보" → 경매 규칙상 순서 자연 순환.
+- **Turn Order 행동 전략화 (selectAction.ts `evaluateTurnOrder`)**: 룰북 정식 행동(무료 패스 1회)을
+  사람처럼 — 뒷순번일수록 가치↑. 단 `TURN_ORDER_SEAT_VP=0.1`(**거의 끔이 최적**, 100시드 전구간 스윕 결론:
+  0.3~0.4는 작동하나 VP 악화+독식 재현, 0.1이 단조편향 해소+VP 최고). 잔존 편향은 경매 순서/거점이 원인.
+- **건설 차례 경로 재평가 (buildTrack.ts `resolveTurnRoute`)**: 위 Phase별 결정 참조 — 인터랙션 게임에서
+  남의 건설을 100% 예측 못 하니 내 차례에 현재 보드로 completable 재확인.
+- **도시화 색/위치 정밀화 (AIPlayer.ts `decideUrbanizationPlacement`)**:
+  - 타일 색 = "내 철도에서 픽업 가능한(≤3) 화물색" 중 **그 색 목적지가 멀거나 없는 색** 우선
+    (`colorScore` = cargo×2 + 목적지거리보너스). 가까이 같은 색 도시 있으면 목적지 중복 → 후순위.
+  - 한국(동적색+`urbanizeFromDisplayCount`>0)은 신도시 수요색이 tile.color가 아니라 **그 타일 칸(A~H)에서
+    옮겨올 디스플레이 큐브**로 정해짐 → `expectedColorsOf`가 columnMapping+goodsDisplay로 예상 수요색 산출.
+  - 마을 위치 = **이번 턴 연결 가능 범위(남은 건설 슬롯 수) 안의 마을만** 후보, 가까울수록 가점.
+    범위 밖이면 도시화 보류(`return null`) — 엉뚱한 먼 곳에 안 만든다.
+- **blockedEdges 경로 회피 (hexGrid.ts `isBlockedEdge` + analyzer.ts)**: 건설 불가 경계 변(한국 산맥)을
+  A* 경로탐색 2곳(`findOptimalPath`/`findOptimalPathAvoidingOpponent`)에서 원천 회피 — 막힌 변 통과 경로를
+  짜면 건설 단계에서 거부돼 슬롯 낭비. **`isBlockedEdge`는 게임 엔진(gameStore `crossesBlockedEdge`)과
+  공유**(코드리뷰에서 gameStore의 중복 `isBlockedEdgePair` 제거하고 hexGrid 함수로 통일).
+- **Korea 거점/경로겹침 보정 (selector.ts)**: 동적색 맵은 ① 거점 묶기(AREA_BIAS) 끔(부산 고립우위/평양
+  현금난 운빨 제거), ② 경로 겹침을 완전차단(-∞) 대신 **감점**(`DYNAMIC_MAP_OVERLAP_PENALTY=6`) — 중앙 거점
+  플레이어 경로 고갈 방지로 승률 분포 균등화. **다른 cityCubes 맵은 완전차단 유지**(Rust Belt 도시금지 핵심 보존).
 
 #### 마을 가닥(스퍼) 모델 (2026-06-12 재설계, 모든 맵 공통)
 

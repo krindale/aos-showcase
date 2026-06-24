@@ -148,8 +148,15 @@ const MOUNTAIN: [number, number][] = [
   [5,9],[2,10],[4,10],[5,10],[6,10],[5,11],[3,12],[5,12],[3,13],[5,13],
 ];
 
-const RIVER: [number, number][] = [
-  [12,3],[13,5],[13,6],[13,8],[13,10],[13,12],
+// 미시시피 강 — 강 타일 + 각 타일이 지나는 두 면(변). 면이 옆 동부 도시를 향해 도시를 관통/연결한다.
+// 면 번호: 0=E, 1=SE, 2=SW, 3=W, 4=NW, 5=NE
+const RIVER: { coord: [number, number]; edges: [number, number] }[] = [
+  { coord: [12, 3],  edges: [4, 1] }, // Minneapolis(NW) ↔ Des Moines(SE)
+  { coord: [13, 5],  edges: [4, 2] }, // Des Moines(NW) ↔ (13,6)(SW)
+  { coord: [13, 6],  edges: [5, 1] }, // (13,5)(NE) ↔ St. Louis(SE)
+  { coord: [13, 8],  edges: [5, 1] }, // St. Louis(NE) ↔ Memphis(SE)
+  { coord: [13, 10], edges: [5, 1] }, // Memphis(NE) ↔ Vicksburg(SE)
+  { coord: [13, 12], edges: [5, 1] }, // Vicksburg(NE) ↔ New Orleans(SE)
 ];
 
 const SWAMP: [number, number][] = [
@@ -187,7 +194,8 @@ export function generateWesternUsHexTiles(): HexTile[] {
   const cityKeys = new Set(WESTERN_US_CITIES.map((c) => key(c.coord.col, c.coord.row)));
   const landKeys = new Set(LAND.map(([c, r]) => key(c, r)));
   const mtnKeys = new Set(MOUNTAIN.map(([c, r]) => key(c, r)));
-  const rivKeys = new Set(RIVER.map(([c, r]) => key(c, r)));
+  const rivKeys = new Set(RIVER.map((r) => key(r.coord[0], r.coord[1])));
+  const rivEdges = new Map(RIVER.map((r) => [key(r.coord[0], r.coord[1]), r.edges] as const));
   const swpKeys = new Set(SWAMP.map(([c, r]) => key(c, r)));
 
   for (let row = 0; row < WESTERN_US_MAP.rows; row++) {
@@ -196,13 +204,17 @@ export function generateWesternUsHexTiles(): HexTile[] {
       if (cityKeys.has(k)) continue; // 도시 헥스는 지형 없음
       let terrain: TerrainType = 'lake';
       let fixedCost: number | undefined;
+      let riverEdges: [number, number] | undefined;
       if (landKeys.has(k)) {
         if (mtnKeys.has(k)) { terrain = 'mountain'; fixedCost = MOUNTAIN_COST; }
-        else if (rivKeys.has(k)) { terrain = 'river'; fixedCost = SWAMP_RIVER_COST; }
+        else if (rivKeys.has(k)) { terrain = 'river'; fixedCost = SWAMP_RIVER_COST; riverEdges = rivEdges.get(k); }
         else if (swpKeys.has(k)) { terrain = 'swamp'; fixedCost = SWAMP_RIVER_COST; }
         else terrain = 'plain';
       }
-      tiles.push(fixedCost !== undefined ? { coord: { col, row }, terrain, fixedCost } : { coord: { col, row }, terrain });
+      const tile: HexTile = { coord: { col, row }, terrain };
+      if (fixedCost !== undefined) tile.fixedCost = fixedCost;
+      if (riverEdges) tile.riverEdges = riverEdges;
+      tiles.push(tile);
     }
   }
   return tiles;

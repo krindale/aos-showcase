@@ -112,6 +112,10 @@ export interface HexTile {
   /** 헥스별 고정 건설 비용(Germany €6~€12). 지정되면 지형별 기본 비용을 무시하고 이 값을 쓴다.
    *  (도시-도시 직결 링크는 별도 BoardState.directLinks로 표현 — fixedCost와 무관) */
   fixedCost?: number;
+  /** 강줄기가 지나는 두 변(면) 번호 [시작면, 끝면] (0=E,1=SE,2=SW,3=W,4=NW,5=NE).
+   *  지정되면 강을 이 두 면 사이로 그린다 — 강이 옆 도시 쪽 면을 향하게 해 도시를 관통/연결시킬 때 쓴다.
+   *  미지정이면 인접한 강 타일끼리 자동 연결(기본). 맵 데이터로 강 방향을 적는 칸이라 맵별 코드 분기가 없다. */
+  riverEdges?: [number, number];
 }
 
 // === 플레이어 상태 ===
@@ -147,6 +151,9 @@ export interface BoardState {
    *  true면 배달 목적지/통과 판정이 city.color 대신 city.cubes로 결정된다 (cityAcceptsCube 헬퍼 참조).
    *  빈 도시는 수요 없음. 비-한국 맵은 미설정(falsy)이라 기존 city.color 동작 그대로. */
   dynamicCityColors?: boolean;
+  /** 철도 건설 불가 경계 변 — 두 인접 헥스의 공유 변을 막아 그 변으로는 트랙을 잇지 못한다(한국 산맥 등).
+   *  렌더는 지도 외곽선의 2배 굵기 실선으로 표시. (a,b 순서 무관) */
+  blockedEdges?: { a: HexCoord; b: HexCoord }[];
 }
 
 /** 도시-도시 직접 링크 (사이 헥스 없이 인접한 두 도시를 잇는 특수 트랙) */

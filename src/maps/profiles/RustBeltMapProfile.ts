@@ -26,6 +26,14 @@ export class RustBeltMapProfile extends StandardMapProfile {
     return { pittsburgh: 3, wheeling: 3 };
   }
 
+  // 공식 맵 시트에서 숫자 박스가 검은색인 도시 (색과 무관한 디자인)
+  private static readonly BLACK_BOX_IDS = new Set([
+    'evansville', 'cincinnati', 'wheeling', 'pittsburgh', 'detroit', 'toronto',
+  ]);
+  override isCityNumberBoxBlack(cityId: string): boolean {
+    return RustBeltMapProfile.BLACK_BOX_IDS.has(cityId);
+  }
+
   override get specialRules(): MapRuleSummary[] {
     return [
       { title: '표준 규칙 맵', detail: 'Age of Steam 기본 룰을 그대로 따르는 미국 북동부 맵입니다.' },

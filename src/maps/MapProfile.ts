@@ -57,6 +57,15 @@ export abstract class MapProfile {
   /** Germany: 매 턴 시작에 이 도시(id)에 주머니에서 무작위 큐브 1개 추가 (Berlin). null이면 없음. */
   get bonusCityCubeId(): string | null { return null; }
 
+  /**
+   * 도시 헥스 위·아래 주사위 숫자 박스가 검은색(흰 숫자)인지 — 공식 맵 시트 기준 맵별 규칙.
+   * 기본은 흰 박스(검은 숫자). 맵 디자인이 색/도시별로 다르므로 프로파일에서 override.
+   * - Germany: 전부 검은 박스 → true
+   * - Korea: 어두운 수요색(파랑·보라·검정)만 검은 박스
+   * - Rust Belt: 특정 도시(id)만 검은 박스 (색과 무관 — 공식 시트 디자인)
+   */
+  isCityNumberBoxBlack(_cityId: string, _demandColor: string): boolean { return false; }
+
   // ── 한국(Korea) 특수룰 (기본값 = 영향 없음) ──
   /** 도시화 시 물품 디스플레이에서 신도시 위로 옮길 큐브 수 (Korea: 2). 0이면 신도시는 빈 회색. */
   get urbanizeFromDisplayCount(): number { return 0; }

@@ -226,12 +226,12 @@ export const TUTORIAL_COLORS = {
     I: CITY_COLORS.purple,   // Cincinnati
   },
 
-  // 지형 색상
+  // 지형 색상 (다른 맵과 동일한 표준 톤)
   terrain: {
-    plain: '#3D5A3D',
-    lake: '#4A7A8A',
-    river: '#5A8A9A',
-    mountain: '#6A6A7A',
+    plain: '#8DB36A',     // 연두 평원 (러스트벨트 등과 동일)
+    lake: '#E9E2CB',      // 호수/외곽
+    river: '#5FA3D4',     // 강 파랑
+    mountain: '#A9763F',  // 산악 갈색
   },
 
   // 보드 배경

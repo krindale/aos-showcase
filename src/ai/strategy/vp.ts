@@ -22,9 +22,10 @@ import {
   getTerrainBuildCost,
   getRouteProgress,
   isRouteComplete,
+  getConnectedCities,
 } from './analyzer';
 import { getCurrentRoute } from './state';
-import { hexCoordsEqual, cityAcceptsCube } from '@/utils/hexGrid';
+import { hexCoordsEqual, cityAcceptsCube, isTrackPartOfCompletedLink } from '@/utils/hexGrid';
 
 // ===== VP 환산 상수 =====
 export const VP_PER_INCOME = 3;
@@ -388,11 +389,42 @@ export function estimateRouteVP(
   // 트랙 1개를 이 경로에 쓰면 다른 경로의 트랙 VP를 벌 기회를 잃는다.
   // (안 그러면 "트랙이 많이 필요한 먼 경로"가 가까운 경로보다 점수가 높아지는 왜곡 발생)
   const lambda = cashToVPRate(state, playerId);
+  const profile = getMapProfile(state.mapId);
   // Western US: 동↔서 배달이면 매 배달 +$1 income 보너스를 ΔVP에 반영
-  const regionBonus = getMapProfile(state.mapId).regionDeliveryBonus(sourceCity?.region, targetCity.region);
+  const regionBonus = profile.regionDeliveryBonus(sourceCity?.region, targetCity.region);
   const perDeliveryVP = deliveryDeltaVP(state, playerId, links, 0) + regionBonus * VP_PER_INCOME;
   const fundShares = Math.ceil(Math.max(0, buildCost - player.cash) / GAME_CONSTANTS.SHARE_VALUE);
-  const netTrackVP = tracksToBuild * VP_PER_LINK_TRACK * 0.5;
+  // ★ 완성 트랙 목표 (맵별, MapProfile.targetCompletedTracks — 현재 Western US만 7): 완성트랙이
+  //   목표 미만이면 트랙 VP를 기회비용 없이 정상(1.0) 인정해 경로 완성을 적극 추구한다(완성트랙
+  //   =VP·income 동반 상승). 목표 도달 후엔 0.5(기회비용)로 income 효율 우선. 0이면 비활성(기존 0.5).
+  const targetTracks = profile.targetCompletedTracks;
+  let trackVPFactor = 0.5;
+  if (targetTracks > 0) {
+    const myCompletedTracks = board.trackTiles.filter(
+      t => t.owner === playerId && isTrackPartOfCompletedLink(t.coord, board)
+    ).length;
+    if (myCompletedTracks < targetTracks) trackVPFactor = 1.0;
+  }
+  const netTrackVP = tracksToBuild * VP_PER_LINK_TRACK * trackVPFactor;
+
+  // ★ 대륙횡단 철도 활용(Western US): 내 네트워크가 한쪽(서/동) 시작도시를 이미 연결했고
+  //   이 경로 목적지가 반대쪽 시작도시면 대륙횡단 달성 → income 즉시 +$4(영구) = 큰 VP.
+  //   AI가 이 큰 income 원천을 거의 못 쓰던 것(0.4명/게임)을 적극 노리게 만든다. (미달성 시 1회)
+  let transcontinentalVP = 0;
+  if (profile.transcontinentalBonus && !player.transcontinental &&
+      targetCity.region && profile.isStartingCity(targetCity)) {
+    const otherRegion = targetCity.region === 'west' ? 'east' : 'west';
+    const connectedCityIds = getConnectedCities(state, playerId);
+    const reachesOtherSide = connectedCityIds.some(id => {
+      const c = board.cities.find(cc => cc.id === id);
+      return c && c.region === otherRegion && profile.isStartingCity(c);
+    });
+    if (reachesOtherSide) {
+      // 1철도 연결 보너스 $4 (영구 income) = 큰 VP. 완성 게이트가 미완성 경로를 이미 막으므로
+      // 할인 없이 강하게 평가 — AI가 대륙횡단을 적극 노려 income을 점프시킨다(뒤 순번 회복).
+      transcontinentalVP = incomeMarginalVP(state, playerId, 4);
+    }
+  }
 
   // 1턴 완성 최우선(사용자 지침): 이번 턴에 완성·배달 가능한 경로를 2턴 완성보다 강하게
   // 우선한다. 완성이 늦을수록 페널티 (1턴=0, 2턴=-4VP). cityCubes 다인만 적용.
@@ -401,6 +433,7 @@ export function estimateRouteVP(
     : Math.max(0, completionTurns - 1) * 4;
   const deltaVP =
     rho * (expectedDeliveries * perDeliveryVP + netTrackVP)
+    + transcontinentalVP
     - buildCost * lambda
     - fundShares * -VP_PER_SHARE
     - lateCompletionPenalty;

@@ -55,6 +55,18 @@ export class WesternUsMapProfile extends StandardMapProfile {
   // income 원천: 도시 큐브 + 마을 큐브
   override get incomeSources(): IncomeSource[] { return ['cityCubes', 'townCubes']; }
 
+  // 완성 트랙 7 목표 (사용자 지침, Western US 전용) — 완성트랙 7 미만이면 경로 완성을 적극 추구.
+  override get targetCompletedTracks(): number { return 7; }
+
+  // 경매 1번 입찰 보너스 (Western US 전용) — 4·5위 +1, 6위(꼴찌) +2. 뒤 순번이 1번을 더 따내
+  // 순서를 순환시킨다. 마을 큐브 배달이 "1번 사느라 건설예산 소진" 부작용을 상쇄해 Western만 가능
+  // (cityCubes 맵은 이 보너스로 뒤 순번이 붕괴 — Rust Belt VP 11.7→3.5 측정).
+  override firstSeatRankBidBonus(rank: number, n: number): number {
+    if (rank === n - 1) return 2;   // 6위(꼴찌)
+    if (rank >= n - 3) return 1;    // 4·5위
+    return 0;                       // 1~3위
+  }
+
   // 트랙 시작은 서부/동부 "시작 도시"에서만 (중앙 Denver/SLC·신도시 제외)
   override get startingCitiesOnly(): boolean { return true; }
   override isStartingCity(city: City): boolean {

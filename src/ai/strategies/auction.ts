@@ -19,6 +19,7 @@ import {
   firstSeatBidCeiling,
   LAMBDA_BASE,
 } from '../strategy/vp';
+import { getMapProfile } from '@/maps/getMapProfile';
 import { debugLog } from '@/utils/debugConfig';
 
 export type AuctionDecision =
@@ -53,7 +54,12 @@ export function decideAuctionBid(state: GameState, playerId: PlayerId): AuctionD
   // 자금 상한: 건설 예산 + 운영비는 절대 침범 금지 (파산 방지 안전판)
   const expenses = player.issuedShares + player.engineLevel;
   const cashCeiling = Math.max(0, player.cash - plan.buildBudget - expenses);
-  const maxBid = Math.min(firstSeatBidCeiling(desperation, lambda), cashCeiling);
+  // 뒤 순번 1번 입찰 보너스(맵별 격리, Western US) — 평범한 턴에 뒤 순번이 1번을 따내 순서 순환 유도.
+  const rank = state.playerOrder.indexOf(playerId);
+  const seatBonus = getMapProfile(state.mapId).firstSeatRankBidBonus(rank, state.activePlayers.length);
+  const baseCeiling = Math.min(firstSeatBidCeiling(desperation, lambda), cashCeiling);
+  // 보너스는 cashCeiling(건설예산 보호) 밖에서 더하되, 보유 현금은 넘지 않게 가드(파산 방지).
+  const maxBid = Math.min(baseCeiling + seatBonus, Math.max(0, player.cash - expenses));
 
   // 경매가 시작되지 않았으면 가치가 있을 때만 $1로 시작
   if (!auction) {

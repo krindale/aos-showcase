@@ -709,6 +709,37 @@ Age of Steam 확장맵 3 — 한국 (Martin Wallace 2004 / James Mathias 아트 
   현금난 운빨 제거), ② 경로 겹침을 완전차단(-∞) 대신 **감점**(`DYNAMIC_MAP_OVERLAP_PENALTY=6`) — 중앙 거점
   플레이어 경로 고갈 방지로 승률 분포 균등화. **다른 cityCubes 맵은 완전차단 유지**(Rust Belt 도시금지 핵심 보존).
 
+#### Western US AI 골고루 개선 (2026-06-25, feature/western-us-village-cube)
+
+서부 미국 6인에서 "1·2·3등이 player-index로 고착"(앞3 VP ~30 vs 뒤3 ~0)을 해결. 진짜 원인은
+경매 순번·거점이 아니라 **일부 AI가 첫 턴에 완성 불가능한 먼 경로에 미완성 트랙을 깔아 파산**하거나,
+**자기 도시 화물 소진 후 갇혀 정체**하는 것이었다(1게임 추적으로 규명). 측정은 모두 100시드.
+
+- **★ 마을 큐브 배달 목표 (핵심 해결, analyzer.ts `analyzeDeliveryOpportunities`)**: Western US는
+  townCubes 맵인데 그동안 배달 목표를 **도시 큐브만** 생성하고 **마을 큐브를 무시**해, AI가 "우연히
+  마을을 지나면 배달"할 뿐 마을 큐브를 노려 확장하지 못했다(도시 화물 소진 후 정체→파산). → townCubes
+  맵에 마을 큐브 배달 기회(`town:<id>` 출발) 추가 + `findStopById`가 `town:`/`track:` prefix를 strip +
+  `preliminaryScore`가 내 트랙 인접 마을 출발을 도시처럼 우대(안 그러면 상위 K 추림에서 도시 경로에
+  밀려 사장). **갇혀 정체하던 뒤 순번이 중간 마을 큐브 배달로 income을 벌어 살아남** (p5 VP 0→8,
+  VP 격차 30→16, 평균 VP 14.3→15.1, 붕괴 player 없음). 경매 보너스(제로섬)와 달리 전체 파이를 키운다.
+- **완성트랙 7 목표 (vp.ts + `MapProfile.targetCompletedTracks`=7)**: 완성트랙 < 7이면 트랙 건설 VP를
+  기회비용 없이 정상(1.0) 인정(기본 0.5) → 경로 완성을 적극 추구해 완성트랙·income 동반 상승. Western 전용.
+- **대륙횡단 활용 (vp.ts `estimateRouteVP` transcontinentalVP)**: 내 네트워크가 한쪽(서/동) 시작도시를
+  연결했고 경로 목적지가 반대쪽 시작도시면 대륙횡단 달성 → income +$4(영구)=큰 VP 가산. 0.4→0.9명/게임.
+- **첫 착공 완성 게이트 (buildTrack.ts `gateCompletable`)**: 다인 맵 첫 착공 시 completable=false 경로
+  (먼 대륙횡단 등)는 미완성 트랙 안 깔고 skip → "전 재산 쏟아 income 0으로 죽는 나선" 차단(파산
+  0.79→0.34, Rust Belt도 9.8→11.7 동반 개선). banScatter(연속성 룰)와 별개의 AI 휴리스틱.
+- **First Move/Build 강화 (selectAction.ts)**: 뒤 순번일수록 선수송/선건설 가치↑(rank 가중). 단 순서
+  액션은 1명만 선택+실질행동 기회비용이라 제로섬(player간 재분배)에 그침 — 마을 큐브가 진짜 해결.
+- **★ 경매 1번 입찰 보너스 (Western US 전용, `MapProfile.firstSeatRankBidBonus`)**: 4·5위 +1, 6위 +2로
+  뒤 순번 입찰 상한을 올려 1번을 더 따 순서 순환(승자 분포 균등화). **cityCubes 맵(Rust/Germany)엔 절대
+  적용 불가** — 마을 큐브가 없어 뒤 순번이 1번 사느라 건설예산 소진→붕괴(전 맵 적용 시 Rust VP 11.7→3.5,
+  파산 2배). Western만 마을 큐브가 이 부작용을 상쇄하므로 override로 켠다. 골고루↑ vs 평균 VP −1.6 트레이드오프.
+- **시뮬 진단 지표 (전 다인 시뮬 *Simulation.test.ts, 상시)**: turnOrder 행동 선택·경매 입찰 발생 횟수·
+  1번 획득 방식(byBid 입찰로/byYield 양보로)·순번 1~N위 점유 분포. Western은 추가로 **1게임 턴별 프로세스
+  추적**(player별 매 턴 경로/건설좌표 + skip 시 게이트 이유: 완성/연결/completable). player-index 편향
+  진단의 핵심 도구 — "누가 1번 먹나·왜 정체하나"를 수치로 추적.
+
 #### 마을 가닥(스퍼) 모델 (2026-06-12 재설계, 모든 맵 공통)
 
 마을 = 헥스 안의 원. **마을 헥스에는 트랙 타일을 배치할 수 없다** (도시처럼).

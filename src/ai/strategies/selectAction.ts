@@ -25,9 +25,8 @@ import {
   SAME_TURN_DELIVERY_DISCOUNT,
   FUTURE_DELIVERY_DISCOUNT,
   cashToVPRate,
-  TURN_ORDER_SEAT_VP,
 } from '../strategy/vp';
-import { findReachableDestinations, hexCoordsEqual, getNeighborHex, findTrackCubeDeliveries, hexDistance } from '@/utils/hexGrid';
+import { findReachableDestinations, hexCoordsEqual, getNeighborHex, findTrackCubeDeliveries, hexDistance, isTrackPartOfCompletedLink } from '@/utils/hexGrid';
 import { debugLog } from '@/utils/debugConfig';
 import { getMapProfile } from '@/maps/getMapProfile';
 
@@ -361,7 +360,13 @@ function evaluateFirstMove(state: GameState, playerId: PlayerId): number {
   if (hasContestedDelivery(state, playerId)) {
     // 선점 가치: 경합 큐브를 빼앗겨도 보통 다른 배달이 가능하므로
     // 실제 스윙은 income 1 차이의 절반 수준으로 평가
-    return VP_PER_INCOME * (1 + opponentWeight(state)) / 4;
+    const base = VP_PER_INCOME * (1 + opponentWeight(state)) / 4;
+    // ★ 내 순번이 뒤일수록 Move Goods에서 화물을 선점당하므로 First Move(선수송)로 만회하는
+    //   가치가 크다. 꼴찌(rank=n-1)일수록 강하게 — 뒤 순번이 First Move를 잡아 수송·income을 회복.
+    const rank = state.playerOrder.indexOf(playerId);
+    const n = state.activePlayers.length;
+    const rankFactor = n > 1 && rank > 0 ? rank / (n - 1) : 0; // 1번=0, 꼴찌=1
+    return base * (1 + 2 * rankFactor); // 뒤 순번일수록 최대 3배
   }
 
   return 0.2; // 경합 없으면 순서 우위는 미미
@@ -373,12 +378,27 @@ function evaluateFirstMove(state: GameState, playerId: PlayerId): number {
 function evaluateFirstBuild(state: GameState, playerId: PlayerId, plan: TurnPlan): number {
   if (!plan.fullPath || plan.tracksNeeded === 0) return 0;
 
-  if (hasContestedBuildHex(state, playerId, plan)) {
-    // 막히면 우회 비용(~$2) 발생 → 선점 가치 ≈ 우회 비용 × λ
-    return 2 * cashToVPRate(state, playerId);
-  }
+  const base = hasContestedBuildHex(state, playerId, plan)
+    ? 2 * cashToVPRate(state, playerId) // 막히면 우회 비용(~$2) → 선점 가치
+    : 0.3;                              // 경합 없으면 소액
 
-  return 0.3; // 경합 없으면 소액 (건설 순서 우위)
+  // ★ 완성철도 목표(targetCompletedTracks, Western US=7) 미달이고 내 순번이 뒤일수록 First Build로
+  //   경로를 먼저 깔아 선점·완성하는 가치↑. 뒤 순번은 좋은 헥스를 선점당해 완성철도가 부족하므로
+  //   (p6 5.7), 먼저 건설해 완성 경로를 확보하게 한다.
+  const target = getMapProfile(state.mapId).targetCompletedTracks;
+  if (target > 0) {
+    const myCompleted = state.board.trackTiles.filter(
+      t => t.owner === playerId && isTrackPartOfCompletedLink(t.coord, state.board)
+    ).length;
+    if (myCompleted < target) {
+      const rank = state.playerOrder.indexOf(playerId);
+      const n = state.activePlayers.length;
+      const rankFactor = n > 1 && rank > 0 ? rank / (n - 1) : 0; // 1번=0, 꼴찌=1
+      // 완성철도 부족분 × 뒤 순번 가중 — 부족할수록·뒤일수록 강하게
+      return base + (target - myCompleted) * 0.4 * (1 + rankFactor);
+    }
+  }
+  return base;
 }
 
 /**
@@ -420,7 +440,8 @@ function evaluateTurnOrder(state: GameState, playerId: PlayerId): number {
   const rank = state.playerOrder.indexOf(playerId); // 0 = 1번
   const n = state.activePlayers.length;
   if (n <= 1 || rank <= 0) return 0.1; // 이미 1번이거나 단독이면 순서 탈환 가치 없음
-  return TURN_ORDER_SEAT_VP * (rank / (n - 1)); // 꼴찌(rank=n-1)일수록 최대
+  const seatVP = getMapProfile(state.mapId).turnOrderSeatVP; // 맵별 격리(기본 0.1)
+  return seatVP * (rank / (n - 1)); // 꼴찌(rank=n-1)일수록 최대
 }
 
 /**

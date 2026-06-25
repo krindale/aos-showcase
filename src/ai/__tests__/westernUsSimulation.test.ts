@@ -15,6 +15,9 @@ import { getAIDecision } from '@/ai';
 import { addFailedBuildCoord } from '../strategies/buildTrack';
 import { calculateVictoryPoints } from '@/utils/gameLogic';
 import { isTrackPartOfCompletedLink } from '@/utils/hexGrid';
+import { getCurrentRoute } from '../strategy/state';
+import { isRouteComplete, getConnectedCities, analyzeDeliveryOpportunities } from '../strategy/analyzer';
+import { estimateRouteVP } from '../strategy/vp';
 import type { PlayerId } from '@/types/game';
 
 function createSeededRng(seed: number): () => number {
@@ -47,6 +50,12 @@ interface WResult {
   buildsByPlayer: Record<PlayerId, number>;    // player별 철도 건설 횟수
   deliveriesByPlayer: Record<PlayerId, number>; // player별 수송(배달) 횟수
   engine: Record<PlayerId, number>;            // player별 최종 엔진 레벨
+  // ── 진단(경매/순서) ──
+  turnOrderByPlayer: Record<PlayerId, number>;  // player별 turnOrder 행동 선택 횟수
+  bidsThisGame: number;                          // 이 게임에서 실제 입찰(placeBid) 발생 횟수
+  firstSeatByBid: Record<PlayerId, number>;      // 입찰($>0)로 1번 획득한 횟수 (player별)
+  firstSeatByYield: Record<PlayerId, number>;    // 양보(입찰 없이)로 1번이 된 횟수 (player별)
+  seatRankByPlayer: Record<PlayerId, number[]>;  // player별 [1위,2위,...,6위] 순번 점유 횟수 (앞 절반 고착 진단)
 }
 
 function runWesternUsGame(seed: number): WResult {
@@ -63,8 +72,18 @@ function runWesternUsGame(seed: number): WResult {
   const firstSeatCounts = {} as Record<PlayerId, number>;
   const buildsByPlayer = {} as Record<PlayerId, number>;
   const deliveriesByPlayer = {} as Record<PlayerId, number>;
-  PLAYERS.forEach(p => { firstSeatCounts[p] = 0; buildsByPlayer[p] = 0; deliveriesByPlayer[p] = 0; });
+  const turnOrderByPlayer = {} as Record<PlayerId, number>;
+  const firstSeatByBid = {} as Record<PlayerId, number>;
+  const firstSeatByYield = {} as Record<PlayerId, number>;
+  const seatRankByPlayer = {} as Record<PlayerId, number[]>;
+  PLAYERS.forEach(p => {
+    firstSeatCounts[p] = 0; buildsByPlayer[p] = 0; deliveriesByPlayer[p] = 0;
+    turnOrderByPlayer[p] = 0; firstSeatByBid[p] = 0; firstSeatByYield[p] = 0;
+    seatRankByPlayer[p] = [0, 0, 0, 0, 0, 0];
+  });
   let lastSeatTurn = 0;
+  let bidsThisGame = 0;
+  let turnHadBid = false; // 이번 턴 경매에서 실제 입찰이 있었는지 (selectActions 진입 시 분류 후 리셋)
   const MAX_ITER = 120000;
   let iter = 0, stale = 0, lastSig = '';
   let reachedEnd = false;
@@ -73,11 +92,22 @@ function runWesternUsGame(seed: number): WResult {
     const s = useGameStore.getState();
     if (s.currentPhase === 'gameOver') { reachedEnd = true; break; }
 
-    // 턴별 1번(선공) 점유 기록 — 경매로 순서가 확정된 뒤(selectActions) 턴당 1회
+    // 턴별 1번(선공) 점유 기록 — 경매로 순서가 확정된 뒤(selectActions) 턴당 1회.
+    // 1번이 "입찰로 따냈는지(byBid) vs 아무도 안 사서 양보로 됐는지(byYield)"도 분류 —
+    // 순서 고착이 경매 경쟁의 결과인지, 경매가 사실상 작동 안 해서인지 진단.
     if (s.currentPhase === 'selectActions' && s.currentTurn !== lastSeatTurn) {
       const first = s.playerOrder[0];
-      if (first) firstSeatCounts[first] = (firstSeatCounts[first] ?? 0) + 1;
+      if (first) {
+        firstSeatCounts[first] = (firstSeatCounts[first] ?? 0) + 1;
+        if (turnHadBid) firstSeatByBid[first] = (firstSeatByBid[first] ?? 0) + 1;
+        else firstSeatByYield[first] = (firstSeatByYield[first] ?? 0) + 1;
+      }
+      // 각 player의 이번 턴 순번(1~6위) 기록 — 1번뿐 아니라 앞 절반 고착을 진단
+      s.playerOrder.forEach((pid, rank) => {
+        if (rank < 6 && seatRankByPlayer[pid]) seatRankByPlayer[pid][rank]++;
+      });
       lastSeatTurn = s.currentTurn;
+      turnHadBid = false; // 다음 턴 경매를 위해 리셋
     }
 
     if (s.ui.movingCube) { s.completeCubeMove(); continue; }
@@ -118,7 +148,7 @@ function runWesternUsGame(seed: number): WResult {
 
       case 'auction': {
         const a = decision.decision;
-        if (a.action === 'bid') store.placeBid(cp, a.amount);
+        if (a.action === 'bid') { store.placeBid(cp, a.amount); bidsThisGame++; turnHadBid = true; }
         else if (a.action === 'pass') store.passBid(cp);
         else if (a.action === 'skip') store.skipBid(cp);
         else if (a.action === 'complete') { store.resolveAuction(); useGameStore.getState().nextPhase(); }
@@ -126,6 +156,7 @@ function runWesternUsGame(seed: number): WResult {
       }
 
       case 'selectAction':
+        if (decision.action === 'turnOrder') turnOrderByPlayer[cp] = (turnOrderByPlayer[cp] ?? 0) + 1;
         store.selectAction(cp, decision.action);
         useGameStore.getState().nextPhase();
         break;
@@ -208,6 +239,8 @@ function runWesternUsGame(seed: number): WResult {
     accurateVP, income, shares, completedTracks, transcontinental, bankruptcies,
     finalTurn: f.currentTurn, reachedEnd, deliveries, builds, urbanizations,
     firstSeatCounts, buildsByPlayer, deliveriesByPlayer, engine,
+    turnOrderByPlayer, bidsThisGame, firstSeatByBid, firstSeatByYield,
+    seatRankByPlayer,
   };
 }
 
@@ -235,18 +268,31 @@ describe('Western US 6 AI 전체 게임 — 다인 실동작 + 베이스라인',
     // 순서 고착 지표: 전 게임 합산 1번 점유 횟수 + 최종 승자(VP 최대) 분포
     const firstSeatTotal = {} as Record<PlayerId, number>;
     const winnerCounts = {} as Record<PlayerId, number>;
+    // 경매/순서 진단: turnOrder 행동 선택 횟수, 1번 획득 방식(입찰 vs 양보)
+    const turnOrderTotal = {} as Record<PlayerId, number>;
+    const firstSeatBidTotal = {} as Record<PlayerId, number>;
+    const firstSeatYieldTotal = {} as Record<PlayerId, number>;
+    const seatRankTotal = {} as Record<PlayerId, number[]>;
     // player별 평균 지표(건설/수송/엔진/주식/income/VP/완성트랙) — player-index 편향 진단용
     type PerPlayer = { vp: number; income: number; shares: number; engine: number; builds: number; deliveries: number; tracks: number };
     const perPlayer = {} as Record<PlayerId, PerPlayer>;
     PLAYERS.forEach(p => {
       firstSeatTotal[p] = 0; winnerCounts[p] = 0;
+      turnOrderTotal[p] = 0; firstSeatBidTotal[p] = 0; firstSeatYieldTotal[p] = 0;
+      seatRankTotal[p] = [0, 0, 0, 0, 0, 0];
       perPlayer[p] = { vp: 0, income: 0, shares: 0, engine: 0, builds: 0, deliveries: 0, tracks: 0 };
     });
+    let totalBids = 0;
     for (const r of results) {
       for (const pid of PLAYERS) allVPs.push(r.accurateVP[pid] ?? 0);
       totalBankrupt += r.bankruptcies;
+      totalBids += r.bidsThisGame;
       for (const pid of PLAYERS) {
         firstSeatTotal[pid] += r.firstSeatCounts[pid] ?? 0;
+        turnOrderTotal[pid] += r.turnOrderByPlayer[pid] ?? 0;
+        firstSeatBidTotal[pid] += r.firstSeatByBid[pid] ?? 0;
+        firstSeatYieldTotal[pid] += r.firstSeatByYield[pid] ?? 0;
+        for (let rank = 0; rank < 6; rank++) seatRankTotal[pid][rank] += r.seatRankByPlayer[pid]?.[rank] ?? 0;
         const x = perPlayer[pid];
         x.vp += r.accurateVP[pid] ?? 0;
         x.income += r.income[pid] ?? 0;
@@ -284,6 +330,9 @@ describe('Western US 6 AI 전체 게임 — 다인 실동작 + 베이스라인',
       finishedTurns: results.map(r => r.finalTurn),
       allReachedEnd: results.every(r => r.reachedEnd),
       firstSeatTotal, winnerCounts, perPlayer,
+      turnOrderTotal, firstSeatBidTotal, firstSeatYieldTotal,
+      avgBidsPerGame: totalBids / seeds,
+      seatRankTotal,
     };
   }
 
@@ -299,6 +348,18 @@ describe('Western US 6 AI 전체 게임 — 다인 실동작 + 베이스라인',
     console.log(`완주 턴 분포: ${JSON.stringify(m.finishedTurns)}`);
     console.log(`1번(선공) 점유 횟수(전 게임 합): ${JSON.stringify(m.firstSeatTotal)}`);
     console.log(`최종 승자 분포: ${JSON.stringify(m.winnerCounts)}`);
+    // ── 경매/순서 진단 (상시) ──
+    console.log(`경매 입찰 발생: ${m.avgBidsPerGame.toFixed(1)}회/게임 (0에 가까우면 경매가 양보로만 결정 = 순서 안 섞임)`);
+    console.log(`1번 획득 — 입찰로(byBid): ${JSON.stringify(m.firstSeatBidTotal)}`);
+    console.log(`1번 획득 — 양보로(byYield): ${JSON.stringify(m.firstSeatYieldTotal)}`);
+    console.log(`turnOrder 행동 선택 횟수(전 게임 합): ${JSON.stringify(m.turnOrderTotal)}`);
+    // ── player별 순번(1~6위) 점유 분포 (앞 절반 고착 진단) ── 균등이면 각 100
+    console.log('--- player별 순번 점유 (1위~6위 횟수, 균등=각 100) ---');
+    PLAYERS.forEach(p => {
+      const r = m.seatRankTotal[p];
+      const frontHalf = r[0] + r[1] + r[2]; // 1~3위(앞 절반) 합
+      console.log(`${p}: ${r.map((c, i) => `${i + 1}위 ${c}`).join(' | ')}  → 앞3합 ${frontHalf}`);
+    });
     console.log('--- player별 평균 (건설/수송/엔진/주식) ---');
     PLAYERS.forEach(p => {
       const x = m.perPlayer[p];
@@ -312,4 +373,160 @@ describe('Western US 6 AI 전체 게임 — 다인 실동작 + 베이스라인',
     // Western US 6인 = 6턴 (룰북) — 정상 게임은 6턴 도달
     expect(m.finishedTurns.some(t => t >= 6)).toBe(true);
   }, 900_000);
+
+  // 1게임을 턴별로 추적 — 각 player가 매 턴 무엇을 하는지(건설/완성/수송/income) 하나하나.
+  // "뒤 순번이 왜 완성 트랙·income을 못 만드는가"를 눈으로 보기 위한 진단.
+  it('1게임 프로세스 추적 (turn-by-turn)', () => {
+    const seed = 5000;
+    const rng = createSeededRng(seed);
+    vi.spyOn(Math, 'random').mockImplementation(rng);
+    useGameStore.getState().initGame(
+      'western-us',
+      PLAYERS.map((_, i) => `AI-${i + 1}`),
+      PLAYERS.map((_, i) => ({ playerIndex: i, name: `AI-${i + 1}` })),
+    );
+    vi.restoreAllMocks();
+
+    const snaps: Array<{ turn: number; order: PlayerId[]; players: Record<PlayerId, Record<string, number | boolean>> }> = [];
+    const tb = {} as Record<PlayerId, number>; // 그 턴 건설
+    const td = {} as Record<PlayerId, number>; // 그 턴 수송
+    const tu = {} as Record<PlayerId, number>; // 그 턴 도시화
+    PLAYERS.forEach(p => { tb[p] = 0; td[p] = 0; tu[p] = 0; });
+    const buildLog: string[] = []; // 턴별 player 경로 + 건설좌표 (경로 완성 실패 진단)
+    const routeAtTurnStart = {} as Record<PlayerId, string>; // 그 턴 잡은 경로 (selectActions 시점)
+
+    const MAX_ITER = 120000;
+    let iter = 0, stale = 0, lastSig = '';
+    while (iter++ < MAX_ITER) {
+      const s = useGameStore.getState();
+      if (s.currentPhase === 'gameOver') break;
+      if (s.ui.movingCube) { s.completeCubeMove(); continue; }
+
+      if (s.currentPhase === 'goodsGrowth') {
+        const activeCount = s.activePlayers.filter(p => !s.players[p]?.eliminated).length;
+        const dice = Array.from({ length: activeCount }, () => 1 + Math.floor(rng() * 6));
+        s.growGoods(dice); useGameStore.getState().nextPhase(); continue;
+      }
+
+      // 턴 끝(advanceTurn) — 그 턴 정산 완료 상태를 스냅샷
+      if (s.currentPhase === 'advanceTurn') {
+        const rec = { turn: s.currentTurn, order: [...s.playerOrder], players: {} as Record<PlayerId, Record<string, number | boolean>> };
+        PLAYERS.forEach(p => {
+          const pl = s.players[p];
+          const own = s.board.trackTiles.filter(t => t.owner === p);
+          const comp = own.filter(t => isTrackPartOfCompletedLink(t.coord, s.board)).length;
+          rec.players[p] = {
+            rank: s.playerOrder.indexOf(p), income: pl.income, cash: pl.cash, engine: pl.engineLevel,
+            shares: pl.issuedShares, tracks: own.length, completed: comp, b: tb[p], d: td[p], u: tu[p], elim: pl.eliminated,
+          };
+        });
+        snaps.push(rec);
+        PLAYERS.forEach(p => { tb[p] = 0; td[p] = 0; tu[p] = 0; });
+      }
+
+      const sig = `${s.currentPhase}:${s.currentPlayer}:${s.currentTurn}:${s.phaseState.builtTracksThisTurn}:${s.board.trackTiles.length}:${JSON.stringify(s.phaseState.playerMoves)}`;
+      if (sig === lastSig) { if (++stale > 8) { useGameStore.getState().nextPhase(); stale = 0; lastSig = ''; continue; } } else { stale = 0; lastSig = sig; }
+      if (AUTO_PHASES.has(s.currentPhase)) { s.nextPhase(); continue; }
+
+      const cp = s.currentPlayer;
+      const decision = getAIDecision(s, cp);
+      const store = useGameStore.getState();
+      switch (decision.type) {
+        case 'issueShares':
+          if (decision.amount > 0) store.issueShare(cp, decision.amount);
+          useGameStore.getState().nextPhase();
+          break;
+        case 'turnOrderOffer':
+          store.respondTurnOrderOffer(cp, decision.accept);
+          if (useGameStore.getState().currentPhase === 'determinePlayerOrder') useGameStore.getState().nextPhase();
+          break;
+        case 'auction': {
+          const a = decision.decision;
+          if (a.action === 'bid') store.placeBid(cp, a.amount);
+          else if (a.action === 'pass') store.passBid(cp);
+          else if (a.action === 'skip') store.skipBid(cp);
+          else if (a.action === 'complete') { store.resolveAuction(); useGameStore.getState().nextPhase(); }
+          break;
+        }
+        case 'selectAction':
+          store.selectAction(cp, decision.action);
+          useGameStore.getState().nextPhase();
+          break;
+        case 'placeNewCity':
+          store.enterUrbanizationMode();
+          store.selectNewCityTile(decision.tileId);
+          if (!store.placeNewCity(decision.townCoord)) store.exitUrbanizationMode();
+          else tu[cp]++;
+          break;
+        case 'buildTrack': {
+          const d = decision.decision;
+          // 진단: 모든 player의 매 턴 건설 결정 (경로 + action). skip이면 게이트 이유까지.
+          {
+            const rt = getCurrentRoute(cp);
+            const coordStr = d.action === 'buildSpur' ? ` spur`
+              : (d.action === 'build' || d.action === 'buildComplex') ? ` (${d.coord.col},${d.coord.row})` : '';
+            let extra = '';
+            if (d.action === 'skip' && rt) {
+              const complete = isRouteComplete(s, rt, cp);
+              const conn = getConnectedCities(s, cp);
+              const opp = analyzeDeliveryOpportunities(s).find(o => o.sourceCityId === rt.from && o.targetCityId === rt.to);
+              const est = opp ? estimateRouteVP(s, cp, opp) : null;
+              extra = ` {완성=${complete} from연결=${conn.includes(rt.from)} to연결=${conn.includes(rt.to)}` +
+                (est ? ` 필요트랙=${est.tracksToBuild} completable=${est.completable}}` : ' opp없음}');
+            }
+            buildLog.push(`T${s.currentTurn} ${cp} [${d.action}] 경로=${rt ? `${rt.from}→${rt.to}` : '없음'}${coordStr}${extra}`);
+          }
+          if (d.action === 'build') {
+            if (!store.buildTrack(d.coord, d.edges)) { addFailedBuildCoord(cp, d.coord, s.currentTurn); break; }
+            tb[cp]++;
+            const ps = useGameStore.getState().phaseState;
+            if (ps.builtTracksThisTurn >= ps.maxTracksThisTurn) useGameStore.getState().nextPhase();
+          } else if (d.action === 'buildSpur') {
+            if (!store.buildTownSpur(d.townCoord)) { useGameStore.getState().nextPhase(); break; }
+            tb[cp]++;
+            const ps = useGameStore.getState().phaseState;
+            if (ps.builtTracksThisTurn >= ps.maxTracksThisTurn) useGameStore.getState().nextPhase();
+          } else if (d.action === 'buildComplex') {
+            if (!store.buildComplexTrack(d.coord, d.edges, d.trackType)) { addFailedBuildCoord(cp, d.coord, s.currentTurn); break; }
+            tb[cp]++;
+            const ps = useGameStore.getState().phaseState;
+            if (ps.builtTracksThisTurn >= ps.maxTracksThisTurn) useGameStore.getState().nextPhase();
+          } else { useGameStore.getState().nextPhase(); }
+          break;
+        }
+        case 'moveGoods': {
+          const d = decision.decision;
+          if (d.action === 'move') {
+            store.selectCube(d.sourceCityId, d.cubeIndex);
+            useGameStore.getState().selectDestinationCity(d.destinationCoord);
+            td[cp]++;
+            if (!useGameStore.getState().ui.movingCube) useGameStore.getState().nextPhase();
+          } else if (d.action === 'upgradeEngine') {
+            store.upgradeEngine(cp); useGameStore.getState().nextPhase();
+          } else { useGameStore.getState().nextPhase(); }
+          break;
+        }
+        default:
+          useGameStore.getState().nextPhase();
+          break;
+      }
+    }
+
+    logSpy.mockRestore();
+    console.log(`\n===== 1게임 프로세스 추적 (seed ${seed}) =====`);
+    for (const rec of snaps) {
+      console.log(`\n--- Turn ${rec.turn} | 순번: ${rec.order.map((p, i) => `${i + 1}.${p}`).join('  ')} ---`);
+      PLAYERS.forEach(p => {
+        const x = rec.players[p];
+        console.log(`  ${p}(순번${(x.rank as number) + 1}): 건설+${x.b} 수송+${x.d} 도시화+${x.u} | 누적트랙 ${x.tracks}(완성 ${x.completed}) 엔진 ${x.engine} | income ${x.income} 현금 ${x.cash} 주식 ${x.shares}${x.elim ? ' [파산]' : ''}`);
+      });
+    }
+    console.log('\n===== player별 매 턴 건설 결정 (경로/skip) =====');
+    PLAYERS.forEach(p => {
+      console.log(`--- ${p} ---`);
+      buildLog.filter(l => l.includes(` ${p} [`)).forEach(l => console.log(l));
+    });
+    void routeAtTurnStart;
+    expect(snaps.length).toBeGreaterThan(0);
+  }, 120_000);
 });

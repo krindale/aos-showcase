@@ -45,6 +45,12 @@ interface GResult {
   buildsByPlayer: Record<PlayerId, number>;    // player별 철도 건설 횟수
   deliveriesByPlayer: Record<PlayerId, number>; // player별 수송(배달) 횟수
   engine: Record<PlayerId, number>;            // player별 최종 엔진 레벨
+  // ── 진단(경매/순서) ──
+  turnOrderByPlayer: Record<PlayerId, number>;  // player별 turnOrder 행동 선택 횟수
+  bidsThisGame: number;                          // 이 게임에서 실제 입찰(placeBid) 발생 횟수
+  firstSeatByBid: Record<PlayerId, number>;      // 입찰($>0)로 1번 획득한 횟수 (player별)
+  firstSeatByYield: Record<PlayerId, number>;    // 양보(입찰 없이)로 1번이 된 횟수 (player별)
+  seatRankByPlayer: Record<PlayerId, number[]>;  // player별 [1위,2위,...,4위] 순번 점유 횟수 (앞 절반 고착 진단)
 }
 
 function runGermanyGame(seed: number): GResult {
@@ -61,8 +67,18 @@ function runGermanyGame(seed: number): GResult {
   const firstSeatCounts = {} as Record<PlayerId, number>;
   const buildsByPlayer = {} as Record<PlayerId, number>;
   const deliveriesByPlayer = {} as Record<PlayerId, number>;
-  PLAYERS.forEach(p => { firstSeatCounts[p] = 0; buildsByPlayer[p] = 0; deliveriesByPlayer[p] = 0; });
+  const turnOrderByPlayer = {} as Record<PlayerId, number>;
+  const firstSeatByBid = {} as Record<PlayerId, number>;
+  const firstSeatByYield = {} as Record<PlayerId, number>;
+  const seatRankByPlayer = {} as Record<PlayerId, number[]>;
+  PLAYERS.forEach(p => {
+    firstSeatCounts[p] = 0; buildsByPlayer[p] = 0; deliveriesByPlayer[p] = 0;
+    turnOrderByPlayer[p] = 0; firstSeatByBid[p] = 0; firstSeatByYield[p] = 0;
+    seatRankByPlayer[p] = [0, 0, 0, 0];
+  });
   let lastSeatTurn = 0;
+  let bidsThisGame = 0;
+  let turnHadBid = false; // 이번 턴 경매에서 실제 입찰이 있었는지 (selectActions 진입 시 분류 후 리셋)
   const MAX_ITER = 80000;
   let iter = 0, stale = 0, lastSig = '';
   let reachedEnd = false;
@@ -71,11 +87,22 @@ function runGermanyGame(seed: number): GResult {
     const s = useGameStore.getState();
     if (s.currentPhase === 'gameOver') { reachedEnd = true; break; }
 
-    // 턴별 1번(선공) 점유 기록 — 경매로 순서가 확정된 뒤(selectActions) 턴당 1회
+    // 턴별 1번(선공) 점유 기록 — 경매로 순서가 확정된 뒤(selectActions) 턴당 1회.
+    // 1번이 "입찰로 따냈는지(byBid) vs 아무도 안 사서 양보로 됐는지(byYield)"도 분류 —
+    // 순서 고착이 경매 경쟁의 결과인지, 경매가 사실상 작동 안 해서인지 진단.
     if (s.currentPhase === 'selectActions' && s.currentTurn !== lastSeatTurn) {
       const first = s.playerOrder[0];
-      if (first) firstSeatCounts[first] = (firstSeatCounts[first] ?? 0) + 1;
+      if (first) {
+        firstSeatCounts[first] = (firstSeatCounts[first] ?? 0) + 1;
+        if (turnHadBid) firstSeatByBid[first] = (firstSeatByBid[first] ?? 0) + 1;
+        else firstSeatByYield[first] = (firstSeatByYield[first] ?? 0) + 1;
+      }
+      // 각 player의 이번 턴 순번(1~4위) 기록 — 1번뿐 아니라 앞 절반 고착을 진단
+      s.playerOrder.forEach((pid, rank) => {
+        if (rank < PLAYERS.length && seatRankByPlayer[pid]) seatRankByPlayer[pid][rank]++;
+      });
       lastSeatTurn = s.currentTurn;
+      turnHadBid = false; // 다음 턴 경매를 위해 리셋
     }
 
     if (s.ui.movingCube) { s.completeCubeMove(); continue; }
@@ -116,7 +143,7 @@ function runGermanyGame(seed: number): GResult {
 
       case 'auction': {
         const a = decision.decision;
-        if (a.action === 'bid') store.placeBid(cp, a.amount);
+        if (a.action === 'bid') { store.placeBid(cp, a.amount); bidsThisGame++; turnHadBid = true; }
         else if (a.action === 'pass') store.passBid(cp);
         else if (a.action === 'skip') store.skipBid(cp);
         else if (a.action === 'complete') { store.resolveAuction(); useGameStore.getState().nextPhase(); }
@@ -124,6 +151,7 @@ function runGermanyGame(seed: number): GResult {
       }
 
       case 'selectAction':
+        if (decision.action === 'turnOrder') turnOrderByPlayer[cp] = (turnOrderByPlayer[cp] ?? 0) + 1;
         store.selectAction(cp, decision.action);
         useGameStore.getState().nextPhase();
         break;
@@ -205,6 +233,8 @@ function runGermanyGame(seed: number): GResult {
     accurateVP, income, shares, completedTracks, bankruptcies,
     finalTurn: f.currentTurn, reachedEnd, deliveries, builds, urbanizations,
     firstSeatCounts, buildsByPlayer, deliveriesByPlayer, engine,
+    turnOrderByPlayer, bidsThisGame, firstSeatByBid, firstSeatByYield,
+    seatRankByPlayer,
   };
 }
 
@@ -229,18 +259,31 @@ describe('Germany 4 AI 전체 게임 — 다인 실동작 + 베이스라인', ()
     // 순서 고착 지표: 전 게임 합산 1번 점유 횟수 + 최종 승자(VP 최대) 분포
     const firstSeatTotal = {} as Record<PlayerId, number>;
     const winnerCounts = {} as Record<PlayerId, number>;
+    // 경매/순서 진단: turnOrder 행동 선택 횟수, 1번 획득 방식(입찰 vs 양보)
+    const turnOrderTotal = {} as Record<PlayerId, number>;
+    const firstSeatBidTotal = {} as Record<PlayerId, number>;
+    const firstSeatYieldTotal = {} as Record<PlayerId, number>;
+    const seatRankTotal = {} as Record<PlayerId, number[]>;
     // player별 평균 지표(건설/수송/엔진/주식/income/VP/완성트랙) — player-index 편향 진단용
     type PerPlayer = { vp: number; income: number; shares: number; engine: number; builds: number; deliveries: number; tracks: number };
     const perPlayer = {} as Record<PlayerId, PerPlayer>;
     PLAYERS.forEach(p => {
       firstSeatTotal[p] = 0; winnerCounts[p] = 0;
+      turnOrderTotal[p] = 0; firstSeatBidTotal[p] = 0; firstSeatYieldTotal[p] = 0;
+      seatRankTotal[p] = [0, 0, 0, 0];
       perPlayer[p] = { vp: 0, income: 0, shares: 0, engine: 0, builds: 0, deliveries: 0, tracks: 0 };
     });
+    let totalBids = 0;
     for (const r of results) {
       for (const pid of PLAYERS) allVPs.push(r.accurateVP[pid] ?? 0);
       totalBankrupt += r.bankruptcies;
+      totalBids += r.bidsThisGame;
       for (const pid of PLAYERS) {
         firstSeatTotal[pid] += r.firstSeatCounts[pid] ?? 0;
+        turnOrderTotal[pid] += r.turnOrderByPlayer[pid] ?? 0;
+        firstSeatBidTotal[pid] += r.firstSeatByBid[pid] ?? 0;
+        firstSeatYieldTotal[pid] += r.firstSeatByYield[pid] ?? 0;
+        for (let rank = 0; rank < PLAYERS.length; rank++) seatRankTotal[pid][rank] += r.seatRankByPlayer[pid]?.[rank] ?? 0;
         const x = perPlayer[pid];
         x.vp += r.accurateVP[pid] ?? 0;
         x.income += r.income[pid] ?? 0;
@@ -277,6 +320,9 @@ describe('Germany 4 AI 전체 게임 — 다인 실동작 + 베이스라인', ()
       finishedTurns: results.map(r => r.finalTurn),
       allReachedEnd: results.every(r => r.reachedEnd),
       firstSeatTotal, winnerCounts, perPlayer,
+      turnOrderTotal, firstSeatBidTotal, firstSeatYieldTotal,
+      avgBidsPerGame: totalBids / seeds,
+      seatRankTotal,
     };
   }
 
@@ -291,6 +337,18 @@ describe('Germany 4 AI 전체 게임 — 다인 실동작 + 베이스라인', ()
     console.log(`완주 턴 분포: ${JSON.stringify(m.finishedTurns)}`);
     console.log(`1번(선공) 점유 횟수(전 게임 합): ${JSON.stringify(m.firstSeatTotal)}`);
     console.log(`최종 승자 분포: ${JSON.stringify(m.winnerCounts)}`);
+    // ── 경매/순서 진단 (상시) ──
+    console.log(`경매 입찰 발생: ${m.avgBidsPerGame.toFixed(1)}회/게임 (0에 가까우면 경매가 양보로만 결정 = 순서 안 섞임)`);
+    console.log(`1번 획득 — 입찰로(byBid): ${JSON.stringify(m.firstSeatBidTotal)}`);
+    console.log(`1번 획득 — 양보로(byYield): ${JSON.stringify(m.firstSeatYieldTotal)}`);
+    console.log(`turnOrder 행동 선택 횟수(전 게임 합): ${JSON.stringify(m.turnOrderTotal)}`);
+    // ── player별 순번(1~4위) 점유 분포 (앞 절반 고착 진단) ── 균등이면 각 100
+    console.log('--- player별 순번 점유 (1위~4위 횟수, 균등=각 100) ---');
+    PLAYERS.forEach(p => {
+      const r = m.seatRankTotal[p];
+      const frontHalf = r[0] + r[1]; // 1~2위(앞 절반) 합
+      console.log(`${p}: ${r.map((c, i) => `${i + 1}위 ${c}`).join(' | ')}  → 앞2합 ${frontHalf}`);
+    });
     console.log('--- player별 평균 (건설/수송/엔진/주식) ---');
     PLAYERS.forEach(p => {
       const x = m.perPlayer[p];

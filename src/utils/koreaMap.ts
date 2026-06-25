@@ -119,10 +119,7 @@ export const KOREA_COLUMN_MAPPING: GoodsColumnMapping[] = [
   { columnId: 'H' as GoodsColumnId, cityId: 'H', isNewCity: true, rowCount: 2, diceNumber: 2 },
 ];
 
-// 동적 색상 맵이라 5색 모두 유효 (black 포함). Germany와 동일 분포.
-export const KOREA_CUBE_COUNTS: Partial<Record<CubeColor, number>> = {
-  red: 20, blue: 20, yellow: 20, purple: 20, black: 16,
-};
+// 물품 큐브는 룰북 표준(DEFAULT_CUBE_COUNTS)을 mapRegistry에서 주입 (동적 색상 맵, black 포함).
 
 // === 도시-도시 직결 링크 (룰북: 수원-서울 $2, 수원-인천 $2) ===
 // 수원이 서울/인천과 보드에서 직접 인접(변 공유)이라 사이 헥스가 없어 일반 트랙으로 못 잇는다.

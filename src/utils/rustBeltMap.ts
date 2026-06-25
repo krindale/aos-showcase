@@ -104,11 +104,8 @@ export const RUST_BELT_COLUMN_MAPPING: GoodsColumnMapping[] = [
   { columnId: 'H' as GoodsColumnId, cityId: 'H', isNewCity: true, rowCount: 2, diceNumber: 2 },
 ];
 
-// === 물품 큐브 색 구성 (룰북 표준) ===
-// 검정 화물은 검정 신규 도시(도시화로 생성 — NEW_CITY_TILES에 검정 4개 E~H)로 배달된다.
-export const RUST_BELT_CUBE_COUNTS: Partial<Record<CubeColor, number>> = {
-  red: 20, blue: 20, yellow: 20, purple: 20, black: 16,
-};
+// 물품 큐브는 룰북 표준(DEFAULT_CUBE_COUNTS: red/blue/yellow/purple 20 + black 16)을 mapRegistry에서
+// 주입한다. 검정 화물은 검정 신규 도시(도시화로 NEW_CITY_TILES 검정 4개 생성)로 배달된다.
 
 // === 호수/외곽 타일 (전치 좌표) — orientation:flat + hideLakeHexes로 빈 공간 처리 ===
 const LAKE_TILES: { col: number; row: number }[] = [

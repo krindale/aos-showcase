@@ -121,9 +121,7 @@ export const GERMANY_COLUMN_MAPPING: GoodsColumnMapping[] = [
   { columnId: 'H' as GoodsColumnId, cityId: 'H', isNewCity: true, rowCount: 2, diceNumber: 2 },
 ];
 
-export const GERMANY_CUBE_COUNTS: Partial<Record<CubeColor, number>> = {
-  red: 20, blue: 20, yellow: 20, purple: 20, black: 16,
-};
+// 물품 큐브는 룰북 표준(DEFAULT_CUBE_COUNTS)을 mapRegistry에서 주입 (Berlin은 black 도시).
 
 // === 맵 밖(베이지 외곽) — lake로 생성 후 hideLakeHexes로 안 그려 독일 국경 윤곽 표현 (전치 좌표) ===
 const OFFMAP: [number, number][] = [

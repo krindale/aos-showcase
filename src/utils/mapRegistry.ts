@@ -18,6 +18,7 @@ import {
   TUTORIAL_TOWNS,
   TUTORIAL_COLUMN_MAPPING,
   TUTORIAL_COLORS,
+  DEFAULT_CUBE_COUNTS,
   createInitialBoardState as createTutorialBoardState,
 } from './tutorialMap';
 import {
@@ -36,7 +37,6 @@ import {
   RUST_BELT_COLUMN_MAPPING,
   RUST_BELT_COLORS,
   RUST_BELT_TOWN_NAMES,
-  RUST_BELT_CUBE_COUNTS,
   createRustBeltBoardState,
 } from './rustBeltMap';
 import {
@@ -46,7 +46,6 @@ import {
   GERMANY_COLUMN_MAPPING,
   GERMANY_COLORS,
   GERMANY_TOWN_NAMES,
-  GERMANY_CUBE_COUNTS,
   createGermanyBoardState,
 } from './germanyMap';
 import {
@@ -56,7 +55,6 @@ import {
   WESTERN_US_COLUMN_MAPPING,
   WESTERN_US_COLORS,
   WESTERN_US_TOWN_NAMES,
-  WESTERN_US_CUBE_COUNTS,
   createWesternUsBoardState,
 } from './westernUsMap';
 import {
@@ -66,7 +64,6 @@ import {
   KOREA_COLUMN_MAPPING,
   KOREA_COLORS,
   KOREA_TOWN_NAMES,
-  KOREA_CUBE_COUNTS,
   createKoreaBoardState,
 } from './koreaMap';
 
@@ -236,7 +233,7 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     },
     rules: { ...DEFAULT_MAP_RULES }, // 룰북 표준 규칙
     createBoardState: createRustBeltBoardState,
-    goodsCubeCounts: RUST_BELT_CUBE_COUNTS, // 검정 도시 없음 → black 큐브 제외
+    goodsCubeCounts: DEFAULT_CUBE_COUNTS, // 룰북 표준 (red/blue/yellow/purple 20 + black 16)
   },
 
   germany: {
@@ -263,7 +260,7 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     // 특수 규칙(Engineer 절반/미완성 금지/Berlin 보너스)은 MapProfile getter로 주입 — 여기선 표준 플래그
     rules: { ...DEFAULT_MAP_RULES },
     createBoardState: createGermanyBoardState,
-    goodsCubeCounts: GERMANY_CUBE_COUNTS,
+    goodsCubeCounts: DEFAULT_CUBE_COUNTS, // 룰북 표준
   },
 
   'western-us': {
@@ -292,7 +289,7 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     // 특수 규칙(마을큐브/시작현금/지형비용/동서보너스/시작도시/대륙횡단)은 MapProfile getter로 주입
     rules: { ...DEFAULT_MAP_RULES },
     createBoardState: createWesternUsBoardState,
-    goodsCubeCounts: WESTERN_US_CUBE_COUNTS, // 검정 도시 없음 → black 큐브 제외
+    goodsCubeCounts: DEFAULT_CUBE_COUNTS, // 룰북 표준 (검정 화물은 도시화로 검정 신도시 만들어 배달)
   },
 
   korea: {
@@ -321,7 +318,7 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     // 특수 규칙(동적 도시색/도시화 보충/no-growth)은 MapProfile getter + board 플래그로 주입 — 여기선 표준 플래그
     rules: { ...DEFAULT_MAP_RULES },
     createBoardState: createKoreaBoardState,
-    goodsCubeCounts: KOREA_CUBE_COUNTS,
+    goodsCubeCounts: DEFAULT_CUBE_COUNTS, // 룰북 표준
   },
 };
 

@@ -234,6 +234,9 @@ export interface PhaseState {
   // Move Goods 단계
   moveGoodsRound: 1 | 2;
   playerMoves: Record<PlayerId, boolean>;  // 각 플레이어가 이번 라운드에 이동했는지
+  // 이번 턴에 엔진 업그레이드를 이미 했는지 — 2 move round 통틀어 1회만 허용(룰북). playerMoves는
+  // 라운드마다 리셋되므로 별도 턴 단위 플래그가 필요하다(없으면 라운드1·2 둘 다 엔진업되던 버그).
+  engineUpgradedThisTurn: Record<PlayerId, boolean>;
 
   // 기타 플래그
   productionUsed: boolean;

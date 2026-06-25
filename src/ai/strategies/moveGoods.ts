@@ -217,6 +217,9 @@ function evaluateEngineUpgradeOption(state: GameState, playerId: PlayerId): numb
   // 엔진 상한 도달 / 이번 턴 locomotive로 이미 업그레이드함
   if (player.engineLevel >= config.engineMax) return -Infinity;
   if (player.selectedAction === 'locomotive') return -Infinity;
+  // 이번 턴에 이미 move-round 엔진 업그레이드함 (2 move round 통틀어 1회 — 룰북).
+  // 없으면 AI가 라운드2에 또 엔진업을 결정→store가 거부→같은 결정 반복으로 정체한다.
+  if (state.phaseState.engineUpgradedThisTurn?.[playerId]) return -Infinity;
 
   // ★ 사용자 지침: trackCubes 맵 T4 이후엔 수송 포기(move-round) 엔진업 전면 금지 —
   // 엔진은 오직 Locomotive 액션으로만 올린다(배달 라운드를 더 이상 엔진에 쓰지 않음).

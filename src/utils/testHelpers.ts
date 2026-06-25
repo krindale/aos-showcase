@@ -188,6 +188,7 @@ export function createTestGameState(options: TestGameStateOptions = {}): GameSta
       lastBuiltCoords: [],
       moveGoodsRound: 1,
       playerMoves: playerMoves as Record<PlayerId, boolean>,
+      engineUpgradedThisTurn: { ...playerMoves } as Record<PlayerId, boolean>,
       productionUsed: false,
       urbanizationUsed: false,
       locomotiveUsed: false,

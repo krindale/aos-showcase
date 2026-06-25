@@ -484,6 +484,7 @@ export function createInitialGameState(
       lastBuiltCoords: [],
       moveGoodsRound: 1,
       playerMoves: playerMoves as Record<PlayerId, boolean>,
+      engineUpgradedThisTurn: { ...playerMoves } as Record<PlayerId, boolean>,
       productionUsed: false,
       urbanizationUsed: false,
       locomotiveUsed: false,
@@ -2621,6 +2622,11 @@ export const useGameStore = create<GameStore>()(
         console.warn(`[WARN] upgradeEngine: 이미 이동 완료 - playerId: ${playerId}`);
         return state;
       }
+      // 이번 턴에 이미 엔진 업그레이드했으면 불가 (2 move round 통틀어 1회만 — 룰북)
+      if (state.phaseState.engineUpgradedThisTurn?.[playerId]) {
+        console.warn(`[WARN] upgradeEngine: 이번 턴 이미 엔진업 완료 - playerId: ${playerId}`);
+        return state;
+      }
 
       const oldLevel = player.engineLevel;
       const newLevel = player.engineLevel + 1;
@@ -2639,6 +2645,11 @@ export const useGameStore = create<GameStore>()(
           ...state.phaseState,
           playerMoves: {
             ...state.phaseState.playerMoves,
+            [playerId]: true,
+          },
+          // 턴당 1회 엔진업 — 라운드2로 넘어가도 유지돼 재업그레이드를 막는다
+          engineUpgradedThisTurn: {
+            ...state.phaseState.engineUpgradedThisTurn,
             [playerId]: true,
           },
         },
@@ -3205,6 +3216,8 @@ export const useGameStore = create<GameStore>()(
               ...state.phaseState,
               moveGoodsRound: 1,
               playerMoves: createPlayerMoves(activePlayers),
+              // 새 Move Goods 단계 시작 — 엔진업 1회 권리 리셋(라운드2 전환 때는 유지해 턴당 1회 보장)
+              engineUpgradedThisTurn: createPlayerMoves(activePlayers),
             },
             // 건설 단계 UI 잔재 제거 (선택 중이던 하이라이트가 물품 이동을 가리는 버그 방지)
             ui: {
@@ -3348,6 +3361,7 @@ export const useGameStore = create<GameStore>()(
             lastBuiltCoords: [] as HexCoord[],
             moveGoodsRound: 1 as const,
             playerMoves: createPlayerMoves(activePlayers),
+            engineUpgradedThisTurn: createPlayerMoves(activePlayers),
             productionUsed: false,
       urbanizationUsed: false,
             locomotiveUsed: false,
@@ -3426,6 +3440,7 @@ export const useGameStore = create<GameStore>()(
         lastBuiltCoords: [],
         moveGoodsRound: 1,
         playerMoves: createPlayerMoves(prevState.activePlayers),
+        engineUpgradedThisTurn: createPlayerMoves(prevState.activePlayers),
         productionUsed: false,
       urbanizationUsed: false,
         locomotiveUsed: false,

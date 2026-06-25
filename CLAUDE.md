@@ -344,6 +344,18 @@ Next가 압축을 안 하므로 원본 대용량 PNG를 그대로 받으면 갤�
 **7가지 특수 행동**
 - First Move, First Build, Engineer, Locomotive, Urbanization, Production, Turn Order
 
+**엔진 업그레이드 (수송 단계, 턴당 1회 — 룰북)**
+- 룰: Move Goods는 2라운드. **두 번의 수송(물품 이동) 기회 중 1번**을 물품 이동 대신 엔진 트랙 1칸
+  업그레이드에 쓸 수 있다 (Locomotive 행동과는 별개 — 그건 행동 선택 단계의 즉시 +1).
+- 구현: `phaseState.engineUpgradedThisTurn`(Record<PlayerId, boolean>)으로 **2라운드를 통틀어 1회만**
+  보장. `playerMoves`(라운드별 이동)는 라운드2 전환 시 리셋되므로, 그것만 보면 라운드1·2 둘 다
+  엔진업되는 버그가 났다 → 별도 턴 단위 플래그 필요. `upgradeEngine`이 이 플래그를 체크·설정하고,
+  라운드2 전환 땐 **유지**(턴당 1회 보장), 새 Move Goods 단계 진입·새 턴엔 **리셋**.
+- AI도 동일: `moveGoods.ts`의 `evaluateEngineUpgradeOption`이 이미 엔진업한 턴이면 `-Infinity`를 반환
+  (없으면 AI가 라운드2에 또 엔진업을 결정→store가 거부→같은 결정 반복으로 정체).
+- ⚠️ persist 주의: 이 필드는 `PhaseState` 필수이나 `upgradeEngine`에서 `?.`(optional)로 읽어 배포 전
+  저장본(필드 없음) rehydrate에도 안전. 단 그 저장본의 "진행 중 라운드2"는 1회 재현 가능(다음 턴 정상).
+
 ### 게임 상태 관리 (Zustand)
 
 ```typescript

@@ -138,6 +138,12 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   const hasMyTracks = state.board.trackTiles.some(t => t.owner === playerId);
   // Germany: 미완성 링크 금지 — 이번 턴 슬롯으로 완성 못 할 링크는 착공하지 않는다(다음 턴 이어붙이기 불가).
   const requireCompleteLinks = getMapProfile(state.mapId).requireCompleteLinks;
+  // ★ 첫 착공 완성 가능성 게이트 (1게임 추적: player5가 seattle→memphis 대륙횡단 경로에 3트랙을
+  //   미완성으로 깔아 현금 소진→income 0→파산). 다인 맵에서 첫 착공 시, 시간·자금 안에 완성 불가능한
+  //   경로(estimateRouteVP.completable=false, selectStandardRoute의 fallback opportunities[0] 등)는
+  //   건너뛴다 — 미완성 트랙(0VP)에 전 재산을 쏟느니 짧은 완성 경로를 찾거나 skip해 돈을 보존한다.
+  const gateCompletable = banScatter && state.phaseState.builtTracksThisTurn === 0;
+  const oppsForGate = gateCompletable ? analyzeDeliveryOpportunities(state) : [];
   for (const route of candidateRoutes) {
     // 내 트랙만으로 이미 완성된 경로는 더 지을 필요 없음
     if (isRouteComplete(state, route, playerId)) continue;
@@ -145,6 +151,12 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     if (banScatter && hasMyTracks &&
         !myConnectedCities.includes(route.from) && !myConnectedCities.includes(route.to)) {
       continue;
+    }
+
+    // 완성 불가능한 배달 경로는 첫 착공에서 제외 (미완성 건설 = 돈 낭비 + 죽음의 나선)
+    if (gateCompletable) {
+      const opp = oppsForGate.find(o => o.sourceCityId === route.from && o.targetCityId === route.to);
+      if (opp && !estimateRouteVP(state, playerId, opp).completable) continue;
     }
 
     // Germany 미완성 링크 금지: 첫 착공 시 이번 턴 잔여 슬롯으로 완성 가능한 경로만 시작한다.

@@ -430,6 +430,8 @@ export function createInitialGameState(
   const maxTurns = mapData.maxTurns || (TURNS_BY_PLAYER_COUNT[playerCount] || 6);
 
   // 교대 선공권 맵: 첫 턴 1번 플레이어를 무작위 결정 (룰북: randomly determine the first player)
+  // (일반 맵은 player-index 고정 순서 유지 — player별 성적으로 편향을 측정·진단하기 위함.
+  //  순서를 무작위로 섞으면 player별 통계가 평준화돼 "골고루 이기는지"를 측정할 수 없다.)
   const mapRules = getMapProfile(mapId);
   const initialPlayerOrder = [...activePlayers];
   if (mapRules.alternateTurnOrder && initialPlayerOrder.length >= 2 && Math.random() < 0.5) {

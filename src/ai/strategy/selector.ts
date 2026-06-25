@@ -63,6 +63,8 @@ export function assignHomeBases(state: GameState): void {
     .sort((a, b) => b.cubes.length - a.cubes.length);
   if (cubeCities.length === 0) return;
 
+  // 거점 픽 순서 = activePlayers(player-index 고정). 인위적 셔플 없음 — player별 성적으로
+  // 편향을 측정·진단하기 위해 고정 유지(셔플하면 player별 통계가 평준화돼 측정 불가).
   const assigned: { id: string; coord: typeof cubeCities[0]['coord'] }[] = [];
   for (const pid of state.activePlayers) {
     let best = null as null | (typeof cubeCities)[0];

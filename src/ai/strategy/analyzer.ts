@@ -453,6 +453,30 @@ export function analyzeDeliveryOpportunities(
     }
   }
 
+  // 마을 위 큐브 → 같은 색 도시 — 'townCubes' 맵(Western US)만. 마을 큐브를 배달 목표로 삼아
+  // AI가 그 마을로 트랙을 뻗게 한다 (기존엔 경로가 우연히 마을을 지날 때만 배달했고, 마을 큐브를
+  // 노려 확장하지는 못해 도시 화물 소진 후 정체했다). source는 'town:<id>' 컨벤션(sourceCoord 사용).
+  if (getMapAIConfig(state).incomeSources.includes('townCubes')) {
+    for (const town of board.towns) {
+      if (town.newCityColor !== null) continue; // 도시화된 마을 제외 (도시 큐브에서 이미 처리)
+      town.cubes.forEach((cubeColor, cubeIndex) => {
+        const destinations = findDestinationCities(cubeColor, board);
+        for (const dest of destinations) {
+          const linkCount = estimateRouteLinkCount(town.coord, dest.coord, board);
+          opportunities.push({
+            sourceCityId: `town:${town.id}`,
+            sourceCoord: town.coord,
+            cubeColor,
+            cubeIndex,
+            targetCityId: dest.cityId,
+            targetCoord: dest.coord,
+            distance: linkCount,
+          });
+        }
+      });
+    }
+  }
+
   opportunitiesCache = { key: cacheKey, result: opportunities };
   return opportunities;
 }
@@ -1538,9 +1562,11 @@ export function findStopById(
   board: BoardState,
   id: string,
 ): { id: string; coord: HexCoord } | null {
-  const city = board.cities.find(c => c.id === id);
+  // 'town:<id>' / 'track:<id>' 컨벤션 prefix 제거 (마을·트랙 큐브 배달 경로의 출발 식별자)
+  const cleanId = id.replace(/^(town|track):/, '');
+  const city = board.cities.find(c => c.id === cleanId);
   if (city) return { id: city.id, coord: city.coord };
-  const town = board.towns.find(t => t.id === id);
+  const town = board.towns.find(t => t.id === cleanId);
   if (town) return { id: town.id, coord: town.coord };
   return null;
 }

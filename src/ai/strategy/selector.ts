@@ -94,9 +94,16 @@ function preliminaryScore(
   opp: DeliveryOpportunity,
   engineLevel: number,
   connectedCities: string[],
+  myTracks?: { coord: HexCoord }[],
 ): number {
   let score = -hexDistance(opp.sourceCoord, opp.targetCoord);
   if (connectedCities.includes(opp.sourceCityId)) score += 10;
+  // 마을/트랙 큐브 출발('town:'/'track:')은 connectedCities(도시 id)에 안 들어가 +10을 못 받는다.
+  // 내 트랙에 인접(픽업 가능)하면 도시 출발처럼 우대 — 안 그러면 마을 큐브 경로가 상위 K에서 밀려
+  // 정밀 평가조차 못 받아 영원히 안 잡힌다(Western US 마을 큐브 배달 사장 방지).
+  else if (opp.sourceCityId.includes(':') && myTracks?.some(t => hexDistance(t.coord, opp.sourceCoord) <= 1)) {
+    score += 10;
+  }
   if (opp.distance <= engineLevel) score += 5;
   return score;
 }
@@ -190,8 +197,8 @@ export function selectStandardRoute(
 
   const preciseTargets = [...opportunities]
     .sort((a, b) =>
-      preliminaryScore(b, player.engineLevel, connectedCities) -
-      preliminaryScore(a, player.engineLevel, connectedCities)
+      preliminaryScore(b, player.engineLevel, connectedCities, playerTracks) -
+      preliminaryScore(a, player.engineLevel, connectedCities, playerTracks)
     )
     .slice(0, PRECISE_EVAL_TOP_K);
 
@@ -558,12 +565,13 @@ export function selectStandardTopRoutes(
 
   const allOpportunities = analyzeDeliveryOpportunities(state);
   const connectedCities = getConnectedCities(state, playerId);
+  const playerTracks = state.board.trackTiles.filter(t => t.owner === playerId);
 
   // 사전 점수 상위 K개만 정밀 평가 (큰 맵 가지치기)
   const preciseTargets = [...allOpportunities]
     .sort((a, b) =>
-      preliminaryScore(b, player.engineLevel, connectedCities) -
-      preliminaryScore(a, player.engineLevel, connectedCities)
+      preliminaryScore(b, player.engineLevel, connectedCities, playerTracks) -
+      preliminaryScore(a, player.engineLevel, connectedCities, playerTracks)
     )
     .slice(0, PRECISE_EVAL_TOP_K);
 

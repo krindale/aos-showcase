@@ -105,6 +105,20 @@ export abstract class MapProfile {
   get buildsPerTurn(): number { return GAME_CONSTANTS.NORMAL_TRACK_LIMIT; }
   /** 이 맵의 income 원천 — analyzer가 이 목록으로 배달 기회를 생성 */
   get incomeSources(): IncomeSource[] { return ['cityCubes']; }
+  /**
+   * AI가 목표로 하는 최소 완성 트랙 수 (0이면 비활성). 완성트랙이 이 미만이면 트랙 건설 VP를
+   * 기회비용 없이 정상 인정해 경로 완성을 적극 추구 → 완성트랙(VP)·income 동반 상승.
+   * Western US만 7 (다른 맵은 0 — 기존 동작 보존).
+   */
+  get targetCompletedTracks(): number { return 0; }
+  /** selectAction의 Turn Order 행동 가치 계수 (꼴찌 기준 최대 ΔVP). 기본 0.1 = vp.ts TURN_ORDER_SEAT_VP.
+   *  맵별 격리해 조율 — 뒤 순번이 Turn Order로 다음 턴 순서를 탈환하는 강도. */
+  get turnOrderSeatVP(): number { return 0.1; }
+  /** 현재 비딩 순번(rank, 0=1위)에 따른 1번 입찰 상한 보너스($). 기본 0(없음).
+   *  뒤 순번일수록 입찰 상한을 올려 순서 순환을 유도하나, cityCubes 맵(Rust Belt·Germany)에선
+   *  뒤 순번이 1번 사느라 건설예산을 소진해 붕괴한다(측정: Rust VP 11.7→3.5). 마을 큐브로 부작용이
+   *  상쇄되는 Western US만 override로 켠다. */
+  firstSeatRankBidBonus(rank: number, activePlayerCount: number): number { void rank; void activePlayerCount; return 0; }
 
   // ── AI 액션: 경로 선택 (맵별 전략 — 표준 맵 vs 헥스큐브 맵 등) ──
   /** 이번에 착공할 목표 배달 경로 1개 선택 (없으면 null) */

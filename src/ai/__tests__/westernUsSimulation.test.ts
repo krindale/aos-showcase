@@ -16,6 +16,8 @@ import { addFailedBuildCoord } from '../strategies/buildTrack';
 import { calculateVictoryPoints } from '@/utils/gameLogic';
 import { isTrackPartOfCompletedLink } from '@/utils/hexGrid';
 import { getCurrentRoute } from '../strategy/state';
+import { isRouteComplete, getConnectedCities, analyzeDeliveryOpportunities } from '../strategy/analyzer';
+import { estimateRouteVP } from '../strategy/vp';
 import type { PlayerId } from '@/types/game';
 
 function createSeededRng(seed: number): () => number {
@@ -458,11 +460,21 @@ describe('Western US 6 AI 전체 게임 — 다인 실동작 + 베이스라인',
           break;
         case 'buildTrack': {
           const d = decision.decision;
-          // 진단: 그 턴 잡은 경로 + 건설 좌표/엣지 기록 (모든 player, Turn 1~2)
-          if (s.currentTurn <= 2 && (d.action === 'build' || d.action === 'buildComplex' || d.action === 'buildSpur')) {
+          // 진단: 모든 player의 매 턴 건설 결정 (경로 + action). skip이면 게이트 이유까지.
+          {
             const rt = getCurrentRoute(cp);
-            const coordStr = d.action === 'buildSpur' ? `spur@${JSON.stringify(d.townCoord)}` : `${JSON.stringify(d.coord)}e[${d.edges}]`;
-            buildLog.push(`T${s.currentTurn} ${cp} 경로=${rt ? `${rt.from}→${rt.to}` : '없음'} 건설 ${coordStr}`);
+            const coordStr = d.action === 'buildSpur' ? ` spur`
+              : (d.action === 'build' || d.action === 'buildComplex') ? ` (${d.coord.col},${d.coord.row})` : '';
+            let extra = '';
+            if (d.action === 'skip' && rt) {
+              const complete = isRouteComplete(s, rt, cp);
+              const conn = getConnectedCities(s, cp);
+              const opp = analyzeDeliveryOpportunities(s).find(o => o.sourceCityId === rt.from && o.targetCityId === rt.to);
+              const est = opp ? estimateRouteVP(s, cp, opp) : null;
+              extra = ` {완성=${complete} from연결=${conn.includes(rt.from)} to연결=${conn.includes(rt.to)}` +
+                (est ? ` 필요트랙=${est.tracksToBuild} completable=${est.completable}}` : ' opp없음}');
+            }
+            buildLog.push(`T${s.currentTurn} ${cp} [${d.action}] 경로=${rt ? `${rt.from}→${rt.to}` : '없음'}${coordStr}${extra}`);
           }
           if (d.action === 'build') {
             if (!store.buildTrack(d.coord, d.edges)) { addFailedBuildCoord(cp, d.coord, s.currentTurn); break; }
@@ -509,8 +521,11 @@ describe('Western US 6 AI 전체 게임 — 다인 실동작 + 베이스라인',
         console.log(`  ${p}(순번${(x.rank as number) + 1}): 건설+${x.b} 수송+${x.d} 도시화+${x.u} | 누적트랙 ${x.tracks}(완성 ${x.completed}) 엔진 ${x.engine} | income ${x.income} 현금 ${x.cash} 주식 ${x.shares}${x.elim ? ' [파산]' : ''}`);
       });
     }
-    console.log('\n===== Turn 1~2 경로 + 건설 좌표 (완성 실패 진단) =====');
-    buildLog.forEach(l => console.log(l));
+    console.log('\n===== player별 매 턴 건설 결정 (경로/skip) =====');
+    PLAYERS.forEach(p => {
+      console.log(`--- ${p} ---`);
+      buildLog.filter(l => l.includes(` ${p} [`)).forEach(l => console.log(l));
+    });
     void routeAtTurnStart;
     expect(snaps.length).toBeGreaterThan(0);
   }, 120_000);

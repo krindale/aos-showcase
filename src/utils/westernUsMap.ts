@@ -133,12 +133,8 @@ export const WESTERN_US_COLUMN_MAPPING: GoodsColumnMapping[] = [
   { columnId: 'H' as GoodsColumnId, cityId: 'H', isNewCity: true, rowCount: 2, diceNumber: 2 },
 ];
 
-// 검정 도시가 없으므로 black 큐브 제외 (배달 불가 데드 큐브 방지 — Rust Belt와 동일).
-// 총 100개 — 디스플레이 52 + 셋업(도시 12×2=24 + 마을 20×1=20=44) + 예비 4.
-// 색 비율은 도시 색 분포(red·blue 각 4도시, yellow·purple 각 2도시)에 맞춤.
-export const WESTERN_US_CUBE_COUNTS: Partial<Record<CubeColor, number>> = {
-  red: 26, blue: 26, yellow: 24, purple: 24,
-};
+// 물품 큐브는 룰북 표준(DEFAULT_CUBE_COUNTS: red/blue/yellow/purple 20 + black 16)을 mapRegistry에서
+// 주입한다. 초기 검정 도시는 없지만 검정 화물은 도시화로 검정 신도시(NEW_CITY_TILES 검정 4개)를 만들어 배달.
 
 // === 지형 좌표 (추출 결과, [col, row]) ===
 const MOUNTAIN: [number, number][] = [

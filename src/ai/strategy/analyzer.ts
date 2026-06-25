@@ -386,7 +386,12 @@ function getOpportunitiesCacheKey(state: GameState): string {
     .filter(t => t.cube)
     .map(t => `${t.id}:${t.cube}`)
     .join('|');
-  return `${state.currentTurn}-t${state.board.trackTiles.length}-${cubeSignature}-${trackCubeSig}`;
+  // 마을 큐브 변화도 반영 (Western US townCubes 배달 — 안 하면 배달된 마을 큐브를 stale로 재사용)
+  const townCubeSig = state.board.towns
+    .filter(t => t.newCityColor === null && t.cubes.length > 0)
+    .map(t => `${t.id}:${t.cubes.join(',')}`)
+    .join('|');
+  return `${state.currentTurn}-t${state.board.trackTiles.length}-${cubeSignature}-${trackCubeSig}-${townCubeSig}`;
 }
 
 export function clearOpportunitiesCache(): void {

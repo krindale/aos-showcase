@@ -24,7 +24,6 @@ import {
   Town,
   HexTile,
   BoardState,
-  CubeColor,
   GoodsColumnMapping,
   GoodsColumnId,
   TerrainType,

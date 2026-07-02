@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useCallback, useEffect, useState } from 'react';
+import { useMemo, useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { useGameStore } from '@/store/gameStore';
@@ -308,6 +308,53 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     contentWidth: viewWidth,
     contentHeight: boardHeight,
   });
+
+  // 새로 놓인 트랙 타일 하이라이트 — 타일이 추가되면 그 자리에서 소유자 색 링이 퍼진다
+  // (표시 전용. AI/사람 공통 — "방금 어디에 지었는지"를 보드 위에서 직접 보여줌)
+  const [tilePulse, setTilePulse] = useState<{ x: number; y: number; color: string; k: number } | null>(null);
+  const prevTrackCountRef = useRef(board.trackTiles.length);
+  useEffect(() => {
+    const count = board.trackTiles.length;
+    if (!fitOverlay && count > prevTrackCountRef.current) {
+      const newest = board.trackTiles[count - 1];
+      const { x, y } = hexToPixel(newest.coord.col, newest.coord.row, undefined, undefined, undefined, isFlat);
+      const ownerColor = newest.owner ? PLAYER_COLORS[players[newest.owner]?.color] : undefined;
+      setTilePulse({ x, y, color: ownerColor ?? '#c04a2b', k: Date.now() });
+    }
+    prevTrackCountRef.current = count;
+  }, [board.trackTiles, fitOverlay, players, isFlat]);
+  useEffect(() => {
+    if (!tilePulse) return;
+    const t = setTimeout(() => setTilePulse(null), 2600);
+    return () => clearTimeout(t);
+  }, [tilePulse]);
+
+  // 도시/마을에 물품 큐브가 추가되면 그 자리에서 링 + "+n" 배지가 뜬다
+  // (물품 성장·생산·도시화 보충 등 모든 큐브 유입 공통 — 표시 전용)
+  const [cubePulses, setCubePulses] = useState<{ x: number; y: number; n: number; k: string }[]>([]);
+  const prevCubeCountsRef = useRef<Record<string, number> | null>(null);
+  useEffect(() => {
+    if (fitOverlay) return;
+    const counts: Record<string, number> = {};
+    const pulses: { x: number; y: number; n: number; k: string }[] = [];
+    const collect = (id: string, coord: HexCoord, cur: number) => {
+      counts[id] = cur;
+      const prev = prevCubeCountsRef.current?.[id];
+      if (prev !== undefined && cur > prev) {
+        const { x, y } = hexToPixel(coord.col, coord.row, undefined, undefined, undefined, isFlat);
+        pulses.push({ x, y, n: cur - prev, k: `${id}-${Date.now()}` });
+      }
+    };
+    board.cities.forEach((c) => collect(`city:${c.id}`, c.coord, c.cubes.length));
+    board.towns.forEach((t) => collect(`town:${t.id}`, t.coord, t.cubes.length));
+    prevCubeCountsRef.current = counts;
+    if (pulses.length > 0) setCubePulses((p) => [...p, ...pulses]);
+  }, [board.cities, board.towns, fitOverlay, isFlat]);
+  useEffect(() => {
+    if (cubePulses.length === 0) return;
+    const t = setTimeout(() => setCubePulses([]), 2400);
+    return () => clearTimeout(t);
+  }, [cubePulses]);
 
   // 완성된 링크 계산 (소유 마커 표시용)
   const completedLinks = useMemo(
@@ -1628,6 +1675,63 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             />
           );
         })}
+        {/* 물품 큐브 유입 펄스 — 큐브를 받은 도시/마을 자리에서 링 + "+n" 배지 */}
+        {cubePulses.map((pulse) => (
+          <g key={pulse.k} style={{ pointerEvents: 'none' }}>
+            <motion.circle
+              cx={pulse.x}
+              cy={pulse.y}
+              fill="none"
+              stroke="#c04a2b"
+              initial={{ r: HEX_SIZE * 0.6, opacity: 0.9, strokeWidth: 6 }}
+              animate={{ r: HEX_SIZE * 1.5, opacity: 0, strokeWidth: 2 }}
+              transition={{ duration: 1.0, ease: 'easeOut', repeat: 1 }}
+            />
+            <motion.g
+              initial={{ opacity: 0 }}
+              animate={{ opacity: [0, 1, 1, 0] }}
+              transition={{ duration: 2.2, times: [0, 0.12, 0.8, 1] }}
+            >
+              <g transform={`translate(${pulse.x}, ${pulse.y - HEX_SIZE * 1.1})`}>
+                <rect x={-19} y={-13} width={38} height={24} rx={12} fill="#c04a2b" stroke="#fffdf8" strokeWidth={2} />
+                <text
+                  textAnchor="middle"
+                  y={5}
+                  fill="#fffdf8"
+                  fontSize={15}
+                  fontWeight={800}
+                  fontFamily="system-ui, sans-serif"
+                >
+                  +{pulse.n}
+                </text>
+              </g>
+            </motion.g>
+          </g>
+        ))}
+
+        {/* 새 트랙 타일 펄스 — 방금 놓인 타일 자리에서 소유자 색 링이 두 번 퍼진다 */}
+        {tilePulse && (
+          <g key={tilePulse.k} style={{ pointerEvents: 'none' }}>
+            <motion.circle
+              cx={tilePulse.x}
+              cy={tilePulse.y}
+              fill="none"
+              stroke={tilePulse.color}
+              initial={{ r: HEX_SIZE * 0.5, opacity: 0.95, strokeWidth: 7 }}
+              animate={{ r: HEX_SIZE * 1.6, opacity: 0, strokeWidth: 2 }}
+              transition={{ duration: 1.1, ease: 'easeOut', repeat: 1, delay: 0.05 }}
+            />
+            <motion.circle
+              cx={tilePulse.x}
+              cy={tilePulse.y}
+              r={HEX_SIZE * 0.55}
+              fill={tilePulse.color}
+              initial={{ opacity: 0.4 }}
+              animate={{ opacity: 0 }}
+              transition={{ duration: 1.2, ease: 'easeOut' }}
+            />
+          </g>
+        )}
         {/* 좌표 오버레이 — 모든 요소 위(그룹 내 최상위). 줌/팬 변환 그룹 안에 있어야
             +/- 확대·축소 시에도 헥스와 좌표가 함께 움직인다 (밖에 두면 좌표가 어긋나는 버그).
             hexTiles에는 도시 헥스가 없으므로(generateHexTiles의 !isCity) 도시·마을 좌표를 합쳐 렌더 */}

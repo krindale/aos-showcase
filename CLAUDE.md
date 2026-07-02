@@ -192,7 +192,6 @@ src/
 │       ├── TurnTrack.tsx       # 턴 트랙 UI
 │       ├── DiceRoller.tsx      # 주사위 굴리기 UI (1회 굴린 뒤 버튼 숨김 — 재굴림 방지)
 │       ├── DebugPanel.tsx      # 디버그 패널 UI
-│       ├── AIDebugModal.tsx    # AI 디버그 모달
 │       ├── TranscontinentalModal.tsx  # 대륙횡단 연결 팝업 (Western US: 보너스 수령자·연속성 해제 안내)
 │       ├── MoveCubeOverlay.tsx # 화물 이동·AI 건설 중 보드 미니맵 (모든 맵, 우측 하단 fit)
 │       ├── BottomSheet.tsx     # 모바일용 드래그 바텀 시트 (반응형)

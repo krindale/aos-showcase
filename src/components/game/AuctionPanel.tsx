@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 import { useShallow } from 'zustand/react/shallow';
 import { PLAYER_COLORS } from '@/types/game';
-import { DollarSign, User, Crown, XCircle, Check, Bot } from 'lucide-react';
+import { DollarSign, User, Crown, Check, Bot } from 'lucide-react';
 
 export default function AuctionPanel() {
   const { auction, players, playerOrder, currentPlayer } = useGameStore(
@@ -108,16 +108,30 @@ export default function AuctionPanel() {
 
   return (
     <div className="space-y-4">
-        {/* 현재 최고 입찰 */}
+        {/* 현재 최고 입찰 — 갱신될 때마다 금액이 크게 팝 */}
         <div className="p-3 rounded-lg bg-background/50 border border-foreground/10">
           <div className="flex items-center justify-between">
             <span className="text-sm text-foreground-secondary">현재 최고 입찰</span>
             {auction?.highestBidder ? (
               <div className="flex items-center gap-2">
-                <Crown size={16} className="text-yellow-400" />
-                <span className="font-bold text-foreground">
+                <motion.span
+                  key={`crown-${auction.highestBid}`}
+                  initial={{ rotate: -30, scale: 1.4 }}
+                  animate={{ rotate: 0, scale: 1 }}
+                  transition={{ type: 'spring', stiffness: 400, damping: 12 }}
+                >
+                  <Crown size={16} fill="#f0c040" strokeWidth={1.8} style={{ color: '#7a5200' }} />
+                </motion.span>
+                <motion.span
+                  key={`bid-${auction.highestBid}`}
+                  initial={{ scale: 2 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: 'spring', stiffness: 500, damping: 16 }}
+                  className="text-lg font-extrabold"
+                  style={{ color: PLAYER_COLORS[players[auction.highestBidder].color] }}
+                >
                   ${auction.highestBid}
-                </span>
+                </motion.span>
                 <span
                   className="text-sm px-2 py-0.5 rounded-full"
                   style={{ backgroundColor: PLAYER_COLORS[players[auction.highestBidder].color] + '30' }}
@@ -140,17 +154,35 @@ export default function AuctionPanel() {
             const playerBid = auction?.bids[playerId] || 0;
             const pColor = PLAYER_COLORS[player.color];
 
+            const isTopBidder = auction?.highestBidder === playerId && !hasPassed;
+
             return (
               <div
                 key={playerId}
-                className={`p-3 rounded-lg border transition-all ${
+                className={`relative p-3 rounded-lg border transition-all ${
                   isCurrentBidder
                     ? 'border-accent bg-accent/10'
                     : hasPassed
                     ? 'border-red-500/30 bg-red-500/10 opacity-60'
                     : 'border-foreground/10 bg-background/30'
                 }`}
+                style={
+                  isTopBidder
+                    ? { borderColor: pColor, boxShadow: `0 0 0 1px ${pColor}, 0 4px 14px -6px ${pColor}AA` }
+                    : undefined
+                }
               >
+                {/* 포기 도장 — 쾅 찍히는 효과 */}
+                {hasPassed && (
+                  <motion.span
+                    initial={{ scale: 2.6, opacity: 0, rotate: -24 }}
+                    animate={{ scale: 1, opacity: 1, rotate: -10 }}
+                    transition={{ type: 'spring', stiffness: 420, damping: 15 }}
+                    className="absolute right-1.5 top-1.5 rounded border-2 border-red-500 px-1 text-[10px] font-extrabold tracking-widest text-red-500"
+                  >
+                    포기
+                  </motion.span>
+                )}
                 <div className="flex items-center gap-2 mb-2">
                   <div
                     className="w-3 h-3 rounded-full"
@@ -164,18 +196,23 @@ export default function AuctionPanel() {
                       입찰 중
                     </span>
                   )}
-                  {hasPassed && (
-                    <XCircle size={14} className="text-red-400" />
-                  )}
                 </div>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-foreground-secondary">
                     현금: ${player.cash}
                   </span>
                   {playerBid > 0 && (
-                    <span className="text-foreground">
+                    /* 입찰액이 오를 때마다 그 자리에서 크게 팝 */
+                    <motion.span
+                      key={playerBid}
+                      initial={{ scale: 2.1 }}
+                      animate={{ scale: 1 }}
+                      transition={{ type: 'spring', stiffness: 500, damping: 15 }}
+                      className="font-extrabold"
+                      style={{ color: pColor, transformOrigin: 'right center' }}
+                    >
                       입찰: ${playerBid}
-                    </span>
+                    </motion.span>
                   )}
                 </div>
                 {player.selectedAction === 'turnOrder' && (
@@ -198,14 +235,25 @@ export default function AuctionPanel() {
               exit={{ opacity: 0, y: -10 }}
               className="space-y-3"
             >
-              <div className="p-4 rounded-lg bg-accent/20 text-center">
-                <Crown className="mx-auto text-yellow-400 mb-2" size={32} />
+              <div className="p-4 rounded-lg border border-accent/30 bg-[#fffdf8] text-center shadow-glass">
+                {/* 라이트 테마 대비: 금색 채움 + 진한 갈색 외곽선 왕관 */}
+                <motion.span
+                  initial={{ scale: 0.4, rotate: -18 }}
+                  animate={{ scale: 1, rotate: 0 }}
+                  transition={{ type: 'spring', stiffness: 380, damping: 14 }}
+                  className="mb-2 inline-block"
+                >
+                  <Crown size={34} fill="#f0c040" strokeWidth={1.8} style={{ color: '#7a5200' }} />
+                </motion.span>
                 {auction?.highestBidder ? (
                   <>
                     <p className="text-lg font-bold text-foreground">
-                      {players[auction.highestBidder].name} 승리!
+                      <span style={{ color: PLAYER_COLORS[players[auction.highestBidder].color] }}>
+                        {players[auction.highestBidder].name}
+                      </span>{' '}
+                      승리!
                     </p>
-                    <p className="text-sm text-foreground-secondary">
+                    <p className="text-sm font-medium text-foreground-secondary">
                       ${auction.highestBid} 지불
                     </p>
                   </>

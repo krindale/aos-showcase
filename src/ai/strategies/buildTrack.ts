@@ -142,8 +142,12 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   //   미완성으로 깔아 현금 소진→income 0→파산). 다인 맵에서 첫 착공 시, 시간·자금 안에 완성 불가능한
   //   경로(estimateRouteVP.completable=false, selectStandardRoute의 fallback opportunities[0] 등)는
   //   건너뛴다 — 미완성 트랙(0VP)에 전 재산을 쏟느니 짧은 완성 경로를 찾거나 skip해 돈을 보존한다.
-  const gateCompletable = banScatter && state.phaseState.builtTracksThisTurn === 0;
-  const oppsForGate = gateCompletable ? analyzeDeliveryOpportunities(state) : [];
+  // ★ 중간 슬롯 신규 착공에도 게이트 적용 (2026-07 사용자 피드백 "건설 엉망"): 3번째 슬롯에서
+  //   잔여 현금으로 완성 불가능한 새 경로(예: 산악 $9 경로에 현금 $6)에 착공해 dangling 트랙을
+  //   남기던 사례 — 커밋된 현재 경로(매몰비용)는 계속 허용하되, "다른 경로로의 신규 착공"은
+  //   턴 중간에도 완성 가능성을 검사한다.
+  const gateFirstSlot = state.phaseState.builtTracksThisTurn === 0;
+  const oppsForGate = banScatter ? analyzeDeliveryOpportunities(state) : [];
   for (const route of candidateRoutes) {
     // 내 트랙만으로 이미 완성된 경로는 더 지을 필요 없음
     if (isRouteComplete(state, route, playerId)) continue;
@@ -153,8 +157,10 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
       continue;
     }
 
-    // 완성 불가능한 배달 경로는 첫 착공에서 제외 (미완성 건설 = 돈 낭비 + 죽음의 나선)
-    if (gateCompletable) {
+    // 완성 불가능한 배달 경로는 착공에서 제외 (미완성 건설 = 돈 낭비 + 죽음의 나선).
+    // 첫 슬롯이거나, 커밋된 경로가 아닌 새 경로로 갈아탈 때 적용.
+    const isCommittedRoute = !!targetRoute && route.from === targetRoute.from && route.to === targetRoute.to;
+    if (banScatter && (gateFirstSlot || !isCommittedRoute)) {
       const opp = oppsForGate.find(o => o.sourceCityId === route.from && o.targetCityId === route.to);
       if (opp && !estimateRouteVP(state, playerId, opp).completable) continue;
     }
@@ -333,6 +339,12 @@ function resolveTurnRoute(state: GameState, playerId: PlayerId): DeliveryRoute |
       const opp = analyzeDeliveryOpportunities(state).find(
         o => o.sourceCityId === previousRoute.from && o.targetCityId === previousRoute.to
       );
+      // 내가 이번 턴 도시화한 직후라면, 기회 목록에 없어도 화물 매칭이 확인된 경로는 유지 —
+      // 신도시행 커밋 경로는 방금 생긴 도시라 top-K 기회 목록에 아직 없을 수 있는데, 여기서
+      // 드롭하면 연결 커밋이 무효화된다. (그 외 턴은 기존대로 재평가 — 상시 유지로 넓히면
+      // 저가치 경로 고착으로 VP가 깎이는 것을 100시드로 확인)
+      const justUrbanized = player?.selectedAction === 'urbanization' && state.phaseState.urbanizationUsed;
+      if (!opp && hasMatchingCargo && justUrbanized) return previousRoute;
       // 기회가 아직 있고 현재 보드에서 완성 가능하면 고수, 아니면(막힘/화물소진) 재평가
       if (opp && estimateRouteVP(state, playerId, opp).completable) {
         return previousRoute;
@@ -436,9 +448,13 @@ export function findNetworkExpansionTarget(
   if (unconnectedCities.length === 0) return null;
 
   // 연결된 도시가 없으면 (첫 트랙) 임의 도시 선택
+  // 거리 < 2(변을 공유하는 인접 도시)는 사이 헥스가 없어 일반 트랙으로 이을 수 없다
+  // (직결 링크는 사람 전용) — 목표로 잡으면 건설이 항상 실패해 턴 전체를 스킵하게 된다.
   if (connectedCities.length === 0) {
     const firstCity = board.cities[0];
-    const nearestUnconnected = unconnectedCities.reduce((nearest, city) => {
+    const buildable = unconnectedCities.filter(c => hexDistance(firstCity.coord, c.coord) >= 2);
+    if (buildable.length === 0) return null;
+    const nearestUnconnected = buildable.reduce((nearest, city) => {
       const dist = hexDistance(firstCity.coord, city.coord);
       const nearestDist = hexDistance(firstCity.coord, nearest.coord);
       return dist < nearestDist ? city : nearest;
@@ -448,7 +464,7 @@ export function findNetworkExpansionTarget(
     return { from: firstCity.id, to: nearestUnconnected.id, priority: 3 };
   }
 
-  // 연결된 도시에서 가장 가까운 미연결 도시 찾기
+  // 연결된 도시에서 가장 가까운 (트랙으로 이을 수 있는) 미연결 도시 찾기
   let bestTarget: { from: string; to: string; distance: number } | null = null;
 
   for (const connectedId of connectedCities) {
@@ -457,6 +473,7 @@ export function findNetworkExpansionTarget(
 
     for (const unconnected of unconnectedCities) {
       const distance = hexDistance(connectedCity.coord, unconnected.coord);
+      if (distance < 2) continue; // 인접 도시: 사이 헥스 없음 → 건설 불가 목표
       if (!bestTarget || distance < bestTarget.distance) {
         bestTarget = { from: connectedId, to: unconnected.id, distance };
       }
@@ -853,8 +870,34 @@ function tryDirectPathBuild(
     }
 
     // 7. 비용 확인 (예비금 포함)
+    // ★ 예비금 데드락 해제 (2026-07 파산 궤적 진단): 적자 플레이어는 예비금(지출−income)이 커서
+    //   현금을 쥐고도 영원히 건설을 못 하고(SKIP 연속) 생존발행 15주 → 파산하는 좀비가 됐다.
+    //   이번 턴 잔여 슬롯으로 이 경로를 완성할 수 있고 출발지에 배달 화물이 있으면(= 이번 턴
+    //   배달 income으로 회수 가능) 예비금을 헐어서라도 완성한다 — skip은 어차피 확정 사망이다.
     const cost = getTerrainCost(nextCoord, board);
-    const directPathMinReserve = calculateMinCashReserve(state, playerId);
+    let directPathMinReserve = calculateMinCashReserve(state, playerId);
+    // (다인 한정 — 좀비 데드락은 다인 경쟁 맵의 현상. 2인 tutorial은 파산 0/20 게이트 보존)
+    if (directPathMinReserve > 0 && player.cash >= cost && state.activePlayers.length >= 3) {
+      let missingAhead = 0;
+      for (let i = nextIndex; i < optimalPath.length - 1; i++) {
+        const c = optimalPath[i];
+        const isHub = board.cities.some(ci => hexCoordsEqual(ci.coord, c))
+          || board.towns.some(t => hexCoordsEqual(t.coord, c) && t.newCityColor === null);
+        if (isHub) continue;
+        if (!playerTracks.some(pt => hexCoordsEqual(pt.coord, c))) missingAhead++;
+      }
+      const remainingSlots = state.phaseState.maxTracksThisTurn - state.phaseState.builtTracksThisTurn;
+      const srcCity = board.cities.find(c => c.id === route.from);
+      const dstCity = board.cities.find(c => c.id === route.to);
+      const hasDeliverableCargo = !!(srcCity && dstCity &&
+        srcCity.cubes.some(cube => cityAcceptsCube(dstCity, cube, board)));
+      if (missingAhead <= remainingSlots && hasDeliverableCargo) {
+        // 전액 면제 (부분 완화 "생존 하한"도 실험했으나 파산이 오히려 늘었다 — 30시드:
+        // Korea 17→18, Rust 22→25. 완성→배달 도박이 신중한 보류보다 기대값이 높다)
+        debugLog.trackBuilding(`[직접 경로] 이번 턴 완성+배달 가능(잔여 ${missingAhead}/${remainingSlots}타일) → 예비금 $${directPathMinReserve} 면제`);
+        directPathMinReserve = 0;
+      }
+    }
     if (player.cash < cost + directPathMinReserve) {
       debugLog.trackBuilding(`[직접 경로] 현금 부족 ($${player.cash} < $${cost} + 예비금 $${directPathMinReserve})`);
       return null;

@@ -381,14 +381,19 @@ function findNetworkExpansionTarget(
   // 플레이어 트랙과 가장 가까운 미연결 도시 찾기
   const playerTracks = board.trackTiles.filter(t => t.owner === playerId);
 
+  // 거리 < 2(변을 공유하는 인접 도시)는 사이 헥스가 없어 일반 트랙으로 이을 수 없다
+  // (직결 링크는 사람 전용) — 목표로 잡으면 건설이 항상 실패한다. buildTrack.ts의
+  // findNetworkExpansionTarget과 동일한 필터 (코드리뷰: 한쪽만 고쳐져 있던 것 통일).
   if (playerTracks.length === 0) {
     // 첫 트랙: 아무 도시에서 시작
     const firstCity = board.cities[0];
-    const nearestCity = unconnectedCities.reduce((nearest, city) => {
+    const buildable = unconnectedCities.filter(c => hexDistance(firstCity.coord, c.coord) >= 2);
+    if (buildable.length === 0) return null;
+    const nearestCity = buildable.reduce((nearest, city) => {
       const dist = hexDistance(firstCity.coord, city.coord);
       const nearestDist = hexDistance(firstCity.coord, nearest.coord);
       return dist < nearestDist ? city : nearest;
-    }, unconnectedCities[0]);
+    }, buildable[0]);
 
     const route: DeliveryRoute = {
       from: firstCity.id,
@@ -400,11 +405,16 @@ function findNetworkExpansionTarget(
     return route;
   }
 
-  // 현재 트랙에서 가장 가까운 미연결 도시 찾기
-  let nearestCity = unconnectedCities[0];
+  // 가장 가까운 연결된 도시(출발지) 찾기 — 출발지와 인접(거리<2)한 목적지는 건설 불가라 제외
+  const nearestConnected = board.cities.find(c => connectedCities.includes(c.id));
+  if (!nearestConnected) return null;
+
+  // 현재 트랙에서 가장 가까운 (건설 가능한) 미연결 도시 찾기
+  let nearestCity: typeof unconnectedCities[number] | null = null;
   let minDistance = Infinity;
 
   for (const city of unconnectedCities) {
+    if (hexDistance(nearestConnected.coord, city.coord) < 2) continue; // 인접 도시: 사이 헥스 없음
     for (const track of playerTracks) {
       const dist = hexDistance(track.coord, city.coord);
       if (dist < minDistance) {
@@ -413,21 +423,16 @@ function findNetworkExpansionTarget(
       }
     }
   }
+  if (!nearestCity) return null;
 
-  // 가장 가까운 연결된 도시 찾기
-  const nearestConnected = board.cities.find(c => connectedCities.includes(c.id));
-  if (nearestConnected) {
-    const route: DeliveryRoute = {
-      from: nearestConnected.id,
-      to: nearestCity.id,
-      priority: 2,
-    };
-    debugLog.trackBuilding(`[AI 경로] ${player.name}: 네트워크 확장 ${route.from}→${route.to}`);
-    setCurrentRoute(playerId, route);
-    return route;
-  }
-
-  return null;
+  const route: DeliveryRoute = {
+    from: nearestConnected.id,
+    to: nearestCity.id,
+    priority: 2,
+  };
+  debugLog.trackBuilding(`[AI 경로] ${player.name}: 네트워크 확장 ${route.from}→${route.to}`);
+  setCurrentRoute(playerId, route);
+  return route;
 }
 
 /**

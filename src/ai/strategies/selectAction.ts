@@ -29,6 +29,7 @@ import {
 import { findReachableDestinations, hexCoordsEqual, getNeighborHex, findTrackCubeDeliveries, hexDistance, isTrackPartOfCompletedLink } from '@/utils/hexGrid';
 import { debugLog } from '@/utils/debugConfig';
 import { getMapProfile } from '@/maps/getMapProfile';
+import { planUrbanization } from './urbanization';
 
 /**
  * 사용 가능한 행동 목록 반환 (맵 룰에서 금지된 행동 제외 — 예: St. Lucia의 production)
@@ -148,32 +149,14 @@ function evaluateActionDeltaVP(
       if (getMapAIConfig(state).incomeSources.includes('trackCubes')) {
         return evaluateUrbanizationForTrackCubes(state);
       }
-      // cityCubes 다인: 닿을 같은 색 도시가 부족해 배달을 못 하는 게 핵심 병목(사용자 지침).
-      // 도시화로 배달 목적지를 늘린다 — 도시가 적고 보드에 배달 안 된 큐브가 많을수록 가치↑.
-      // cityCubes 다인 도시화: 내 네트워크가 닿는 도시의 "수송할 화물(큐브) 색"을 확인하고,
-      // 그 색 신규 도시 타일이 있을 때 내 트랙 근처 마을을 도시화하면 배달 목적지가 생긴다.
+      // cityCubes 다인: 도시화 가치를 "실제 배치 계획"과 일치시킨다 (2026-07 사용자 피드백:
+      // 타일 색만 보던 구 평가가 매 턴 도시화 남발 + 미연결 신도시 36%의 원인).
+      // planUrbanization이 배치할 마을·타일·가치를 함께 계산 — 배치할 곳이 없거나(계획 경로 밖뿐)
+      // 신도시 수요색이 이미 가까운 도시로 커버되면(중복 목적지) 소액이라 다른 행동이 이긴다.
       if (state.activePlayers.length >= 3) {
-        const myTracks = state.board.trackTiles.filter(t => t.owner === playerId);
-        const townsNearMe = state.board.towns.filter(t => t.newCityColor === null &&
-          myTracks.some(tr => hexDistance(tr.coord, t.coord) <= 2));
-        if (townsNearMe.length === 0) return 0.2;
-        // 내 트랙 근처(거리3) 도시의 큐브 색 = 내가 옮길 수 있는 화물. (getConnectedCities는
-        // '트랙 없을 때 빈 배열' 버그가 있어 늘 비어버리므로, 트랙 근접 도시로 robust하게 판단.)
-        const myCubeColors = new Set<string>();
-        state.board.cities.forEach(c => {
-          if (c.cubes && c.cubes.length &&
-              myTracks.some(tr => hexDistance(tr.coord, c.coord) <= 3)) {
-            c.cubes.forEach(cube => myCubeColors.add(cube as string));
-          }
-        });
-        if (myCubeColors.size === 0) return 0.2;
-        const availColors = new Set<string>(state.newCityTiles.filter(t => !t.used).map(t => t.color as string));
-        let deliverableViaUrban = 0;
-        myCubeColors.forEach(color => { if (availColors.has(color)) deliverableViaUrban++; });
-        if (deliverableViaUrban === 0) return 0.2;
-        // 도시화로 새로 열리는 배달 목적지의 income 가치 (배달 1링크 ≈ +3VP). engineer/firstBuild와
-        // 같은 ΔVP 단위로 비교되어, 도시화가 실제로 income을 여는 상황에서 확실히 선택된다.
-        return Math.min(9, deliverableViaUrban * 3);
+        const urbanPlan = planUrbanization(state, playerId);
+        if (!urbanPlan) return 0.2;
+        return Math.max(0.2, urbanPlan.deltaVP);
       }
       return 0.2;
     }

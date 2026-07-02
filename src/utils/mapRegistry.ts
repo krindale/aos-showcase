@@ -342,3 +342,20 @@ export function getMapRules(mapId: string): MapRuleConfig {
 export function getPlayableMapIds(): string[] {
   return Object.keys(MAP_REGISTRY);
 }
+
+/**
+ * columnMapping에서 cityId의 물품 디스플레이 슬롯 구간(시작 인덱스·행 수)을 찾는다.
+ * 도시화 디스플레이 보충(gameStore.placeNewCity)과 AI 도시화 수요색 예측(ai/urbanization)이
+ * 같은 인덱싱을 써야 하므로 단일 소스로 공유 (없으면 null).
+ */
+export function getDisplaySlotRange(
+  mapId: string,
+  cityId: string,
+): { startIndex: number; rowCount: number } | null {
+  let slotIdx = 0;
+  for (const m of getMapData(mapId).columnMapping) {
+    if (m.cityId === cityId) return { startIndex: slotIdx, rowCount: m.rowCount };
+    slotIdx += m.rowCount;
+  }
+  return null;
+}

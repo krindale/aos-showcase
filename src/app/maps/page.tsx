@@ -5,6 +5,9 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Play, X } from 'lucide-react';
+import { getMapProfile } from '@/maps/getMapProfile';
+import type { MapRuleSummary } from '@/maps/MapProfile';
+import { createHexLayout, hexPolygonPoints } from '@/utils/miniHexMap';
 
 const basePath = process.env.NODE_ENV === 'production' ? '/aos-showcase' : '';
 
@@ -17,17 +20,25 @@ const DIFF_COLOR: Record<Difficulty, string> = {
   고급: '#3a4a78',
 };
 
+type RuleItem = { title?: string; detail: string };
+
+/**
+ * 갤러리 전용 메타(diff/image/description)만 여기 두고,
+ * 인원·턴 수·특수 규칙은 게임 엔진의 단일 소스(getMapProfile)에서 파생한다
+ * — 페이지 하드코딩으로 인한 드리프트(예: 튜토리얼 10턴 오표기) 방지.
+ */
 type MapEntry = {
   slug: string;
   name: string;
   nameKo: string;
-  players: string;
-  turns: string;
   diff: Difficulty;
   image: string | null;
   description: string;
-  rules: string[];
   playable: boolean;
+  /** 프로파일이 없는(미구현) 맵의 수동 메타 */
+  manual?: { players: string; turns: string };
+  /** 프로파일 specialRules가 비어 있을 때(표준 룰 맵) 쓸 규칙 목록 */
+  fallbackRules?: RuleItem[];
 };
 
 const maps: MapEntry[] = [
@@ -35,127 +46,105 @@ const maps: MapEntry[] = [
     slug: 'tutorial',
     name: 'Tutorial',
     nameKo: '튜토리얼',
-    players: '2',
-    turns: '10턴',
     diff: '입문',
     image: null,
     description: '규칙을 익히기 위한 2인 학습용 맵. AI와 함께 주식·경매·건설·배송의 한 사이클을 처음부터 끝까지 체험합니다.',
-    rules: [
-      '2인 학습용 — 룰북 기본 규칙 그대로',
-      '도시 4곳 + 마을 1곳(Wheeling)의 축소 보드',
-      '주식·경매·건설·배송·물품 성장까지 전체 사이클 체험',
-    ],    playable: true,
+    playable: true,
+    fallbackRules: [
+      { detail: '2인 학습용 — 룰북 기본 규칙 그대로 짧게 진행합니다.' },
+      { detail: '도시 4곳 + 마을 1곳(Wheeling)의 축소 보드.' },
+      { detail: '주식·경매·건설·배송·물품 성장까지 전체 사이클을 체험합니다.' },
+    ],
   },
   {
     slug: 'rust-belt',
     name: 'Rust Belt',
     nameKo: '러스트 벨트',
-    players: '5',
-    turns: '7턴',
     diff: '표준',
     image: '/maps/rust-belt.webp',
     description: '미국 북동부 산업 지대를 배경으로 한 기본 맵. 오대호와 산악, 두 강을 낀 5인 대결입니다.',
-    rules: [
-      '5인 전용 · 7턴, 룰북 기본 규칙',
-      'Pittsburgh·Wheeling은 초기 물품 3개',
-      '오대호 헥스에는 트랙 건설 불가',
-    ],    playable: true,
+    playable: true,
+    fallbackRules: [
+      { detail: '룰북 기본 규칙으로 진행합니다.' },
+      { detail: 'Pittsburgh·Wheeling은 초기 물품 3개.' },
+      { detail: '오대호 헥스에는 트랙을 건설할 수 없습니다.' },
+    ],
   },
   {
     slug: 'korea',
     name: 'Korea',
     nameKo: '한국',
-    players: '4',
-    turns: '8턴',
     diff: '고급',
     image: '/maps/korea.webp',
     description: '도시 색이 고정되지 않고 현재 놓인 큐브에 따라 수요가 바뀌는 독특한 맵. 평양에서 부산까지 한반도를 잇습니다.',
-    rules: [
-      '도시 수요색 = 현재 놓인 큐브색 — 같은 색 물품이 있는 도시로만 배달',
-      '수원–서울 / 수원–인천 직결 링크 $2',
-      '신도시는 회색 취급, 도시화 시 물품 디스플레이 큐브 2개를 가져옴',
-      '평양·수원은 물품 성장 없음',
-    ],    playable: true,
+    playable: true,
   },
   {
     slug: 'western-us',
     name: 'Western U.S.',
     nameKo: '서부 미국',
-    players: '6',
-    turns: '6턴',
     diff: '고급',
     image: '/maps/western-us.webp',
     description: '태평양에서 미시시피까지 횡단하는 6인전. 험준한 산맥·늪, 동서 배달 보너스와 대륙횡단 보너스가 특징입니다.',
-    rules: [
-      '첫 건설은 서부·동부 시작 도시에서만 (Denver·Salt Lake City 제외)',
-      '동↔서 배달 +$1 · 대륙횡단 최초 연결 보너스 $4/$2',
-      '늪·강 $4, 산 $5 — 모든 마을에 물품 큐브 1개',
-      '시작 현금 $20, 대륙횡단 전까지 내 트랙은 연속이어야 함',
-    ],    playable: true,
+    playable: true,
   },
   {
     slug: 'germany',
     name: 'Germany',
     nameKo: '독일',
-    players: '4',
-    turns: '8턴',
     diff: '중급',
     image: '/maps/germany.webp',
     description: '외국 터미널과 헥스별 고정 건설비용, 도시 직결 링크가 있는 산업 혁명기의 독일 4인전입니다.',
-    rules: [
-      '외국 터미널 6곳 — 지정된 색만 수용, 통과 불가',
-      '헥스별 고정 건설비용 ($6~$12)',
-      'Engineer = 트랙 1개를 절반 비용으로, 미완성 링크 건설 금지',
-      'Berlin은 매 턴 물품 1개 보충 · Essen↔Düsseldorf 직결 $2',
-    ],    playable: true,
+    playable: true,
   },
   {
     slug: 'st-lucia',
     name: 'St. Lucia',
     nameKo: '세인트루시아',
-    players: '2',
-    turns: '8턴',
     diff: '중급',
     image: '/maps/st-lucia.webp',
     description: '2인 전용 대결 맵. 시작 도시가 없어 도시화 경쟁부터 시작하는, 작은 섬 위의 치열한 1:1 수싸움입니다.',
-    rules: [
-      '2인 전용 · 8턴 — 경매 대신 교대 선공권($5)',
-      '시작 도시 없음: 1턴 도시화 경쟁으로 시작',
-      '트랙 건설 시 헥스 큐브가 트랙 위로 — 미완성 링크로도 배달 가능',
-      '물품 성장 단계 생략, Production·Turn Order 액션 사용 불가',
-    ],    playable: true,
+    playable: true,
   },
   {
     slug: 'barbados',
     name: 'Barbados',
     nameKo: '바베이도스',
-    players: '1',
-    turns: '10턴',
     diff: '중급',
     image: '/maps/barbados.webp',
     description: '1인 전용 솔로 맵. 작은 섬에서 모든 주식을 되사는 것을 목표로 하는 최적화 퍼즐입니다.',
-    rules: [
-      '1인 솔로 전용 · 10턴',
-      '턴당 주식 1주만 발행 가능',
-      '게임 종료 시 현금으로 전 주식($5)을 환매하지 못하면 패배',
-    ],    playable: false,
+    playable: false,
+    manual: { players: '1', turns: '10턴' },
+    fallbackRules: [
+      { detail: '1인 솔로 전용 · 10턴 (룰북).' },
+      { detail: '턴당 주식 1주만 발행 가능.' },
+      { detail: '게임 종료 시 현금으로 전 주식($5)을 환매하지 못하면 패배.' },
+    ],
   },
 ];
+
+type MapView = MapEntry & { players: string; turns: string; rules: RuleItem[] };
+
+function resolveView(entry: MapEntry): MapView {
+  if (!entry.playable && entry.manual) {
+    return { ...entry, ...entry.manual, rules: entry.fallbackRules ?? [] };
+  }
+  const profile = getMapProfile(entry.slug);
+  const special: MapRuleSummary[] = profile.specialRules;
+  return {
+    ...entry,
+    players: profile.supportedPlayers.join('·'),
+    turns: `${profile.maxTurns}턴`,
+    rules: special.length > 0 ? special : entry.fallbackRules ?? [],
+  };
+}
+
+const MAP_VIEWS: MapView[] = maps.map(resolveView);
 
 /* ── 튜토리얼 미니맵 (실제 맵 배치: P/C/O/I 도시 + Wheeling 마을 + 우측 호수) ── */
 
 const MR = 30; // 헥스 반지름
-const MW = Math.sqrt(3) * MR;
-const MOX = 34;
-const MOY = 38;
-const mcx = (col: number, row: number) => MOX + col * MW + (row % 2 ? MW / 2 : 0);
-const mcy = (row: number) => MOY + row * 1.5 * MR;
-
-const miniHexPoints = (x: number, y: number, r: number) =>
-  Array.from({ length: 6 }, (_, i) => {
-    const a = ((60 * i + 30) * Math.PI) / 180;
-    return `${(x + r * Math.cos(a)).toFixed(1)},${(y + r * Math.sin(a)).toFixed(1)}`;
-  }).join(' ');
+const { cx: mcx, cy: mcy } = createHexLayout(MR, 34, 38);
 
 const TUTORIAL_CITIES: {
   col: number;
@@ -212,7 +201,7 @@ function TutorialMiniMap() {
         return (
           <polygon
             key={`${col}-${row}`}
-            points={miniHexPoints(mcx(col, row), mcy(row), MR - 1)}
+            points={hexPolygonPoints(mcx(col, row), mcy(row), MR - 1)}
             fill={lake ? '#E9E2CB' : '#8DB36A'}
             stroke={lake ? '#DED5B8' : '#6B5B3A'}
             strokeOpacity={lake ? 1 : 0.35}
@@ -226,7 +215,7 @@ function TutorialMiniMap() {
         const y = mcy(city.row);
         return (
           <g key={city.label}>
-            <polygon points={miniHexPoints(x, y, MR - 1)} fill={city.color} stroke="#fff" strokeWidth="2" />
+            <polygon points={hexPolygonPoints(x, y, MR - 1)} fill={city.color} stroke="#fff" strokeWidth="2" />
             <text
               x={x}
               y={y + 6}
@@ -277,15 +266,21 @@ function MapVisual({
 }
 
 export default function MapsPage() {
-  const [lightboxMap, setLightboxMap] = useState<MapEntry | null>(null);
+  const [lightboxMap, setLightboxMap] = useState<MapView | null>(null);
 
   useEffect(() => {
     if (!lightboxMap) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setLightboxMap(null);
     };
+    // 라이트박스가 떠 있는 동안 배경 페이지 스크롤 잠금
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', onKey);
+    };
   }, [lightboxMap]);
 
   return (
@@ -308,7 +303,7 @@ export default function MapsPage() {
       {/* 카드 그리드 */}
       <section className="mx-auto max-w-[1200px] px-[clamp(18px,5vw,56px)] pb-[clamp(48px,7vw,90px)]">
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-          {maps.map((map, i) => (
+          {MAP_VIEWS.map((map, i) => (
             <motion.div
               key={map.slug}
               initial={{ opacity: 0, y: 16 }}
@@ -437,11 +432,16 @@ export default function MapsPage() {
                   <ul className="space-y-[10px]">
                     {lightboxMap.rules.map((rule) => (
                       <li
-                        key={rule}
+                        key={rule.detail}
                         className="flex gap-2 text-[13px] leading-[1.65] text-foreground-secondary"
                       >
                         <span className="mt-[7px] h-[5px] w-[5px] flex-none rounded-full bg-accent" />
-                        {rule}
+                        <span>
+                          {rule.title && (
+                            <span className="font-semibold text-foreground">{rule.title} — </span>
+                          )}
+                          {rule.detail}
+                        </span>
                       </li>
                     ))}
                   </ul>

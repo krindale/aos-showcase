@@ -68,7 +68,8 @@ const trackDefs: StepperDef[] = [
   { key: 'river', label: '강 타일', unit: '단순 트랙 · 타일당 $3', min: 0, max: 40 },
   { key: 'mtn', label: '산 타일', unit: '단순 트랙 · 타일당 $4', min: 0, max: 40 },
   { key: 'complex', label: '복합 트랙 추가비', unit: '공존 +$1 · 교차 +$2 (합산 입력)', min: 0, max: 40 },
-  { key: 'townTracks', label: '마을 연결 트랙', unit: '마을 $1 + 트랙당 $1', min: 0, max: 12 },
+  { key: 'towns', label: '마을 타일', unit: '마을당 $1', min: 0, max: 8 },
+  { key: 'townTracks', label: '마을 연결 트랙', unit: '트랙당 $1 (전체 마을 합산)', min: 0, max: 24 },
 ];
 
 /* 예상 점수 (룰북: 소득 ×3점 + 완성 링크의 트랙 구간 ×1점 − 발행 주식 ×3점) */
@@ -87,19 +88,22 @@ const cashDefs: StepperDef[] = [
 
 export default function CalculatorPage() {
   const [values, setValues] = useState<Record<string, number>>({
-    flat: 3, river: 1, mtn: 0, complex: 0, townTracks: 0,
+    flat: 3, river: 1, mtn: 0, complex: 0, towns: 0, townTracks: 0,
     income: 8, shares: 4, loco: 3,
     vpIncome: 12, vpTracks: 10, vpShares: 5,
   });
 
   const set = (key: string) => (v: number) => setValues((s) => ({ ...s, [key]: v }));
 
+  // 마을 비용(룰북): 마을마다 $1 + 그 마을로 연결되는 트랙당 $1
+  // — 마을 수와 트랙 수를 분리 입력받아 여러 마을도 정확히 계산 (트랙은 마을이 있을 때만 유효)
   const trackTotal =
     values.flat * 2 +
     values.river * 3 +
     values.mtn * 4 +
     values.complex +
-    (values.townTracks > 0 ? 1 + values.townTracks : 0);
+    values.towns +
+    (values.towns > 0 ? values.townTracks : 0);
 
   const collect = values.income;
   const expenses = values.shares + values.loco;

@@ -9,19 +9,10 @@
  * 하단 캡션이 각 단계와 동기화되어 바뀐다. (SMIL — gameplay 다이어그램과 동일 문법)
  */
 
+import { createHexLayout, hexPolygonPoints } from '@/utils/miniHexMap';
+
 const R = 30; // 헥스 반지름
-const W = Math.sqrt(3) * R; // pointy-top 헥스 폭
-const OX = 26;
-const OY = 38;
-
-const cx = (col: number, row: number) => OX + col * W + (row % 2 ? W / 2 : 0);
-const cy = (row: number) => OY + row * 1.5 * R;
-
-const hexPoints = (x: number, y: number, r: number) =>
-  Array.from({ length: 6 }, (_, i) => {
-    const a = ((60 * i + 30) * Math.PI) / 180;
-    return `${(x + r * Math.cos(a)).toFixed(1)},${(y + r * Math.sin(a)).toFixed(1)}`;
-  }).join(' ');
+const { cx, cy } = createHexLayout(R, 26, 38);
 
 const CELLS: [number, number][] = [];
 for (let row = 0; row < 4; row++) {
@@ -142,7 +133,7 @@ export default function HeroBoardVignette() {
           {CELLS.map(([col, row]) => (
             <polygon
               key={`${col}-${row}`}
-              points={hexPoints(cx(col, row), cy(row), R - 1.5)}
+              points={hexPolygonPoints(cx(col, row), cy(row), R - 1.5)}
               fill={hexFill(col, row)}
             />
           ))}

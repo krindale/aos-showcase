@@ -26,7 +26,6 @@ const config: Config = {
           DEFAULT: '#c04a2b',
           light: '#d65a39',
           dark: '#a03a22',
-          bronze: '#8a5a2b',
         },
         // 보조 시맨틱 (수입/긍정 = 딥그린)
         positive: '#2f6b4f',
@@ -56,7 +55,6 @@ const config: Config = {
         'slide-in-right': 'slideInRight 0.6s ease-out',
         'scale-in': 'scaleIn 0.4s ease-out',
         'float': 'float 6s ease-in-out infinite',
-        'pulse-glow': 'pulseGlow 2s ease-in-out infinite',
         'steam': 'steam 3s ease-in-out infinite',
       },
       keyframes: {
@@ -84,10 +82,6 @@ const config: Config = {
           '0%, 100%': { transform: 'translateY(0)' },
           '50%': { transform: 'translateY(-20px)' },
         },
-        pulseGlow: {
-          '0%, 100%': { boxShadow: '0 0 20px rgba(192, 74, 43, 0.2)' },
-          '50%': { boxShadow: '0 0 40px rgba(192, 74, 43, 0.4)' },
-        },
         steam: {
           '0%': { opacity: '0', transform: 'translateY(0) scale(1)' },
           '50%': { opacity: '0.5' },
@@ -98,13 +92,10 @@ const config: Config = {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
         'gradient-conic': 'conic-gradient(from 180deg at 50% 50%, var(--tw-gradient-stops))',
         'hero-gradient': 'radial-gradient(120% 90% at 82% 0%, rgba(192, 74, 43, 0.09), transparent 56%)',
-        'gold-gradient': 'linear-gradient(135deg, #c04a2b 0%, #d65a39 100%)',
-        'card-gradient': 'linear-gradient(180deg, #ffffff 0%, #fffdf8 100%)',
       },
       boxShadow: {
         'glow': '0 8px 20px -8px rgba(192, 74, 43, 0.6)',
         'glow-lg': '0 24px 50px -24px rgba(192, 74, 43, 0.6)',
-        'inner-glow': 'inset 0 0 30px rgba(192, 74, 43, 0.06)',
         'glass': '0 1px 2px rgba(28, 27, 24, 0.04), 0 14px 34px -18px rgba(28, 27, 24, 0.16)',
       },
       backdropBlur: {

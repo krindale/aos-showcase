@@ -382,6 +382,43 @@ const diagrams: { caption: string; svg: ReactNode }[] = [
       </svg>
     ),
   },
+  {
+    caption: '턴 마커가 한 칸 전진합니다 — 마지막 턴이 끝나면 점수를 계산합니다',
+    svg: (
+      <svg viewBox="0 0 440 150" className="block h-auto w-full">
+        <line x1="44" y1="76" x2="396" y2="76" stroke={LINE} strokeWidth="3" strokeLinecap="round" />
+        {[1, 2, 3, 4, 5, 6, 7].map((n, i) => {
+          const x = 60 + i * 53;
+          return (
+            <g key={n}>
+              <circle cx={x} cy="76" r="15" fill="#fff" stroke={LINE} strokeWidth="2" />
+              <text x={x} y="82" textAnchor="middle" fill={SUB} fontFamily="Space Grotesk" fontSize="13" fontWeight="700">
+                {n}
+              </text>
+            </g>
+          );
+        })}
+        <g>
+          <animateTransform
+            attributeName="transform"
+            type="translate"
+            values="0 0;0 0;53 0;53 0"
+            keyTimes="0;0.3;0.55;1"
+            dur="3s"
+            repeatCount="indefinite"
+          />
+          <circle cx="219" cy="76" r="17" fill="none" stroke={RED} strokeWidth="3" />
+          <circle cx="219" cy="47" r="7" fill={RED} />
+        </g>
+        <text x="378" y="34" textAnchor="middle" fill={SUB} fontFamily="IBM Plex Sans KR" fontSize="12">
+          마지막 턴 → 점수 계산
+        </text>
+        <text x="219" y="126" textAnchor="middle" fill={SUB} fontFamily="IBM Plex Sans KR" fontSize="12.5">
+          턴 트랙에서 마커가 다음 칸으로
+        </text>
+      </svg>
+    ),
+  },
 ];
 
 const turnPhases = [
@@ -394,6 +431,7 @@ const turnPhases = [
   { t: '비용 지불', en: 'Pay Expenses', d: '발행 주식과 기관차 레벨의 합만큼 비용을 냅니다. 못 내면 소득이 깎입니다.' },
   { t: '소득 감소', en: 'Income Reduction', d: '소득이 높을수록 트랙이 일정 칸 내려갑니다. 과열을 경계하세요.' },
   { t: '상품 생산', en: 'Goods Growth', d: '주사위를 굴려 도시에 새로운 상품 큐브를 보충합니다.' },
+  { t: '턴 마커 전진', en: 'Advance Turn Marker', d: '턴 마커를 한 칸 전진합니다. 마지막 턴이었다면 최종 점수를 계산해 승자를 가립니다.' },
 ] as const;
 
 const mechanics = [
@@ -416,8 +454,8 @@ export default function GameplayPage() {
           한 라운드는 이렇게 흐릅니다
         </h1>
         <p className="max-w-[620px] text-base leading-[1.8] text-foreground-secondary">
-          매 라운드 아홉 개의 단계를 순서대로 진행합니다. 주식 발행부터 상품
-          생산까지 — 각 단계의 선택이 다음 단계의 자원과 압박을 결정합니다.
+          매 라운드 열 개의 단계를 순서대로 진행합니다. 주식 발행부터 턴 마커
+          전진까지 — 각 단계의 선택이 다음 단계의 자원과 압박을 결정합니다.
         </p>
       </section>
 

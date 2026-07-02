@@ -1628,8 +1628,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             />
           );
         })}
-        </g>
-        {/* 좌표 오버레이 — 모든 요소 위(최상위). 노란 글자+검정 외곽으로 마을(흰 원)·도시 위에서도 보임.
+        {/* 좌표 오버레이 — 모든 요소 위(그룹 내 최상위). 줌/팬 변환 그룹 안에 있어야
+            +/- 확대·축소 시에도 헥스와 좌표가 함께 움직인다 (밖에 두면 좌표가 어긋나는 버그).
             hexTiles에는 도시 헥스가 없으므로(generateHexTiles의 !isCity) 도시·마을 좌표를 합쳐 렌더 */}
         {showCoords && [
           ...board.hexTiles.map(h => h.coord),
@@ -1650,6 +1650,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             </text>
           );
         })}
+        </g>
 
         {/* 지형색 → 건설비용 범례 (Western US 등 hexCostMode:'legend') — 좌하단 빈 바다(0,13 부근) */}
         {costLegend.length > 0 && (() => {

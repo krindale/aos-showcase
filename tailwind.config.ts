@@ -10,24 +10,26 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Primary dark theme
+        // 크림 페이퍼 라이트 테마 (claude-design)
         background: {
-          DEFAULT: '#0a0a0f',
-          secondary: '#12121a',
-          tertiary: '#1a1a24',
+          DEFAULT: '#f7f5f0',   // 페이지 배경
+          secondary: '#ffffff', // 카드/패널
+          tertiary: '#efeae1',  // 밴드/호버
         },
         foreground: {
-          DEFAULT: '#f5f5f5',
-          secondary: '#a0a0a0',
-          muted: '#6b6b6b',
+          DEFAULT: '#1c1b18',   // 잉크
+          secondary: '#6e6a61', // 보조 텍스트
+          muted: '#8a857c',     // 흐린 텍스트
         },
-        // Gold/Bronze accent
+        // 버밀리언 악센트
         accent: {
-          DEFAULT: '#d4a853',
-          light: '#e6c77a',
-          dark: '#b8923e',
-          bronze: '#cd7f32',
+          DEFAULT: '#c04a2b',
+          light: '#d65a39',
+          dark: '#a03a22',
+          bronze: '#8a5a2b',
         },
+        // 보조 시맨틱 (수입/긍정 = 딥그린)
+        positive: '#2f6b4f',
         // Game colors
         steam: {
           red: '#e63946',
@@ -36,11 +38,11 @@ const config: Config = {
           purple: '#7b2cbf',
           yellow: '#f4a261',
         },
-        // Glassmorphism
+        // 페이퍼 서피스 (구 글래스모피즘 — 토큰명 유지)
         glass: {
-          DEFAULT: 'rgba(255, 255, 255, 0.05)',
-          border: 'rgba(255, 255, 255, 0.1)',
-          hover: 'rgba(255, 255, 255, 0.08)',
+          DEFAULT: 'rgba(255, 255, 255, 0.7)',
+          border: '#e6e1d6',
+          hover: '#ece7dd',
         },
       },
       fontFamily: {
@@ -83,8 +85,8 @@ const config: Config = {
           '50%': { transform: 'translateY(-20px)' },
         },
         pulseGlow: {
-          '0%, 100%': { boxShadow: '0 0 20px rgba(212, 168, 83, 0.3)' },
-          '50%': { boxShadow: '0 0 40px rgba(212, 168, 83, 0.6)' },
+          '0%, 100%': { boxShadow: '0 0 20px rgba(192, 74, 43, 0.2)' },
+          '50%': { boxShadow: '0 0 40px rgba(192, 74, 43, 0.4)' },
         },
         steam: {
           '0%': { opacity: '0', transform: 'translateY(0) scale(1)' },
@@ -95,15 +97,15 @@ const config: Config = {
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
         'gradient-conic': 'conic-gradient(from 180deg at 50% 50%, var(--tw-gradient-stops))',
-        'hero-gradient': 'linear-gradient(135deg, #0a0a0f 0%, #1a1a24 50%, #0a0a0f 100%)',
-        'gold-gradient': 'linear-gradient(135deg, #d4a853 0%, #e6c77a 50%, #b8923e 100%)',
-        'card-gradient': 'linear-gradient(180deg, rgba(26, 26, 36, 0.8) 0%, rgba(10, 10, 15, 0.9) 100%)',
+        'hero-gradient': 'radial-gradient(120% 90% at 82% 0%, rgba(192, 74, 43, 0.09), transparent 56%)',
+        'gold-gradient': 'linear-gradient(135deg, #c04a2b 0%, #d65a39 100%)',
+        'card-gradient': 'linear-gradient(180deg, #ffffff 0%, #fffdf8 100%)',
       },
       boxShadow: {
-        'glow': '0 0 30px rgba(212, 168, 83, 0.3)',
-        'glow-lg': '0 0 60px rgba(212, 168, 83, 0.4)',
-        'inner-glow': 'inset 0 0 30px rgba(212, 168, 83, 0.1)',
-        'glass': '0 8px 32px rgba(0, 0, 0, 0.3)',
+        'glow': '0 8px 20px -8px rgba(192, 74, 43, 0.6)',
+        'glow-lg': '0 24px 50px -24px rgba(192, 74, 43, 0.6)',
+        'inner-glow': 'inset 0 0 30px rgba(192, 74, 43, 0.06)',
+        'glass': '0 1px 2px rgba(28, 27, 24, 0.04), 0 14px 34px -18px rgba(28, 27, 24, 0.16)',
       },
       backdropBlur: {
         xs: '2px',

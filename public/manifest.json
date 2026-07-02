@@ -4,8 +4,8 @@
   "description": "Premium visual showcase and interactive tutorial for the Age of Steam board game",
   "start_url": "/aos-showcase/",
   "display": "standalone",
-  "background_color": "#0a0a0f",
-  "theme_color": "#d4a853",
+  "background_color": "#f7f5f0",
+  "theme_color": "#c04a2b",
   "orientation": "any",
   "icons": [
     {
@@ -57,7 +57,11 @@
       "purpose": "any maskable"
     }
   ],
-  "categories": ["games", "education", "entertainment"],
+  "categories": [
+    "games",
+    "education",
+    "entertainment"
+  ],
   "lang": "ko-KR",
   "dir": "ltr"
 }

@@ -234,9 +234,9 @@ export const TUTORIAL_COLORS = {
     mountain: '#A9763F',  // 산악 갈색
   },
 
-  // 보드 배경
-  background: '#252D25',
-  border: '#2D3F2D',
+  // 보드 배경 (러스트벨트 등 다른 맵과 동일한 크림 톤)
+  background: '#E9E2CB',
+  border: '#6B5B3A',
 };
 
 // === 유효한 헥스인지 확인 ===

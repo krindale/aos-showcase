@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
+import { Train } from 'lucide-react';
 
 const navItems = [
   { href: '/', label: '홈' },
@@ -13,17 +14,14 @@ const navItems = [
   { href: '/calculator', label: '계산기' },
 ] as const;
 
-/** 버밀리언 사각 + 흰 링 로고 마크 */
+/** 버밀리언 사각 + 흰 열차(lucide Train) 로고 마크 */
 export function LogoMark({ size = 28 }: { size?: number }) {
   return (
     <div
       className="flex flex-none items-center justify-center rounded-lg bg-accent"
       style={{ width: size, height: size }}
     >
-      <div
-        className="rounded-full border-[2.5px] border-background"
-        style={{ width: size * 0.39, height: size * 0.39 }}
-      />
+      <Train color="#fffdf8" size={size * 0.62} strokeWidth={2.2} aria-hidden />
     </div>
   );
 }

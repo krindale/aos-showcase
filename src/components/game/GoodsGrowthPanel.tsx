@@ -199,17 +199,24 @@ export default function GoodsGrowthPanel() {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="p-4 rounded-lg bg-green-500/20 border border-green-500/30"
+          className="p-4 rounded-lg bg-positive/10 border border-positive/30"
         >
-          <div className="flex items-center gap-2 text-green-400 mb-3">
+          {/* 라이트 테마 대비: 옅은 초록 배경 위엔 딥그린/잉크 텍스트 */}
+          <div className="flex items-center gap-2 text-positive mb-3">
             <Check size={18} />
-            <span className="font-medium">물품 성장 완료!</span>
+            <span className="font-bold">물품 성장 완료!</span>
           </div>
 
           {growthResults.length > 0 && (
-            <div className="text-sm text-green-300 mb-3">
-              {growthResults.map(r => `${r.cityName}에 ${r.count}개`).join(', ')} 추가됨
-            </div>
+            <ul className="mb-3 space-y-1 text-sm text-foreground">
+              {growthResults.map((r, i) => (
+                <li key={`${r.cityName}-${i}`} className="flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-positive" />
+                  <span className="font-semibold">{r.cityName}</span>
+                  <span className="text-foreground-secondary">+{r.count}개</span>
+                </li>
+              ))}
+            </ul>
           )}
 
           <button

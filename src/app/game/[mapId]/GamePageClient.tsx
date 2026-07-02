@@ -44,11 +44,11 @@ import UrbanizationPanel from '@/components/game/UrbanizationPanel';
 import ProductionPanel from '@/components/game/ProductionPanel';
 import MoveCubeOverlay from '@/components/game/MoveCubeOverlay';
 import DebugPanel from '@/components/game/DebugPanel';
-import AIDebugModal from '@/components/game/AIDebugModal';
+import { POP_SPRING, useIsFirstRender } from '@/components/game/uiEffects';
 import TranscontinentalModal from '@/components/game/TranscontinentalModal';
 import BottomSheet from '@/components/game/BottomSheet';
 import { calculateTrackScore } from '@/utils/trackValidation';
-import { ArrowLeft, RotateCcw, Users, Zap, X, Bot, Activity, ChevronRight, ChevronLeft } from 'lucide-react';
+import { ArrowLeft, RotateCcw, Users, Zap, X, Bot, ChevronRight, ChevronLeft } from 'lucide-react';
 import {
   PLAYER_COLOR_ORDER,
   PLAYER_COLORS,
@@ -88,12 +88,13 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   const [playerCount, setPlayerCount] = useState(supportedPlayers[0]);
   const [playerNames, setPlayerNames] = useState<string[]>(DEFAULT_NAMES);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
+  // 리마운트 시 지난 "선택 행동" 칩 팝이 일제 재생되지 않게 첫 렌더는 애니메이션 생략
+  const chipFirstRender = useIsFirstRender();
   const [isLandscape, setIsLandscape] = useState(false);
   // 기본: 플레이어 1(인덱스 0)만 사람, 나머지는 모두 AI (인원수만큼 — 모든 맵)
   const [aiPlayerIndexes, setAiPlayerIndexes] = useState<Set<number>>(
     () => new Set(Array.from({ length: supportedPlayers[0] - 1 }, (_, i) => i + 1))
   );
-  const [showAIDebug, setShowAIDebug] = useState(false);
 
   const {
     initGame,
@@ -500,20 +501,26 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
               const player = players[pid];
               const action = player.selectedAction;
               if (!action) return null;
+              const pColor = PLAYER_COLORS[player.color];
               return (
-                <div
-                  key={pid}
-                  className="flex items-center gap-2 px-2 py-1 rounded bg-accent/10 border border-accent/20"
+                /* 선택되는 순간 그 자리에서 플레이어 색으로 팝 (공용 POP_SPRING — 경매 팝과 동일한 결) */
+                <motion.div
+                  key={`${pid}-${action}`}
+                  initial={chipFirstRender.current ? false : { scale: 1.7, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={POP_SPRING}
+                  className="flex items-center gap-2 px-2 py-1 rounded bg-accent/10 border"
+                  style={{ borderColor: `${pColor}80` }}
                 >
                   <div
                     className="w-2 h-2 rounded-full"
-                    style={{ backgroundColor: PLAYER_COLORS[player.color] }}
+                    style={{ backgroundColor: pColor }}
                   />
                   <span className="text-xs text-foreground">{player.name}</span>
-                  <span className="text-xs font-medium text-accent">
+                  <span className="text-xs font-bold" style={{ color: pColor }}>
                     {ACTION_INFO[action].name}
                   </span>
-                </div>
+                </motion.div>
               );
             })}
           </div>
@@ -673,26 +680,8 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       {/* 디버그 패널 */}
       <DebugPanel />
 
-      {/* AI 디버그 버튼 (우측 하단) */}
-      {process.env.NODE_ENV === 'development' && (
-        <button
-          onClick={() => setShowAIDebug(true)}
-          className="fixed bottom-6 right-6 z-40 p-4 bg-accent/90 hover:bg-accent text-background rounded-full shadow-lg transition-all hover:scale-110"
-          title="AI 디버거"
-        >
-          <Activity size={24} />
-        </button>
-      )}
-
       {/* 대륙횡단 연결 팝업 (Western US) */}
       <TranscontinentalModal />
-
-      {/* AI 디버그 모달 */}
-      <AIDebugModal
-        isOpen={showAIDebug}
-        onClose={() => setShowAIDebug(false)}
-        playerId="player2"
-      />
     </div>
   );
 }

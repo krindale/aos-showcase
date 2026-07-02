@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useCallback, useEffect, useState } from 'react';
+import BoardPulses from './BoardPulses';
 import { motion } from 'framer-motion';
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { useGameStore } from '@/store/gameStore';
@@ -1628,6 +1629,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             />
           );
         })}
+        {/* 인플레이스 펄스 레이어 (건설/큐브 유입) — memo 자식으로 분리, 미니 오버레이에서도 표시 */}
+        <BoardPulses isFlat={isFlat} />
         {/* 좌표 오버레이 — 모든 요소 위(그룹 내 최상위). 줌/팬 변환 그룹 안에 있어야
             +/- 확대·축소 시에도 헥스와 좌표가 함께 움직인다 (밖에 두면 좌표가 어긋나는 버그).
             hexTiles에는 도시 헥스가 없으므로(generateHexTiles의 !isCity) 도시·마을 좌표를 합쳐 렌더 */}

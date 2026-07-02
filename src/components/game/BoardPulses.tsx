@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 import { useShallow } from 'zustand/react/shallow';
 import { HEX_SIZE, hexToPixel } from '@/utils/hexGrid';
-import { HexCoord, PLAYER_COLORS } from '@/types/game';
+import { CUBE_COLORS, CubeColor, HexCoord, PLAYER_COLORS } from '@/types/game';
 import { GAME_ACCENT, GAME_PAPER, isRecentUndoLog } from './uiEffects';
 
 /**
@@ -19,16 +19,18 @@ import { GAME_ACCENT, GAME_PAPER, isRecentUndoLog } from './uiEffects';
  * 전체 보드 리렌더를 유발하지 않는다.
  */
 
-type Pulse = { x: number; y: number; color: string; n?: number; k: string };
+type Pulse = { x: number; y: number; color: string; k: string };
+/** 큐브 유입 펄스 — 색상별 증가량을 세로 스택 배지로 표시 */
+type CubePulse = { x: number; y: number; items: { color: CubeColor; n: number }[]; k: string };
 
 const BUILD_LOG_RE = /^(트랙 건설|복합 트랙 건설|마을 가닥 건설|트랙 방향 전환)/;
 const COORD_RE = /\((\d+),\s*(\d+)\)/;
 const TTL_MS = 2600;
 
 /** 배치 단위로 추가하고, 그 배치만 TTL 뒤 제거 (전체 배열 타이머 재시작 없음) */
-function usePulseList(): [Pulse[], (batch: Pulse[]) => void, () => void] {
-  const [pulses, setPulses] = useState<Pulse[]>([]);
-  const add = useCallback((batch: Pulse[]) => {
+function usePulseList<T extends { k: string }>(): [T[], (batch: T[]) => void, () => void] {
+  const [pulses, setPulses] = useState<T[]>([]);
+  const add = useCallback((batch: T[]) => {
     if (batch.length === 0) return;
     setPulses((p) => [...p, ...batch]);
     const keys = new Set(batch.map((b) => b.k));
@@ -57,10 +59,10 @@ function BoardPulsesInner({ isFlat }: { isFlat: boolean }) {
   const { logs, cities, towns } = useGameStore(
     useShallow((s) => ({ logs: s.logs, cities: s.board.cities, towns: s.board.towns }))
   );
-  const [buildPulses, addBuild, clearBuild] = usePulseList();
-  const [cubePulses, addCube, clearCube] = usePulseList();
+  const [buildPulses, addBuild, clearBuild] = usePulseList<Pulse>();
+  const [cubePulses, addCube, clearCube] = usePulseList<CubePulse>();
   const seenLogsRef = useRef(logs.length); // 마운트 시점 이전 로그는 재생하지 않음
-  const cubeCountsRef = useRef<Record<string, number> | null>(null);
+  const cubeCountsRef = useRef<Record<string, Partial<Record<CubeColor, number>>> | null>(null);
 
   // 건설 이벤트 → 로그 기반 펄스
   useEffect(() => {
@@ -99,23 +101,32 @@ function BoardPulsesInner({ isFlat }: { isFlat: boolean }) {
     addBuild(batch);
   }, [logs, isFlat, addBuild, clearBuild, clearCube]);
 
-  // 큐브 유입 → "+n" 펄스
+  // 큐브 유입 → 색상별 "+n" 세로 스택 펄스
   useEffect(() => {
     const first = cubeCountsRef.current === null;
     const undoNow = isRecentUndoLog(useGameStore.getState().logs);
-    const counts: Record<string, number> = {};
-    const batch: Pulse[] = [];
-    const collect = (id: string, coord: HexCoord, cur: number) => {
-      counts[id] = cur;
+    const counts: Record<string, Partial<Record<CubeColor, number>>> = {};
+    const batch: CubePulse[] = [];
+    const collect = (id: string, coord: HexCoord, cubes: CubeColor[]) => {
+      const colorCounts: Partial<Record<CubeColor, number>> = {};
+      cubes.forEach((c) => {
+        colorCounts[c] = (colorCounts[c] ?? 0) + 1;
+      });
+      counts[id] = colorCounts;
       if (first) return;
-      const prev = cubeCountsRef.current![id] ?? 0; // 새 id(도시화 신도시)는 0 → 보충분 펄스
-      if (cur > prev && !undoNow) {
+      const prev = cubeCountsRef.current![id] ?? {}; // 새 id(도시화 신도시)는 빈 맵 → 보충분 펄스
+      const items: { color: CubeColor; n: number }[] = [];
+      (Object.keys(colorCounts) as CubeColor[]).forEach((color) => {
+        const gained = (colorCounts[color] ?? 0) - (prev[color] ?? 0);
+        if (gained > 0) items.push({ color, n: gained });
+      });
+      if (items.length > 0 && !undoNow) {
         const { x, y } = hexToPixel(coord.col, coord.row, undefined, undefined, undefined, isFlat);
-        batch.push({ x, y, n: cur - prev, color: GAME_ACCENT, k: `c-${id}-${cur}-${Date.now()}` });
+        batch.push({ x, y, items, k: `c-${id}-${Date.now()}` });
       }
     };
-    cities.forEach((c) => collect(`city:${c.id}`, c.coord, c.cubes.length));
-    towns.forEach((t) => collect(`town:${t.id}`, t.coord, t.cubes.length));
+    cities.forEach((c) => collect(`city:${c.id}`, c.coord, c.cubes));
+    towns.forEach((t) => collect(`town:${t.id}`, t.coord, t.cubes));
     cubeCountsRef.current = counts;
     addCube(batch);
   }, [cities, towns, isFlat, addCube]);
@@ -138,26 +149,30 @@ function BoardPulsesInner({ isFlat }: { isFlat: boolean }) {
       ))}
       {cubePulses.map((p) => (
         <g key={p.k}>
-          <RingPulse x={p.x} y={p.y} color={p.color} />
-          <motion.g
-            initial={{ opacity: 0 }}
-            animate={{ opacity: [0, 1, 1, 0] }}
-            transition={{ duration: 2.2, times: [0, 0.12, 0.8, 1] }}
-          >
-            <g transform={`translate(${p.x}, ${p.y - HEX_SIZE * 1.1})`}>
-              <rect x={-19} y={-13} width={38} height={24} rx={12} fill={p.color} stroke={GAME_PAPER} strokeWidth={2} />
-              <text
-                textAnchor="middle"
-                y={5}
-                fill={GAME_PAPER}
-                fontSize={15}
-                fontWeight={800}
-                fontFamily="system-ui, sans-serif"
-              >
-                +{p.n}
-              </text>
-            </g>
-          </motion.g>
+          {/* 색상별 +n — 배지/링 없이 큐브색 텍스트만 세로 스택, 살짝 떠오르며 사라짐 */}
+          {p.items.map((item, i) => (
+            <motion.text
+              key={item.color}
+              x={p.x}
+              textAnchor="middle"
+              fill={CUBE_COLORS[item.color]}
+              stroke={GAME_PAPER}
+              strokeWidth={3.5}
+              strokeLinejoin="round"
+              style={{ paintOrder: 'stroke' }}
+              fontSize={17}
+              fontWeight={800}
+              fontFamily="system-ui, sans-serif"
+              initial={{ opacity: 0, y: p.y - HEX_SIZE * 0.9 - i * 20 }}
+              animate={{
+                opacity: [0, 1, 1, 0],
+                y: p.y - HEX_SIZE * 1.15 - i * 20,
+              }}
+              transition={{ duration: 2.0, times: [0, 0.15, 0.75, 1], delay: i * 0.15, ease: 'easeOut' }}
+            >
+              +{item.n}
+            </motion.text>
+          ))}
         </g>
       ))}
     </g>

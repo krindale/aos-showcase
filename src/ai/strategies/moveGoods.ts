@@ -221,6 +221,16 @@ function evaluateEngineUpgradeOption(state: GameState, playerId: PlayerId): numb
   // 없으면 AI가 라운드2에 또 엔진업을 결정→store가 거부→같은 결정 반복으로 정체한다.
   if (state.phaseState.engineUpgradedThisTurn?.[playerId]) return -Infinity;
 
+  // ★ 치명적 디폴트 가드 (2026-07 파산 궤적 진단): engineUpgradeDeltaVP에는 파산 위험 -∞ 가드가
+  // 있지만 아래 front-load 지름길(return 5)이 그걸 우회한다 — T1에 건설로 현금을 소진한 플레이어가
+  // 배달(즉시 income) 대신 엔진업을 골라, 이번 턴 지출을 못 내고(income 0 − shortage < 0) 즉사했다.
+  // 엔진업 후 지출을 현금+수입으로 못 막아 income이 음수로 떨어지는(=파산 확정) 상황이면 차단 —
+  // 여력이 있는 정상 front-load(현금 확보 상태)는 그대로 통과한다.
+  const expensesAfterUpgrade = player.issuedShares + player.engineLevel + 1;
+  const shortageAfterUpgrade = Math.max(0, expensesAfterUpgrade - (player.cash + Math.max(0, player.income)));
+  if (player.income - shortageAfterUpgrade < 0) return -Infinity;
+
+
   // ★ 사용자 지침: trackCubes 맵 T4 이후엔 수송 포기(move-round) 엔진업 전면 금지 —
   // 엔진은 오직 Locomotive 액션으로만 올린다(배달 라운드를 더 이상 엔진에 쓰지 않음).
   if (config.incomeSources.includes('trackCubes') && state.currentTurn > 4) return -Infinity;

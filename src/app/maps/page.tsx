@@ -384,7 +384,7 @@ export default function MapsPage() {
               exit={{ opacity: 0, scale: 0.96, y: 10 }}
               transition={{ duration: 0.25, ease: 'easeOut' }}
               onClick={(e) => e.stopPropagation()}
-              className="glass-card relative flex max-h-[92vh] w-full max-w-[1100px] flex-col overflow-hidden md:flex-row"
+              className="glass-card relative flex max-h-[92vh] w-full max-w-[1100px] flex-col overflow-hidden md:h-[min(88vh,780px)] md:flex-row"
             >
               <button
                 onClick={() => setLightboxMap(null)}
@@ -394,13 +394,13 @@ export default function MapsPage() {
                 <X className="h-[18px] w-[18px]" />
               </button>
 
-              {/* 좌: 큰 지도 — 전체가 보이도록 contain */}
-              <div className="relative h-[38vh] w-full flex-none bg-[#E9E2CB] md:h-[min(72vh,680px)] md:flex-1">
+              {/* 좌: 큰 지도 — 팝업 세로를 항상 꽉 채우고, 전체가 보이도록 contain */}
+              <div className="relative h-[38vh] w-full flex-none bg-[#E9E2CB] md:h-full md:flex-1">
                 <MapVisual map={lightboxMap} sizes="(max-width: 1024px) 100vw, 760px" fit="contain" />
               </div>
 
-              {/* 우: 맵 정보 + 특수 규칙 + 플레이 */}
-              <div className="flex min-h-0 w-full flex-col overflow-y-auto border-t border-[#ebe6dc] p-6 md:w-[330px] md:flex-none md:border-l md:border-t-0">
+              {/* 우: 맵 정보(고정) + 특수 규칙(이 영역만 스크롤) + 플레이 버튼(고정) */}
+              <div className="flex min-h-0 w-full flex-col border-t border-[#ebe6dc] p-6 md:h-full md:w-[330px] md:flex-none md:border-l md:border-t-0">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <h3 className="text-[22px] font-bold tracking-[-0.02em] text-foreground">
                     {lightboxMap.nameKo}
@@ -425,11 +425,12 @@ export default function MapsPage() {
                   {lightboxMap.description}
                 </p>
 
-                <div className="mt-5 border-t border-[#ebe6dc] pt-4">
-                  <div className="mb-3 font-display text-[11px] font-semibold tracking-[0.12em] text-accent">
+                <div className="mt-5 flex min-h-0 flex-1 flex-col border-t border-[#ebe6dc] pt-4">
+                  <div className="mb-3 flex-none font-display text-[11px] font-semibold tracking-[0.12em] text-accent">
                     특수 규칙
                   </div>
-                  <ul className="space-y-[10px]">
+                  {/* 규칙이 길면 이 목록만 스크롤 — 제목/버튼은 고정 */}
+                  <ul className="min-h-0 flex-1 space-y-[10px] overflow-y-auto pr-1 max-h-[30vh] md:max-h-none">
                     {lightboxMap.rules.map((rule) => (
                       <li
                         key={rule.detail}
@@ -447,7 +448,7 @@ export default function MapsPage() {
                   </ul>
                 </div>
 
-                <div className="mt-auto pt-6">
+                <div className="flex-none pt-5">
                   {lightboxMap.playable ? (
                     <Link
                       href={`/game/${lightboxMap.slug}/`}

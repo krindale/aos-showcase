@@ -489,7 +489,7 @@ setAllDebug(true);                   // 모든 로그 on/off
 - 엣지 비호환/실패 좌표는 avoidCoords에 넣어 최대 3회 재탐색
 - 상대 단순 트랙 위 복합 트랙(교차/공존) 건설 처리 포함
 - 점수 기반 후보 평가 시스템(evaluateTrackForRoute 매직넘버 체계)은 2026-06 재설계에서 제거됨
-  — evaluateTrackForRoute는 AI 디버그 모달 표시 용도로만 잔존 (analyzer.ts)
+  — evaluateTrackForRoute는 콘솔 AI 디버거(debugAI, debug/collectors) 용도로만 잔존 (analyzer.ts)
 - 참고: docs/ai-strategy.md는 재설계 이전 문서로 일부 구식 (점수 체계 부분)
 
 #### St. Lucia 맵 구현 (2026-06-12, feature/st-lucia-map)

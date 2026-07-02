@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import AuctionPanel from './AuctionPanel';
 import TurnOrderOfferPanel from './TurnOrderOfferPanel';
+import { POP_SPRING, useIsFirstRender } from './uiEffects';
 import { getMapProfile } from '@/maps/getMapProfile';
 import GoodsGrowthPanel from './GoodsGrowthPanel';
 
@@ -111,6 +112,9 @@ export default function PhasePanel() {
 
   const phaseInfo = PHASE_INFO[currentPhase];
   const currentPlayerData = players[currentPlayer];
+
+  // 리마운트(모바일 시트 여닫기 등) 시 지난 선택 팝이 일제 재생되지 않게 첫 렌더는 애니메이션 생략
+  const firstRender = useIsFirstRender();
 
   // 행동 선택 가능 여부
   const isActionTaken = (action: SpecialAction) => {
@@ -197,18 +201,18 @@ export default function PhasePanel() {
                 <span className="text-accent font-medium">{currentPlayerData.name}</span>, 행동을 선택하세요:
               </p>
             )}
-            {/* 선택 현황 표시 — 선택되는 순간 그 항목이 플레이어 색으로 팝 */}
+            {/* 선택 현황 표시 — 선택되는 순간 그 항목이 플레이어 색으로 팝 (탈락자는 제외) */}
             <div className="p-1.5 md:p-2 rounded-lg bg-background/30 text-[10px] md:text-xs text-foreground-secondary flex flex-wrap gap-x-3 gap-y-1">
               {activePlayers.map((pid) => {
                 const p = players[pid];
-                if (!p) return null;
+                if (!p || p.eliminated) return null;
                 const pColor = PLAYER_COLORS[p.color];
                 return p.selectedAction ? (
                   <motion.span
                     key={`${pid}-${p.selectedAction}`}
-                    initial={{ scale: 1.6, opacity: 0 }}
+                    initial={firstRender.current ? false : { scale: 1.6, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
-                    transition={{ type: 'spring', stiffness: 480, damping: 16 }}
+                    transition={POP_SPRING}
                     className="inline-flex items-center gap-1 font-bold"
                     style={{ color: pColor, transformOrigin: 'left center' }}
                   >

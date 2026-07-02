@@ -6,6 +6,7 @@ import { useGameStore } from '@/store/gameStore';
 import { useShallow } from 'zustand/react/shallow';
 import { PLAYER_COLORS } from '@/types/game';
 import { DollarSign, User, Crown, Check, Bot } from 'lucide-react';
+import { POP_SPRING, CROWN_GOLD, CROWN_INK, useIsFirstRender } from './uiEffects';
 
 export default function AuctionPanel() {
   const { auction, players, playerOrder, currentPlayer } = useGameStore(
@@ -20,6 +21,9 @@ export default function AuctionPanel() {
 
   // 입찰 금액 상태
   const [bidAmount, setBidAmount] = useState(1);
+
+  // 리마운트(모바일 시트 여닫기·회전) 시 지난 도장/팝이 일제 재생되지 않게 첫 렌더는 애니메이션 생략
+  const firstRender = useIsFirstRender();
 
   // 경매 상태 초기화 (처음 진입 시)
   useEffect(() => {
@@ -116,17 +120,17 @@ export default function AuctionPanel() {
               <div className="flex items-center gap-2">
                 <motion.span
                   key={`crown-${auction.highestBid}`}
-                  initial={{ rotate: -30, scale: 1.4 }}
+                  initial={firstRender.current ? false : { rotate: -30, scale: 1.4 }}
                   animate={{ rotate: 0, scale: 1 }}
-                  transition={{ type: 'spring', stiffness: 400, damping: 12 }}
+                  transition={POP_SPRING}
                 >
-                  <Crown size={16} fill="#f0c040" strokeWidth={1.8} style={{ color: '#7a5200' }} />
+                  <Crown size={16} fill={CROWN_GOLD} strokeWidth={1.8} style={{ color: CROWN_INK }} />
                 </motion.span>
                 <motion.span
                   key={`bid-${auction.highestBid}`}
-                  initial={{ scale: 2 }}
+                  initial={firstRender.current ? false : { scale: 2 }}
                   animate={{ scale: 1 }}
-                  transition={{ type: 'spring', stiffness: 500, damping: 16 }}
+                  transition={POP_SPRING}
                   className="text-lg font-extrabold"
                   style={{ color: PLAYER_COLORS[players[auction.highestBidder].color] }}
                 >
@@ -175,9 +179,9 @@ export default function AuctionPanel() {
                 {/* 포기 도장 — 쾅 찍히는 효과 */}
                 {hasPassed && (
                   <motion.span
-                    initial={{ scale: 2.6, opacity: 0, rotate: -24 }}
+                    initial={firstRender.current ? false : { scale: 2.6, opacity: 0, rotate: -24 }}
                     animate={{ scale: 1, opacity: 1, rotate: -10 }}
-                    transition={{ type: 'spring', stiffness: 420, damping: 15 }}
+                    transition={POP_SPRING}
                     className="absolute right-1.5 top-1.5 rounded border-2 border-red-500 px-1 text-[10px] font-extrabold tracking-widest text-red-500"
                   >
                     포기
@@ -205,9 +209,9 @@ export default function AuctionPanel() {
                     /* 입찰액이 오를 때마다 그 자리에서 크게 팝 */
                     <motion.span
                       key={playerBid}
-                      initial={{ scale: 2.1 }}
+                      initial={firstRender.current ? false : { scale: 2.1 }}
                       animate={{ scale: 1 }}
-                      transition={{ type: 'spring', stiffness: 500, damping: 15 }}
+                      transition={POP_SPRING}
                       className="font-extrabold"
                       style={{ color: pColor, transformOrigin: 'right center' }}
                     >
@@ -235,15 +239,15 @@ export default function AuctionPanel() {
               exit={{ opacity: 0, y: -10 }}
               className="space-y-3"
             >
-              <div className="p-4 rounded-lg border border-accent/30 bg-[#fffdf8] text-center shadow-glass">
+              <div className="p-4 rounded-lg border border-accent/30 bg-background-secondary text-center shadow-glass">
                 {/* 라이트 테마 대비: 금색 채움 + 진한 갈색 외곽선 왕관 */}
                 <motion.span
-                  initial={{ scale: 0.4, rotate: -18 }}
+                  initial={firstRender.current ? false : { scale: 0.4, rotate: -18 }}
                   animate={{ scale: 1, rotate: 0 }}
-                  transition={{ type: 'spring', stiffness: 380, damping: 14 }}
+                  transition={POP_SPRING}
                   className="mb-2 inline-block"
                 >
-                  <Crown size={34} fill="#f0c040" strokeWidth={1.8} style={{ color: '#7a5200' }} />
+                  <Crown size={34} fill={CROWN_GOLD} strokeWidth={1.8} style={{ color: CROWN_INK }} />
                 </motion.span>
                 {auction?.highestBidder ? (
                   <>

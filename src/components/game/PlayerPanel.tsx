@@ -15,6 +15,7 @@ import {
   Skull,
   Bot,
 } from 'lucide-react';
+import { POP_SPRING, isRecentUndoLog } from './uiEffects';
 
 interface PlayerPanelProps {
   playerId: PlayerId;
@@ -22,20 +23,23 @@ interface PlayerPanelProps {
   compact?: boolean;
 }
 
-/** 스탯 값이 바뀌면 증감량을 잠깐 들고 있는 훅 (하이라이트 표시용, 표시 전용) */
+/**
+ * 스탯 값이 바뀌면 증감량을 잠깐 들고 있는 훅 (하이라이트 표시용, 표시 전용).
+ * 실행 취소(스냅샷 복원)로 인한 변화는 진짜 이벤트가 아니므로 배지를 억제한다
+ * — 안 하면 $4 건설 취소가 초록 '+$4'로 떠 수익처럼 보인다.
+ */
 function useStatDelta(value: number, holdMs = 2200) {
   const prevRef = useRef(value);
   const [delta, setDelta] = useState<{ v: number; k: number } | null>(null);
   useEffect(() => {
     const d = value - prevRef.current;
     prevRef.current = value;
-    if (d !== 0) setDelta((old) => ({ v: d, k: (old?.k ?? 0) + 1 }));
-  }, [value]);
-  useEffect(() => {
-    if (!delta) return;
+    if (d === 0) return;
+    if (isRecentUndoLog(useGameStore.getState().logs)) return; // 취소 복원 → 배지 없음
+    setDelta((old) => ({ v: d, k: (old?.k ?? 0) + 1 }));
     const t = setTimeout(() => setDelta(null), holdMs);
     return () => clearTimeout(t);
-  }, [delta, holdMs]);
+  }, [value, holdMs]);
   return delta;
 }
 
@@ -55,7 +59,7 @@ function DeltaBadge({
           initial={{ opacity: 0, y: 6, scale: 0.7 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -10 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 26 }}
+          transition={POP_SPRING}
           className={`pointer-events-none absolute -top-2.5 right-0 z-10 whitespace-nowrap rounded px-1 text-[11px] font-extrabold ${
             delta.v > 0 ? 'bg-green-600/10 text-green-600' : 'bg-red-500/10 text-red-500'
           }`}
@@ -74,6 +78,37 @@ function flashStyle(active: boolean, color: string): React.CSSProperties {
   return active
     ? { boxShadow: `inset 0 0 0 1.5px ${color}`, backgroundColor: `${color}14`, transition: 'all .25s' }
     : { transition: 'all .6s' };
+}
+
+/** 스탯 그리드 셀 — 아이콘 + 라벨 + 값 + 변화 플래시/배지 (4개 스탯 공용) */
+function StatCell({
+  icon,
+  label,
+  delta,
+  deltaPrefix,
+  flashColor,
+  children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  delta: { v: number; k: number } | null;
+  deltaPrefix?: string;
+  flashColor: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className="relative flex items-center gap-1.5 md:gap-2 p-1.5 rounded-lg bg-background/50"
+      style={flashStyle(!!delta, flashColor)}
+    >
+      {icon}
+      <div className="min-w-0">
+        <div className="text-[10px] md:text-xs text-foreground-secondary">{label}</div>
+        <div className="text-sm md:text-base font-bold text-foreground truncate">{children}</div>
+      </div>
+      <DeltaBadge delta={delta} prefix={deltaPrefix} />
+    </div>
+  );
 }
 
 export default function PlayerPanel({ playerId, compact = false }: PlayerPanelProps) {
@@ -235,75 +270,56 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
 
       {/* 스탯 그리드 - 반응형 패딩 및 간격. 값이 바뀌면 그 셀이 플레이어 색으로 물들고 증감 배지가 뜬다 */}
       <div className="p-1.5 md:p-2 grid grid-cols-2 gap-1.5 md:gap-2">
-        {/* 현금 */}
-        <div
-          className="relative flex items-center gap-1.5 md:gap-2 p-1.5 rounded-lg bg-background/50"
-          style={flashStyle(!!cashDelta, playerColor)}
+        <StatCell
+          icon={<DollarSign className="text-green-400 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
+          label="현금"
+          delta={cashDelta}
+          deltaPrefix="$"
+          flashColor={playerColor}
         >
-          <DollarSign className="text-green-400 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />
-          <div className="min-w-0">
-            <div className="text-[10px] md:text-xs text-foreground-secondary">현금</div>
-            <div className="text-sm md:text-base font-bold text-foreground truncate">${player.cash}</div>
-          </div>
-          <DeltaBadge delta={cashDelta} prefix="$" />
-        </div>
+          ${player.cash}
+        </StatCell>
 
-        {/* 수입 */}
-        <div
-          className="relative flex items-center gap-1.5 md:gap-2 p-1.5 rounded-lg bg-background/50"
-          style={flashStyle(!!incomeDelta, playerColor)}
+        <StatCell
+          icon={<TrendingUp className="text-blue-400 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
+          label="수입"
+          delta={incomeDelta}
+          flashColor={playerColor}
         >
-          <TrendingUp className="text-blue-400 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />
-          <div className="min-w-0">
-            <div className="text-[10px] md:text-xs text-foreground-secondary">수입</div>
-            <div className="text-sm md:text-base font-bold text-foreground truncate flex items-center gap-1">
-              {player.income}
-              {incomeReduction > 0 && (
-                <motion.span
-                  initial={{ opacity: 0, scale: 0.7 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="text-[9px] md:text-[10px] font-semibold text-red-400 whitespace-nowrap"
-                  title="수입 감소 단계(시장 위축)로 수입이 줄었습니다"
-                >
-                  −{incomeReduction} 수익 감소
-                </motion.span>
-              )}
-            </div>
-          </div>
-          <DeltaBadge delta={incomeDelta} />
-        </div>
+          <span className="flex items-center gap-1">
+            {player.income}
+            {incomeReduction > 0 && (
+              <motion.span
+                initial={{ opacity: 0, scale: 0.7 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="text-[9px] md:text-[10px] font-semibold text-red-400 whitespace-nowrap"
+                title="수입 감소 단계(시장 위축)로 수입이 줄었습니다"
+              >
+                −{incomeReduction} 수익 감소
+              </motion.span>
+            )}
+          </span>
+        </StatCell>
 
-        {/* 엔진 레벨 */}
-        <div
-          className="relative flex items-center gap-1.5 md:gap-2 p-1.5 rounded-lg bg-background/50"
-          style={flashStyle(!!engineDelta, playerColor)}
+        <StatCell
+          icon={<Train className="text-yellow-400 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
+          label="엔진"
+          delta={engineDelta}
+          flashColor={playerColor}
         >
-          <Train className="text-yellow-400 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />
-          <div className="min-w-0">
-            <div className="text-[10px] md:text-xs text-foreground-secondary">엔진</div>
-            <div className="text-sm md:text-base font-bold text-foreground">
-              {player.engineLevel}
-              <span className="text-[10px] md:text-xs text-foreground-secondary"> / {GAME_CONSTANTS.MAX_ENGINE}</span>
-            </div>
-          </div>
-          <DeltaBadge delta={engineDelta} />
-        </div>
+          {player.engineLevel}
+          <span className="text-[10px] md:text-xs text-foreground-secondary"> / {GAME_CONSTANTS.MAX_ENGINE}</span>
+        </StatCell>
 
-        {/* 발행 주식 */}
-        <div
-          className="relative flex items-center gap-1.5 md:gap-2 p-1.5 rounded-lg bg-background/50"
-          style={flashStyle(!!sharesDelta, playerColor)}
+        <StatCell
+          icon={<FileText className="text-purple-400 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
+          label="주식"
+          delta={sharesDelta}
+          flashColor={playerColor}
         >
-          <FileText className="text-purple-400 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />
-          <div className="min-w-0">
-            <div className="text-[10px] md:text-xs text-foreground-secondary">주식</div>
-            <div className="text-sm md:text-base font-bold text-foreground">
-              {player.issuedShares}
-              <span className="text-[10px] md:text-xs text-foreground-secondary"> 주</span>
-            </div>
-          </div>
-          <DeltaBadge delta={sharesDelta} />
-        </div>
+          {player.issuedShares}
+          <span className="text-[10px] md:text-xs text-foreground-secondary"> 주</span>
+        </StatCell>
       </div>
 
       {/* 비용 표시 - 반응형 패딩 및 텍스트 */}

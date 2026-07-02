@@ -44,6 +44,7 @@ import UrbanizationPanel from '@/components/game/UrbanizationPanel';
 import ProductionPanel from '@/components/game/ProductionPanel';
 import MoveCubeOverlay from '@/components/game/MoveCubeOverlay';
 import DebugPanel from '@/components/game/DebugPanel';
+import { POP_SPRING, useIsFirstRender } from '@/components/game/uiEffects';
 import TranscontinentalModal from '@/components/game/TranscontinentalModal';
 import BottomSheet from '@/components/game/BottomSheet';
 import { calculateTrackScore } from '@/utils/trackValidation';
@@ -87,6 +88,8 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   const [playerCount, setPlayerCount] = useState(supportedPlayers[0]);
   const [playerNames, setPlayerNames] = useState<string[]>(DEFAULT_NAMES);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
+  // 리마운트 시 지난 "선택 행동" 칩 팝이 일제 재생되지 않게 첫 렌더는 애니메이션 생략
+  const chipFirstRender = useIsFirstRender();
   const [isLandscape, setIsLandscape] = useState(false);
   // 기본: 플레이어 1(인덱스 0)만 사람, 나머지는 모두 AI (인원수만큼 — 모든 맵)
   const [aiPlayerIndexes, setAiPlayerIndexes] = useState<Set<number>>(
@@ -500,12 +503,12 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
               if (!action) return null;
               const pColor = PLAYER_COLORS[player.color];
               return (
-                /* 선택되는 순간 그 자리에서 플레이어 색으로 팝 (경매 입찰 팝과 동일한 결) */
+                /* 선택되는 순간 그 자리에서 플레이어 색으로 팝 (공용 POP_SPRING — 경매 팝과 동일한 결) */
                 <motion.div
                   key={`${pid}-${action}`}
-                  initial={{ scale: 1.7, opacity: 0 }}
+                  initial={chipFirstRender.current ? false : { scale: 1.7, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  transition={{ type: 'spring', stiffness: 480, damping: 16 }}
+                  transition={POP_SPRING}
                   className="flex items-center gap-2 px-2 py-1 rounded bg-accent/10 border"
                   style={{ borderColor: `${pColor}80` }}
                 >

@@ -6,7 +6,7 @@ import { useGameStore } from '@/store/gameStore';
 import { useShallow } from 'zustand/react/shallow';
 import { HEX_SIZE, hexToPixel } from '@/utils/hexGrid';
 import { CUBE_COLORS, CubeColor, HexCoord, PLAYER_COLORS } from '@/types/game';
-import { GAME_ACCENT, GAME_PAPER, isRecentUndoLog } from './uiEffects';
+import { GAME_ACCENT, GAME_INK, GAME_PAPER, isRecentUndoLog } from './uiEffects';
 
 /**
  * 보드 위 인플레이스 펄스 레이어 (표시 전용) — GameBoard의 줌 <g> 안에서 렌더된다.
@@ -149,30 +149,56 @@ function BoardPulsesInner({ isFlat }: { isFlat: boolean }) {
       ))}
       {cubePulses.map((p) => (
         <g key={p.k}>
-          {/* 색상별 +n — 배지/링 없이 큐브색 텍스트만 세로 스택, 살짝 떠오르며 사라짐 */}
-          {p.items.map((item, i) => (
-            <motion.text
-              key={item.color}
-              x={p.x}
-              textAnchor="middle"
-              fill={CUBE_COLORS[item.color]}
-              stroke={GAME_PAPER}
-              strokeWidth={3.5}
-              strokeLinejoin="round"
-              style={{ paintOrder: 'stroke' }}
-              fontSize={17}
-              fontWeight={800}
-              fontFamily="system-ui, sans-serif"
-              initial={{ opacity: 0, y: p.y - HEX_SIZE * 0.9 - i * 20 }}
-              animate={{
-                opacity: [0, 1, 1, 0],
-                y: p.y - HEX_SIZE * 1.15 - i * 20,
-              }}
-              transition={{ duration: 2.0, times: [0, 0.15, 0.75, 1], delay: i * 0.15, ease: 'easeOut' }}
-            >
-              +{item.n}
-            </motion.text>
-          ))}
+          {/* 색상별 "+" + 실제 화물 큐브 — 검은 +기호 뒤에 늘어난 개수만큼 큐브색 사각형,
+              세로 스택으로 살짝 떠오르며 사라짐 (텍스트 +n 대신 실물 큐브 표현) */}
+          {p.items.map((item, i) => {
+            const cubeSize = 11;
+            const gap = 3;
+            const plusW = 12;
+            const rowW = plusW + item.n * (cubeSize + gap) - gap;
+            const startX = p.x - rowW / 2;
+            // 기존 +n 텍스트와 동일한 모션 패턴(요소별 x/y 모션 값) — motion.g transform은
+            // SVG에서 미동작해 안 보였음. 텍스트 baseline 기준이라 rect는 -12로 광학 정렬.
+            const yFrom = p.y - HEX_SIZE * 0.9 - i * 20;
+            const yTo = p.y - HEX_SIZE * 1.15 - i * 20;
+            const rowTransition = { duration: 2.0, times: [0, 0.15, 0.75, 1], delay: i * 0.15, ease: 'easeOut' as const };
+            return (
+              <g key={item.color}>
+                <motion.text
+                  x={startX}
+                  textAnchor="start"
+                  fill={GAME_INK}
+                  stroke={GAME_PAPER}
+                  strokeWidth={3.5}
+                  strokeLinejoin="round"
+                  style={{ paintOrder: 'stroke' }}
+                  fontSize={17}
+                  fontWeight={800}
+                  fontFamily="system-ui, sans-serif"
+                  initial={{ opacity: 0, y: yFrom }}
+                  animate={{ opacity: [0, 1, 1, 0], y: yTo }}
+                  transition={rowTransition}
+                >
+                  +
+                </motion.text>
+                {Array.from({ length: item.n }).map((_, j) => (
+                  <motion.rect
+                    key={j}
+                    x={startX + plusW + j * (cubeSize + gap)}
+                    width={cubeSize}
+                    height={cubeSize}
+                    rx={2}
+                    fill={CUBE_COLORS[item.color]}
+                    stroke={GAME_PAPER}
+                    strokeWidth={1.5}
+                    initial={{ opacity: 0, y: yFrom - 12 }}
+                    animate={{ opacity: [0, 1, 1, 0], y: yTo - 12 }}
+                    transition={rowTransition}
+                  />
+                ))}
+              </g>
+            );
+          })}
         </g>
       ))}
     </g>

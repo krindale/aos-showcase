@@ -11,6 +11,7 @@ export const POP_SPRING: Transition = { type: 'spring', stiffness: 480, damping:
 /** 게임 이펙트 색 상수 (SVG attr 등 리터럴이 필요한 곳 공용 — tailwind 토큰과 값 동기 유지) */
 export const GAME_ACCENT = '#c04a2b'; // = tailwind accent.DEFAULT
 export const GAME_PAPER = '#fffdf8'; // 카드/배지 위 밝은 전경
+export const GAME_INK = '#1c1b18'; // = tailwind foreground.DEFAULT (잉크)
 export const CROWN_GOLD = '#f0c040'; // 경매 왕관 채움
 export const CROWN_INK = '#7a5200'; // 경매 왕관 외곽선
 

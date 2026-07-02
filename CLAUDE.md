@@ -347,6 +347,18 @@ Next가 압축을 안 하므로 원본 대용량 PNG를 그대로 받으면 갤�
 - ⚠️ persist 주의: 이 필드는 `PhaseState` 필수이나 `upgradeEngine`에서 `?.`(optional)로 읽어 배포 전
   저장본(필드 없음) rehydrate에도 안전. 단 그 저장본의 "진행 중 라운드2"는 1회 재현 가능(다음 턴 정상).
 
+**배달 큐브 주머니 반환 + 생산 기회 보장 (2026-07-03, 실플레이 룰북 버그 수정)**
+- **주머니 반환 (룰북 V)**: "이동 완료 후 큐브는 미사용 물품 주머니로 반환" — `completeCubeMove`가
+  반환 없이 큐브를 소멸시켜 주머니가 게임 진행에 따라 고갈됐다(생산·Berlin 보너스·한국 도시화 보충이
+  어긋남). 일반 배달·마을 큐브·트랙 큐브 모두 `ui.movingCube` → `completeCubeMove` 경로라 이 한 곳에서
+  `goodsDisplay.bag`에 반환. 100시드 영향: Korea +0.7 VP·Germany −0.85(게이트 내), Rust/Western 불변.
+- **생산(Production) 기회 보장 (룰북 IX)**: goodsGrowth 진입 시 `currentPlayer`가 무조건
+  `playerOrder[0]`이라, 생산 선택자가 경매 1등이 아니면 ProductionPanel(= currentPlayer가 선택자일
+  때만 렌더)이 안 떠 **모든 맵에서 생산이 통째로 스킵**됐다(독일 실플레이에서 발견). `nextPhase`의
+  goodsGrowth 진입에서 사람(비AI) 생산 선택자를 currentPlayer로 설정 — goodsGrowth는 AI 스케줄러
+  대상이 아니므로(PLAYER_ACTION_PHASES 제외) AI 선택자는 기존대로 둔다.
+- 회귀 테스트: `src/store/__tests__/productionAndBagReturn.test.ts` (5개 맵 × 생산 진입 + 주머니 반환).
+
 ### 게임 상태 관리 (Zustand)
 
 ```typescript

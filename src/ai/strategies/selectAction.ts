@@ -26,7 +26,7 @@ import {
   FUTURE_DELIVERY_DISCOUNT,
   cashToVPRate,
 } from '../strategy/vp';
-import { findReachableDestinations, hexCoordsEqual, getNeighborHex, findTrackCubeDeliveries, hexDistance, isTrackPartOfCompletedLink } from '@/utils/hexGrid';
+import { findReachableDestinations, hexCoordsEqual, getNeighborHex, findTrackCubeDeliveries, isTrackPartOfCompletedLink } from '@/utils/hexGrid';
 import { debugLog } from '@/utils/debugConfig';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { planUrbanization } from './urbanization';

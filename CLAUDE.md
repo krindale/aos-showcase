@@ -836,6 +836,20 @@ Age of Steam 확장맵 3 — 한국 (Martin Wallace 2004 / James Mathias 아트 
 - **`getConnectedCities` 트랙 없음 시 반환값**: 트랙이 0개일 때 빈 배열 반환 (테스트에서 4를 기대하는 기존 실패 1건)
 - ~~턴 내 대체 경로 탐색 시 경로 변경~~ → 2026-06 재설계에서 해결 (모든 경로 전환 시 `setCurrentRoute` 동기화 + 경로 커밋)
 
+**PR #14 코드리뷰 잔여 이슈 (2026-07-02, 의도적 보류 — 손댈 때 반드시 100시드 재검):**
+- **엔진업 이중 가드 통합 (moveGoods.ts:229 + vp.ts:225)**: 유사하지만 미묘하게 다른 파산 판정이
+  두 파일에 존재(cash+income<expenses vs income−shortage<0). 근본 수정 = front-load 지름길(return 5)도
+  `engineUpgradeDeltaVP`의 가드를 통과하게 구조화. 파산·VP 직결 민감 경로라 별도 PR로.
+- **St.Lucia front-load 차단 부작용 (moveGoods.ts 치명적 디폴트 가드)**: 새 가드가 trackCubes T1
+  front-load(cash $3~8·income 0)를 차단 — 측정상 오히려 개선(파산 18→15, VP −23→−19)이라 유지 중이나,
+  "T4까지 엔진 3 front-load" 문서 정책과 어긋남. St.Lucia 개선 작업 시 의도 재확인.
+- **경매 루프의 planUrbanization 반복 실행 (selectAction.ts ← auction.ts rankActionsByDeltaVP)**:
+  입찰 결정마다 O(도시×마을)+BFS 재계산. 체감 저하는 미미하나 TurnPlan에 1회 계산·캐시가 맞는 방향.
+- **도시화 평가-실행 시점 불일치 (urbanization.ts slots)**: 행동 선택 시(0건설)와 배치 재시도 시(N건설)의
+  잔여 슬롯이 달라, 선택 땐 가치 있다고 본 도시화가 실행 시 배치 null로 낭비될 수 있음(의도된 보수화).
+- **트랙 없음 + planPath null이면 도시화 배치 불가 (urbanization.ts nearPlanPath)**: T1에 경로 탐색이
+  실패한 플레이어가 도시화를 잡으면 통째로 낭비 — 가치 0.2로 선택 확률은 낮췄으나 필러 선택 시 발생.
+
 ## 빌드 & 배포
 
 ### 개발 서버

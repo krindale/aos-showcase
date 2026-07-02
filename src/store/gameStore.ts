@@ -29,7 +29,7 @@ import {
 import { getAIDecision, AI_TURN_DELAY, isCurrentPlayerAI, aiPlayerManager } from '@/ai';
 import { addFailedBuildCoord, hasPendingFreeSpur } from '@/ai/strategies/buildTrack';
 import { initializeGoodsDisplay } from '@/utils/tutorialMap';
-import { getMapData } from '@/utils/mapRegistry';
+import { getMapData, getDisplaySlotRange } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 import {
   isValidConnectionPoint,
@@ -4212,13 +4212,9 @@ export const useGameStore = create<GameStore>()(
     const newCityCubes: CubeColor[] = [];
     let updatedGoodsDisplay = state.goodsDisplay;
     if (urbanizeCount > 0) {
-      const columnMapping = getMapData(state.mapId).columnMapping;
-      let startIndex = -1, rowCount = 0, slotIdx = 0;
-      for (const m of columnMapping) {
-        if (m.cityId === selectedTileId) { startIndex = slotIdx; rowCount = m.rowCount; break; }
-        slotIdx += m.rowCount;
-      }
-      if (startIndex >= 0) {
+      const range = getDisplaySlotRange(state.mapId, selectedTileId); // AI 수요색 예측과 동일 인덱싱 (mapRegistry 공유)
+      if (range) {
+        const { startIndex, rowCount } = range;
         const slots = [...state.goodsDisplay.slots];
         const bag = [...state.goodsDisplay.bag];
         for (let i = 0; i < rowCount && newCityCubes.length < urbanizeCount; i++) {

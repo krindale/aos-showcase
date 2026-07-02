@@ -12,9 +12,9 @@
  *  - 연결: 신도시로 실제 배달 가능한 출발 도시를 찾아 connectRoute로 반환 → 건설이 이를 커밋
  */
 
-import { GameState, PlayerId, HexCoord, NewCityTileId } from '@/types/game';
-import { hexDistance, hexCoordsEqual, getNeighborHex } from '@/utils/hexGrid';
-import { getMapData } from '@/utils/mapRegistry';
+import { GameState, PlayerId, HexCoord, NewCityTileId, City, CubeColor } from '@/types/game';
+import { hexDistance, hexCoordsEqual, getNeighborHex, cityAcceptsCube } from '@/utils/hexGrid';
+import { getDisplaySlotRange } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { getMapAIConfig } from '../strategy/mapConfig';
 import { ensureTurnPlan } from '../strategy/turnPlan';
@@ -23,6 +23,8 @@ import type { DeliveryRoute } from '../strategy/types';
 
 /** 이 거리 이상 떨어져 있으면(또는 없으면) "기존 수요 도시가 없다"고 보고 신도시 가치를 인정 */
 const FRESH_DEST_MIN_DIST = 5;
+/** 애매한 거리(이 값 이상 ~ FRESH_DEST_MIN_DIST 미만)는 절반만 인정 — MIN_DIST에 연동 */
+const FRESH_DEST_HALF_DIST = FRESH_DEST_MIN_DIST - 2;
 
 export interface UrbanizationPlan {
   townCoord: HexCoord;
@@ -51,9 +53,8 @@ export function planUrbanization(
   if (towns.length === 0 || availableTiles.length === 0) return null;
 
   const myTracks = board.trackTiles.filter(t => t.owner === playerId);
-  // 그 도시가 해당 색 화물을 받는 수요 도시인지 (동적색 맵=현재 큐브, 그 외=고정 색).
-  const acceptsColor = (c: { color?: string | null; cubes: string[] }, color: string) =>
-    board.dynamicCityColors ? c.cubes.some(cu => (cu as string) === color) : (c.color as string) === color;
+  // 그 도시가 해당 색 화물을 받는 수요 도시인지 — 게임 엔진과 동일 판정(cityAcceptsCube) 재사용
+  const acceptsColor = (c: City, color: string) => cityAcceptsCube(c, color as CubeColor, board);
 
   // 1) 내가 픽업 가능한 화물색별 수 = 내 철도 근처(≤3) 도시 큐브 + 내 트랙 위 큐브 (+헥스큐브: trackCubes 맵)
   const cargoByColor = new Map<string, number>();
@@ -81,18 +82,13 @@ export function planUrbanization(
   // (그 외 맵은 [tile.color] 그대로)
   const displayCount = getMapProfile(state.mapId).urbanizeFromDisplayCount;
   const useDisplayColor = board.dynamicCityColors && displayCount > 0;
-  const columnMapping = useDisplayColor ? getMapData(state.mapId).columnMapping : null;
   const expectedColorsOf = (tileId: string, tileColor: string): string[] => {
-    if (!useDisplayColor || !columnMapping) return [tileColor];
-    let startIndex = -1, rowCount = 0, slotIdx = 0;
-    for (const m of columnMapping) {
-      if (m.cityId === tileId) { startIndex = slotIdx; rowCount = m.rowCount; break; }
-      slotIdx += m.rowCount;
-    }
-    if (startIndex < 0) return [];
+    if (!useDisplayColor) return [tileColor];
+    const range = getDisplaySlotRange(state.mapId, tileId); // gameStore.placeNewCity와 동일 인덱싱
+    if (!range) return [];
     const colors: string[] = [];
-    for (let i = 0; i < rowCount && colors.length < displayCount; i++) {
-      const cube = state.goodsDisplay.slots[startIndex + i];
+    for (let i = 0; i < range.rowCount && colors.length < displayCount; i++) {
+      const cube = state.goodsDisplay.slots[range.startIndex + i];
       if (cube) colors.push(cube as string);
     }
     return colors;
@@ -130,7 +126,7 @@ export function planUrbanization(
     } else {
       const dd = destDistOf(color);
       if (dd >= FRESH_DEST_MIN_DIST) freshCargo += Math.min(cargo, 3);
-      else if (dd >= 3) freshCargo += Math.min(cargo, 3) * 0.5; // 애매한 거리(3~4): 절반 인정
+      else if (dd >= FRESH_DEST_HALF_DIST) freshCargo += Math.min(cargo, 3) * 0.5; // 애매한 거리: 절반 인정
     }
   }
   // 중복 목적지(freshCargo 0)는 floor(0.2)와 동점 → TIE_BREAK_ORDER상 도시화가 뒤라 필러로도 안 뽑힌다

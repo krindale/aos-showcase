@@ -8,8 +8,6 @@
  */
 
 import { GameState, PlayerId, SpecialAction, HexCoord, NewCityTileId } from '@/types/game';
-import { hexDistance, hexCoordsEqual } from '@/utils/hexGrid';
-import { getMapData } from '@/utils/mapRegistry';
 import {
   DeliveryRoute,
   DynamicStrategy,
@@ -24,8 +22,7 @@ void _getNextTargetRoute; // 향후 확장용
 
 // 전역 상태 동기화용
 import { getCurrentRoute, setCurrentRoute } from './strategy/state';
-import { refreshTurnPlan, ensureTurnPlan } from './strategy/turnPlan';
-import { getMapAIConfig } from './strategy/mapConfig';
+import { refreshTurnPlan } from './strategy/turnPlan';
 import { planUrbanization } from './strategies/urbanization';
 
 // 분석 함수들 (순수 함수)

@@ -27,32 +27,38 @@ Age of Steam 보드게임의 프리미엄 비주얼 쇼케이스 웹사이트입
 
 ## 디자인 시스템
 
+**"크림 페이퍼 + 버밀리언" (2026-07 리뉴얼)** — 사용자가 Claude 아티팩트로 만든 디자인
+(`claude-design/Age of Steam Website Design/`)을 원본 스펙으로 재구성. 이전 다크+골드+글래스모피즘
+디자인은 **`backup/design-dark-gold` 브랜치에 백업**되어 있음.
+폰트: display = Space Grotesk(제목/숫자), body = IBM Plex Sans KR (globals.css @import,
+`--font-display`/`--font-body` 변수).
+
 ### 컬러 팔레트
 
 ```typescript
 // tailwind.config.ts에서 정의됨
 colors: {
   background: {
-    DEFAULT: '#0a0a0f',    // 메인 배경
-    secondary: '#12121a',  // 보조 배경
-    tertiary: '#1a1a24',   // 3차 배경
+    DEFAULT: '#f7f5f0',    // 페이지 배경 (크림)
+    secondary: '#ffffff',  // 카드/패널
+    tertiary: '#efeae1',   // 밴드/호버
   },
   foreground: {
-    DEFAULT: '#f5f5f5',    // 메인 텍스트
-    secondary: '#a0a0a0',  // 보조 텍스트
-    muted: '#6b6b6b',      // 흐린 텍스트
+    DEFAULT: '#1c1b18',    // 잉크
+    secondary: '#6e6a61',  // 보조 텍스트
+    muted: '#8a857c',      // 흐린 텍스트
   },
   accent: {
-    DEFAULT: '#d4a853',    // 골드 악센트
-    light: '#e6c77a',      // 밝은 골드
-    dark: '#b8923e',       // 어두운 골드/브론즈
+    DEFAULT: '#c04a2b',    // 버밀리언
+    light: '#d65a39',      // 호버
+    dark: '#a03a22',
   },
-  steam: {
-    red: '#e63946',
-    blue: '#457b9d',
-    green: '#2a9d8f',
-    purple: '#7b2cbf',
-    yellow: '#f4a261',
+  positive: '#2f6b4f',     // 수입/긍정 (딥그린)
+  steam: { red, blue, green, purple, yellow },  // 게임 연출용 고정색
+  glass: {                 // 페이퍼 서피스 (토큰명은 구 글래스 시절 유지)
+    DEFAULT: 'rgba(255,255,255,0.7)',
+    border: '#e6e1d6',     // 구조 보더 (카드 보더는 #ebe6dc)
+    hover: '#ece7dd',
   },
 }
 ```
@@ -60,16 +66,17 @@ colors: {
 ### 유틸리티 클래스
 
 ```css
-/* globals.css에서 정의됨 */
-.text-gradient     /* 골드 그라디언트 텍스트 */
-.glass            /* 글래스모피즘 배경 */
-.glass-card       /* 글래스 카드 */
-.glow-text        /* 골드 글로우 텍스트 */
-.glow-border      /* 골드 글로우 테두리 */
-.btn-primary      /* 골드 그라디언트 버튼 */
-.btn-secondary    /* 골드 아웃라인 버튼 */
+/* globals.css에서 정의됨 — 클래스명은 구 디자인 시절 그대로, 스타일만 페이퍼로 교체됨 */
+.text-gradient     /* 버밀리언 그라디언트 텍스트 */
+.glass            /* 반투명 페이퍼 배경 */
+.glass-card       /* 흰 페이퍼 카드 (border #ebe6dc + soft shadow, radius 18px) */
+.glow-text        /* (no-op — 글로우 제거됨) */
+.glow-border      /* soft paper shadow */
+.btn-primary      /* 버밀리언 버튼 (radius 12px) */
+.btn-secondary    /* 흰 배경 아웃라인 버튼 */
 .card-hover       /* 호버 시 상승 효과 */
-.hex-pattern      /* 헥스 패턴 배경 */
+.hex-pattern      /* 도트 그리드 배경 (구 헥스 패턴 대체, 클래스명 유지) */
+.rail-dash        /* SVG 점선 레일 흐름 애니메이션 (aosDash) */
 .snap-section     /* 스크롤 스냅 정렬 (html에 scroll-snap-type: y proximity) */
 ```
 
@@ -78,7 +85,7 @@ colors: {
 ```
 src/
 ├── app/                        # Next.js App Router 페이지
-│   ├── page.tsx                # 랜딩 페이지 (/, HeroSection + GameBoardPreview + FeatureCards)
+│   ├── page.tsx                # 랜딩 페이지 (/, HeroSection + FeatureCards + EditorialSection + CtaBand)
 │   ├── layout.tsx              # 루트 레이아웃 (Navigation + Footer + ServiceWorkerRegistration + OfflineIndicator)
 │   ├── globals.css             # 글로벌 스타일, 유틸리티 클래스
 │   ├── error.tsx               # 라우트 에러 바운더리
@@ -165,9 +172,10 @@ src/
 │   ├── Navigation.tsx          # 글래스모피즘 네비게이션 바
 │   ├── SiteShell.tsx           # 전역 크롬 조건부 렌더 (게임 화면 /game/* 에선 Navigation/Footer 숨김)
 │   ├── Footer.tsx              # 푸터 (링크, 소셜)
-│   ├── HeroSection.tsx         # 풀스크린 히어로 + 패럴랙스
-│   ├── GameBoardPreview.tsx    # 헥스 그리드 인터랙티브 프리뷰
-│   ├── FeatureCards.tsx        # 피처 카드 + 숫자 카운트업
+│   ├── HeroSection.tsx         # 히어로 (도트 그리드 + 스탯 바)
+│   ├── EditorialSection.tsx    # 랜딩 "왜 명작인가" 밴드 + 배송 원리 SVG
+│   ├── CtaBand.tsx             # 랜딩 하단 버밀리언 CTA 밴드
+│   ├── FeatureCards.tsx        # 핵심 경험 4카드
 │   ├── OfflineIndicator.tsx    # 오프라인/동기화 상태 표시 (PWA)
 │   └── game/                   # 게임 UI 컴포넌트
 │       ├── GameBoard.tsx       # 헥스 그리드 게임보드 (SVG, 좌표 표시 토글, 화물 경로 골드 점선)
@@ -234,54 +242,38 @@ docs/
 ## 주요 컴포넌트
 
 ### Navigation
-- 스크롤 시 글래스모피즘 효과 적용
-- 모바일 메뉴 지원
-- Framer Motion layoutId로 활성 탭 인디케이터
+- 스티키 헤더 (66px, 크림 블러 + 하단 보더), 로고 마크(`LogoMark` export — Footer 공용)
+- 데스크톱: 5개 한글 메뉴 + 버밀리언 "플레이" CTA(/maps), Framer Motion layoutId 활성 언더라인
+- 모바일: 42px 햄버거 → 접이식 메뉴 (border-left 리스트)
 
-### HeroSection
-- 패럴랙스 스크롤 효과 (useScroll, useTransform)
-- 파티클 애니메이션 배경
-- 스탯 카드 (플레이어 수, 맵 수, 플레이 시간)
+### HeroSection (랜딩)
+- 도트 그리드 배경(.hex-pattern) + 우상단 버밀리언 라디얼 틴트(bg-hero-gradient)
+- MARTIN WALLACE · 2002 배지, 초대형 Space Grotesk 타이틀("Steam"만 버밀리언)
+- 하단 스탯 바 (1–6 플레이어 / 120분 / 7 맵 / 2002, border-left 구분)
 
-### GameBoardPreview
-- 헥스 그리드 시각화
-- 호버 인터랙션
-- 기능 설명 카드
+### FeatureCards / EditorialSection / CtaBand (랜딩)
+- FeatureCards: "01 / 핵심 경험" — 페이퍼 카드 4개 (선로 건설/상품 배송/주식과 자금/턴 순서 경매)
+- EditorialSection: "왜 명작인가" 밴드(#efeae1) + 상품 배송 원리 SVG(점선 레일 .rail-dash 애니메이션)
+- CtaBand: 버밀리언 라운드 밴드 → 계산기 유도
+- (구 GameBoardPreview 인터랙티브 헥스 프리뷰는 리뉴얼에서 제거 — backup/design-dark-gold에 있음)
 
-### FeatureCards
-- 4개 핵심 기능 카드
-- 호버 시 그라디언트 배경
-- AnimatedCounter 컴포넌트 (숫자 카운트업)
+### GameplayPage
+- 9단계 턴 타임라인 아코디언 — 각 단계 클릭 시 SMIL SVG 애니메이션 다이어그램 카드
+  (주식 발행 → 상품 생산, 디자인 원본 포트. 룰북 10단계 중 '턴 마커 전진'은 생략된 디자인)
+- 하단 "기억해야 할 세 가지 톱니" 코어 메커닉 3카드
 
-### ActionCard (actions/page.tsx)
-- 3D 플립 카드 효과
-- preserve-3d, backface-visibility 사용
-- 앞면: 아이콘, 제목, 설명
-- 뒷면: 상세 효과, 전략 팁
+### ActionsPage
+- 7개 특수 액션 페이퍼 카드 (lucide 아이콘 + 영문 병기 + TIP 푸터), 3열 그리드
 
 ### CalculatorPage
-3개 탭으로 구성된 게임 계산기:
-
-**1. 트랙 비용 계산기**
-- 작업 유형: 배치(Placing), 교체(Replacing), 방향 전환(Redirecting)
-- 트랙 유형: 단순, 복합 공존, 복합 교차, 마을 트랙
-- 지형: 평지, 강, 산
-- 최대 4개 트랙 추가 (Engineer 행동 시)
-
-**2. 승점 계산기** (메뉴얼 기준)
-- 수입 트랙 위치 × 3점
-- 완성된 링크의 트랙 타일 × 1점
-- 발행 주식 수 × -3점
-
-**3. 수입 시뮬레이터** (Phase VI~VIII)
-- VI. 수입 수집: 수입 트랙 위치 = 받는 금액
-- VII. 비용 지불: 기관차 레벨 + 발행 주식
-- VIII. 수입 감소: 테이블 기반 (50+: -10, 41-49: -8, ...)
-- 현금 부족 시 수입 감소, 파산 경고
+스테퍼(±버튼) 기반 3카드 계산기 — 전부 룰북 공식:
+1. **선로 건설 비용**: 평지 $2 / 강 $3 / 산 $4 / 복합 추가비 / 마을($1+트랙당 $1)
+2. **현금 흐름**: 소득 − (주식+기관차) = 순이익, 음수면 파산 경고
+3. **예상 점수**: 소득×3 + 완성 링크 트랙 구간×1 − 주식×3
 
 ### MapsPage
-풀스크린 슬라이더 (AnimatePresence 전환 효과, 맵 정보 오버레이). 지도 클릭 시 라이트박스
-확대 — 좌우 버튼·키보드 ←→·방향 슬라이드, 우측 정보/플레이 패널. 현재 맵 이미지 1장만 지연 로드.
+페이퍼 카드 그리드 (3열). 카드 = 맵 이미지(16:10) + 난이도 배지(입문/표준/중급/고급) +
+설명 + 플레이 버튼(`/game/<slug>/`). 튜토리얼 포함 7개 맵, Barbados만 "준비 중".
 
 **맵 이미지는 WebP** (`public/maps/*.webp`, 폭 1600·q84, 맵당 ~200KB). 새 맵 추가 시 원본을
 `cwebp -q 84`(필요 시 폭 1600 다운스케일)로 변환해 넣을 것 — `unoptimized: true`(static export)라

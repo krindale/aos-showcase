@@ -1,13 +1,15 @@
 import HeroSection from '@/components/HeroSection';
-import GameBoardPreview from '@/components/GameBoardPreview';
 import FeatureCards from '@/components/FeatureCards';
+import EditorialSection from '@/components/EditorialSection';
+import StrategySection from '@/components/StrategySection';
 
 export default function Home() {
   return (
     <>
       <HeroSection />
-      <GameBoardPreview />
       <FeatureCards />
+      <EditorialSection />
+      <StrategySection />
     </>
   );
 }

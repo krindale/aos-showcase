@@ -1,220 +1,140 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Menu, X, Train } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
 
 const navItems = [
-  { href: '/', label: 'Home', labelKo: '홈' },
-  { href: '/gameplay', label: 'Gameplay', labelKo: '게임플레이' },
-  { href: '/actions', label: 'Actions', labelKo: '특수 행동' },
-  { href: '/maps', label: 'Maps', labelKo: '맵' },
-  { href: '/calculator', label: 'Calculator', labelKo: '계산기' },
+  { href: '/', label: '홈' },
+  { href: '/gameplay', label: '게임플레이' },
+  { href: '/actions', label: '특수 액션' },
+  { href: '/maps', label: '맵' },
+  { href: '/calculator', label: '계산기' },
 ] as const;
 
+/** 버밀리언 사각 + 흰 링 로고 마크 */
+export function LogoMark({ size = 28 }: { size?: number }) {
+  return (
+    <div
+      className="flex flex-none items-center justify-center rounded-lg bg-accent"
+      style={{ width: size, height: size }}
+    >
+      <div
+        className="rounded-full border-[2.5px] border-background"
+        style={{ width: size * 0.39, height: size * 0.39 }}
+      />
+    </div>
+  );
+}
+
 export default function Navigation() {
-  const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const pathname = usePathname();
-  const lastScrollY = useRef(0);
-  const ticking = useRef(false);
-
-  // 스크롤 이벤트 throttle (requestAnimationFrame 사용)
-  const handleScroll = useCallback(() => {
-    lastScrollY.current = window.scrollY;
-
-    if (!ticking.current) {
-      requestAnimationFrame(() => {
-        setIsScrolled(lastScrollY.current > 50);
-        ticking.current = false;
-      });
-      ticking.current = true;
-    }
-  }, []);
-
-  useEffect(() => {
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [handleScroll]);
 
   return (
-    <>
-      <motion.nav
-        initial={{ y: -100 }}
-        animate={{ y: 0 }}
-        transition={{ duration: 0.6, ease: 'easeOut' }}
-        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-          isScrolled
-            ? 'bg-background/80 backdrop-blur-lg border-b border-glass-border shadow-lg'
-            : 'bg-transparent'
-        }`}
-      >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-20">
-            {/* Logo */}
-            <Link href="/" className="flex items-center gap-3 group">
-              <motion.div
-                whileHover={{ rotate: 360 }}
-                transition={{ duration: 0.6 }}
-                className="relative"
-              >
-                <Train className="w-8 h-8 text-accent" />
-                <div className="absolute inset-0 bg-accent/20 blur-xl rounded-full" />
-              </motion.div>
-              <div className="flex flex-col">
-                <span className="font-display text-xl font-bold text-gradient">
-                  Age of Steam
-                </span>
-                <span className="text-xs text-foreground-secondary tracking-widest">
-                  BOARD GAME
-                </span>
-              </div>
-            </Link>
+    <header className="sticky top-0 z-50 border-b border-glass-border bg-background/80 backdrop-blur-md">
+      <div className="mx-auto flex h-[66px] max-w-[1200px] items-center justify-between px-[clamp(18px,5vw,56px)]">
+        {/* Logo */}
+        <Link href="/" className="flex items-center gap-[11px]">
+          <LogoMark />
+          <div className="leading-[1.05]">
+            <div className="font-display text-base font-semibold tracking-tight text-foreground">
+              Age of Steam
+            </div>
+            <div className="mt-px text-[10px] tracking-wide text-foreground-muted">
+              철도 경영 전략 게임
+            </div>
+          </div>
+        </Link>
 
-            {/* Desktop Navigation */}
-            <div className="hidden md:flex items-center gap-1">
+        {/* Desktop Navigation */}
+        <nav className="hidden items-center gap-1 md:flex">
+          {navItems.map((item) => {
+            const isActive = pathname === item.href;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`relative rounded-lg px-[15px] py-[9px] text-sm font-medium transition-colors ${
+                  isActive
+                    ? 'text-foreground'
+                    : 'text-foreground-secondary hover:bg-glass-hover hover:text-foreground'
+                }`}
+              >
+                {item.label}
+                {isActive && (
+                  <motion.div
+                    layoutId="activeNav"
+                    className="absolute bottom-[2px] left-[15px] right-[15px] h-[2px] rounded-full bg-accent"
+                    transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
+                  />
+                )}
+              </Link>
+            );
+          })}
+          <Link
+            href="/game/tutorial/"
+            className="ml-2 rounded-[10px] bg-accent px-4 py-2 text-sm font-bold text-[#fffdf8] shadow-glow transition-colors hover:bg-accent-light"
+          >
+            튜토리얼
+          </Link>
+        </nav>
+
+        {/* Mobile Menu Button */}
+        <button
+          onClick={() => setIsMobileMenuOpen((v) => !v)}
+          aria-label="메뉴"
+          className="flex h-[42px] w-[42px] flex-col items-center justify-center gap-1 rounded-[10px] border border-[#ddd6c8] bg-background-secondary md:hidden"
+        >
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="block h-[2px] w-[17px] rounded-full bg-foreground transition-transform"
+            />
+          ))}
+        </button>
+      </div>
+
+      {/* Mobile Menu */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.25 }}
+            className="overflow-hidden border-t border-glass-border bg-background/95 md:hidden"
+          >
+            <div className="px-[clamp(18px,5vw,56px)] pb-4 pt-2">
               {navItems.map((item) => {
                 const isActive = pathname === item.href;
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
-                    className="relative px-4 py-2 group"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className={`block border-l-2 px-3 py-[13px] text-base font-medium transition-colors ${
+                      isActive
+                        ? 'border-accent text-accent'
+                        : 'border-glass-border text-foreground-secondary hover:text-foreground'
+                    }`}
                   >
-                    <span
-                      className={`text-sm font-medium transition-colors duration-300 ${
-                        isActive
-                          ? 'text-accent'
-                          : 'text-foreground-secondary hover:text-foreground'
-                      }`}
-                    >
-                      {item.label}
-                    </span>
-                    {/* Active indicator */}
-                    {isActive && (
-                      <motion.div
-                        layoutId="activeNav"
-                        className="absolute bottom-0 left-1/2 -translate-x-1/2 w-1 h-1 bg-accent rounded-full"
-                        transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
-                      />
-                    )}
-                    {/* Hover effect */}
-                    <span className="absolute inset-0 rounded-lg bg-accent/0 group-hover:bg-accent/5 transition-colors duration-300" />
+                    {item.label}
                   </Link>
                 );
               })}
-            </div>
-
-            {/* CTA Button - Desktop */}
-            <div className="hidden md:block">
-              <Link href="/game/tutorial">
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="btn-primary text-sm px-6 py-2.5"
-                >
-                  튜토리얼
-                </motion.button>
+              <Link
+                href="/game/tutorial/"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="mt-3 block rounded-xl bg-accent px-4 py-3 text-center text-base font-bold text-[#fffdf8]"
+              >
+                튜토리얼
               </Link>
             </div>
-
-            {/* Mobile Menu Button */}
-            <button
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="md:hidden p-2 text-foreground-secondary hover:text-accent transition-colors"
-            >
-              {isMobileMenuOpen ? (
-                <X className="w-6 h-6" />
-              ) : (
-                <Menu className="w-6 h-6" />
-              )}
-            </button>
-          </div>
-        </div>
-      </motion.nav>
-
-      {/* Mobile Menu */}
-      <AnimatePresence>
-        {isMobileMenuOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.3 }}
-            className="fixed inset-0 z-40 md:hidden"
-          >
-            {/* Backdrop */}
-            <div
-              className="absolute inset-0 bg-background/95 backdrop-blur-lg"
-              onClick={() => setIsMobileMenuOpen(false)}
-            />
-
-            {/* Menu Content */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.1 }}
-              className="relative pt-24 px-6"
-            >
-              <div className="flex flex-col gap-2">
-                {navItems.map((item, index) => {
-                  const isActive = pathname === item.href;
-                  return (
-                    <motion.div
-                      key={item.href}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: index * 0.1 }}
-                    >
-                      <Link
-                        href={item.href}
-                        onClick={() => setIsMobileMenuOpen(false)}
-                        className={`flex items-center justify-between py-4 px-4 rounded-xl transition-all ${
-                          isActive
-                            ? 'bg-accent/10 border border-accent/30'
-                            : 'hover:bg-glass'
-                        }`}
-                      >
-                        <div className="flex flex-col">
-                          <span
-                            className={`text-lg font-medium ${
-                              isActive ? 'text-accent' : 'text-foreground'
-                            }`}
-                          >
-                            {item.label}
-                          </span>
-                          <span className="text-sm text-foreground-muted">
-                            {item.labelKo}
-                          </span>
-                        </div>
-                        {isActive && (
-                          <div className="w-2 h-2 bg-accent rounded-full" />
-                        )}
-                      </Link>
-                    </motion.div>
-                  );
-                })}
-              </div>
-
-              {/* Mobile CTA */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.5 }}
-                className="mt-8"
-              >
-                <Link href="/game/tutorial" onClick={() => setIsMobileMenuOpen(false)}>
-                  <button className="btn-primary w-full text-lg py-4">
-                    게임 시작하기
-                  </button>
-                </Link>
-              </motion.div>
-            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
-    </>
+    </header>
   );
 }

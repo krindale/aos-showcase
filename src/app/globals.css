@@ -2,13 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Google Fonts */
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700;800&display=swap');
-@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css');
+/* Google Fonts — Space Grotesk(디스플레이/숫자) + IBM Plex Sans KR(본문)
+   실제 사용하는 웨이트(400~700)만 로드 */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
+/*
+ * 디자인 시스템 — "크림 페이퍼 + 버밀리언" (claude-design/Age of Steam Website Design)
+ * bg #f7f5f0 · band #efeae1 · card #ffffff · ink #1c1b18 · sub #6e6a61 · muted #8a857c
+ * accent #c04a2b (hover #d65a39) · positive #2f6b4f · border #e6e1d6 / #ebe6dc
+ */
 :root {
-  --font-display: 'Playfair Display', serif;
-  --font-body: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-display: 'Space Grotesk', 'IBM Plex Sans KR', sans-serif;
+  --font-body: 'IBM Plex Sans KR', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
 }
 
 * {
@@ -28,10 +33,11 @@ html {
 
 body {
   font-family: var(--font-body);
-  background-color: #0a0a0f;
-  color: #f5f5f5;
+  background-color: #f7f5f0;
+  color: #1c1b18;
   overflow-x: hidden;
   line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* Custom Scrollbar */
@@ -40,169 +46,120 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #0a0a0f;
+  background: #f7f5f0;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #d4a853 0%, #b8923e 100%);
+  background: #d9d1c1;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #e6c77a 0%, #d4a853 100%);
+  background: #c9c1b1;
 }
 
 /* Selection */
 ::selection {
-  background: rgba(212, 168, 83, 0.3);
-  color: #f5f5f5;
+  background: #c04a2b;
+  color: #f7f5f0;
 }
 
 /* Utility Classes */
 @layer utilities {
   .text-gradient {
     @apply bg-clip-text text-transparent;
-    background-image: linear-gradient(135deg, #d4a853 0%, #e6c77a 50%, #b8923e 100%);
+    background-image: linear-gradient(135deg, #c04a2b 0%, #d65a39 100%);
   }
 
+  /* 페이퍼 카드 (구 글래스모피즘 대체 — 클래스명 유지) */
   .glass {
-    background: rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid #e6e1d6;
   }
 
   .glass-card {
-    background: rgba(18, 18, 26, 0.8);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 1rem;
+    background: #ffffff;
+    border: 1px solid #ebe6dc;
+    border-radius: 1.125rem;
+    box-shadow: 0 1px 2px rgba(28, 27, 24, 0.04), 0 14px 34px -18px rgba(28, 27, 24, 0.16);
   }
 
-  .glow-text {
-    text-shadow: 0 0 20px rgba(212, 168, 83, 0.5);
-  }
-
-  .glow-border {
-    box-shadow: 0 0 20px rgba(212, 168, 83, 0.3),
-                inset 0 0 20px rgba(212, 168, 83, 0.1);
-  }
 }
 
 /* Hero Section Styles */
 .hero-title {
   font-family: var(--font-display);
   font-weight: 700;
-  line-height: 1.1;
+  line-height: 0.92;
+  letter-spacing: -0.045em;
 }
 
-/* Glassmorphism Card */
+/* Paper Panel (구 glass-panel — 클래스명 유지) */
 .glass-panel {
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.1) 0%,
-    rgba(255, 255, 255, 0.05) 100%
-  );
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-}
-
-/* Animated underline for links */
-.link-underline {
-  position: relative;
-}
-
-.link-underline::after {
-  content: '';
-  position: absolute;
-  bottom: -2px;
-  left: 0;
-  width: 0;
-  height: 2px;
-  background: linear-gradient(90deg, #d4a853 0%, #e6c77a 100%);
-  transition: width 0.3s ease;
-}
-
-.link-underline:hover::after {
-  width: 100%;
+  background: #ffffff;
+  border: 1px solid #ebe6dc;
+  box-shadow: 0 1px 2px rgba(28, 27, 24, 0.04), 0 18px 40px -22px rgba(28, 27, 24, 0.22);
 }
 
 /* Button Styles */
 .btn-primary {
   position: relative;
   overflow: hidden;
-  padding: 1rem 2rem;
-  border-radius: 9999px;
-  font-weight: 600;
-  background: linear-gradient(135deg, #d4a853 0%, #b8923e 100%);
-  color: #0a0a0f;
-  transition: all 0.3s ease;
+  padding: 0.9375rem 1.75rem;
+  border-radius: 12px;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 16px;
+  background: #c04a2b;
+  color: #fffdf8;
+  transition: all 0.25s ease;
   border: none;
   cursor: pointer;
+  box-shadow: 0 8px 20px -8px rgba(192, 74, 43, 0.6);
 }
 
 .btn-primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 40px rgba(212, 168, 83, 0.4);
-}
-
-.btn-primary::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(255, 255, 255, 0.3),
-    transparent
-  );
-  transition: left 0.5s ease;
-}
-
-.btn-primary:hover::before {
-  left: 100%;
+  background: #d65a39;
+  transform: translateY(-1px);
 }
 
 .btn-secondary {
-  padding: 1rem 2rem;
-  border-radius: 9999px;
+  padding: 0.9375rem 1.75rem;
+  border-radius: 12px;
+  font-family: inherit;
   font-weight: 600;
-  border: 2px solid #d4a853;
-  color: #d4a853;
-  background: transparent;
-  transition: all 0.3s ease;
+  font-size: 16px;
+  border: 1px solid #ddd6c8;
+  color: #1c1b18;
+  background: #ffffff;
+  transition: all 0.25s ease;
   cursor: pointer;
 }
 
 .btn-secondary:hover {
-  background: rgba(212, 168, 83, 0.1);
-  transform: translateY(-2px);
+  border-color: #c04a2b;
+  color: #c04a2b;
 }
 
-/* Hex Grid Pattern Background */
+/* Dot Grid Pattern Background (구 hex-pattern — 클래스명 유지) */
 .hex-pattern {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='49' viewBox='0 0 28 49'%3E%3Cg fill-rule='evenodd'%3E%3Cg id='hexagons' fill='%23d4a853' fill-opacity='0.03' fill-rule='nonzero'%3E%3Cpath d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.98-7.5V0h-2v6.35L0 12.69v2.3zm0 18.5L12.98 41v8h-2v-6.85L0 35.81v-2.3zM15 0v7.5L27.99 15H28v-2.31h-.01L17 6.35V0h-2zm0 49v-8l12.99-7.5H28v2.31h-.01L17 42.15V49h-2z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  background-image: radial-gradient(circle at center, rgba(28, 27, 24, 0.035) 1px, transparent 1.4px);
+  background-size: 28px 28px;
 }
 
 /* Navigation */
 .nav-link {
   position: relative;
-  color: #a0a0a0;
-  transition: color 0.3s ease;
+  color: #6e6a61;
+  transition: color 0.3s ease, background 0.3s ease;
 }
 
 .nav-link:hover {
-  color: #d4a853;
+  color: #1c1b18;
 }
 
 .nav-link.active {
-  color: #d4a853;
+  color: #1c1b18;
 }
 
 .nav-link.active::after {
@@ -212,7 +169,8 @@ body {
   left: 0;
   width: 100%;
   height: 2px;
-  background: #d4a853;
+  background: #c04a2b;
+  border-radius: 2px;
 }
 
 /* Card Hover Effect */
@@ -221,45 +179,25 @@ body {
 }
 
 .card-hover:hover {
-  transform: translateY(-8px);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4),
-              0 0 30px rgba(212, 168, 83, 0.2);
+  transform: translateY(-4px);
+  box-shadow: 0 1px 2px rgba(28, 27, 24, 0.05), 0 22px 44px -20px rgba(28, 27, 24, 0.24);
 }
 
-/* Train Track Animation */
-@keyframes trainMove {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(100vw);
+/* Dashed rail line animation (에디토리얼/다이어그램 SVG) */
+@keyframes aosDash {
+  to {
+    stroke-dashoffset: -200;
   }
 }
 
-.train-animation {
-  animation: trainMove 8s linear infinite;
-}
-
-/* Floating Animation */
-@keyframes floatY {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-15px);
-  }
-}
-
-.float-animation {
-  animation: floatY 4s ease-in-out infinite;
+.rail-dash {
+  animation: aosDash 6s linear infinite;
 }
 
 /* Counter Number */
 .counter-number {
   font-family: var(--font-display);
-  font-weight: 700;
-  background: linear-gradient(135deg, #d4a853 0%, #e6c77a 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: #1c1b18;
 }

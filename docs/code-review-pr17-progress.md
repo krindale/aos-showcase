@@ -48,8 +48,13 @@
 
 ## 코드리뷰 체크리스트 (스텝바이스텝)
 
-- [ ] **스텝 1 — 면화 규칙 정합성** (gameStore 훅 5곳 + cityAcceptsCube):
-      white 경로탐색/배달 종료/보너스/제거/도시화 이동이 룰북과 일치하는지, 비-남부 맵 무영향인지
+- [x] **스텝 1 — 면화 규칙 정합성** ✅ 통과 (2026-07-03):
+      셋업(townFixedCube, 주머니 미사용)·배달 종료(cityAcceptsCube white→cottonPorts)·+1 보너스·
+      게임 제거(주머니 반환 스킵)·도시화 이동(placeNewCity) 모두 룰북 일치. 엔진/AI에
+      `city.color === cube` 우회 비교 없음(grep 확인 — 헬퍼 자신 + UI 밝기 판정뿐).
+      수입감소 ×2는 룰 테이블 조회 후 곱해 순서 정확. Atlanta 보너스 turn<=4 게이트 정확.
+      경미: applyIncomeReduction(플레이어 루프 내)·placeNewCity(4회)·completeCubeMove(2회)의
+      getMapProfile 중복 호출 — 캐시 조회라 비용 미미, 스텝 7에서 hoist 정리 예정.
 - [ ] **스텝 2 — 타입 확장 파급** (CubeColor='white' 추가): CityColor 문맥에 white가 새어들 수 있는
       지점(도시 색, 신도시 타일, 터미널 캐스팅, Record<CubeColor> 소비처) 전수 점검
 - [ ] **스텝 3 — 맵 데이터** (southernUsMap.ts): 좌표 중복/범위, LAND-지형 일관성, columnMapping
@@ -64,4 +69,17 @@
 
 ## 발견 사항 (리뷰 진행하며 기록)
 
-(아직 없음)
+### 확정 (수정 대상 — 스텝 7에서 반영)
+- F1 (효율/경미): gameStore에서 getMapProfile을 같은 함수 안에서 반복 호출
+  (applyIncomeReduction 루프 내, placeNewCity 4회, completeCubeMove 2회) → 함수 앞에서 1회 캐시.
+- F2 (단순화/경미): GameBoard 면화 큐브 스타일(14.4px/굵은 테두리)이 마을/도시/이동 큐브 3곳에
+  중복 → 공용 헬퍼(cubeRenderSize/cubeStroke)로 추출.
+
+### 후보 접수(검증 전 — 해당 스텝에서 판정)
+- 병렬 파인더(단순화/효율/재사용 3개 앵글) 결과 접수. 나머지 5개 앵글 에이전트는 사용자 지시
+  (스텝바이스텝)로 중단 — 스텝 2~6을 본 세션에서 직접 순차 수행.
+- (재사용) createSeededRng/AUTO_PHASES가 7개 시뮬 테스트에 중복 — 기존 코드 전반의 관례라
+  이 PR 범위 밖(전 파일 동일 패턴). 별도 리팩토링 과제로 보류.
+- (효율) cottonPorts string[] → Set 제안 — 4원소 includes라 실측 비용 무의미, 기각.
+- (단순화) MapProfile `void param` 패턴 — 기존 파일 관례와 동일, 기각.
+- (단순화) placeNewCity 반대 조건 2개(if/if) → if-else 통합 검토(스텝 4에서 판정).

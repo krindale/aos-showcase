@@ -163,11 +163,17 @@ create table public.rooms (
 - [x] 사용자: Supabase 프로젝트 생성(Seoul 리전, Data API ON/자동노출 OFF/자동RLS ON) →
       URL + publishable key 수령 (2026-07-03)
 - [x] `.env.local` 생성 (+ `.env.local.example` 템플릿). GitHub Actions 배포 env 주입은 Phase 1에서
-- [x] `supabase/setup.sql` 작성 — 자동노출 OFF에 맞춰 명시적 grant 포함. **사용자가 SQL Editor에서 실행 필요**
+- [x] `supabase/setup.sql` 작성 — 자동노출 OFF에 맞춰 명시적 grant 포함.
+      **적용 완료(2026-07-04, Supabase MCP `apply_migration`)** + 어드바이저 하드닝
+      (set_updated_at search_path 고정, rls_auto_enable API 노출 차단). 허용형 RLS 경고 2건은
+      §4-② 근거로 의도적 수용
 - [x] `src/net/` 골격 (types + supabaseTransport + index) — 방 생성/입장/broadcast/presence/updateRoom
 - [x] 검증용 `/net-test` 페이지 (Phase 1 로비 생기면 제거)
 - [ ] `types/game.ts`에 `PlayerIntent` union → Phase 1의 게스트 가드 작업과 함께 진행으로 이동
-- **게이트**: 두 브라우저 탭에서 채널 에코 왕복 (`/net-test`) — setup.sql 실행 후 확인
+- [x] **게이트 통과 (2026-07-04)**: 두 브라우저 탭 `/net-test`로 방 생성(코드 발급·rooms insert)
+      → 코드 입장(rooms select·채널 구독) → 채팅 양방향 왕복 + intent 핑 수신 + presence 확인.
+      같은 브라우저 두 탭은 localStorage clientId를 공유해 presence가 1명으로 집계됨(실기기 간에는
+      기기별 ID — 정상 동작)
 
 ### Phase 1. ★ 친구 초대 — 방 코드 (1.5~2주, 최대 덩어리)
 - **호스트 루프**: `onIntent → 기존 store 액션 호출 → 스냅샷(logs 제외+압축, rev 증가)

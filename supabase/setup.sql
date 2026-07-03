@@ -46,9 +46,11 @@ drop policy if exists "rooms_delete_finished" on public.rooms;
 create policy "rooms_delete_finished" on public.rooms
   for delete to anon, authenticated using (status = 'finished');
 
--- updated_at 자동 갱신
+-- updated_at 자동 갱신 (search_path 고정 — Supabase 보안 어드바이저 권고)
 create or replace function public.set_updated_at()
-returns trigger language plpgsql as $$
+returns trigger language plpgsql
+set search_path = ''
+as $$
 begin
   new.updated_at = now();
   return new;
@@ -66,5 +68,15 @@ begin
   alter publication supabase_realtime add table public.rooms;
 exception
   when duplicate_object then null; -- 이미 추가돼 있으면 무시
+end;
+$$;
+
+-- 대시보드 자동 RLS 헬퍼(rls_auto_enable, SECURITY DEFINER)의 API 노출 차단
+-- (이벤트 트리거는 owner 권한으로 돌므로 anon execute 회수해도 동작 불변 — 어드바이저 권고)
+do $$
+begin
+  revoke execute on function public.rls_auto_enable() from anon, authenticated, public;
+exception
+  when undefined_function then null; -- 자동 RLS 설정을 안 쓴 프로젝트면 무시
 end;
 $$;

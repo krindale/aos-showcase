@@ -33,7 +33,8 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
   - [x] 2b: 트랙 레이어 → `board/BoardTracks.tsx` (트랙 타일·소유 마커·완성 링크 마커·끊김 경고, 265줄 이동)
   - [x] 2c: 마을 레이어 → `board/BoardTowns.tsx` (마을 디스크·가닥·큐브·도시화 하이라이트, 163줄 이동)
   - [x] 2d: 도시 레이어 → `board/BoardCities.tsx` (도시 헥스·라벨·큐브·직결 링크, 240줄 이동)
-  - [ ] 2e: 오버레이 → `board/BoardOverlays.tsx` (미리보기·이동 경로·이동 큐브·외곽선·범례·좌표)
+  - [x] 2e: 오버레이 → `board/BoardOverlays.tsx` (미리보기·트랙 위 큐브·이동 경로/큐브·외곽선·경계변·터미널 테두리, 169줄 이동.
+    좌표 오버레이·비용 범례·줌 컨트롤·하단 범례는 GameBoard 로컬 상태(showCoords·boardHeight)와 묶여 있어 잔류)
   - 검증(각 서브 스텝): `npx tsc --noEmit` + dev 페이지 200 확인, 스텝 2 종료 시 `npx vitest run` 전체
     (⚠️ dev 서버 실행 중이라 `npm run build` 금지 — 머지 전 dev 중단 후 1회 빌드 검증)
 - [ ] 스텝 3: gameStore slice 분리 로드맵 문서화 (실행은 추후 — 해당 영역을 수정할 일이 생길 때 점진)
@@ -52,8 +53,15 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
   (types/game.ts 주석에 명시된 공식 대체 필드 — 기존엔 항상 undefined라 stuck 감지가 무조건 통과했음, 실질 버그 수정).
   `[...counts.entries()]` 스프레드 → `Array.from(...)` (MapIterator target 이슈).
 
-### 스텝 2
-- (진행 예정)
+### 스텝 2 (완료)
+- GameBoard.tsx **1,793줄 → 965줄** (−46%). 렌더 레이어 5개 파일로 분리:
+  `board/boardGeometry.ts`(순수 기하) · `BoardTracks.tsx` · `BoardTowns.tsx` · `BoardCities.tsx` · `BoardOverlays.tsx`
+- 전부 **코드 그대로 이동 + props 주입** — 게임 로직/store/시뮬레이션 무영향 (JSX·스타일·핸들러 로직 무변경)
+- GameBoard에 남은 것: store 구독·useMemo 계산(트랙 캐시/완성 링크/외곽선 등)·클릭 핸들러·헥스 그리드 배경·
+  헤더/줌 컨트롤/범례·좌표 오버레이 (로컬 상태와 결합된 부분)
+- 검증: tsc 0 에러, 7개 맵 게임 페이지 전부 200(dev), 전체 vitest 통과
+  (1차 실행에서 1건 실패했으나 재실행 전부 통과 — 시뮬 테스트는 wall-clock 의존이라 dev 서버 부하 시 플레이크 가능,
+  분리 코드는 테스트가 import하지 않는 렌더 전용이라 무관)
 
 ### 스텝 3
 - (진행 예정)

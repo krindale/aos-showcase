@@ -34,6 +34,7 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
   }
 }
 import GameBoard from '@/components/game/GameBoard';
+import GameChat from '@/components/game/GameChat';
 import OnlineLobby from '@/components/game/OnlineLobby';
 import { useNetStore } from '@/net/netStore';
 import { isNetConfigured } from '@/net';
@@ -805,6 +806,9 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
 
       {/* 대륙횡단 연결 팝업 (Western US) */}
       <TranscontinentalModal />
+
+      {/* 온라인 채팅 (Phase 3) — 오프라인이면 자체적으로 렌더 안 함 */}
+      <GameChat />
     </div>
   );
 }

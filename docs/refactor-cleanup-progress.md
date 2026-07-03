@@ -106,7 +106,17 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
   - placeNewCity는 undo/디스플레이 보충과 얽혀 잔류. gameStore 고아 임포트 13개 정리
   - 기계 검증: origin/main 대비 **9/9 IDENTICAL** (누적 55/55)
   - 검증: tsc 0 에러 + 전체 vitest 24파일 207개 통과 + 7개 맵 dev 200
-- 로드맵 5순위 잔여(Phase V 이동/정산/nextPhase) 중 이동·정산은 3f/3g로 진행, nextPhase는 오케스트레이션 허브로 잔류 예정
+- [x] 3f: Phase V 이동 slice 분리 — gameStore **2,068 → 1,694줄**
+  - `src/store/slices/moveSlice.ts` (403줄): moveGoods·upgradeEngine·moveTrackCube(St.Lucia)·
+    completeCubeMove 4개 액션 (completeCubeMove는 releaseAILock 임포트 동반)
+  - 기계 검증: **4/4 IDENTICAL** (누적 59/59). tsc 0 에러 + vitest 207개 + 7맵 dev 200
+- [x] 3g: Phase VI-VIII 정산 slice 분리 — gameStore **1,694 → 1,481줄**
+  - `src/store/slices/settlementSlice.ts` (272줄): collectIncome·payExpenses·applyIncomeReduction
+  - 기계 검증: **3/3 IDENTICAL** (누적 62/62). tsc 0 에러 + vitest 207개 + 7맵 dev 200
+- **gameStore 최종 1,481줄** (시작 4,832 대비 **−69%**). 잔류 = 인터페이스(계약)·라이프사이클
+  (initGame/resetGame)·executeAITurn·issueShare·selectAction·nextPhase/endTurn(턴 오케스트레이션)·
+  undoLastAction·placeNewCity·addLog·persist 설정 — 의도적으로 남긴 "오케스트레이션 허브".
+  nextPhase는 모든 단계 전환·persist·AI 스케줄과 얽힌 코어라 허브에 유지 (분리 시 이득보다 위험 큼)
 
 ### 스텝 3 로드맵 (원문)
 

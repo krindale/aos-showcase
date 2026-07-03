@@ -27,7 +27,7 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
   - `fullSimulation.test.ts` 2건: `phaseState.moveGoodsRound: number` vs `1 | 2`
   - `buildLimitByLog.test.ts` 3건: 존재하지 않는 `isAIThinking` 프로퍼티 참조, MapIterator 순회(target 이슈)
   - 검증: `npx tsc --noEmit` + `npx vitest run` 전체 통과 (테스트 동작 불변 — 타입만 고침)
-- [ ] 스텝 2: GameBoard.tsx 서브 컴포넌트 분리 (서브 스텝별 커밋)
+- [x] 스텝 2: GameBoard.tsx 서브 컴포넌트 분리 (서브 스텝별 커밋)
   - 원칙: **순수 렌더 분리만** — 게임 로직/store 액션/시뮬레이션 무영향. props로 내려서 분리
   - [x] 2a: 순수 기하/스타일 헬퍼 → `board/boardGeometry.ts` (SQRT3_2·shadeColor·nameBandPoints·numberBoxPath·큐브 스펙 3종·hexVertex)
   - [x] 2b: 트랙 레이어 → `board/BoardTracks.tsx` (트랙 타일·소유 마커·완성 링크 마커·끊김 경고, 265줄 이동)
@@ -37,7 +37,7 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
     좌표 오버레이·비용 범례·줌 컨트롤·하단 범례는 GameBoard 로컬 상태(showCoords·boardHeight)와 묶여 있어 잔류)
   - 검증(각 서브 스텝): `npx tsc --noEmit` + dev 페이지 200 확인, 스텝 2 종료 시 `npx vitest run` 전체
     (⚠️ dev 서버 실행 중이라 `npm run build` 금지 — 머지 전 dev 중단 후 1회 빌드 검증)
-- [ ] 스텝 3: gameStore slice 분리 로드맵 문서화 (실행은 추후 — 해당 영역을 수정할 일이 생길 때 점진)
+- [x] 스텝 3: gameStore slice 분리 로드맵 문서화 (실행은 추후 — 해당 영역을 수정할 일이 생길 때 점진)
 
 ## 스텝별 결과 기록
 
@@ -63,5 +63,28 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
   (1차 실행에서 1건 실패했으나 재실행 전부 통과 — 시뮬 테스트는 wall-clock 의존이라 dev 서버 부하 시 플레이크 가능,
   분리 코드는 테스트가 import하지 않는 렌더 전용이라 무관)
 
-### 스텝 3
-- (진행 예정)
+### 스텝 3 (완료 — 로드맵 문서화, 실행은 추후 점진)
+
+**gameStore.ts (4,832줄, 액션 161개) slice 분리 로드맵.** 지금 통째로 쪼개지 않는 이유:
+잘 동작하고 100시드 회귀 게이트로 덮여 있는 코드의 일괄 이동은 위험 대비 이득이 낮다.
+대신 **해당 영역을 수정할 일이 생길 때 그 영역만 떼어내는 점진 방식**을 따른다.
+
+분리 단위 후보 (현재 파일의 섹션 배너 기준, 응집도 순):
+
+| 순위 | 분리 대상 | 현재 위치(줄) | 비고 |
+|---|---|---|---|
+| 1 | **모듈 레벨 헬퍼** (Undo 스냅샷·대륙횡단 감지·AI 스케줄러) | 94~793 | set/get 클로저에 안 묶여 있어 **순수 함수로 추출 가장 쉬움** — 이미 store 밖 모듈 함수라 파일만 나누면 됨 |
+| 2 | **UI 선택/건설 플로우 액션** (selectHex~, buildMode 상태기계) | 3489~ | 게임 룰과 분리된 인터랙션 상태 — 회귀 위험 낮음 |
+| 3 | **Phase II 경매 + 교대 선공권** | 1361~1827 | 자기완결적 상태(auction) — payExpenses류와 결합 없음 |
+| 4 | **Phase IX 물품 성장 + 생산** | 2898~3014 | goodsDisplay 조작 위주 |
+| 5 | Phase IV 트랙 건설 / Phase V 이동 / nextPhase | 1928~3488 | **가장 위험** (턴 진행·완성 판정·persist와 얽힘) — 마지막에, 필요할 때만 |
+
+방법: zustand 공식 slice 패턴(`(set, get) => ({...})` 부분 함수를 합성)으로 인터페이스 무변경 분리.
+각 slice 이동은 이 브랜치와 같은 방식(한 slice = 한 스텝 = 커밋·푸시, 100시드 게이트 통과)으로.
+
+## 최종 결과 요약
+
+- `tsc --noEmit` 0 에러 (기존 17건) — 타입 안전망 복구
+- GameBoard.tsx 1,793 → 965줄, 렌더 레이어 5파일 분리 (로직 무변경)
+- 전체 vitest 24파일 207개 통과, 7개 맵 dev 페이지 정상
+- ⚠️ 머지 전 확인: dev 서버 내리고 `npm run build` 1회 (dev 실행 중엔 빌드 금지 규칙)

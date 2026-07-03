@@ -3395,10 +3395,22 @@ export const useGameStore = create<GameStore>()(
         return newTurnBase;
       }
 
+      // 물품 성장 진입: Production 선택자(사람)가 먼저 주머니 큐브를 배치한다 (룰북 IX).
+      // currentPlayer를 그 플레이어로 잡아야 ProductionPanel이 뜬다 — playerOrder[0]으로만 잡으면
+      // 경매 1등이 아닌 사람의 생산 기회가 통째로 사라진다 (실플레이 버그: 독일 맵 생산 스킵).
+      // AI 선택자는 제외 (goodsGrowth는 AI 스케줄러 대상이 아니라 사람이 주사위를 진행).
+      let phaseEntryPlayer = playerOrder[0];
+      if (nextPhaseName === 'goodsGrowth' && !state.phaseState.productionUsed) {
+        const productionHolder = activePlayers.find(
+          p => state.players[p]?.selectedAction === 'production' && !state.players[p]?.isAI
+        );
+        if (productionHolder) phaseEntryPlayer = productionHolder;
+      }
+
       // 단계 전환 로깅
       return {
         currentPhase: nextPhaseName,
-        currentPlayer: playerOrder[0],
+        currentPlayer: phaseEntryPlayer,
         logs: [
           ...state.logs,
           {
@@ -4699,6 +4711,12 @@ export const useGameStore = create<GameStore>()(
     // 캡처된 플레이어 ID 사용 (state.currentPlayer 대신)
     set({
       players: newPlayers,
+      // 룰북 V: "이동 완료 후 큐브는 미사용 물품 주머니로 반환" — 반환하지 않으면 주머니가
+      // 게임 진행에 따라 고갈돼 생산(Production)·물품 성장 보충·Berlin 보너스가 어긋난다.
+      goodsDisplay: {
+        ...state.goodsDisplay,
+        bag: [...state.goodsDisplay.bag, color],
+      },
       phaseState: {
         ...state.phaseState,
         playerMoves: {

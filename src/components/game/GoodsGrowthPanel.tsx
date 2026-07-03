@@ -213,7 +213,17 @@ export default function GoodsGrowthPanel() {
                 <li key={`${r.cityName}-${i}`} className="flex items-center gap-1.5">
                   <span className="h-1.5 w-1.5 rounded-full bg-positive" />
                   <span className="font-semibold">{r.cityName}</span>
-                  <span className="text-foreground-secondary">+{r.count}개</span>
+                  {/* "+n개" 텍스트 대신 검은 + 기호 + 실제 도착 큐브 색상 표시 */}
+                  <span className="font-bold text-foreground">+</span>
+                  <span className="flex items-center gap-1">
+                    {r.cubes.map((cube, j) => (
+                      <span
+                        key={j}
+                        className="inline-block w-3 h-3 rounded-sm border border-white/60"
+                        style={{ backgroundColor: CUBE_COLORS[cube] }}
+                      />
+                    ))}
+                  </span>
                 </li>
               ))}
             </ul>

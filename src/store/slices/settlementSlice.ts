@@ -9,7 +9,6 @@ import type { StoreApi } from 'zustand';
 import type { GameStore } from '../gameStore';
 import { PlayerId, GamePhase, GAME_CONSTANTS } from '@/types/game';
 import { getMapProfile } from '@/maps/getMapProfile';
-import { logAction } from '@/utils/debugConfig';
 
 type Set = StoreApi<GameStore>['setState'];
 type Get = StoreApi<GameStore>['getState'];
@@ -20,7 +19,8 @@ export type SettlementSlice = Pick<
   'collectIncome' | 'payExpenses' | 'applyIncomeReduction'
 >;
 
-export function createSettlementSlice(set: Set, get: Get): SettlementSlice {
+// _get: 다른 slice와 동일한 합성 시그니처 유지용 (정산 3액션은 set만 사용)
+export function createSettlementSlice(set: Set, _get: Get): SettlementSlice {
   return {
     collectIncome: () => {
       set((state) => {

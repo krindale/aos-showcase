@@ -176,7 +176,7 @@ export default function PhasePanel() {
             {currentPlayerData.isAI ? (
               <div className="text-center py-4">
                 <div className="animate-pulse text-accent font-medium">
-                  {currentPlayerData.name} (AI) 주식 발행 중...
+                  {currentPlayerData.name} (BOT) 주식 발행 중...
                 </div>
               </div>
             ) : (
@@ -207,7 +207,7 @@ export default function PhasePanel() {
             {currentPlayerData.isAI ? (
               <div className="text-center py-4">
                 <div className="animate-pulse text-accent font-medium">
-                  {currentPlayerData.name} (AI) 행동 선택 중...
+                  {currentPlayerData.name} (BOT) 행동 선택 중...
                 </div>
               </div>
             ) : (

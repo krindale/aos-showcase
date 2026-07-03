@@ -170,7 +170,7 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
                 {seat.seat === 0 && <Crown size={13} className="text-accent" aria-label="호스트" />}
                 {seat.kind === 'ai' ? (
                   <span className="flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-blue-500/15 text-blue-500">
-                    <Bot size={11} /> AI
+                    <Bot size={11} /> BOT
                   </span>
                 ) : (
                   <>
@@ -185,7 +185,7 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
                         대기 중…
                       </span>
                     )}
-                    {/* 호스트: 빈자리·나간 자리(끊김)를 AI로 전환 (대기실 한정) */}
+                    {/* 호스트: 빈자리·나간 자리(끊김)를 봇으로 전환 (대기실 한정) */}
                     {isHost && !online && room.status === 'waiting' && (
                       <button
                         onClick={() => {
@@ -198,9 +198,9 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
                           );
                         }}
                         className="px-2 py-0.5 text-xs rounded-full bg-background-tertiary text-foreground-secondary hover:bg-foreground/10"
-                        title="이 자리를 AI로 채우기"
+                        title="이 자리를 BOT으로 채우기"
                       >
-                        AI로
+                        BOT으로
                       </button>
                     )}
                   </>
@@ -247,7 +247,7 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
             }`}
           >
             <Play size={16} />
-            {allReady ? '게임 시작' : '모든 자리가 차야 시작할 수 있어요 (빈자리는 AI로 전환 가능)'}
+            {allReady ? '게임 시작' : '모든 자리가 차야 시작할 수 있어요 (빈자리는 BOT으로 전환 가능)'}
           </button>
         ) : (
           <div className="w-full py-3 rounded-xl bg-background-tertiary text-center text-sm text-foreground-secondary flex items-center justify-center gap-2">
@@ -321,7 +321,7 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
                         : 'bg-background-tertiary text-foreground-secondary hover:bg-foreground/10'
                     }`}
                   >
-                    <Bot size={11} /> {aiSeats.has(i) ? 'AI' : '친구 자리'}
+                    <Bot size={11} /> {aiSeats.has(i) ? 'BOT' : '친구 자리'}
                   </button>
                 </>
               )}

@@ -660,7 +660,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                 />
                 {/* 텍스트 크기 = 기존(text-xs 12px)의 1.3배 */}
                 <span className="text-[15.6px] font-semibold text-foreground whitespace-nowrap">
-                  {hudPlayer.name} 플레이 중{hudPlayer.isAI ? ' (AI)' : ''}…
+                  {hudPlayer.name} 플레이 중{hudPlayer.isAI ? ' (BOT)' : ''}…
                 </span>
               </div>
             </div>

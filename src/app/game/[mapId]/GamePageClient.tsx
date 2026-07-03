@@ -381,7 +381,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                           }`}
                         >
                           <Bot size={12} />
-                          {isAI ? 'AI' : '사람'}
+                          {isAI ? 'BOT' : '사람'}
                         </button>
                       </div>
                       <input
@@ -417,7 +417,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                 <li>• 매 턴 10단계 진행</li>
                 <li>• 최종 승점으로 승자 결정</li>
                 {aiPlayerIndexes.size > 0 && (
-                  <li className="text-blue-400">• AI와 대전 ({aiPlayerIndexes.size}명의 AI 플레이어)</li>
+                  <li className="text-blue-400">• BOT과 대전 ({aiPlayerIndexes.size}명의 BOT 플레이어)</li>
                 )}
               </ul>
             </div>
@@ -724,7 +724,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                 style={{ backgroundColor: PLAYER_COLORS[actingPlayerState.color] }}
               />
               지금은 <b className="text-foreground">{actingPlayerState.name}</b> 차례입니다
-              {actingPlayerState.isAI && ' (AI 진행 중…)'}
+              {actingPlayerState.isAI && ' (BOT 진행 중…)'}
             </div>
           )}
           {/* lg(데스크톱): 패널 320px 고정 + 지도 가변(나머지 전부) — 넓은 화면일수록 지도 최대.
@@ -822,8 +822,8 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       <ConfirmDialog
         open={netMode === 'host' && disconnectedSeat !== null}
         title="플레이어 연결 끊김"
-        message={`${disconnectedSeat?.name}님의 연결이 끊겼습니다. 이 자리를 AI로 전환해 게임을 계속할까요? 기다리면 재접속 시 자동으로 복귀합니다. (AI 전환 후에는 이번 게임에서 되돌릴 수 없어요)`}
-        confirmLabel="AI로 전환"
+        message={`${disconnectedSeat?.name}님의 연결이 끊겼습니다. 이 자리를 BOT으로 전환해 게임을 계속할까요? 기다리면 재접속 시 자동으로 복귀합니다. (BOT 전환 후에는 이번 게임에서 되돌릴 수 없어요)`}
+        confirmLabel="BOT으로 전환"
         cancelLabel="계속 기다리기"
         onConfirm={() => {
           if (disconnectedSeat) void convertSeatToAI(disconnectedSeat.seat);

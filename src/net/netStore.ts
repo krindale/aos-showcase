@@ -374,7 +374,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
               turn: s.currentTurn,
               phase: s.currentPhase,
               player: playerId,
-              action: `[시스템] ${s.players[playerId]?.name} 연결 끊김 — AI로 전환`,
+              action: `[시스템] ${s.players[playerId]?.name} 연결 끊김 — BOT으로 전환`,
               timestamp: Date.now(),
             },
           ],

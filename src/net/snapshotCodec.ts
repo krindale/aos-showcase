@@ -38,9 +38,8 @@ export function extractSyncedState(state: Record<string, unknown>): Record<strin
 function toBase64(bytes: Uint8Array): string {
   if (typeof Buffer !== 'undefined') return Buffer.from(bytes).toString('base64');
   let bin = '';
-  const CHUNK = 0x8000; // String.fromCharCode 인자 수 한계 회피
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  for (let i = 0; i < bytes.length; i++) {
+    bin += String.fromCharCode(bytes[i]);
   }
   return btoa(bin);
 }

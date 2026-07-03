@@ -158,6 +158,9 @@ export class SupabaseTransport implements NetTransport {
       .on('broadcast', { event: 'chat' }, ({ payload }) =>
         events.onChat?.(payload as ChatMessage)
       )
+      .on('broadcast', { event: 'room' }, ({ payload }) =>
+        events.onRoom?.(payload as RoomInfo)
+      )
       .on('presence', { event: 'sync' }, () =>
         events.onPresence?.(Object.keys(channel.presenceState()))
       );
@@ -198,6 +201,10 @@ class SupabaseRoomConnection implements RoomConnection {
 
   async broadcastSnapshot(snapshot: SnapshotMessage): Promise<void> {
     await this.broadcast('snapshot', snapshot);
+  }
+
+  async broadcastRoom(): Promise<void> {
+    await this.broadcast('room', this._room);
   }
 
   async sendChat(name: string, text: string): Promise<void> {

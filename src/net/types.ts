@@ -37,10 +37,10 @@ export interface IntentMessage {
   payload?: unknown;
 }
 
-/** 호스트 → 전원: 확정된 게임 상태 */
+/** 호스트 → 전원: 확정된 게임 상태 (snapshotCodec으로 gzip+base64 압축) */
 export interface SnapshotMessage {
   rev: number; // 단조 증가 리비전 — 역순 도착 스냅샷 무시용
-  state: unknown; // persist 포맷 재사용 (Phase 1에서 logs 제외 + 압축 예정)
+  z: string; // encodeSnapshot 결과 (gzip+base64)
 }
 
 export interface ChatMessage {
@@ -59,6 +59,7 @@ export interface RoomEvents {
   onSnapshot?: (msg: SnapshotMessage) => void; // 게스트만 관심
   onChat?: (msg: ChatMessage) => void;
   onPresence?: (clientIds: string[]) => void; // 접속자 변화 (이탈 감지·호스트 승계)
+  onRoom?: (room: RoomInfo) => void; // 방 메타 변경 (좌석 배정·상태 전환 — 호스트가 broadcastRoom)
 }
 
 export interface RoomConnection {
@@ -66,6 +67,8 @@ export interface RoomConnection {
   readonly clientId: string;
   sendIntent(intent: Omit<IntentMessage, 'clientId'>): Promise<void>;
   broadcastSnapshot(snapshot: SnapshotMessage): Promise<void>;
+  /** 호스트 전용: 방 메타(좌석/상태) 변경을 전원에게 통지 — 보통 updateRoom 직후 호출 */
+  broadcastRoom(): Promise<void>;
   sendChat(name: string, text: string): Promise<void>;
   /** 호스트 전용: rooms 행 갱신 (스냅샷 저장, 좌석/상태 변경, 호스트 승계) */
   updateRoom(

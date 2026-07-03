@@ -63,7 +63,23 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
   (1차 실행에서 1건 실패했으나 재실행 전부 통과 — 시뮬 테스트는 wall-clock 의존이라 dev 서버 부하 시 플레이크 가능,
   분리 코드는 테스트가 import하지 않는 렌더 전용이라 무관)
 
-### 스텝 3 (완료 — 로드맵 문서화, 실행은 추후 점진)
+### 스텝 3 실행 기록 (사용자 지시로 로드맵 실행 개시, 2026-07-03)
+
+- [x] 3a (로드맵 1순위): 모듈 레벨 헬퍼 → `src/store/helpers/` 5개 파일 분리, gameStore **4,832 → 4,129줄**
+  - `undo.ts`(스냅샷 스택·captureUndo·getUndoLabel) · `boardRules.ts`(crossesBlockedEdge·findMissingTownSpurs·
+    releaseUnextendedTrack·removeIncompleteNewTracks) · `setup.ts`(createInitialGameState·drawBalancedCubes·
+    AIPlayerConfig·TUTORIAL_GAME_CONFIG) · `transcontinental.ts`(computeTranscontinental) ·
+    `aiScheduler.ts`(AI 락·컨텍스트 검증·scheduleAICheck)
+  - `GameStore` 인터페이스 export 추가 — aiScheduler가 **type-only import**로 참조 (런타임 순환 없음)
+  - 기존 import 경로 호환: `getUndoLabel`·`createInitialGameState`·`TUTORIAL_GAME_CONFIG`·`AIPlayerConfig`를
+    gameStore에서 재export (PhasePanel·테스트 수정 불필요)
+  - 검증: tsc 0 에러 + 전체 vitest 24파일 207개 통과 + dev 200
+- [ ] 3b (로드맵 2순위): UI 선택/건설 플로우 액션 slice 분리
+- [ ] 3c (로드맵 3순위): 경매 + 교대 선공권 slice 분리
+- [ ] 3d (로드맵 4순위): 물품 성장 + 생산 slice 분리
+- 로드맵 5순위(Phase IV/V/nextPhase)는 계획대로 보류 — 가장 위험, 필요할 때만
+
+### 스텝 3 로드맵 (원문)
 
 **gameStore.ts (4,832줄, 액션 161개) slice 분리 로드맵.** 지금 통째로 쪼개지 않는 이유:
 잘 동작하고 100시드 회귀 게이트로 덮여 있는 코드의 일괄 이동은 위험 대비 이득이 낮다.

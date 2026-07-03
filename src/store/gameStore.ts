@@ -9,29 +9,23 @@ import {
   SpecialAction,
   HexCoord,
   TrackTile,
-  CityColor,
   CubeColor,
   PlayerState,
   GAME_CONSTANTS,
   TRACK_REPLACE_COSTS,
-  NEW_CITY_TILES,
   NewCityTileId,
   City,
   PLAYER_ID_ORDER,
-  PLAYER_COLOR_ORDER,
-  TURNS_BY_PLAYER_COUNT,
   AIExecutionQueue,
   CapturedAIContext,
   MovingCubeContext,
   BoardState,
   ACTION_INFO,
-  TranscontinentalEvent,
 } from '@/types/game';
-import { getAIDecision, AI_TURN_DELAY, isCurrentPlayerAI, aiPlayerManager } from '@/ai';
+import { getAIDecision, AI_TURN_DELAY, aiPlayerManager } from '@/ai';
 import { clearUrbanizationPlanCache } from '@/ai/strategies/urbanization';
 import { clearDesperationCache } from '@/ai/strategies/auction';
 import { addFailedBuildCoord, hasPendingFreeSpur } from '@/ai/strategies/buildTrack';
-import { initializeGoodsDisplay } from '@/utils/tutorialMap';
 import { getMapData, getDisplaySlotRange } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 import {
@@ -39,11 +33,9 @@ import {
   validateFirstTrackRule,
   validateTrackConnection,
   playerHasTrack,
-  isTrackPartOfCompletedLink,
   canRedirectTrack,
   getRedirectableEdges,
   isEndpointOfIncompleteSection,
-  findAllCompletedLinks,
 } from '@/utils/trackValidation';
 import {
   getBuildableNeighbors,
@@ -55,745 +47,50 @@ import {
   countPathLinks,
   getNeighborHex,
   cityAcceptsCube,
-  isBlockedEdge,
-  getOppositeEdge } from '@/utils/hexGrid';
+  isBlockedEdge } from '@/utils/hexGrid';
 import {
   getNextPlayerId,
   createPlayerMoves,
   allPlayersMoved,
   allPlayersSelectedAction,
   resetPlayerActions,
-  createInitialPlayerState,
   findFirstBuildPlayer,
   findFirstMovePlayer,
   isLastPlayer,
 } from '@/utils/gameLogic';
 import { debugLog, logAction, newLogSession } from '@/utils/debugConfig';
+// 모듈 헬퍼 (2026-07-03 스텝 3a 분리 — 로직 무변경, 파일만 이동)
+import { undoSnapshots, captureUndo, clearUndo } from './helpers/undo';
+import {
+  crossesBlockedEdge,
+  findMissingTownSpurs,
+  releaseUnextendedTrack,
+  removeIncompleteNewTracks,
+} from './helpers/boardRules';
+import { AIPlayerConfig, TUTORIAL_GAME_CONFIG, createInitialGameState } from './helpers/setup';
+import { computeTranscontinental } from './helpers/transcontinental';
+import {
+  tryAcquireAILock,
+  releaseAILock,
+  validateExecutionContext,
+  PLAYER_ACTION_PHASES,
+  scheduleAICheck,
+} from './helpers/aiScheduler';
 
-/**
- * AI 플레이어 설정
- */
-export interface AIPlayerConfig {
-  playerIndex: number;  // 0-based 인덱스
-  name: string;
-}
-
-/**
- * 튜토리얼 게임 설정
- */
-export const TUTORIAL_GAME_CONFIG = {
-  maxTurns: 3,  // 튜토리얼은 3턴
-  defaultAI: { playerIndex: 1, name: '컴퓨터-기차' } as AIPlayerConfig,
-};
+// 기존 import 경로 호환 재export (PhasePanel·테스트가 gameStore에서 가져다 씀)
+export { getUndoLabel } from './helpers/undo';
+export { createInitialGameState, TUTORIAL_GAME_CONFIG } from './helpers/setup';
+export type { AIPlayerConfig } from './helpers/setup';
 
 // 마을 가닥(스퍼) 건설 비용 — 가닥은 타일 건설 시 자동 생성되지 않고,
 // 마을 클릭(buildTownSpur)으로만 별도 건설된다 (첫 진입 1카운트, 비용 가닥당 $1).
 const TOWN_SPUR_COST = 1;
 
-// ============================================================
-// 실행 취소(Undo): 사람 플레이어의 커밋 행동 스냅샷
-// 단계/차례 전환(nextPhase) 시 초기화 — "다음으로 넘어가기 전"까지만 취소 가능
-// ============================================================
-interface UndoSnapshot {
-  label: string;
-  board: BoardState;
-  players: GameState['players'];
-  phaseState: GameState['phaseState'];
-  newCityTiles: GameState['newCityTiles'];
-  goodsDisplay: GameState['goodsDisplay'];
-  logs: GameState['logs'];
-}
-const undoSnapshots: UndoSnapshot[] = [];
-
-/** 현재 상태를 스냅샷으로 저장 (AI 차례는 저장 안 함 — 사람의 취소 버튼 전용) */
-function captureUndo(state: GameState, label: string) {
-  const player = state.players[state.currentPlayer];
-  if (!player || player.isAI) return;
-  undoSnapshots.push({
-    label,
-    board: structuredClone(state.board),
-    players: structuredClone(state.players),
-    phaseState: structuredClone(state.phaseState),
-    newCityTiles: structuredClone(state.newCityTiles),
-    goodsDisplay: structuredClone(state.goodsDisplay), // 한국 도시화는 디스플레이를 변경하므로 복원 대상
-    logs: state.logs, // 로그 배열은 불변 갱신이므로 참조 보관으로 충분
-  });
-  if (undoSnapshots.length > 30) undoSnapshots.shift();
-}
-
-function clearUndo() {
-  undoSnapshots.length = 0;
-}
-
-/** 다음에 취소될 행동의 라벨 (UI 버튼 표시용) */
-export function getUndoLabel(): string | null {
-  return undoSnapshots[undoSnapshots.length - 1]?.label ?? null;
-}
-
-/**
- * 철도 건설 불가 경계 변을 넘는 트랙인지 판정.
- * edges 중 하나라도 막힌 경계(coord↔이웃)를 향하면 true → 건설 금지.
- * (변 단위 판정은 hexGrid.isBlockedEdge — AI 경로탐색과 동일 함수 공유)
- */
-function crossesBlockedEdge(board: BoardState, coord: HexCoord, edges: number[]): boolean {
-  if (!board.blockedEdges || board.blockedEdges.length === 0) return false;
-  return edges.some(e => isBlockedEdge(board, coord, getNeighborHex(coord, e)));
-}
-
-/**
- * 마을에서 빠져 있는 가닥(스퍼) 찾기 — 내 트랙이 마을 변에 닿아 있으나 가닥이 없는 변.
- * (카운트 부족으로 타일만 짓고 미연결된 트랙을 다음 턴에 buildTownSpur로 완성하는 용도)
- */
-function findMissingTownSpurs(
-  townCoord: HexCoord,
-  board: BoardState,
-  playerId: PlayerId
-): { townCoord: HexCoord; edge: number }[] {
-  const isTown = board.towns.some(t => hexCoordsEqual(t.coord, townCoord) && t.newCityColor === null);
-  if (!isTown) return [];
-
-  const missing: { townCoord: HexCoord; edge: number }[] = [];
-  for (let edge = 0; edge < 6; edge++) {
-    // 이미 가닥이 있는 변은 (소유자 무관) 연결 완료
-    const hasSpur = (board.townSpurs ?? []).some(
-      sp => hexCoordsEqual(sp.townCoord, townCoord) && sp.edge === edge
-    );
-    if (hasSpur) continue;
-
-    // 이 변 너머 이웃 타일에 내 트랙이 마을 쪽 엣지로 닿아 있는지
-    const nb = getNeighborHex(townCoord, edge);
-    const facingEdge = getOppositeEdge(edge);
-    const tile = board.trackTiles.find(t => hexCoordsEqual(t.coord, nb));
-    if (!tile) continue;
-    const mineFacing =
-      (tile.owner === playerId && tile.edges.includes(facingEdge)) ||
-      (tile.secondaryOwner === playerId && tile.secondaryEdges?.includes(facingEdge));
-    if (mineFacing) missing.push({ townCoord, edge });
-  }
-  return missing;
-}
-
-/**
- * 이번 턴에 연장(새 타일 추가)하지 않은 미완성 트랙 구간의 소유권을 해제(공용화)한다.
- * 룰(IV): "미완성 트랙 구간을 자기 턴에 추가 트랙으로 연장하지 않으면 소유 디스크가 제거되어
- * 미소유 상태가 된다. 방향 전환만으로는 연장으로 인정되지 않는다."
- * 연결된 같은-소유자 구간 단위로 판정 — 구간에 이번 턴(builtTurn===currentTurn) 타일이 하나라도
- * 있으면 유지, 없으면 그 구간 전체를 owner null로(점진 건설 구간이 매 턴 끊기지 않도록 구간 단위).
- */
-function releaseUnextendedTrack(board: BoardState, currentTurn: number): { board: BoardState; released: number } {
-  const k = (c: HexCoord) => `${c.col},${c.row}`;
-  // 소유된 미완성 트랙(완성 링크의 일부가 아님)만 대상
-  const incomplete = board.trackTiles.filter(
-    t => t.owner != null && !isTrackPartOfCompletedLink(t.coord, board)
-  );
-  if (incomplete.length === 0) return { board, released: 0 };
-  const incByKey = new Map(incomplete.map(t => [k(t.coord), t]));
-  const visited = new Set<string>();
-  const releaseKeys = new Set<string>();
-
-  for (const start of incomplete) {
-    if (visited.has(k(start.coord))) continue;
-    // 같은 소유자로 연결된 미완성 구간 BFS
-    const group: typeof incomplete = [];
-    const stack = [start];
-    visited.add(k(start.coord));
-    while (stack.length) {
-      const t = stack.pop()!;
-      group.push(t);
-      for (const e of [...t.edges, ...(t.secondaryEdges ?? [])]) {
-        const nb = getNeighborHex(t.coord, e);
-        const nbT = incByKey.get(k(nb));
-        if (!nbT || visited.has(k(nb)) || nbT.owner !== t.owner) continue;
-        const back = (e + 3) % 6; // 인접 헥스에서 마주보는 변
-        if (![...nbT.edges, ...(nbT.secondaryEdges ?? [])].includes(back)) continue;
-        visited.add(k(nb));
-        stack.push(nbT);
-      }
-    }
-    // 구간에 이번 턴 연장(새 타일)이 하나도 없으면 전체 소유권 해제
-    if (!group.some(t => t.builtTurn === currentTurn)) {
-      group.forEach(t => releaseKeys.add(k(t.coord)));
-    }
-  }
-
-  if (releaseKeys.size === 0) return { board, released: 0 };
-  const updated = board.trackTiles.map(t =>
-    releaseKeys.has(k(t.coord)) ? { ...t, owner: null } : t
-  );
-  return { board: { ...board, trackTiles: updated }, released: releaseKeys.size };
-}
-
-/**
- * Germany 미완성 링크 금지: 한 플레이어의 트랙 건설이 끝났을 때, 이번 턴에 새로 깐 트랙 중
- * 완성 링크(도시/마을↔도시/마을)에 속하지 않는 것을 제거하고 건설 비용을 환불한다.
- * (룰북: "미완성 트랙 구간 건설 불가, 완성된 링크만 건설 가능")
- */
-function removeIncompleteNewTracks(
-  board: BoardState,
-  currentTurn: number,
-  playerId: PlayerId
-): { board: BoardState; refund: number } {
-  const k = (c: HexCoord) => `${c.col},${c.row}`;
-  const incomplete = board.trackTiles.filter(
-    t => t.owner === playerId && t.builtTurn === currentTurn && !isTrackPartOfCompletedLink(t.coord, board)
-  );
-  if (incomplete.length === 0) return { board, refund: 0 };
-  const removeKeys = new Set(incomplete.map(t => k(t.coord)));
-  let refund = 0;
-  for (const t of incomplete) {
-    const hex = board.hexTiles.find(h => hexCoordsEqual(h.coord, t.coord));
-    refund += hex?.fixedCost !== undefined ? hex.fixedCost
-      : hex?.terrain === 'mountain' ? GAME_CONSTANTS.MOUNTAIN_TRACK_COST
-      : (hex?.terrain === 'river' || hex?.terrain === 'swamp') ? GAME_CONSTANTS.RIVER_TRACK_COST
-      : GAME_CONSTANTS.PLAIN_TRACK_COST;
-  }
-  const trackTiles = board.trackTiles.filter(t => !removeKeys.has(k(t.coord)));
-  // 제거된 트랙 좌표에 딸린 이번 턴 마을 가닥도 함께 제거 (미완성 노선의 일부)
-  const townSpurs = (board.townSpurs ?? []).filter(
-    sp => !(sp.owner === playerId && sp.builtTurn === currentTurn && removeKeys.has(k(sp.townCoord)))
-  );
-  return { board: { ...board, trackTiles, townSpurs }, refund };
-}
-
-/**
- * 주머니(bag)에서 색 균형을 맞춰 큐브 N개를 뽑는다 (도시·마을 셋업 공용).
- *  ① 이 칸에 아직 없는 색 우선(칸 내 중복 회피) ② 그 중 전역 사용량(colorUsage)이 가장 적은 색.
- *  excludeColor 지정 시 그 색은 후보에서 완전히 제외(튜토리얼 noOwnColorCubes).
- * bag/colorUsage를 in-place로 갱신하고 뽑은 큐브 배열을 반환.
- */
-function drawBalancedCubes(
-  bag: CubeColor[],
-  count: number,
-  colorUsage: Map<CubeColor, number>,
-  excludeColor?: CubeColor,
-): CubeColor[] {
-  const cubes: CubeColor[] = [];
-  for (let i = 0; i < count; i++) {
-    if (bag.length === 0) break;
-    let bestIdx = -1, bestUsed = Infinity, fallbackIdx = -1;
-    for (let j = bag.length - 1; j >= 0; j--) {
-      const c = bag[j];
-      if (excludeColor && c === excludeColor) continue;
-      if (fallbackIdx === -1) fallbackIdx = j;
-      if (cubes.includes(c)) continue;
-      const used = colorUsage.get(c) ?? 0;
-      if (used < bestUsed) { bestUsed = used; bestIdx = j; }
-    }
-    const idx = bestIdx !== -1 ? bestIdx : fallbackIdx;
-    if (idx === -1) break;
-    const cube = bag.splice(idx, 1)[0];
-    if (cube) { cubes.push(cube); colorUsage.set(cube, (colorUsage.get(cube) ?? 0) + 1); }
-  }
-  return cubes;
-}
-
-export function createInitialGameState(
-  mapId: string,
-  playerNames: string[],
-  aiPlayers: AIPlayerConfig[] = []
-): GameState {
-  const mapData = getMapData(mapId);
-  const boardState = mapData.createBoardState();
-  // 디스플레이 칸 수는 맵의 columnMapping rowCount 합, 큐브 색 구성은 맵별(미지정 시 표준).
-  const totalGoodsSlots = mapData.columnMapping.reduce((sum, m) => sum + m.rowCount, 0) || 52;
-  let goodsDisplay = initializeGoodsDisplay(mapData.goodsCubeCounts, totalGoodsSlots);
-
-  const setupRules = getMapProfile(mapId);
-
-  // noOwnColorCubes(튜토리얼): 물품 디스플레이의 각 도시 열에 그 도시 색 큐브가
-  // 놓이지 않도록 교체한다 (예: 빨강 도시 Pittsburgh 열엔 빨강 화물이 보이지 않음).
-  // 빼낸 자기 색 큐브는 주머니로 보내고, 주머니의 다른 색 큐브와 맞바꾼다.
-  if (setupRules.noOwnColorCubes && !setupRules.hexCubeSetup) {
-    const slots = [...goodsDisplay.slots];
-    const pool = [...goodsDisplay.bag];
-    let slotIndex = 0;
-    for (const m of mapData.columnMapping) {
-      const mappedCity = m.isNewCity ? undefined : mapData.cities.find(c => c.id === m.cityId);
-      // 도시(주사위 열)인데 매칭 도시가 없으면 = 마을/미사용 열(예: 마을이 된 Wheeling의 4번 열).
-      // 물품이 배달될 곳이 없으므로 열을 비워 주머니로 돌려보낸다.
-      if (!m.isNewCity && !mappedCity) {
-        for (let i = 0; i < m.rowCount; i++) {
-          const idx = slotIndex + i;
-          if (slots[idx] !== null) { pool.push(slots[idx]!); slots[idx] = null; }
-        }
-        slotIndex += m.rowCount;
-        continue;
-      }
-      // 신규 도시 열(A~D)은 고정 색이 없으므로 제외
-      const ownColor = mappedCity?.color;
-      if (ownColor) {
-        for (let i = 0; i < m.rowCount; i++) {
-          const idx = slotIndex + i;
-          if (slots[idx] === ownColor) {
-            const replIdx = pool.findIndex(c => c !== ownColor);
-            if (replIdx >= 0) {
-              const repl = pool[replIdx];
-              pool[replIdx] = ownColor; // 자기 색은 주머니로
-              slots[idx] = repl;        // 다른 색으로 교체
-            }
-            // 주머니에 다른 색이 없으면(극히 드묾) 그대로 둠
-          }
-        }
-      }
-      slotIndex += m.rowCount;
-    }
-    goodsDisplay = { slots, bag: pool };
-  }
-
-  // 헥스 큐브 맵(St. Lucia): 물품 성장이 없어 디스플레이가 불필요 →
-  // 디스플레이에 깔린 큐브까지 전부 주머니로 합쳐 모든 평지/강 헥스를 채운다
-  // (디스플레이 52개를 빼면 주머니가 44개뿐이라 일부 헥스가 비는 문제 방지)
-  const bag = setupRules.hexCubeSetup
-    ? [...goodsDisplay.bag, ...goodsDisplay.slots.filter((c): c is NonNullable<typeof c> => c !== null)]
-    : [...goodsDisplay.bag];
-  const displaySlots = setupRules.hexCubeSetup
-    ? goodsDisplay.slots.map(() => null)
-    : goodsDisplay.slots;
-
-  // 도시에 물품 배치 (헥스 큐브 셋업 맵은 도시 큐브 없음 — 룰북 St. Lucia)
-  const cityCubeCounts = setupRules.cityCubeCounts;
-  // 색이 한쪽으로 몰리지 않도록 전역 색 사용량을 추적해 균형 있게 배치한다.
-  // (순수 무작위면 한 도시에 같은 색 2개·특정 색 쏠림이 생겨 시각적으로 빈약함)
-  const colorUsage = new Map<CubeColor, number>();
-  const citiesWithCubes = boardState.cities.map((city) => {
-    // Germany 외국 터미널: 무작위 큐브 1개로 수용색(color)을 정하고 그 큐브를 마커로 올린다.
-    // (이 큐브는 "물품"이 아니라 수용색 표시 — 배달 대상이 아니며 물품 성장도 받지 않는다)
-    if (city.isTerminal) {
-      if (bag.length === 0) return { ...city, cubes: [] };
-      let tIdx = bag.length - 1;
-      let tUsed = Infinity;
-      for (let j = bag.length - 1; j >= 0; j--) {
-        const used = colorUsage.get(bag[j]) ?? 0;
-        if (used < tUsed) { tUsed = used; tIdx = j; }
-      }
-      // 터미널 수용색은 도시색 — 면화(white)는 주머니에 없어 CityColor로 안전 (Southern은 터미널 없음)
-      const cube = bag.splice(tIdx, 1)[0] as CityColor;
-      colorUsage.set(cube, (colorUsage.get(cube) ?? 0) + 1);
-      return { ...city, color: cube, cubes: [cube] };
-    }
-    if (setupRules.hexCubeSetup) return { ...city, cubes: [] };
-    // 도시별 초기 큐브 수 (Rust Belt: Pittsburgh/Wheeling 3, 나머지 2). 색 균형 배치(공용 헬퍼).
-    const targetCubes = cityCubeCounts[city.id] ?? GAME_CONSTANTS.INITIAL_CUBES_PER_CITY;
-    const cubes = drawBalancedCubes(bag, targetCubes, colorUsage, setupRules.noOwnColorCubes ? city.color : undefined);
-    return { ...city, cubes };
-  });
-
-  // 헥스 큐브 셋업 (공식 맵: "1 Good: Every Plain and River space")
-  // 마을 헥스는 제외 — AoS 룰북 용어상 마을 칸은 'Town hex'로 plain hex와 구분됨
-  const hexTilesWithCubes = setupRules.hexCubeSetup
-    ? boardState.hexTiles.map((hex) => {
-      if (hex.terrain !== 'plain' && hex.terrain !== 'river') return hex;
-      const isTownHex = boardState.towns.some(
-        t => t.coord.col === hex.coord.col && t.coord.row === hex.coord.row
-      );
-      if (isTownHex) return hex;
-      const cube = bag.length > 0 ? bag.pop() : null;
-      return { ...hex, cube: cube ?? null };
-    })
-    : boardState.hexTiles;
-
-  // 마을 큐브 셋업 (Western US: "Place 1 good on each Town"). townCubeCounts에 지정된 마을만.
-  // 도시 큐브와 동일한 전역 색 균형(colorUsage)을 공유한다. hexCubeSetup 맵은 마을 큐브 없음.
-  // Southern US: townFixedCube(면화)는 주머니에서 뽑지 않고 모든 마을에 고정색 1개를 놓는다.
-  const townCubeCounts = setupRules.townCubeCounts;
-  const townFixedCube = setupRules.townFixedCube;
-  const townsWithCubes = (setupRules.hexCubeSetup
-    ? boardState.towns
-    : boardState.towns.map((town) => {
-        if (townFixedCube) return { ...town, cubes: [townFixedCube] };
-        const target = townCubeCounts[town.id] ?? 0;
-        if (target <= 0) return { ...town, cubes: [] };
-        return { ...town, cubes: drawBalancedCubes(bag, target, colorUsage) };
-      }));
-
-  // 동적 플레이어 초기화
-  const playerCount = playerNames.length;
-  const activePlayers = PLAYER_ID_ORDER.slice(0, playerCount);
-
-  // AI 플레이어 인덱스 세트 생성
-  const aiPlayerIndexes = new Set(aiPlayers.map(ai => ai.playerIndex));
-
-  // 플레이어 객체 생성
-  const players: Partial<Record<PlayerId, PlayerState>> = {};
-  activePlayers.forEach((playerId, index) => {
-    const isAI = aiPlayerIndexes.has(index);
-    const p = createInitialPlayerState(
-      playerId,
-      playerNames[index],
-      PLAYER_COLOR_ORDER[index],
-      isAI
-    );
-    // 시작 현금 오버라이드 (Western US: 2주에 $20 — 추가 $10은 개인 자산)
-    const sc = setupRules.startingCash;
-    if (sc != null) p.cash = sc;
-    players[playerId] = p;
-  });
-
-  // playerMoves 동적 생성
-  const playerMoves: Partial<Record<PlayerId, boolean>> = {};
-  activePlayers.forEach(p => { playerMoves[p] = false; });
-
-  // 맵별 턴 수 (튜토리얼 3턴, St. Lucia 8턴 등 - mapRegistry에서 정의)
-  const maxTurns = mapData.maxTurns || (TURNS_BY_PLAYER_COUNT[playerCount] || 6);
-
-  // 교대 선공권 맵: 첫 턴 1번 플레이어를 무작위 결정 (룰북: randomly determine the first player)
-  // (일반 맵은 player-index 고정 순서 유지 — player별 성적으로 편향을 측정·진단하기 위함.
-  //  순서를 무작위로 섞으면 player별 통계가 평준화돼 "골고루 이기는지"를 측정할 수 없다.)
-  const mapRules = getMapProfile(mapId);
-  const initialPlayerOrder = [...activePlayers];
-  if (mapRules.alternateTurnOrder && initialPlayerOrder.length >= 2 && Math.random() < 0.5) {
-    [initialPlayerOrder[0], initialPlayerOrder[1]] = [initialPlayerOrder[1], initialPlayerOrder[0]];
-  }
-
-  return {
-    // 메타 정보
-    gameId: `game-${Date.now()}`,
-    mapId,
-    playerCount,
-    activePlayers,
-    maxTurns,
-
-    // 턴 진행
-    // 룰북(St. Lucia): 첫 턴 1번은 무작위 결정 (선공권 제안 없음), 이후 턴부터 교대 제안
-    currentTurn: 1,
-    currentPhase: 'issueShares',
-    currentPlayer: initialPlayerOrder[0],
-    playerOrder: initialPlayerOrder,
-
-    // 플레이어
-    players: players as Record<PlayerId, PlayerState>,
-
-    // 보드
-    board: {
-      ...boardState,
-      cities: citiesWithCubes,
-      towns: townsWithCubes,
-      hexTiles: hexTilesWithCubes,
-    },
-    goodsDisplay: {
-      slots: displaySlots,
-      bag,
-    },
-    newCityTiles: NEW_CITY_TILES.map(tile => ({ ...tile })),  // 복사본 생성
-
-    // 경매
-    auction: null,
-
-    // 교대 선공권 제안 (alternateTurnOrder 맵 전용)
-    turnOrderOffer: null,
-    // 다음 턴(2턴) 선공권 제안 차례: 첫 턴 1번이 아닌 플레이어 (엄격 교대)
-    nextFirstSeatOption: mapRules.alternateTurnOrder ? (initialPlayerOrder[1] ?? null) : null,
-
-    // 단계 상태
-    phaseState: {
-      builtTracksThisTurn: 0,
-      maxTracksThisTurn: GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
-      lastBuiltCoords: [],
-      moveGoodsRound: 1,
-      playerMoves: playerMoves as Record<PlayerId, boolean>,
-      engineUpgradedThisTurn: { ...playerMoves } as Record<PlayerId, boolean>,
-      productionUsed: false,
-      urbanizationUsed: false,
-      locomotiveUsed: false,
-    },
-
-    // UI 상태
-    ui: {
-      selectedHex: null,
-      selectedCube: null,
-      previewTrack: null,
-      highlightedHexes: [],
-      movePath: [],
-      // 트랙 건설 UI 상태
-      buildMode: 'idle',
-      sourceHex: null,
-      buildableNeighbors: [],
-      targetHex: null,
-      entryEdge: null,
-      exitDirections: [],
-      // 복합 트랙 선택 UI 상태
-      complexTrackSelection: null,
-      // 방향 전환 UI 상태
-      redirectTrackSelection: null,
-      // 도시화 UI 상태
-      urbanizationMode: false,
-      selectedNewCityTile: null,
-      // Production UI 상태
-      productionMode: false,
-      productionCubes: [],
-      selectedProductionSlots: [],
-      // 물품 이동 애니메이션 상태
-      movingCube: null,
-      reachableDestinations: [],
-    },
-
-    // 로그
-    logs: [],
-
-    // 실행 취소
-    undoCount: 0,
-
-    // 결과
-    winner: null,
-    finalScores: null,
-
-    // 1회성/임시 상태 — 새 게임마다 반드시 초기화 (persist 병합 시 이전 게임 값 잔존 방지)
-    transcontinentalAwarded: false,
-    transcontinentalEvent: null,
-    incomeReductions: null,
-  };
-}
-
-// ============================================================
-// Western US: 대륙횡단(서부 시작도시↔동부 시작도시) 연결 감지 + 보너스
-// ============================================================
-
-/** 완성 링크 그래프에서 starts → goals 경로의 트랙 소유자 목록(중복 포함). 없으면 null. */
-function bfsConnectingOwners(
-  adj: Map<string, { to: string; owner: PlayerId }[]>,
-  starts: Set<string>,
-  goals: Set<string>
-): PlayerId[] | null {
-  const queue = Array.from(starts);
-  const visited = new Set<string>(starts);
-  const parent = new Map<string, { from: string; owner: PlayerId }>();
-  while (queue.length) {
-    const cur = queue.shift()!;
-    if (goals.has(cur)) {
-      const owners: PlayerId[] = [];
-      let node = cur;
-      while (parent.has(node)) { const p = parent.get(node)!; owners.push(p.owner); node = p.from; }
-      return owners;
-    }
-    for (const e of adj.get(cur) ?? []) {
-      if (!visited.has(e.to)) { visited.add(e.to); parent.set(e.to, { from: cur, owner: e.owner }); queue.push(e.to); }
-    }
-  }
-  return null;
-}
-
-/**
- * 대륙횡단 연결을 평가해 (1) 각 플레이어의 transcontinental 플래그(연속성 해제)와
- * (2) 1회성 연결 보너스($4/$2 income)를 적용한 새 상태 조각을 반환. 변화 없으면 null.
- * 룰북: 1철도 연결=+$4, 2철도=각 +$2, 3철도+=연결 트랙 놓은 플레이어가 2철도 선택 +$2.
- */
-function computeTranscontinental(state: GameState, builder: PlayerId):
-  { players: Record<PlayerId, PlayerState>; awarded: boolean; log: string; event: TranscontinentalEvent } | null {
-  const profile = getMapProfile(state.mapId);
-  if (!profile.transcontinentalBonus) return null;
-  // 효율: 보너스 이미 지급 + 모든 활성 플레이어가 대륙횡단 달성 → 더 스캔할 것 없음
-  // (매 건설마다 findAllCompletedLinks×N 전수 스캔을 후반에 회피)
-  if ((state.transcontinentalAwarded ?? false) &&
-      state.activePlayers.every(p => state.players[p]?.transcontinental || state.players[p]?.eliminated)) {
-    return null;
-  }
-  const board = state.board;
-
-  const westStops = board.cities.filter(c => c.region === 'west' && profile.isStartingCity(c));
-  const eastStops = board.cities.filter(c => c.region === 'east' && profile.isStartingCity(c));
-  if (!westStops.length || !eastStops.length) return null;
-
-  const stopKey = (coord: HexCoord): string => {
-    const c = board.cities.find(ct => hexCoordsEqual(ct.coord, coord));
-    return c ? `c:${c.id}` : `t:${coord.col},${coord.row}`;
-  };
-  const westKeys = new Set(westStops.map(c => `c:${c.id}`));
-  const eastKeys = new Set(eastStops.map(c => `c:${c.id}`));
-
-  // 완성 링크(소유자별) 수집 → 합집합/플레이어별 인접그래프
-  const allEdges: { a: string; b: string; owner: PlayerId }[] = [];
-  for (const pid of state.activePlayers) {
-    for (const link of findAllCompletedLinks(board, pid)) {
-      allEdges.push({ a: stopKey(link.from), b: stopKey(link.to), owner: pid });
-    }
-  }
-  if (!allEdges.length) return null;
-  const buildAdj = (filter?: PlayerId) => {
-    const adj = new Map<string, { to: string; owner: PlayerId }[]>();
-    const add = (a: string, b: string, owner: PlayerId) => {
-      if (!adj.has(a)) adj.set(a, []);
-      adj.get(a)!.push({ to: b, owner });
-    };
-    for (const e of allEdges) {
-      if (filter && e.owner !== filter) continue;
-      add(e.a, e.b, e.owner); add(e.b, e.a, e.owner);
-    }
-    return adj;
-  };
-
-  let players = state.players;
-  let changed = false;
-  const ensureCopy = () => { if (!changed) { players = { ...players }; changed = true; } };
-
-  // (1) 플레이어별 연속성 해제: 자기 완성 링크만으로 서부↔동부 연결 시 플래그
-  const unlockedPlayers: { playerId: PlayerId; name: string }[] = [];
-  for (const pid of state.activePlayers) {
-    if (players[pid]?.transcontinental || players[pid]?.eliminated) continue;
-    if (bfsConnectingOwners(buildAdj(pid), westKeys, eastKeys)) {
-      ensureCopy();
-      players[pid] = { ...players[pid], transcontinental: true };
-      unlockedPlayers.push({ playerId: pid, name: players[pid].name });
-    }
-  }
-
-  // (2) 1회성 연결 보너스 (보드 전체 최초 연결 — 임의 소유자 경로 허용)
-  let awarded = state.transcontinentalAwarded ?? false;
-  let log = '';
-  const bonusRecipients: { playerId: PlayerId; name: string; amount: number }[] = [];
-  if (!awarded) {
-    const ownersOnPath = bfsConnectingOwners(buildAdj(), westKeys, eastKeys);
-    if (ownersOnPath && ownersOnPath.length) {
-      // 경로상 각 철도의 트랙 기여 수(빈도)
-      const freq = new Map<PlayerId, number>();
-      for (const o of ownersOnPath) freq.set(o, (freq.get(o) ?? 0) + 1);
-      const distinct = Array.from(freq.keys());
-      // 룰북: 1철도 → +$4. 2철도 → 각 +$2. 3철도+ → "연결 트랙 놓은 플레이어가 2철도 선택" →
-      //   연결을 완성한 builder를 우선 포함하고, 나머지 한 자리는 경로 트랙이 가장 많은 철도로.
-      let recipients: PlayerId[];
-      let amt: number;
-      if (distinct.length === 1) {
-        recipients = distinct; amt = 4;
-      } else {
-        const ranked = distinct.slice().sort((a, b) => (freq.get(b)! - freq.get(a)!));
-        const ordered = distinct.includes(builder) ? [builder, ...ranked.filter(o => o !== builder)] : ranked;
-        recipients = ordered.slice(0, 2); amt = 2;
-      }
-      ensureCopy();
-      const parts: string[] = [];
-      for (const pid of recipients) {
-        players[pid] = {
-          ...players[pid],
-          income: Math.min(players[pid].income + amt, GAME_CONSTANTS.MAX_INCOME),
-          transcontinental: true,
-        };
-        parts.push(`${players[pid].name} +${amt} income`);
-        bonusRecipients.push({ playerId: pid, name: players[pid].name, amount: amt });
-      }
-      awarded = true;
-      log = `🌉 대륙횡단 연결 보너스: ${parts.join(', ')}`;
-      logAction('trackBuilding', 'transcontinental', { owners: distinct, recipients, amt }, 'error');
-    }
-  }
-
-  if (!changed && awarded === (state.transcontinentalAwarded ?? false)) return null;
-  // 보너스 수령자는 연속성도 함께 해제됨 — 팝업에 중복 표시하지 않도록 unlockedPlayers에서 제외
-  const bonusIds = new Set(bonusRecipients.map(r => r.playerId));
-  const event: TranscontinentalEvent = {
-    bonusRecipients,
-    unlockedPlayers: unlockedPlayers.filter(u => !bonusIds.has(u.playerId)),
-  };
-  return { players, awarded, log, event };
-}
-
-// ============================================================
-// AI 동기화 헬퍼 (레이스 컨디션 방지)
-// ============================================================
-
-/** AI 체크 debounce 타임아웃 ID */
-let aiCheckTimeoutId: ReturnType<typeof setTimeout> | null = null;
-
-/** AI 체크 debounce 딜레이 (ms) */
-const AI_CHECK_DEBOUNCE = 150;
-
-/**
- * AI 실행 락 획득 시도
- * @returns executionId if acquired, null if already locked
- */
-const tryAcquireAILock = (get: () => GameStore, set: (partial: Partial<GameStore>) => void): number | null => {
-  const state = get();
-  if (state.aiExecution.pending) {
-    console.log('[AI Lock] 이미 실행 중 - 락 획득 실패');
-    return null;
-  }
-  const executionId = Date.now();
-  set({ aiExecution: { pending: true, executionId } });
-  console.log(`[AI Lock] 락 획득 성공 - executionId: ${executionId}`);
-  return executionId;
-};
-
-/**
- * AI 실행 락 해제
- * @param executionId 획득한 executionId
- */
-const releaseAILock = (
-  executionId: number,
-  get: () => GameStore,
-  set: (partial: Partial<GameStore>) => void
-): void => {
-  const state = get();
-  if (state.aiExecution.executionId === executionId) {
-    set({ aiExecution: { pending: false, executionId: 0 } });
-    console.log(`[AI Lock] 락 해제 - executionId: ${executionId}`);
-  } else {
-    console.warn(`[AI Lock] 락 해제 실패 - executionId 불일치: ${executionId} vs ${state.aiExecution.executionId}`);
-  }
-};
-
-/**
- * 실행 컨텍스트 유효성 검증
- * @returns true if context is still valid
- */
-const validateExecutionContext = (
-  context: CapturedAIContext,
-  get: () => GameStore
-): boolean => {
-  const currentState = get();
-  const isValid = (
-    currentState.currentPlayer === context.currentPlayer &&
-    currentState.currentPhase === context.currentPhase &&
-    currentState.aiExecution.executionId === context.executionId
-  );
-  if (!isValid) {
-    console.warn('[AI Context] 컨텍스트 유효성 검증 실패:', {
-      expected: { player: context.currentPlayer, phase: context.currentPhase, execId: context.executionId },
-      actual: { player: currentState.currentPlayer, phase: currentState.currentPhase, execId: currentState.aiExecution.executionId },
-    });
-  }
-  return isValid;
-};
-
-/** 플레이어 행동이 필요한 단계들 */
-const PLAYER_ACTION_PHASES: GamePhase[] = [
-  'issueShares',
-  'determinePlayerOrder',
-  'selectActions',
-  'buildTrack',
-  'moveGoods',
-];
-
-/**
- * 중앙 집중식 AI 스케줄러 (debounce 적용)
- * 모든 AI 트리거 포인트에서 이 함수를 호출하여 중복 실행 방지
- */
-const scheduleAICheck = (get: () => GameStore): void => {
-  // 기존 타임아웃 취소 (debounce)
-  if (aiCheckTimeoutId) {
-    clearTimeout(aiCheckTimeoutId);
-  }
-
-  aiCheckTimeoutId = setTimeout(() => {
-    aiCheckTimeoutId = null;
-
-    const state = get();
-
-    // 조건 체크
-    const isPhaseMatch = PLAYER_ACTION_PHASES.includes(state.currentPhase);
-    const isAI = isCurrentPlayerAI(state);
-    const notPending = !state.aiExecution.pending;
-
-    console.log(`[AI 스케줄러] phase=${state.currentPhase}, player=${state.currentPlayer}, isAI=${isAI}, pending=${state.aiExecution.pending}`);
-
-    if (isPhaseMatch && isAI && notPending) {
-      console.log('[AI 스케줄러] 조건 충족 - AI 턴 실행');
-      state.executeAITurn();
-    }
-  }, AI_CHECK_DEBOUNCE);
-};
 
 // ============================================================
 // 스토어 인터페이스
 // ============================================================
-interface GameStore extends GameState {
+export interface GameStore extends GameState {
   // --- 게임 라이프사이클 ---
   /** 게임 초기화 */
   initGame: (mapId: string, playerNames: string[], aiPlayers?: AIPlayerConfig[]) => void;

@@ -1,0 +1,328 @@
+'use client';
+
+/**
+ * 온라인 멀티 로비 (Phase 1 스텝 3)
+ * - 방 없음: 방 만들기(인원/좌석 구성) + 코드 입장 폼
+ * - 대기실: 방 코드 공유, 좌석 현황(착석/빈자리/AI), 채팅, 호스트 시작 버튼
+ * 게임 시작 후 화면 전환은 GamePageClient가 room.status === 'playing'을 보고 처리.
+ */
+import { useEffect, useRef, useState } from 'react';
+import { isNetConfigured } from '@/net';
+import type { RoomSeat } from '@/net';
+import { useNetStore } from '@/net/netStore';
+import { PLAYER_COLOR_ORDER, PLAYER_COLORS } from '@/types/game';
+import { Bot, Check, Copy, Crown, Loader2, LogOut, Play, Send, User, Wifi, WifiOff } from 'lucide-react';
+
+interface OnlineLobbyProps {
+  mapId: string;
+  supportedPlayers: number[];
+}
+
+export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProps) {
+  const {
+    mode, room, mySeat, presentClientIds, chat, busy, error,
+    hostRoom, joinRoom, leaveRoom, sendChat, updateSeats, startOnlineGame,
+  } = useNetStore();
+
+  const [myName, setMyName] = useState('기차-하나');
+  const [joinCode, setJoinCode] = useState('');
+  const [playerCount, setPlayerCount] = useState(supportedPlayers[0]);
+  // 방 만들기 좌석 구성: seat 0 = 나(호스트), 나머지 기본 = 친구 자리(사람)
+  const [aiSeats, setAiSeats] = useState<Set<number>>(new Set());
+  const [chatInput, setChatInput] = useState('');
+  const [copied, setCopied] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chat.length]);
+
+  if (!isNetConfigured()) {
+    return (
+      <div className="p-4 rounded-lg bg-background-tertiary text-sm text-foreground-secondary">
+        온라인 기능이 설정되지 않은 배포입니다 (Supabase 환경변수 없음).
+      </div>
+    );
+  }
+
+  const toggleAiSeat = (seat: number) => {
+    setAiSeats((prev) => {
+      const next = new Set(prev);
+      if (next.has(seat)) next.delete(seat);
+      else next.add(seat);
+      return next;
+    });
+  };
+
+  const handleCreate = () => {
+    const seats: RoomSeat[] = Array.from({ length: playerCount }, (_, i) => {
+      if (i === 0) return { seat: 0, name: myName.trim() || '호스트', kind: 'human' as const, clientId: null };
+      return aiSeats.has(i)
+        ? { seat: i, name: `컴퓨터-기차${i > 1 ? ['', '', 'II', 'III', 'IV', 'V'][i] : ''}`, kind: 'ai' as const, clientId: null }
+        : { seat: i, name: `빈자리 ${i + 1}`, kind: 'human' as const, clientId: null };
+    });
+    void hostRoom({ mapId, seats });
+  };
+
+  const handleJoin = () => {
+    if (!joinCode.trim()) return;
+    void joinRoom(joinCode.trim().toUpperCase(), myName.trim() || '게스트');
+  };
+
+  const handleCopy = async () => {
+    if (!room) return;
+    try {
+      await navigator.clipboard.writeText(room.code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard 미지원 — 코드가 화면에 있으므로 무시 */
+    }
+  };
+
+  const handleSendChat = () => {
+    if (!chatInput.trim()) return;
+    sendChat(chatInput);
+    setChatInput('');
+  };
+
+  // ---------- 대기실 ----------
+  if (room) {
+    const allReady = room.seats.every((s) => s.kind === 'ai' || s.clientId);
+    const isHost = mode === 'host';
+
+    return (
+      <div className="space-y-4">
+        {/* 방 코드 */}
+        <div className="p-4 rounded-xl bg-background-tertiary text-center">
+          <div className="text-xs text-foreground-secondary mb-1">방 코드 — 친구에게 공유하세요</div>
+          <div className="flex items-center justify-center gap-2">
+            <span className="text-3xl font-bold tracking-[0.3em] text-accent font-display">{room.code}</span>
+            <button
+              onClick={handleCopy}
+              className="p-2 rounded-lg hover:bg-foreground/10 text-foreground-secondary"
+              title="코드 복사"
+            >
+              {copied ? <Check size={16} className="text-positive" /> : <Copy size={16} />}
+            </button>
+          </div>
+          <div className="mt-1 text-xs text-foreground-muted flex items-center justify-center gap-1">
+            <Wifi size={12} /> 접속 {presentClientIds.length}명
+          </div>
+        </div>
+
+        {/* 좌석 현황 */}
+        <div className="space-y-2">
+          {room.seats.map((seat) => {
+            const online = seat.clientId ? presentClientIds.includes(seat.clientId) : false;
+            const isMe = seat.seat === mySeat;
+            const color = PLAYER_COLORS[PLAYER_COLOR_ORDER[seat.seat]];
+            return (
+              <div
+                key={seat.seat}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
+                  isMe ? 'border-accent bg-accent/5' : 'border-foreground/10 bg-background-secondary'
+                }`}
+              >
+                <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                <span className="text-sm text-foreground flex-1 truncate">
+                  {seat.name}
+                  {isMe && <span className="text-accent text-xs ml-1">(나)</span>}
+                </span>
+                {seat.seat === 0 && <Crown size={13} className="text-accent" aria-label="호스트" />}
+                {seat.kind === 'ai' ? (
+                  <span className="flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-blue-500/15 text-blue-500">
+                    <Bot size={11} /> AI
+                  </span>
+                ) : seat.clientId ? (
+                  <span className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded-full ${
+                    online ? 'bg-positive/15 text-positive' : 'bg-foreground/10 text-foreground-muted'
+                  }`}>
+                    {online ? <Wifi size={11} /> : <WifiOff size={11} />} {online ? '접속' : '끊김'}
+                  </span>
+                ) : (
+                  <>
+                    <span className="px-2 py-0.5 text-xs rounded-full bg-foreground/10 text-foreground-muted">
+                      대기 중…
+                    </span>
+                    {isHost && (
+                      <button
+                        onClick={() => {
+                          void updateSeats(
+                            room.seats.map((s) =>
+                              s.seat === seat.seat
+                                ? { ...s, kind: 'ai' as const, name: `컴퓨터-기차${s.seat}`, clientId: null }
+                                : s
+                            )
+                          );
+                        }}
+                        className="px-2 py-0.5 text-xs rounded-full bg-background-tertiary text-foreground-secondary hover:bg-foreground/10"
+                        title="이 자리를 AI로 채우기"
+                      >
+                        AI로
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 채팅 */}
+        <div className="rounded-lg border border-foreground/10 bg-background-secondary">
+          <div className="max-h-32 overflow-y-auto p-2 space-y-1">
+            {chat.length === 0 && (
+              <div className="text-xs text-foreground-muted text-center py-2">대기실 채팅</div>
+            )}
+            {chat.map((m, i) => (
+              <div key={`${m.at}-${i}`} className="text-xs text-foreground">
+                <span className="font-semibold text-foreground-secondary">{m.name}</span> {m.text}
+              </div>
+            ))}
+            <div ref={chatEndRef} />
+          </div>
+          <div className="flex border-t border-foreground/10">
+            <input
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSendChat()}
+              placeholder="메시지…"
+              className="flex-1 px-3 py-2 bg-transparent text-sm text-foreground focus:outline-none"
+            />
+            <button onClick={handleSendChat} className="px-3 text-foreground-secondary hover:text-accent">
+              <Send size={14} />
+            </button>
+          </div>
+        </div>
+
+        {/* 시작/나가기 */}
+        {isHost ? (
+          <button
+            onClick={() => void startOnlineGame()}
+            disabled={!allReady}
+            className={`w-full py-3 rounded-xl font-semibold flex items-center justify-center gap-2 ${
+              allReady ? 'btn-primary' : 'bg-background-tertiary text-foreground-muted cursor-not-allowed'
+            }`}
+          >
+            <Play size={16} />
+            {allReady ? '게임 시작' : '모든 자리가 차야 시작할 수 있어요 (빈자리는 AI로 전환 가능)'}
+          </button>
+        ) : (
+          <div className="w-full py-3 rounded-xl bg-background-tertiary text-center text-sm text-foreground-secondary flex items-center justify-center gap-2">
+            <Loader2 size={14} className="animate-spin" />
+            호스트가 시작하기를 기다리는 중…
+          </div>
+        )}
+        <button
+          onClick={() => void leaveRoom()}
+          className="w-full py-2 rounded-lg text-sm text-foreground-secondary hover:bg-foreground/5 flex items-center justify-center gap-1"
+        >
+          <LogOut size={13} /> 방 나가기
+        </button>
+      </div>
+    );
+  }
+
+  // ---------- 방 만들기 / 입장 폼 ----------
+  return (
+    <div className="space-y-5">
+      {/* 내 이름 */}
+      <div>
+        <label className="flex items-center gap-2 text-sm text-foreground-secondary mb-2">
+          <User size={16} /> 내 이름
+        </label>
+        <input
+          value={myName}
+          onChange={(e) => setMyName(e.target.value)}
+          className="w-full px-4 py-2 bg-background-secondary rounded-lg border border-foreground/10 text-foreground focus:border-accent focus:outline-none"
+          placeholder="이름"
+        />
+      </div>
+
+      {/* 방 만들기 */}
+      <div className="p-4 rounded-xl border border-foreground/10 space-y-3">
+        <div className="text-sm font-semibold text-foreground">방 만들기</div>
+        {supportedPlayers.length > 1 && (
+          <div className="flex gap-2">
+            {supportedPlayers.map((n) => (
+              <button
+                key={n}
+                onClick={() => setPlayerCount(n)}
+                className={`flex-1 py-1.5 px-2 rounded-lg text-sm font-semibold transition-colors ${
+                  playerCount === n
+                    ? 'bg-accent text-background'
+                    : 'bg-background-secondary text-foreground-secondary hover:bg-background-tertiary'
+                }`}
+              >
+                {n}인
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="space-y-1.5">
+          {Array.from({ length: playerCount }).map((_, i) => (
+            <div key={i} className="flex items-center gap-2 text-xs">
+              <span
+                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                style={{ backgroundColor: PLAYER_COLORS[PLAYER_COLOR_ORDER[i]] }}
+              />
+              {i === 0 ? (
+                <span className="text-foreground">{myName.trim() || '호스트'} <span className="text-accent">(나 · 호스트)</span></span>
+              ) : (
+                <>
+                  <span className="text-foreground-secondary flex-1">자리 {i + 1}</span>
+                  <button
+                    onClick={() => toggleAiSeat(i)}
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded-full transition-colors ${
+                      aiSeats.has(i)
+                        ? 'bg-blue-500/15 text-blue-500'
+                        : 'bg-background-tertiary text-foreground-secondary hover:bg-foreground/10'
+                    }`}
+                  >
+                    <Bot size={11} /> {aiSeats.has(i) ? 'AI' : '친구 자리'}
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+        <button
+          onClick={handleCreate}
+          disabled={busy}
+          className="w-full btn-primary py-2.5 rounded-xl text-sm font-semibold disabled:opacity-60"
+        >
+          {busy ? '만드는 중…' : '방 만들기 (코드 발급)'}
+        </button>
+      </div>
+
+      {/* 코드 입장 */}
+      <div className="p-4 rounded-xl border border-foreground/10 space-y-3">
+        <div className="text-sm font-semibold text-foreground">코드로 입장</div>
+        <div className="flex gap-2">
+          <input
+            value={joinCode}
+            onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+            onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
+            placeholder="방 코드 (예: 7XK2QP)"
+            maxLength={6}
+            className="flex-1 px-4 py-2 bg-background-secondary rounded-lg border border-foreground/10 text-foreground tracking-widest uppercase focus:border-accent focus:outline-none"
+          />
+          <button
+            onClick={handleJoin}
+            disabled={busy || joinCode.trim().length < 6}
+            className="btn-secondary px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-60"
+          >
+            {busy ? '입장 중…' : '입장'}
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-500">
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}

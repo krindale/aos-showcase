@@ -34,6 +34,9 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
   }
 }
 import GameBoard from '@/components/game/GameBoard';
+import OnlineLobby from '@/components/game/OnlineLobby';
+import { useNetStore } from '@/net/netStore';
+import { isNetConfigured } from '@/net';
 import PlayerPanel from '@/components/game/PlayerPanel';
 import PhasePanel from '@/components/game/PhasePanel';
 import TurnTrack from '@/components/game/TurnTrack';
@@ -85,6 +88,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   const specialRules = getMapProfile(mapId).specialRules;
 
   const [showSetup, setShowSetup] = useState(true);
+  const [setupTab, setSetupTab] = useState<'local' | 'online'>('local');
   const [playerCount, setPlayerCount] = useState(supportedPlayers[0]);
   const [playerNames, setPlayerNames] = useState<string[]>(DEFAULT_NAMES);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
@@ -101,6 +105,8 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     resetGame,
     currentTurn,
     currentPhase,
+    currentPlayer,
+    auction,
     players,
     activePlayers,
     maxTurns,
@@ -110,6 +116,40 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     hideComplexTrackSelection,
     resetBuildMode,
   } = useGameStore();
+
+  // ---- 온라인 세션 (Phase 1) ----
+  const netMode = useNetStore((s) => s.mode);
+  const netRoom = useNetStore((s) => s.room);
+  const netMySeat = useNetStore((s) => s.mySeat);
+  const leaveRoom = useNetStore((s) => s.leaveRoom);
+  const isOnline = netMode !== 'offline';
+  const myPlayerId = isOnline && netMySeat !== null ? activePlayers[netMySeat] ?? null : null;
+  // 지금 행동해야 하는 플레이어 (경매 중엔 현재 입찰자)
+  const actingPlayer =
+    (currentPhase === 'determinePlayerOrder' && auction ? auction.currentBidder : null) ?? currentPlayer;
+  const actingPlayerState = players[actingPlayer] ?? null;
+  const isMyTurn = !isOnline || actingPlayer === myPlayerId;
+  // 상호작용 허용: 오프라인 전부 / 온라인은 내 차례 / 정산·물품성장 진행은 호스트가 담당
+  const PLAYER_PHASES = ['issueShares', 'determinePlayerOrder', 'selectActions', 'buildTrack', 'moveGoods'];
+  const canInteract =
+    !isOnline || isMyTurn || (netMode === 'host' && !PLAYER_PHASES.includes(currentPhase));
+
+  // 온라인 방 상태 → 화면 전환 (호스트 initGame / 게스트 스냅샷 수신 후 status가 playing)
+  useEffect(() => {
+    if (!isOnline || !netRoom) return;
+    if (netRoom.status === 'playing') setShowSetup(false);
+    else if (netRoom.status === 'waiting') {
+      setShowSetup(true);
+      setSetupTab('online');
+    }
+  }, [isOnline, netRoom, netRoom?.status]);
+
+  // 다른 맵의 방에 입장한 경우 그 맵 페이지로 이동 (netStore는 모듈 싱글턴이라 세션 유지)
+  useEffect(() => {
+    if (isOnline && netRoom && netRoom.mapId !== mapId) {
+      router.replace(`/game/${netRoom.mapId}/`);
+    }
+  }, [isOnline, netRoom, mapId, router]);
 
   // 플레이어 이름 업데이트
   const updatePlayerName = (index: number, name: string) => {
@@ -161,9 +201,16 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     setShowSetup(true);
   };
 
-  // 맵 페이지로 돌아가기
+  // 맵 페이지로 돌아가기 (온라인이면 방도 나감)
   const handleBack = () => {
+    if (isOnline) void leaveRoom();
     router.push('/maps');
+  };
+
+  // 온라인 방 나가기 (게임 화면 → 셋업으로)
+  const handleLeaveRoom = () => {
+    void leaveRoom();
+    setShowSetup(true);
   };
 
   // Responsive: Reset panel state on desktop (lg breakpoint) + detect landscape
@@ -229,10 +276,33 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
             <h1 className="text-3xl font-bold text-foreground mb-2">
               Age of Steam
             </h1>
-            <p className="text-foreground-secondary mb-8">
+            <p className="text-foreground-secondary mb-6">
               {mapConfig.name} - {playerCount}인 게임
             </p>
 
+            {/* 로컬 / 온라인 모드 탭 (Supabase 설정된 배포에서만) */}
+            {isNetConfigured() && (
+              <div className="flex gap-2 mb-6">
+                {([['local', '로컬 (한 기기)'], ['online', '온라인 멀티']] as const).map(([tab, label]) => (
+                  <button
+                    key={tab}
+                    onClick={() => setSetupTab(tab)}
+                    className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                      setupTab === tab
+                        ? 'bg-accent text-background'
+                        : 'bg-background-secondary text-foreground-secondary hover:bg-background-tertiary'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {setupTab === 'online' ? (
+              <OnlineLobby mapId={mapId} supportedPlayers={supportedPlayers} />
+            ) : (
+              <>
             <div className="space-y-6">
               {/* 플레이어 수 선택 */}
               {supportedPlayers.length > 1 && (
@@ -332,6 +402,8 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                 )}
               </ul>
             </div>
+              </>
+            )}
           </motion.div>
 
           {/* 맵 특수룰 안내 패널 (우측) */}
@@ -467,11 +539,11 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
 
             <div className="flex gap-4">
               <button
-                onClick={handleResetGame}
+                onClick={isOnline ? handleLeaveRoom : handleResetGame}
                 className="flex-1 btn-secondary py-3 rounded-xl flex items-center justify-center gap-2"
               >
                 <RotateCcw size={18} />
-                다시 하기
+                {isOnline ? '방 나가기' : '다시 하기'}
               </button>
               <button
                 onClick={handleBack}
@@ -587,14 +659,30 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
               )}
             </button>
 
-            <button
-              onClick={handleResetGame}
-              className="p-1.5 sm:p-2 hover:bg-foreground/10 rounded-lg transition-colors"
-              title="게임 리셋"
-              aria-label="게임 리셋"
-            >
-              <RotateCcw size={18} className="text-foreground-secondary sm:w-5 sm:h-5" />
-            </button>
+            {isOnline ? (
+              <div className="flex items-center gap-1 sm:gap-2">
+                <span className="hidden sm:flex items-center gap-1 px-2 py-1 rounded-full bg-accent/10 text-xs font-semibold text-accent tracking-widest">
+                  {netRoom?.code}
+                </span>
+                <button
+                  onClick={handleLeaveRoom}
+                  className="p-1.5 sm:p-2 hover:bg-foreground/10 rounded-lg transition-colors"
+                  title="방 나가기"
+                  aria-label="방 나가기"
+                >
+                  <X size={18} className="text-foreground-secondary sm:w-5 sm:h-5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={handleResetGame}
+                className="p-1.5 sm:p-2 hover:bg-foreground/10 rounded-lg transition-colors"
+                title="게임 리셋"
+                aria-label="게임 리셋"
+              >
+                <RotateCcw size={18} className="text-foreground-secondary sm:w-5 sm:h-5" />
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -602,8 +690,20 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       {/* 메인 콘텐츠 */}
       <main className={`${isLandscape ? 'pt-12 pb-2 px-2 h-[calc(100vh-3.5rem)] overflow-y-auto' : 'pt-20 pb-8 px-4 md:pb-8 pb-[30vh]'}`}>
         <div className={`mx-auto ${isLandscape ? '' : 'max-w-[1800px]'}`}>
+          {/* 온라인: 차례 안내 배너 */}
+          {isOnline && !isMyTurn && actingPlayerState && (
+            <div className="mb-3 px-4 py-2 rounded-lg bg-background-tertiary border border-foreground/10 text-sm text-foreground-secondary flex items-center gap-2">
+              <span
+                className="w-2 h-2 rounded-full animate-pulse"
+                style={{ backgroundColor: PLAYER_COLORS[actingPlayerState.color] }}
+              />
+              지금은 <b className="text-foreground">{actingPlayerState.name}</b> 차례입니다
+              {actingPlayerState.isAI && ' (AI 진행 중…)'}
+            </div>
+          )}
           {/* lg(데스크톱): 패널 320px 고정 + 지도 가변(나머지 전부) — 넓은 화면일수록 지도 최대.
               md(태블릿): 12-그리드 유지(패널 토글). */}
+          <div className="relative">
           <div className={`grid grid-cols-1 md:grid-cols-12 lg:grid-cols-[minmax(0,1fr)_340px] ${isLandscape ? 'gap-2' : 'gap-6'}`}>
             {/* 왼쪽: 게임 보드 + 물품 디스플레이 */}
             <div className={`
@@ -631,6 +731,9 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                 </motion.div>
               )}
             </AnimatePresence>
+          </div>
+          {/* 온라인: 내 차례가 아니면 보드/패널 클릭 차단 (호스트 검증의 UX 보강 — 최종 방어는 applyGameIntent) */}
+          {isOnline && !canInteract && <div className="absolute inset-0 z-20" aria-hidden />}
           </div>
         </div>
       </main>

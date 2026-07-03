@@ -29,7 +29,7 @@ import {
 import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { isValidConnectionPoint as isValidConnectionPointUtil } from '@/utils/trackValidation';
-import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId, TerrainType } from '@/types/game';
+import { CITY_COLORS, CUBE_COLORS, HexCoord, PlayerId, TerrainType } from '@/types/game';
 import { shadeColor, hexVertex } from './board/boardGeometry';
 
 export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean } = {}) {

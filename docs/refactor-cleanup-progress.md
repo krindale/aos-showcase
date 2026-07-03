@@ -127,4 +127,6 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
 - gameStore.ts **4,832 → 2,774줄 (−43%)**: 모듈 헬퍼 5파일(`store/helpers/`) +
   slice 3파일(`store/slices/` — uiSlice·auctionSlice·goodsGrowthSlice), 전부 코드 그대로 이동
 - 전체 vitest 24파일 207개 통과, 7개 맵 dev 페이지 정상 (각 스텝마다 게이트 통과)
-- ⚠️ 머지 전 확인: dev 서버 내리고 `npm run build` 1회 (dev 실행 중엔 빌드 금지 규칙)
+- ✅ 머지 전 `npm run build` 검증 완료 (2026-07-03, dev 중단 후 실행): 프로덕션 빌드 성공, 게임 8경로 SSG 정상.
+  1차 빌드에서 ESLint 미사용 임포트 4건 발견(분리 과정 잔재 — tsc는 미사용 임포트를 안 잡음) → 정리:
+  GameBoard `PLAYER_COLORS`, gameStore `PlayerState`·`BoardState`·`getMapData`·`PLAYER_ACTION_PHASES`

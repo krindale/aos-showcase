@@ -10,7 +10,6 @@ import {
   HexCoord,
   TrackTile,
   CubeColor,
-  PlayerState,
   GAME_CONSTANTS,
   TRACK_REPLACE_COSTS,
   NewCityTileId,
@@ -19,14 +18,13 @@ import {
   AIExecutionQueue,
   CapturedAIContext,
   MovingCubeContext,
-  BoardState,
   ACTION_INFO,
 } from '@/types/game';
 import { getAIDecision, AI_TURN_DELAY, aiPlayerManager } from '@/ai';
 import { clearUrbanizationPlanCache } from '@/ai/strategies/urbanization';
 import { clearDesperationCache } from '@/ai/strategies/auction';
 import { addFailedBuildCoord, hasPendingFreeSpur } from '@/ai/strategies/buildTrack';
-import { getMapData, getDisplaySlotRange } from '@/utils/mapRegistry';
+import { getDisplaySlotRange } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 import {
   validateFirstTrackRule,
@@ -66,10 +64,9 @@ import {
   tryAcquireAILock,
   releaseAILock,
   validateExecutionContext,
-  PLAYER_ACTION_PHASES,
   scheduleAICheck,
 } from './helpers/aiScheduler';
-// UI slice (2026-07-03 스텝 3b 분리 — 로직 무변경, 파일만 이동)
+// slice 합성 (2026-07-03 스텝 3b~3d 분리 — 로직 무변경, 파일만 이동)
 import { createUiSlice } from './slices/uiSlice';
 import { createAuctionSlice } from './slices/auctionSlice';
 import { createGoodsGrowthSlice } from './slices/goodsGrowthSlice';

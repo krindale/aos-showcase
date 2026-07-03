@@ -55,8 +55,12 @@
       수입감소 ×2는 룰 테이블 조회 후 곱해 순서 정확. Atlanta 보너스 turn<=4 게이트 정확.
       경미: applyIncomeReduction(플레이어 루프 내)·placeNewCity(4회)·completeCubeMove(2회)의
       getMapProfile 중복 호출 — 캐시 조회라 비용 미미, 스텝 7에서 hoist 정리 예정.
-- [ ] **스텝 2 — 타입 확장 파급** (CubeColor='white' 추가): CityColor 문맥에 white가 새어들 수 있는
-      지점(도시 색, 신도시 타일, 터미널 캐스팅, Record<CubeColor> 소비처) 전수 점검
+- [x] **스텝 2 — 타입 확장 파급** ✅ 통과 (2026-07-03):
+      `: CityColor`/`as CityColor` 사이트 전수 grep — testHelpers.createTestCity(도시 생성, 정당)와
+      gameStore 터미널 캐스팅(Southern 터미널 없음 + Germany 주머니에 white 없음, 주석 문서화) 2곳뿐.
+      그 외 흐름은 전부 CubeColor로 넓혀졌고 tsc strict가 역방향 누출을 구조적으로 차단.
+      CUBE_COLORS 소비처 14곳은 white 키 추가로 undefined 조회 없음. NewCityTile.color는
+      CityColor 타입이라 white 신도시 원천 불가. 100시드 불변식(주머니/디스플레이 white 0) 실증 완료.
 - [ ] **스텝 3 — 맵 데이터** (southernUsMap.ts): 좌표 중복/범위, LAND-지형 일관성, columnMapping
       diceNumber 합계(52슬롯), 인접 패리티(전치 odd-r)
 - [ ] **스텝 4 — Western 주머니 반환 + placeNewCity 순서**: updatedGoodsDisplay 병합 순서(면화 이동

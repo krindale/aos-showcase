@@ -120,6 +120,24 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
 방법: zustand 공식 slice 패턴(`(set, get) => ({...})` 부분 함수를 합성)으로 인터페이스 무변경 분리.
 각 slice 이동은 이 브랜치와 같은 방식(한 slice = 한 스텝 = 커밋·푸시, 100시드 게이트 통과)으로.
 
+## PR #18 코드리뷰 (2026-07-03, 순차 진행)
+
+> 방식: CLAUDE.md 코드리뷰 규칙 — 한 번에 한 스텝, 스텝마다 결과 기록 + 즉시 커밋·푸시.
+> 대상: origin/main(726275e)..HEAD 전체 diff (스텝 1~3d + ConfirmDialog + 문서)
+
+- [ ] R1: 스텝 1 테스트 타입 수정 3파일 — 동작 불변 검증 (특히 `isAIThinking`→`aiExecution.pending` 교체의 의미, 부분 레코드 타입의 정직성)
+- [ ] R2: 스텝 2 GameBoard 분리 5파일 — 이동 충실성·props 정확성·렌더 순서 보존
+- [ ] R3: 스텝 3a helpers 5파일 — 모듈 상태(undo 스택) 이동 동작 보존·재export 호환·type-only 순환 확인
+- [ ] R4: 스텝 3b~3d slice 3파일 — **기계 검증**: 원본 커밋에서 제거된 블록 vs slice 본문 문자열 비교 (공백 정규화)
+- [ ] R5: slice 합성부 — spread 중복 키·Set/Get 타입·Pick 목록과 GameStore 인터페이스 일치
+- [ ] R6: ConfirmDialog/PhasePanel — 엣지(진행 중 중복 클릭·스크롤락 복원·백드롭/ESC)·접근성
+- [ ] R7: 문서·위생 — progress 문서 사실성, 미사용 임포트/lint 잔존
+- [ ] R8: 최종 게이트 — tsc + 전체 vitest + 프로덕션 빌드 재확인
+
+### 리뷰 결과 기록
+
+(스텝별로 아래에 추가)
+
 ## 최종 결과 요약
 
 - `tsc --noEmit` 0 에러 (기존 17건) — 타입 안전망 복구

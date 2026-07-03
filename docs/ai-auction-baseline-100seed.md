@@ -10,7 +10,8 @@
 npx vitest run src/ai/__tests__/rustBeltSimulation.test.ts \
   src/ai/__tests__/koreaSimulation.test.ts \
   src/ai/__tests__/germanySimulation.test.ts \
-  src/ai/__tests__/westernUsSimulation.test.ts -t "베이스라인" 2>&1 | \
+  src/ai/__tests__/westernUsSimulation.test.ts \
+  src/ai/__tests__/southernUsSimulation.test.ts -t "베이스라인" 2>&1 | \
   grep -aE "=====|평균 accurate|파산: |1번\(선공\)|최종 승자|경매 입찰|1번 획득|turnOrder 행동|player[1-6]: VP"
 ```
 
@@ -54,6 +55,12 @@ rehydrate/HMR 후 도시화 배치 생략 갭 봉합). ⑥ isUrbanizationPlanSti
 | Western US (6인) | 11.07 | 0.50 | 21/23/18/26/5/7 | 52/86/117/128/80/137 |
 | Korea (4인) | 26.73 | 0.53 | 8/40/13/39 | 89/74/250/386 |
 | Germany (4인) | 25.76 | 0.34 | 30/24/29/17 | 215/206/171/208 |
+| Southern US (6인) | 12.30 | 0.54 | 33/17/13/16/12/9 | (첫 측정 2026-07-03 — 맵 신설) |
+
+Southern US(신설, 2026-07-03) 상세: income 12.19, 건설 87.7/배달 44.9(면화 8.4)/도시화 5.9,
+잔여 면화 5.6/14, 전 게임 6턴 완주, 면화 불변식(주머니/디스플레이 white 0) 통과.
+player별 VP: 21.3 / 13.9 / 12.8 / 13.4 / 4.2 / 8.1 — player1 우위·후순번 열세는 다른 6인 맵과
+같은 계열의 순서 편향(후속 밸런싱 과제, 면화 활용 8.4/14도 개선 여지).
 
 player별 VP(Rust): 20.8 / 11.3 / 18.8 / 18.7 / 19.3. 슬롯 부풀림 수정(①)의 총량 영향은 미미
 (Rust 17.85→17.77, 나머지 불변) — 부풀림 발동 창이 좁지만 발동 시 미연결 신도시를 만드는 결함이라 수정.

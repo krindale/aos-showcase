@@ -647,7 +647,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
               onClick={() => setShowCoords(v => !v)}
               className={`px-2 py-0.5 text-xs rounded transition-colors ${showCoords ? 'bg-accent text-background' : 'bg-foreground/10 text-accent hover:bg-foreground/20'}`}
             >
-              {showCoords ? '좌표 ON' : '좌표 OFF'}
+              {/* 라벨 = 누르면 실행될 동작 (상태는 배경색으로 구분) */}
+              {showCoords ? '좌표 OFF' : '좌표 ON'}
             </button>
           </div>
         </div>
@@ -955,16 +956,18 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                     const cubeX = x - ((colsInRow - 1) * 18) / 2 + colIdx * 18;
                     // pointy-top(꼭짓점 세로, 서부 US) 맵은 화물을 6px 위로.
                     const cubeY = y + cubeEdge - HEX_SIZE * 0.58 + 4 + row * 15 - (isFlat ? 0 : 6);
+                    // 면화(흰 큐브)는 기존 큐브보다 20% 크고 테두리도 두껍게
+                    const cubeSize = cubeColor === 'white' ? 14.4 : 12;
                     return (
                       <rect
                         key={`town-cube-${town.id}-${i}`}
-                        x={cubeX - 6}
-                        y={cubeY - 6}
-                        width="12"
-                        height="12"
+                        x={cubeX - cubeSize / 2}
+                        y={cubeY - cubeSize / 2}
+                        width={cubeSize}
+                        height={cubeSize}
                         fill={CUBE_COLORS[cubeColor]}
-                        stroke="#e8eaec"
-                        strokeWidth="1"
+                        stroke={cubeColor === 'white' ? '#8a857c' : '#e8eaec'}
+                        strokeWidth={cubeColor === 'white' ? 2 : 1}
                         rx="1"
                       />
                     );
@@ -1305,6 +1308,28 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                 style={{ pointerEvents: 'none' }}
               />
 
+              {/* 면화 항구(Southern US): 헥스 변 안쪽으로 두꺼운 흰 테두리 — 바깥은 지도 외곽선과
+                  겹치므로 안쪽(inset)으로 그린다. 면화(흰 큐브) 배달 종착지 표시. */}
+              {board.cottonPorts?.includes(city.id) && (
+                <>
+                  <polygon
+                    points={getHexPoints(x, y, HEX_SIZE - 5, isFlat)}
+                    fill="none"
+                    stroke="rgba(255,255,255,0.95)"
+                    strokeWidth={7}
+                    style={{ pointerEvents: 'none' }}
+                  />
+                  {/* 흰 테두리 안쪽 경계의 얇은 검은 라인 */}
+                  <polygon
+                    points={getHexPoints(x, y, HEX_SIZE - 9, isFlat)}
+                    fill="none"
+                    stroke="#1a1a1a"
+                    strokeWidth={1}
+                    style={{ pointerEvents: 'none' }}
+                  />
+                </>
+              )}
+
               {/* 외국 터미널: 얇은 흰 띠 (비인터랙티브). */}
               {city.isTerminal && (
                 <polygon
@@ -1398,16 +1423,18 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                     ui.selectedCube?.cityId === city.id &&
                     ui.selectedCube?.cubeIndex === i;
 
+                  // 면화(흰 큐브)는 기존 큐브보다 20% 크고 테두리도 두껍게
+                  const cubeSize = cubeColor === 'white' ? 14.4 : 12;
                   return (
                     <rect
                       key={`cube-${city.id}-${i}`}
-                      x={cubeX - 6}
-                      y={cubeY - 6}
-                      width="12"
-                      height="12"
+                      x={cubeX - cubeSize / 2}
+                      y={cubeY - cubeSize / 2}
+                      width={cubeSize}
+                      height={cubeSize}
                       fill={CUBE_COLORS[cubeColor]}
-                      stroke={isSelected ? '#ffffff' : '#e8eaec'}
-                      strokeWidth={isSelected ? 2 : 1}
+                      stroke={isSelected ? '#ffffff' : cubeColor === 'white' ? '#8a857c' : '#e8eaec'}
+                      strokeWidth={isSelected || cubeColor === 'white' ? 2 : 1}
                       rx="1"
                       className={
                         currentPhase === 'moveGoods'
@@ -1571,7 +1598,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                 width="18"
                 height="18"
                 fill={CUBE_COLORS[ui.movingCube.color]}
-                stroke="#ffffff"
+                stroke={ui.movingCube.color === 'white' ? '#8a857c' : '#ffffff'}
                 strokeWidth="2"
                 rx="3"
                 initial={{ x: xPoints[0], y: yPoints[0] }}

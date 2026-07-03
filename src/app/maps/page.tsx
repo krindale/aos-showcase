@@ -89,6 +89,15 @@ const maps: MapEntry[] = [
     playable: true,
   },
   {
+    slug: 'southern-us',
+    name: 'Southern U.S.',
+    nameKo: '남부 미국',
+    diff: '중급',
+    image: '/maps/southern-us.webp',
+    description: '모든 마을의 면화(흰 큐브)를 4대 항구로 실어 나르는 6인전. 4턴 남북전쟁의 수입 감소 2배와 Atlanta 호황이 특징입니다.',
+    playable: true,
+  },
+  {
     slug: 'germany',
     name: 'Germany',
     nameKo: '독일',

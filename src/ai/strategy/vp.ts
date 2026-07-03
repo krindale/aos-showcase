@@ -417,7 +417,9 @@ export function estimateRouteVP(
   const lambda = cashToVPRate(state, playerId);
   const profile = getMapProfile(state.mapId);
   // Western US: 동↔서 배달이면 매 배달 +$1 income 보너스를 ΔVP에 반영
-  const regionBonus = profile.regionDeliveryBonus(sourceCity?.region, targetCity.region);
+  // Southern US: 면화(흰 큐브) 배달 +$1 보너스도 동일하게 반영
+  const regionBonus = profile.regionDeliveryBonus(sourceCity?.region, targetCity.region)
+    + profile.cubeDeliveryBonus(opp.cubeColor);
   const perDeliveryVP = deliveryDeltaVP(state, playerId, links, 0) + regionBonus * VP_PER_INCOME;
   const fundShares = Math.ceil(Math.max(0, buildCost - player.cash) / GAME_CONSTANTS.SHARE_VALUE);
   // ★ 완성 트랙 목표 (맵별, MapProfile.targetCompletedTracks — 현재 Western US만 7): 완성트랙이

@@ -9,6 +9,7 @@ import {
   SpecialAction,
   HexCoord,
   TrackTile,
+  CityColor,
   CubeColor,
   PlayerState,
   GAME_CONSTANTS,
@@ -365,7 +366,8 @@ export function createInitialGameState(
         const used = colorUsage.get(bag[j]) ?? 0;
         if (used < tUsed) { tUsed = used; tIdx = j; }
       }
-      const cube = bag.splice(tIdx, 1)[0];
+      // 터미널 수용색은 도시색 — 면화(white)는 주머니에 없어 CityColor로 안전 (Southern은 터미널 없음)
+      const cube = bag.splice(tIdx, 1)[0] as CityColor;
       colorUsage.set(cube, (colorUsage.get(cube) ?? 0) + 1);
       return { ...city, color: cube, cubes: [cube] };
     }
@@ -392,10 +394,13 @@ export function createInitialGameState(
 
   // 마을 큐브 셋업 (Western US: "Place 1 good on each Town"). townCubeCounts에 지정된 마을만.
   // 도시 큐브와 동일한 전역 색 균형(colorUsage)을 공유한다. hexCubeSetup 맵은 마을 큐브 없음.
+  // Southern US: townFixedCube(면화)는 주머니에서 뽑지 않고 모든 마을에 고정색 1개를 놓는다.
   const townCubeCounts = setupRules.townCubeCounts;
+  const townFixedCube = setupRules.townFixedCube;
   const townsWithCubes = (setupRules.hexCubeSetup
     ? boardState.towns
     : boardState.towns.map((town) => {
+        if (townFixedCube) return { ...town, cubes: [townFixedCube] };
         const target = townCubeCounts[town.id] ?? 0;
         if (target <= 0) return { ...town, cubes: [] };
         return { ...town, cubes: drawBalancedCubes(bag, target, colorUsage) };
@@ -2856,6 +2861,9 @@ export const useGameStore = create<GameStore>()(
           }
         }
 
+        // Southern US: 4턴(남북전쟁)에는 수입 감소 2배 (incomeReductionMultiplier)
+        reduction *= getMapProfile(state.mapId).incomeReductionMultiplier(state.currentTurn);
+
         if (reduction > 0) {
           const oldIncome = player.income;
           const newIncome = Math.max(player.income - reduction, GAME_CONSTANTS.MIN_INCOME);
@@ -2963,8 +2971,11 @@ export const useGameStore = create<GameStore>()(
       }
 
       // Germany: Berlin은 매 물품 성장마다 주머니에서 무작위 큐브 1개를 받는다
-      const bonusCityId = getMapProfile(state.mapId).bonusCityCubeId;
-      if (bonusCityId && newBag.length > 0) {
+      // Southern US: Atlanta는 1~4턴만 (bonusCityCubeMaxTurn — 남북전쟁 전 호황)
+      const bonusProfile = getMapProfile(state.mapId);
+      const bonusCityId = bonusProfile.bonusCityCubeId;
+      const bonusMaxTurn = bonusProfile.bonusCityCubeMaxTurn;
+      if (bonusCityId && (bonusMaxTurn == null || state.currentTurn <= bonusMaxTurn) && newBag.length > 0) {
         // 주머니는 이미 셔플돼 있으므로 pop으로 무작위 1개 — Math.random 미사용(시드 결정성 유지)
         const cube = newBag.pop();
         const bonusCity = newCities.find(c => c.id === bonusCityId);
@@ -4228,13 +4239,25 @@ export const useGameStore = create<GameStore>()(
     // 신도시 위로 옮기고, 빈 칸을 주머니에서 보충한다. 동적 색상이라 신도시 수요색이 이 큐브로 결정됨.
     const urbanizeCount = getMapProfile(state.mapId).urbanizeFromDisplayCount;
     const newCityCubes: CubeColor[] = [];
+    // Southern US: 면화 마을이 도시화되면 면화(마을 위 큐브)는 신규 도시 위로 이동 (룰북)
+    if (getMapProfile(state.mapId).urbanizationMovesTownCubes) {
+      newCityCubes.push(...town.cubes);
+    }
     let updatedGoodsDisplay = state.goodsDisplay;
+    // Western US 룰북: 마을이 도시화되면 마을 위 물품은 주머니로 반환.
+    // (면화 이동 맵(Southern)은 위에서 신규 도시로 이동. 마을 큐브가 없는 맵은 no-op)
+    if (!getMapProfile(state.mapId).urbanizationMovesTownCubes && town.cubes.length > 0) {
+      updatedGoodsDisplay = {
+        ...updatedGoodsDisplay,
+        bag: [...updatedGoodsDisplay.bag, ...town.cubes],
+      };
+    }
     if (urbanizeCount > 0) {
       const range = getDisplaySlotRange(state.mapId, selectedTileId); // AI 수요색 예측과 동일 인덱싱 (mapRegistry 공유)
       if (range) {
         const { startIndex, rowCount } = range;
-        const slots = [...state.goodsDisplay.slots];
-        const bag = [...state.goodsDisplay.bag];
+        const slots = [...updatedGoodsDisplay.slots];
+        const bag = [...updatedGoodsDisplay.bag];
         for (let i = 0; i < rowCount && newCityCubes.length < urbanizeCount; i++) {
           const idx = startIndex + i;
           const cube = slots[idx];
@@ -4243,7 +4266,7 @@ export const useGameStore = create<GameStore>()(
             slots[idx] = bag.length > 0 ? bag.pop()! : null; // 빈 칸을 주머니에서 보충
           }
         }
-        updatedGoodsDisplay = { ...state.goodsDisplay, slots, bag };
+        updatedGoodsDisplay = { ...updatedGoodsDisplay, slots, bag };
       }
     }
 
@@ -4253,7 +4276,7 @@ export const useGameStore = create<GameStore>()(
         return {
           ...t,
           newCityColor: tile.color,
-          cubes: [],  // 마을의 물품은 제거 (Southern US 맵에서만 관련)
+          cubes: [],  // 마을의 물품 비움 — Southern은 신규 도시로 이동, 그 외(Western)는 주머니로 반환됨
         };
       }
       return t;
@@ -4302,7 +4325,7 @@ export const useGameStore = create<GameStore>()(
         townSpurs: updatedTownSpurs,
       },
       newCityTiles: updatedNewCityTiles,
-      goodsDisplay: updatedGoodsDisplay, // 한국: 도시화로 옮긴 큐브만큼 디스플레이 보충 (그 외 맵 무변경)
+      goodsDisplay: updatedGoodsDisplay, // 한국: 디스플레이 보충 / Western: 마을 큐브 주머니 반환 (그 외 맵 무변경)
       undoCount: undoSnapshots.length,
       ui: {
         ...state.ui,
@@ -4687,11 +4710,13 @@ export const useGameStore = create<GameStore>()(
 
     // Western US: 동(east)↔서(west) 배달 +$1 income 보너스 (배달한 플레이어에게).
     // 출발/도착이 모두 east/west 도시여야 함 — 중앙 도시(Denver/SLC)·마을·트랙 출발은 보너스 없음.
+    // Southern US: 면화(흰 큐브) 배달 +$1 보너스 (cubeDeliveryBonus).
     {
       const profile = getMapProfile(state.mapId);
       const fromCity = cities.find(c => hexCoordsEqual(c.coord, path[0]));
       const toCity = cities.find(c => hexCoordsEqual(c.coord, path[path.length - 1]));
-      const regionBonus = profile.regionDeliveryBonus(fromCity?.region, toCity?.region);
+      const regionBonus = profile.regionDeliveryBonus(fromCity?.region, toCity?.region)
+        + profile.cubeDeliveryBonus(color);
       if (regionBonus > 0 && state.activePlayers.includes(movingPlayerId)) {
         incomeChanges[movingPlayerId] = (incomeChanges[movingPlayerId] || 0) + regionBonus;
       }
@@ -4719,9 +4744,12 @@ export const useGameStore = create<GameStore>()(
       players: newPlayers,
       // 룰북 V: "이동 완료 후 큐브는 미사용 물품 주머니로 반환" — 반환하지 않으면 주머니가
       // 게임 진행에 따라 고갈돼 생산(Production)·물품 성장 보충·Berlin 보너스가 어긋난다.
+      // 단 Southern US 면화(흰 큐브)는 배달 후 게임에서 제거 (룰북: removed from the game).
       goodsDisplay: {
         ...state.goodsDisplay,
-        bag: [...state.goodsDisplay.bag, color],
+        bag: getMapProfile(state.mapId).deliveredCubeLeavesGame(color)
+          ? [...state.goodsDisplay.bag]
+          : [...state.goodsDisplay.bag, color],
       },
       phaseState: {
         ...state.phaseState,

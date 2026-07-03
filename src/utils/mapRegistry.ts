@@ -66,6 +66,15 @@ import {
   KOREA_TOWN_NAMES,
   createKoreaBoardState,
 } from './koreaMap';
+import {
+  SOUTHERN_US_MAP,
+  SOUTHERN_US_CITIES,
+  SOUTHERN_US_TOWNS,
+  SOUTHERN_US_COLUMN_MAPPING,
+  SOUTHERN_US_COLORS,
+  SOUTHERN_US_TOWN_NAMES,
+  createSouthernUsBoardState,
+} from './southernUsMap';
 
 /**
  * 맵별 특수 룰 플래그
@@ -290,6 +299,34 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     rules: { ...DEFAULT_MAP_RULES },
     createBoardState: createWesternUsBoardState,
     goodsCubeCounts: DEFAULT_CUBE_COUNTS, // 룰북 표준 (검정 화물은 도시화로 검정 신도시 만들어 배달)
+  },
+
+  'southern-us': {
+    id: SOUTHERN_US_MAP.id,
+    name: SOUTHERN_US_MAP.name,
+    nameKo: SOUTHERN_US_MAP.nameKo,
+    description: SOUTHERN_US_MAP.description,
+    supportedPlayers: SOUTHERN_US_MAP.supportedPlayers,
+    cols: SOUTHERN_US_MAP.cols,
+    rows: SOUTHERN_US_MAP.rows,
+    startCol: SOUTHERN_US_MAP.startCol,
+    maxTurns: SOUTHERN_US_MAP.maxTurns,
+    cities: SOUTHERN_US_CITIES,
+    towns: SOUTHERN_US_TOWNS,
+    columnMapping: SOUTHERN_US_COLUMN_MAPPING,
+    townNames: SOUTHERN_US_TOWN_NAMES,
+    hideLakeHexes: true,         // 멕시코만/대서양 외곽은 안 그려 해안 윤곽 표현
+    orientation: 'flat',         // flat-top 보드 — 전치 저장 + 렌더 전치 (Germany 등과 동일)
+    trimLeftHexes: 1,            // 좌측 row 0이 빈 열이라 viewBox에서 가려 보드 확대 (Korea와 동일 기법)
+    colors: {
+      terrain: SOUTHERN_US_COLORS.terrain,
+      background: SOUTHERN_US_COLORS.background,
+      border: SOUTHERN_US_COLORS.border,
+    },
+    // 특수 규칙(면화/항구/Atlanta 호황/남북전쟁)은 MapProfile getter + board.cottonPorts로 주입
+    rules: { ...DEFAULT_MAP_RULES },
+    createBoardState: createSouthernUsBoardState,
+    goodsCubeCounts: DEFAULT_CUBE_COUNTS, // 룰북 표준 — 면화(white)는 주머니에 넣지 않고 마을 위에만
   },
 
   korea: {

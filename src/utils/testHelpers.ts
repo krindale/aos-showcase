@@ -11,6 +11,7 @@ import {
   HexCoord,
   TrackTile,
   CubeColor,
+  CityColor,
   BoardState,
   City,
   GAME_CONSTANTS,
@@ -105,7 +106,7 @@ export function createTestCity(
   id: string,
   name: string,
   coord: HexCoord,
-  color: CubeColor,
+  color: CityColor,
   cubes: CubeColor[] = []
 ): City {
   return {

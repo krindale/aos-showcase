@@ -7,7 +7,7 @@
 // 의존 방향: maps/ 는 저수준 기반 — types/game 만 의존하고 ai/ 나 store/ 를 import 하지 않는다.
 // (AI 전략·게임 엔진이 maps/ 를 의존하는 단방향. AI 액션 메서드는 의존 방향을 정리한 뒤 단계적으로 추가)
 
-import { BoardState, SpecialAction, GAME_CONSTANTS, GameState, PlayerId, City } from '@/types/game';
+import { BoardState, SpecialAction, GAME_CONSTANTS, GameState, PlayerId, City, CubeColor } from '@/types/game';
 import { DeliveryRoute } from '@/ai/strategy/types';
 import { MapId } from './MapId';
 
@@ -56,6 +56,9 @@ export abstract class MapProfile {
   get requireCompleteLinks(): boolean { return false; }
   /** Germany: 매 턴 시작에 이 도시(id)에 주머니에서 무작위 큐브 1개 추가 (Berlin). null이면 없음. */
   get bonusCityCubeId(): string | null { return null; }
+  /** bonusCityCubeId 보너스가 적용되는 마지막 턴. null이면 매 턴 (Germany Berlin).
+   *  Southern US: Atlanta는 1~4턴만 (남북전쟁 전 호황) → 4. */
+  get bonusCityCubeMaxTurn(): number | null { return null; }
 
   /**
    * 도시 헥스 위·아래 주사위 숫자 박스가 검은색(흰 숫자)인지 — 공식 맵 시트 기준 맵별 규칙.
@@ -93,6 +96,18 @@ export abstract class MapProfile {
   regionDeliveryBonus(fromRegion?: 'east' | 'west', toRegion?: 'east' | 'west'): number {
     void fromRegion; void toRegion; return 0;
   }
+
+  // ── Southern US 특수룰 (기본값 = 영향 없음) ──
+  /** 셋업: 모든 마을에 이 색 큐브 1개를 고정 배치 (주머니에서 뽑지 않음). Southern US: 면화(white). */
+  get townFixedCube(): CubeColor | null { return null; }
+  /** 큐브 색에 따른 배달 income 보너스 ($). Southern US: 면화(white) +1. */
+  cubeDeliveryBonus(color: CubeColor): number { void color; return 0; }
+  /** 배달 완료 시 큐브를 주머니로 반환하지 않고 게임에서 제거하는가. Southern US: 면화(white). */
+  deliveredCubeLeavesGame(color: CubeColor): boolean { void color; return false; }
+  /** 도시화 시 마을 위 큐브를 신규 도시로 옮기는가 (기본: 제거). Southern US: 면화 유지. */
+  get urbanizationMovesTownCubes(): boolean { return false; }
+  /** VIII. 수입 감소 배수 (턴별). Southern US: 4턴(남북전쟁) 2배. */
+  incomeReductionMultiplier(turn: number): number { void turn; return 1; }
 
   // ── UI: 게임 시작 화면 특수룰 안내 (기본 = 표준 맵, 특수룰 없음) ──
   /** 게임 시작(플레이어 설정) 화면 우측에 표시할 이 맵만의 특수룰 목록. 빈 배열이면 패널 미표시. */

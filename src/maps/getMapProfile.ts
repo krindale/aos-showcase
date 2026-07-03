@@ -10,6 +10,7 @@ import { StLuciaMapProfile } from './profiles/StLuciaMapProfile';
 import { RustBeltMapProfile } from './profiles/RustBeltMapProfile';
 import { GermanyMapProfile } from './profiles/GermanyMapProfile';
 import { WesternUsMapProfile } from './profiles/WesternUsMapProfile';
+import { SouthernUsMapProfile } from './profiles/SouthernUsMapProfile';
 import { KoreaMapProfile } from './profiles/KoreaMapProfile';
 import { TUTORIAL_MAP, createInitialBoardState as createTutorialBoardState } from '@/utils/tutorialMap';
 
@@ -31,6 +32,9 @@ function buildProfile(mapId: string): MapProfile {
 
     case MapId.WesternUS:
       return new WesternUsMapProfile();
+
+    case MapId.SouthernUS:
+      return new SouthernUsMapProfile();
 
     case MapId.Korea:
       return new KoreaMapProfile();

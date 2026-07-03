@@ -22,7 +22,7 @@ describe('턴당 건설 제한 (게임 로그 기반)', () => {
       await wait(50);
       const now = useGameStore.getState();
       const autoPhases = ['collectIncome', 'payExpenses', 'incomeReduction', 'goodsGrowth', 'advanceTurn'];
-      if (now.logs.length === lastLogCount && !now.ui.movingCube && !now.isAIThinking) {
+      if (now.logs.length === lastLogCount && !now.ui.movingCube && !now.aiExecution.pending) {
         stuckMs += 50;
         if (stuckMs > 2000 && autoPhases.includes(now.currentPhase)) { now.nextPhase(); stuckMs = 0; continue; }
         if (stuckMs > 8000) break;
@@ -38,8 +38,8 @@ describe('턴당 건설 제한 (게임 로그 기반)', () => {
         counts.set(key, (counts.get(key) ?? 0) + 1);
       }
     }
-    const violations = [...counts.entries()].filter(([, n]) => n > 4); // Engineer 상한 4
-    const over3NoEngineer = [...counts.entries()].filter(([, n]) => n > 3);
+    const violations = Array.from(counts.entries()).filter(([, n]) => n > 4); // Engineer 상한 4
+    const over3NoEngineer = Array.from(counts.entries()).filter(([, n]) => n > 3);
     console.log('차례별 건설 수:', Object.fromEntries(counts));
     if (over3NoEngineer.length > 0) {
       // 4건이 나오면 해당 턴에 Engineer 선택이 있었는지는 로그로 수동 확인

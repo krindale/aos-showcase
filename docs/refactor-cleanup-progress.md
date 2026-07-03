@@ -22,7 +22,7 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
 ## 스텝 체크리스트
 
 - [x] 스텝 0: 브랜치 생성 + 이 문서 작성
-- [ ] 스텝 1: 테스트 파일 타입 에러 17건 수정 (`tsc --noEmit` 0 에러 목표)
+- [x] 스텝 1: 테스트 파일 타입 에러 17건 수정 (`tsc --noEmit` 0 에러 목표)
   - `fullGameSimulation.test.ts` 12건: `as Record<PlayerId, ...>` 캐스트(부분 객체), `{} as null`, `never` 추론
   - `fullSimulation.test.ts` 2건: `phaseState.moveGoodsRound: number` vs `1 | 2`
   - `buildLimitByLog.test.ts` 3건: 존재하지 않는 `isAIThinking` 프로퍼티 참조, MapIterator 순회(target 이슈)
@@ -38,8 +38,14 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
 ### 스텝 0 (완료)
 - 브랜치 `refactor/cleanup-typecheck-gameboard` 생성, 진행 문서 작성.
 
-### 스텝 1
-- (진행 예정)
+### 스텝 1 (완료)
+- `tsc --noEmit` **0 에러** 달성, `npx vitest run` 24파일 207개 전부 통과 (1 skipped = 기존 St.Lucia 목표 게이트).
+- `fullGameSimulation.test.ts`: 턴별 스냅샷 변수 6개를 `Partial<Record<PlayerId, ...>>`로 선언 —
+  `{} as typeof X` 캐스트 전부 제거 (2인만 채우는 부분 레코드의 정직한 타입). `financials`는 6인 전체 키로 초기화.
+- `fullSimulation.test.ts`: `moveGoodsRound: round as 1 | 2` + `playerMoves`에 player4~6 키 보충.
+- `buildLimitByLog.test.ts`: 존재하지 않는 `isAIThinking` → `aiExecution.pending`으로 교체
+  (types/game.ts 주석에 명시된 공식 대체 필드 — 기존엔 항상 undefined라 stuck 감지가 무조건 통과했음, 실질 버그 수정).
+  `[...counts.entries()]` 스프레드 → `Array.from(...)` (MapIterator target 이슈).
 
 ### 스텝 2
 - (진행 예정)

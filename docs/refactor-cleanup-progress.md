@@ -217,15 +217,40 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
 > 대상: 커밋 87ab0ac(3e)·af7c1b7(3f)·1617d00(3g)·8d4bb73(lint) — buildSlice·moveSlice·settlementSlice
 > 방식: CLAUDE.md 코드리뷰 규칙 (체크리스트 → 한 스텝씩 → 스텝마다 기록+커밋·푸시)
 
-- [ ] R9: buildSlice — 임포트 정확성(undoSnapshots 사용처·TOWN_SPUR_COST 이동 무결성)·undoCount 동기 메커니즘 보존
-- [ ] R10: moveSlice — releaseAILock 런타임 임포트의 순환 위험 검사 (moveSlice→aiScheduler→@/ai 체인)
-- [ ] R11: settlementSlice — `_get` 시그니처 통일성·GamePhase 사용처·lint 정리의 부작용 없음
-- [ ] R12: gameStore 잔여 — 새 22개 이동 액션의 중복 구현 0건 재검사·고아 임포트 재검사
-- [ ] R13: 종합 — 기계 검증 62/62 재확인·문서 사실성·최종 게이트(tsc) 재확인
+- [x] R9: buildSlice — 임포트 정확성(undoSnapshots 사용처·TOWN_SPUR_COST 이동 무결성)·undoCount 동기 메커니즘 보존
+- [x] R10: moveSlice — releaseAILock 런타임 임포트의 순환 위험 검사 (moveSlice→aiScheduler→@/ai 체인)
+- [x] R11: settlementSlice — `_get` 시그니처 통일성·GamePhase 사용처·lint 정리의 부작용 없음
+- [x] R12: gameStore 잔여 — 새 22개 이동 액션의 중복 구현 0건 재검사·고아 임포트 재검사
+- [x] R13: 종합 — 기계 검증 62/62 재확인·문서 사실성·최종 게이트(tsc) 재확인
 
 ### 2차 리뷰 결과 기록
 
-(스텝별로 아래에 추가)
+**R9 (통과, 발견 0건)** — buildSlice:
+- undo 메커니즘 보존: 5개 건설 액션 모두 `captureUndo(...)` 후 `undoCount: undoSnapshots.length` —
+  helpers/undo의 싱글턴 배열이므로 gameStore의 undoLastAction(pop)과 정확히 동기
+- TOWN_SPUR_COST 이동 무결: 다른 참조는 ai/strategies의 주석 달린 하드코딩 1 두 곳뿐(기존과 동일)
+- 임포트: isEndpointOfIncompleteSection 추가 정확(redirectTrack 사용), 빌드 ESLint 통과 = 미사용 0
+
+**R10 (통과, 발견 0건)** — moveSlice 순환 위험:
+- completeCubeMove의 releaseAILock → `helpers/aiScheduler` 런타임 임포트 체인 검사:
+  aiScheduler → `@/ai`(isCurrentPlayerAI)인데 **@/ai 프로덕션 코드는 gameStore를 임포트하지 않음**
+  (테스트 파일만) → 런타임 순환 없음. gameStore 자체가 3a부터 aiScheduler를 임포트해온 기존 체인과 동일
+
+**R11 (통과, 발견 0건)** — settlementSlice:
+- GamePhase는 payExpenses의 `'gameOver' as GamePhase` 캐스트에 사용 ✓
+- `_get` 이름 변경은 파라미터 미사용 lint 대응 — 호출부 `(set, get)` 전달과 호환, 본문 무변경이라
+  기계 검증 IDENTICAL 유지
+
+**R12 (통과, 발견 0건)** — gameStore 잔여:
+- 이동 17개 액션(build 10·move 4·settlement 3)의 중복 구현 0건 — spread가 유일한 제공자
+- spread 합성 9곳(slice 6 + 초기상태 관련 3) 정상, tsc 0 에러, 빌드 ESLint 통과 = 고아 임포트 0
+
+**R13 (통과)** — 종합:
+- 기계 검증 최종 **62/62 IDENTICAL** (helpers 11 + slice 액션 51)
+- 현재 수치: gameStore **1,480줄**, slices 6파일 2,854줄 — 문서 기록과 일치(±1줄은 개행 정리)
+- 게이트: 각 스텝 tsc + 전체 vitest 207개 + 7맵 dev 200, 최종 프로덕션 빌드 성공
+
+**2차 리뷰 총평**: 발견(수정 필요) **0건**. 스텝 3e~3g도 1차와 동일하게 기계 증명된 순수 이동 — 머지 가능 판정 유지.
 
 ## 최종 결과 요약
 

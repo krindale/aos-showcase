@@ -44,6 +44,9 @@ export interface NetStore {
   error: string | null;
   /** 마지막 브로드캐스트 스냅샷 압축 크기 (계측·게이트 확인용) */
   lastSnapshotBytes: number;
+  /** 공개방 목록 (Phase 4 — refreshPublicRooms로 갱신) */
+  publicRooms: RoomInfo[];
+  publicRoomsLoading: boolean;
 
   /** 방 생성 (호스트). seats의 seat 0이 호스트 좌석 — clientId는 자동 주입 */
   hostRoom: (opts: {
@@ -52,6 +55,10 @@ export interface NetStore {
     isPublic?: boolean;
     seats: RoomSeat[];
   }) => Promise<void>;
+  /** 공개방 목록 갱신 (Phase 4) */
+  refreshPublicRooms: () => Promise<void>;
+  /** 빠른 매칭 (Phase 5): 빈자리 있는 공개방에 순서대로 입장 시도, 성공 여부 반환 */
+  quickMatch: (name: string) => Promise<boolean>;
   /** 방 코드로 입장 (게스트 / 새로고침한 호스트 복귀). 좌석은 호스트가 배정해 room 브로드캐스트로 통지 */
   joinRoom: (code: string, name: string) => Promise<void>;
   /** 같은 탭 새로고침 후 마지막 방으로 자동 재입장 (성공 여부 반환) */
@@ -81,6 +88,16 @@ const HOST_TAKEOVER_DELAY = 6000;
 function seatOf(room: RoomInfo | null, clientId: string): number | null {
   const seat = room?.seats.find((s) => s.clientId === clientId);
   return seat ? seat.seat : null;
+}
+
+/** 조건이 참이 될 때까지 폴링 대기 (빠른 매칭의 좌석 배정 응답 대기용) */
+async function waitFor(cond: () => boolean, timeoutMs: number): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (cond()) return true;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return cond();
 }
 
 // ---- 자동 재입장 (같은 탭 새로고침 시 방 복귀 — sessionStorage) ----
@@ -281,6 +298,46 @@ export const useNetStore = create<NetStore>()((set, get) => {
     busy: false,
     error: null,
     lastSnapshotBytes: 0,
+    publicRooms: [],
+    publicRoomsLoading: false,
+
+    refreshPublicRooms: async () => {
+      set({ publicRoomsLoading: true });
+      try {
+        const rooms = await getTransport().listPublicRooms();
+        set({ publicRooms: rooms, publicRoomsLoading: false });
+      } catch (e) {
+        set({
+          publicRoomsLoading: false,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    },
+
+    quickMatch: async (name) => {
+      set({ error: null });
+      let rooms: RoomInfo[] = [];
+      try {
+        rooms = await getTransport().listPublicRooms();
+      } catch (e) {
+        set({ error: e instanceof Error ? e.message : String(e) });
+        return false;
+      }
+      // 빈 human 좌석이 있는 대기실만 후보 (오래된 순 = listPublicRooms 정렬)
+      const candidates = rooms.filter((r) =>
+        r.seats.some((s) => s.kind === 'human' && !s.clientId)
+      );
+      for (const r of candidates) {
+        await get().joinRoom(r.code, name);
+        if (get().mode === 'offline') continue; // 입장 실패 (방 소멸 등)
+        // 호스트의 좌석 배정 응답 대기 — 경합으로 만석이거나 호스트 오프라인이면 다음 방
+        const seated = await waitFor(() => get().mySeat !== null, 4000);
+        if (seated) return true;
+        await get().leaveRoom();
+      }
+      set({ error: '빈자리가 있는 공개방이 없습니다 — 방을 만들어 보세요!' });
+      return false;
+    },
 
     hostRoom: async (opts) => {
       if (get().mode !== 'offline') await get().leaveRoom();

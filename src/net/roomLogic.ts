@@ -22,7 +22,12 @@ export function assignSeatForClaim(
   if (seats.some((s) => s.clientId === claimClientId)) return seats; // 이미 착석
 
   if (status === 'waiting') {
-    const open = seats.find((s) => s.kind === 'human' && !s.clientId);
+    // 진짜 빈자리 우선, 없으면 나갔다 안 돌아온(오프라인) 좌석 재사용
+    const open =
+      seats.find((s) => s.kind === 'human' && !s.clientId) ??
+      seats.find(
+        (s) => s.kind === 'human' && s.clientId && !presentClientIds.includes(s.clientId)
+      );
     if (!open) return null;
     return seats.map((s) =>
       s.seat === open.seat

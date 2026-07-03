@@ -24,6 +24,12 @@ describe('assignSeatForClaim', () => {
     expect(assignSeatForClaim(s, 'waiting', ['host', 'g1'], 'g2', '늦은사람')).toBeNull();
   });
 
+  it('대기실: 나갔다 안 돌아온(오프라인) 좌석은 새 게스트에게 재배정', () => {
+    const s = seats([{ clientId: 'host' }, { clientId: 'gone', name: '나간사람' }]);
+    const result = assignSeatForClaim(s, 'waiting', ['host'], 'g2', '새사람');
+    expect(result?.[1]).toMatchObject({ clientId: 'g2', name: '새사람' });
+  });
+
   it('게임 중: 끊긴 좌석을 이어받고 좌석 이름은 유지', () => {
     const s = seats([{ clientId: 'host' }, { clientId: 'dead-client', name: '기차-둘' }]);
     const result = assignSeatForClaim(s, 'playing', ['host'], 'new-tab', '기차-둘');

@@ -11,7 +11,18 @@ import { isNetConfigured } from '@/net';
 import type { RoomSeat } from '@/net';
 import { useNetStore } from '@/net/netStore';
 import { PLAYER_COLOR_ORDER, PLAYER_COLORS } from '@/types/game';
-import { Bot, Check, Copy, Crown, Loader2, LogOut, Play, Send, User, Wifi, WifiOff } from 'lucide-react';
+import { getMapData } from '@/utils/mapRegistry';
+import {
+  Bot, Check, Copy, Crown, Globe, Loader2, LogOut, Play, RefreshCw, Send, User, Wifi, WifiOff, Zap,
+} from 'lucide-react';
+
+function mapNameOf(mapId: string): string {
+  try {
+    return getMapData(mapId).name;
+  } catch {
+    return mapId;
+  }
+}
 
 interface OnlineLobbyProps {
   mapId: string;
@@ -21,7 +32,9 @@ interface OnlineLobbyProps {
 export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProps) {
   const {
     mode, room, mySeat, presentClientIds, chat, busy, error,
+    publicRooms, publicRoomsLoading,
     hostRoom, joinRoom, leaveRoom, sendChat, updateSeats, startOnlineGame,
+    refreshPublicRooms, quickMatch,
   } = useNetStore();
 
   const [myName, setMyName] = useState('기차-하나');
@@ -29,6 +42,9 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
   const [playerCount, setPlayerCount] = useState(supportedPlayers[0]);
   // 방 만들기 좌석 구성: seat 0 = 나(호스트), 나머지 기본 = 친구 자리(사람)
   const [aiSeats, setAiSeats] = useState<Set<number>>(new Set());
+  const [isPublic, setIsPublic] = useState(false);
+  const [roomTitle, setRoomTitle] = useState('');
+  const [matching, setMatching] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [copied, setCopied] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -36,6 +52,14 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chat.length]);
+
+  // 공개방 목록: 로비 폼이 보이는 동안 8초 폴링 (Phase 4)
+  useEffect(() => {
+    if (room || !isNetConfigured()) return;
+    void refreshPublicRooms();
+    const timer = setInterval(() => void refreshPublicRooms(), 8000);
+    return () => clearInterval(timer);
+  }, [room, refreshPublicRooms]);
 
   if (!isNetConfigured()) {
     return (
@@ -61,7 +85,18 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
         ? { seat: i, name: `컴퓨터-기차${i > 1 ? ['', '', 'II', 'III', 'IV', 'V'][i] : ''}`, kind: 'ai' as const, clientId: null }
         : { seat: i, name: `빈자리 ${i + 1}`, kind: 'human' as const, clientId: null };
     });
-    void hostRoom({ mapId, seats });
+    void hostRoom({
+      mapId,
+      seats,
+      isPublic,
+      title: isPublic ? roomTitle.trim() || `${myName.trim() || '호스트'}의 방` : undefined,
+    });
+  };
+
+  const handleQuickMatch = async () => {
+    setMatching(true);
+    await quickMatch(myName.trim() || '게스트');
+    setMatching(false);
   };
 
   const handleJoin = () => {
@@ -88,7 +123,10 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
 
   // ---------- 대기실 ----------
   if (room) {
-    const allReady = room.seats.every((s) => s.kind === 'ai' || s.clientId);
+    // 시작 조건: AI 좌석이거나, 착석자가 실제 접속 중 (나갔다 안 돌아온 좌석은 미준비)
+    const allReady = room.seats.every(
+      (s) => s.kind === 'ai' || (s.clientId && presentClientIds.includes(s.clientId))
+    );
     const isHost = mode === 'host';
 
     return (
@@ -134,18 +172,21 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
                   <span className="flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-blue-500/15 text-blue-500">
                     <Bot size={11} /> AI
                   </span>
-                ) : seat.clientId ? (
-                  <span className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded-full ${
-                    online ? 'bg-positive/15 text-positive' : 'bg-foreground/10 text-foreground-muted'
-                  }`}>
-                    {online ? <Wifi size={11} /> : <WifiOff size={11} />} {online ? '접속' : '끊김'}
-                  </span>
                 ) : (
                   <>
-                    <span className="px-2 py-0.5 text-xs rounded-full bg-foreground/10 text-foreground-muted">
-                      대기 중…
-                    </span>
-                    {isHost && (
+                    {seat.clientId ? (
+                      <span className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded-full ${
+                        online ? 'bg-positive/15 text-positive' : 'bg-foreground/10 text-foreground-muted'
+                      }`}>
+                        {online ? <Wifi size={11} /> : <WifiOff size={11} />} {online ? '접속' : '끊김'}
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 text-xs rounded-full bg-foreground/10 text-foreground-muted">
+                        대기 중…
+                      </span>
+                    )}
+                    {/* 호스트: 빈자리·나간 자리(끊김)를 AI로 전환 (대기실 한정) */}
+                    {isHost && !online && room.status === 'waiting' && (
                       <button
                         onClick={() => {
                           void updateSeats(
@@ -287,6 +328,27 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
             </div>
           ))}
         </div>
+        {/* 공개 여부 (Phase 4) */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsPublic((v) => !v)}
+            className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs transition-colors ${
+              isPublic
+                ? 'bg-positive/15 text-positive'
+                : 'bg-background-tertiary text-foreground-secondary hover:bg-foreground/10'
+            }`}
+          >
+            <Globe size={11} /> {isPublic ? '공개방 (목록에 노출)' : '비공개 (코드로만 입장)'}
+          </button>
+        </div>
+        {isPublic && (
+          <input
+            value={roomTitle}
+            onChange={(e) => setRoomTitle(e.target.value)}
+            placeholder={`방 제목 (기본: ${myName.trim() || '호스트'}의 방)`}
+            className="w-full px-3 py-2 bg-background-secondary rounded-lg border border-foreground/10 text-sm text-foreground focus:border-accent focus:outline-none"
+          />
+        )}
         <button
           onClick={handleCreate}
           disabled={busy}
@@ -316,6 +378,69 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
             {busy ? '입장 중…' : '입장'}
           </button>
         </div>
+      </div>
+
+      {/* 공개방 목록 + 빠른 매칭 (Phase 4·5) */}
+      <div className="p-4 rounded-xl border border-foreground/10 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-semibold text-foreground flex items-center gap-1">
+            <Globe size={14} className="text-foreground-secondary" /> 공개방
+          </div>
+          <button
+            onClick={() => void refreshPublicRooms()}
+            className="p-1.5 rounded-lg hover:bg-foreground/10 text-foreground-secondary"
+            title="목록 새로고침"
+            aria-label="공개방 목록 새로고침"
+          >
+            <RefreshCw size={13} className={publicRoomsLoading ? 'animate-spin' : ''} />
+          </button>
+        </div>
+
+        <button
+          onClick={() => void handleQuickMatch()}
+          disabled={busy || matching}
+          className="w-full btn-secondary py-2 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-60"
+        >
+          <Zap size={14} className="text-accent" />
+          {matching ? '빈 공개방 찾는 중…' : '빠른 매칭 (빈 공개방 자동 참가)'}
+        </button>
+
+        {publicRooms.length === 0 ? (
+          <div className="text-xs text-foreground-muted text-center py-2">
+            대기 중인 공개방이 없습니다
+          </div>
+        ) : (
+          <div className="space-y-1.5 max-h-48 overflow-y-auto">
+            {publicRooms.map((r) => {
+              const humanSeated = r.seats.filter((s) => s.kind === 'human' && s.clientId).length;
+              const aiCount = r.seats.filter((s) => s.kind === 'ai').length;
+              const full = !r.seats.some((s) => s.kind === 'human' && !s.clientId);
+              return (
+                <div
+                  key={r.id}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg bg-background-secondary border border-foreground/10"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-semibold text-foreground truncate">
+                      {r.title || r.code}
+                    </div>
+                    <div className="text-[10px] text-foreground-secondary">
+                      {mapNameOf(r.mapId)} · {humanSeated + aiCount}/{r.seats.length}명
+                      {aiCount > 0 && ` (AI ${aiCount})`}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => void joinRoom(r.code, myName.trim() || '게스트')}
+                    disabled={busy || full}
+                    className="px-3 py-1 rounded-lg text-xs font-semibold bg-accent/10 text-accent hover:bg-accent/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {full ? '만석' : '입장'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {error && (

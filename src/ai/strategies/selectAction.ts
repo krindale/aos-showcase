@@ -29,7 +29,7 @@ import {
 import { findReachableDestinations, hexCoordsEqual, getNeighborHex, findTrackCubeDeliveries, isTrackPartOfCompletedLink } from '@/utils/hexGrid';
 import { debugLog } from '@/utils/debugConfig';
 import { getMapProfile } from '@/maps/getMapProfile';
-import { planUrbanization } from './urbanization';
+import { planUrbanizationCached } from './urbanization';
 
 /**
  * 사용 가능한 행동 목록 반환 (맵 룰에서 금지된 행동 제외 — 예: St. Lucia의 production)
@@ -154,7 +154,7 @@ function evaluateActionDeltaVP(
       // planUrbanization이 배치할 마을·타일·가치를 함께 계산 — 배치할 곳이 없거나(계획 경로 밖뿐)
       // 신도시 수요색이 이미 가까운 도시로 커버되면(중복 목적지) 소액이라 다른 행동이 이긴다.
       if (state.activePlayers.length >= 3) {
-        const urbanPlan = planUrbanization(state, playerId);
+        const urbanPlan = planUrbanizationCached(state, playerId);
         if (!urbanPlan) return 0.2;
         return Math.max(0.2, urbanPlan.deltaVP);
       }

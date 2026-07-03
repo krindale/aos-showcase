@@ -125,6 +125,18 @@ export function decideTurnOrderOffer(
 }
 
 /**
+ * 절실함 턴 캐시 — 경매는 입찰 결정마다 rankActionsByDeltaVP 전체(evaluateFirstMove의
+ * hasContestedDelivery DFS 스캔 포함)를 재계산했지만, 입찰 중에는 보드·행동 가용성·현금·
+ * TurnPlan이 전부 불변이라(지불은 경매 해소 시) 값이 같다 → 플레이어당 턴 1회만 계산.
+ */
+const desperationCache: Map<PlayerId, { turn: number; value: number }> = new Map();
+
+/** 게임 리셋 시 캐시 초기화 (이전 게임의 같은 턴 키 충돌 방지) */
+export function clearDesperationCache(): void {
+  desperationCache.clear();
+}
+
+/**
  * 1등 순서의 가치 = 이번 턴 가장 절실한 행동을 선점하는 가치 (절실함).
  *
  * 절실함 = (내 최선 행동 ΔVP − 차선 행동 ΔVP). 1등이 되어 최선 행동을 잡지 못하면
@@ -136,11 +148,18 @@ export function decideTurnOrderOffer(
  * (순번 탈환은 행동 선택 Phase에서 별도로 다룬다).
  */
 function estimateFirstSeatVP(state: GameState, playerId: PlayerId): number {
+  const cached = desperationCache.get(playerId);
+  if (cached && cached.turn === state.currentTurn) {
+    return cached.value;
+  }
+
   const plan = ensureTurnPlan(state, playerId);
   const ranked = rankActionsByDeltaVP(state, playerId, plan)
     .filter(r => r.action !== 'turnOrder');
 
   const v1 = ranked[0]?.deltaVP ?? 0;
   const v2 = ranked[1]?.deltaVP ?? 0;
-  return Math.max(0, v1 - v2);
+  const value = Math.max(0, v1 - v2);
+  desperationCache.set(playerId, { turn: state.currentTurn, value });
+  return value;
 }

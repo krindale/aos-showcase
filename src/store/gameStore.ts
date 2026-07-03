@@ -27,6 +27,8 @@ import {
   TranscontinentalEvent,
 } from '@/types/game';
 import { getAIDecision, AI_TURN_DELAY, isCurrentPlayerAI, aiPlayerManager } from '@/ai';
+import { clearUrbanizationPlanCache } from '@/ai/strategies/urbanization';
+import { clearDesperationCache } from '@/ai/strategies/auction';
 import { addFailedBuildCoord, hasPendingFreeSpur } from '@/ai/strategies/buildTrack';
 import { initializeGoodsDisplay } from '@/utils/tutorialMap';
 import { getMapData, getDisplaySlotRange } from '@/utils/mapRegistry';
@@ -3661,6 +3663,10 @@ export const useGameStore = create<GameStore>()(
       set({ undoCount: 0 });
       return;
     }
+    // 취소로 phaseState/보드가 복원되므로, 취소 전 상태 기준으로 계산된 AI 턴 캐시를 비운다
+    // (같은 턴·Phase 키라 캐시가 취소를 감지하지 못함 — 다음 AI 결정 시 재계산)
+    clearUrbanizationPlanCache();
+    clearDesperationCache();
     const state = get();
     set({
       board: snap.board,

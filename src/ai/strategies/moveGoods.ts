@@ -18,6 +18,7 @@ import { getMapProfile } from '@/maps/getMapProfile';
 import {
   deliveryDeltaVP,
   engineUpgradeDeltaVP,
+  engineUpgradeShortfall,
   opponentWeight,
   VP_PER_INCOME,
   SAME_TURN_DELIVERY_DISCOUNT,
@@ -223,12 +224,10 @@ function evaluateEngineUpgradeOption(state: GameState, playerId: PlayerId): numb
 
   // ★ 치명적 디폴트 가드 (2026-07 파산 궤적 진단): engineUpgradeDeltaVP에는 파산 위험 -∞ 가드가
   // 있지만 아래 front-load 지름길(return 5)이 그걸 우회한다 — T1에 건설로 현금을 소진한 플레이어가
-  // 배달(즉시 income) 대신 엔진업을 골라, 이번 턴 지출을 못 내고(income 0 − shortage < 0) 즉사했다.
-  // 엔진업 후 지출을 현금+수입으로 못 막아 income이 음수로 떨어지는(=파산 확정) 상황이면 차단 —
-  // 여력이 있는 정상 front-load(현금 확보 상태)는 그대로 통과한다.
-  const expensesAfterUpgrade = player.issuedShares + player.engineLevel + 1;
-  const shortageAfterUpgrade = Math.max(0, expensesAfterUpgrade - (player.cash + Math.max(0, player.income)));
-  if (player.income - shortageAfterUpgrade < 0) return -Infinity;
+  // 배달(즉시 income) 대신 엔진업을 골라, 이번 턴 지출을 못 내고 즉사했다.
+  // 파산 확정(bankrupt)만 차단 — 부족분이 있어도 회복 가능한 저현금 front-load는 통과시킨다
+  // (판정 수식은 vp.engineUpgradeShortfall 단일 소스 공유 — 엄격/치명 가드 차이는 그쪽 주석 참조).
+  if (engineUpgradeShortfall(state, playerId).bankrupt) return -Infinity;
 
 
   // ★ 사용자 지침: trackCubes 맵 T4 이후엔 수송 포기(move-round) 엔진업 전면 금지 —

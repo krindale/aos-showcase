@@ -194,6 +194,34 @@ export function deliveryDeltaVP(
 }
 
 /**
+ * 엔진 +1레벨 후 이번 턴 생존 판정 — 단일 소스.
+ *
+ * engineUpgradeDeltaVP(비관 시나리오)와 moveGoods의 front-load 치명 가드가 같은 수식을
+ * 공유한다 (구현이 두 파일에 갈라져 미묘하게 달라 보이던 PR #14 잔여 이슈의 통합).
+ *
+ * - shortage: 엔진업 후 이번 턴 지출을 현금(−예정 지출)+수입으로 못 막는 부족분 ($1 = income −1)
+ * - bankrupt: 그 부족분의 수입 감소로 income이 음수가 되는(=파산 확정) 상황
+ *
+ * ⚠️ front-load(moveGoods)는 bankrupt만 차단하고 shortage>0은 허용한다 — 저현금 front-load
+ * (엔진3 → 장거리 income 회복 경로)까지 막는 광범위 게이트는 파산을 오히려 늘렸다(30시드 실측,
+ * CLAUDE.md 기각된 시도 ①). 엄격 가드(shortage>0 차단)는 engineUpgradeDeltaVP 경로 전용.
+ */
+export function engineUpgradeShortfall(
+  state: GameState,
+  playerId: PlayerId,
+  plannedSpending: number = 0,
+): { shortage: number; bankrupt: boolean } {
+  const player = state.players[playerId];
+  if (!player) return { shortage: Infinity, bankrupt: true };
+  const futureExpenses = player.issuedShares + player.engineLevel + 1;
+  const shortage = Math.max(
+    0,
+    futureExpenses - (player.cash - plannedSpending + Math.max(0, player.income)),
+  );
+  return { shortage, bankrupt: Math.max(0, player.income) - shortage < 0 };
+}
+
+/**
  * 엔진 +1레벨의 ΔVP
  *
  * @param unlockedDeliveryVP 업그레이드로 해금되는 배달의 ΔVP (호출자가 deliveryDeltaVP로 계산)
@@ -220,9 +248,8 @@ export function engineUpgradeDeltaVP(
   const remainingExpenseTurns = Math.max(0, config.totalTurns - state.currentTurn + 1);
   const costVP = remainingExpenseTurns * lambda;
 
-  // 생존 체크: 업그레이드 후 이번 턴 비용을 감당 못 하면 절대 불가
-  const futureExpenses = player.issuedShares + (player.engineLevel + 1);
-  if (player.cash + Math.max(0, player.income) < futureExpenses) return -Infinity;
+  // 생존 체크(엄격): 예정 지출 없이도 이번 턴 비용에 부족분이 생기면 절대 불가
+  if (engineUpgradeShortfall(state, playerId).shortage > 0) return -Infinity;
 
   // 비관 시나리오(해금 배달 실패 → income 정체) 1턴 시야 생존 시뮬레이션:
   //  - 현금 부족분 $1 = income -1 = -3VP (수입 감소)
@@ -230,13 +257,12 @@ export function engineUpgradeDeltaVP(
   //  - 수입 감소 비용은 "배달 실패 확률(1-prob)"만큼만 기대 비용으로 차감
   // (2턴 시야는 과보수적 — 다음 턴에는 배달/주식 발행 등 회복 수단이 있음)
   let shortfallVP = 0;
-  const pessimisticCash = player.cash - plannedSpending + Math.max(0, player.income) - futureExpenses;
-  if (pessimisticCash < 0) {
-    const incomeAfterReduction = Math.max(0, player.income) + pessimisticCash;
+  const pessimistic = engineUpgradeShortfall(state, playerId, plannedSpending);
+  if (pessimistic.shortage > 0) {
     // 비관 파산 위험: 기본은 -Infinity 차단. 단 relaxSurvival(깊은 배달 셋업)이면 차단 대신 무거운
     // VP 페널티로만 — "배달 실패 가정"은 셋업된 깊은 배달엔 과보수적이므로(사용자 결정: 후반 완화).
-    if (incomeAfterReduction < 0 && !relaxSurvival) return -Infinity;
-    shortfallVP = -pessimisticCash * VP_PER_INCOME;
+    if (pessimistic.bankrupt && !relaxSurvival) return -Infinity;
+    shortfallVP = pessimistic.shortage * VP_PER_INCOME;
   }
 
   return unlockedDeliveryVP * realizationProb - costVP - shortfallVP * (1 - realizationProb);

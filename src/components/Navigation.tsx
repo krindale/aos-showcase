@@ -29,6 +29,8 @@ export function LogoMark({ size = 28 }: { size?: number }) {
 export default function Navigation() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const pathname = usePathname();
+  // trailingSlash: true라 pathname이 '/gameplay/'처럼 나옴 — 끝 슬래시를 떼고 비교 (루트는 '/' 유지)
+  const activePath = pathname.replace(/\/+$/, '') || '/';
 
   return (
     <header className="sticky top-0 z-50 border-b border-glass-border bg-background/80 backdrop-blur-md">
@@ -49,7 +51,7 @@ export default function Navigation() {
         {/* Desktop Navigation */}
         <nav className="hidden items-center gap-1 md:flex">
           {navItems.map((item) => {
-            const isActive = pathname === item.href;
+            const isActive = activePath === item.href;
             return (
               <Link
                 key={item.href}
@@ -106,7 +108,7 @@ export default function Navigation() {
           >
             <div className="px-[clamp(18px,5vw,56px)] pb-4 pt-2">
               {navItems.map((item) => {
-                const isActive = pathname === item.href;
+                const isActive = activePath === item.href;
                 return (
                   <Link
                     key={item.href}

@@ -23,7 +23,13 @@ void _getNextTargetRoute; // 향후 확장용
 // 전역 상태 동기화용
 import { getCurrentRoute, setCurrentRoute } from './strategy/state';
 import { refreshTurnPlan } from './strategy/turnPlan';
-import { planUrbanization } from './strategies/urbanization';
+import {
+  planUrbanization,
+  planUrbanizationCached,
+  isUrbanizationPlanStillValid,
+  UrbanizationPlan,
+} from './strategies/urbanization';
+import { getMapAIConfig } from './strategy/mapConfig';
 
 // 분석 함수들 (순수 함수)
 import {
@@ -70,6 +76,11 @@ export class AIPlayer {
   // === 재평가 중복 방지 ===
   private _lastEvaluatedTurn: number = -1;
   private _lastEvaluatedPhase: string = '';
+
+  // === 도시화 계획 커밋 (평가-실행 일치) ===
+  // 행동 선택 시 가치를 매긴 그 계획을 배치 시점에 그대로 실행 — 배치 재계산이 null이 되어
+  // 도시화 행동이 통째로 낭비되던 시점 불일치(PR #14 잔여) 제거
+  private _committedUrbanPlan: { turn: number; plan: UrbanizationPlan } | null = null;
 
   constructor(playerId: PlayerId, name: string) {
     this.playerId = playerId;
@@ -145,6 +156,19 @@ export class AIPlayer {
           this.updateRoute(state);
         }
         const action = decideAction(state, this.playerId);
+        // 도시화 선택 시 "지금 가치를 매긴 계획"을 커밋. 단 평가가 실제로 계획을 사용한 경우만 —
+        // evaluateActionDeltaVP는 다인(3+) cityCubes에서만 planUrbanizationCached를 호출하므로
+        // 같은 조건으로 게이트한다(같은 턴·Phase 캐시 히트 = 평가한 계획과 동일 객체).
+        // 2인/trackCubes 맵(튜토리얼·St.Lucia)은 평가에 계획이 없어 커밋하지 않고,
+        // 배치 시점(buildTrack)의 재계산(기존 측정된 동작)을 그대로 쓴다.
+        if (
+          action === 'urbanization' &&
+          state.activePlayers.length >= 3 &&
+          !getMapAIConfig(state).incomeSources.includes('trackCubes')
+        ) {
+          const plan = planUrbanizationCached(state, this.playerId);
+          this._committedUrbanPlan = plan ? { turn: state.currentTurn, plan } : null;
+        }
         return { type: 'selectAction', action };
       }
 
@@ -156,7 +180,16 @@ export class AIPlayer {
           !state.phaseState.urbanizationUsed &&
           state.currentPlayer === this.playerId
         ) {
-          const plan = planUrbanization(state, this.playerId);
+          // ★ 평가-실행 일치: 행동 선택 때 커밋한 계획을 우선 사용. 그 사이 마을/타일이
+          // 무효화됐으면(이론상 희귀) 기존대로 재계산 폴백 — 재계산이 null이면 트랙을 먼저
+          // 깐 뒤 다음 결정에서 재시도하는 기존 루프 유지.
+          const committed = this._committedUrbanPlan;
+          const plan =
+            committed &&
+            committed.turn === state.currentTurn &&
+            isUrbanizationPlanStillValid(state, committed.plan)
+              ? committed.plan
+              : planUrbanization(state, this.playerId);
           if (plan) {
             // ★ 신도시 연결 커밋: 도시화 직후 건설이 무관한 경로로 가서 신도시가 끝까지
             // 미연결로 남던 문제 — 신도시로의 배달 경로를 현재 경로로 커밋해 같은 턴에 잇는다.
@@ -276,6 +309,7 @@ export class AIPlayer {
     this._currentRoute = null;
     this._routeProgress.clear();
     this._pathCache.clear();
+    this._committedUrbanPlan = null;
   }
 
   /**

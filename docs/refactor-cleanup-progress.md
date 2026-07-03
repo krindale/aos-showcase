@@ -94,7 +94,11 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
   - 자기완결적 상태(auction·turnOrderOffer)만 조작, 진행은 scheduleAICheck/`get().nextPhase()` 위임 —
     코드 그대로 이동, 로직 무변경. gameStore 임포트 정리 불필요(전부 다른 곳에서도 사용)
   - 검증: tsc 0 에러 + 전체 vitest 24파일 207개 통과(1 skipped) + 7개 맵 dev 200
-- [ ] 3d (로드맵 4순위): 물품 성장 + 생산 slice 분리
+- [x] 3d (로드맵 4순위): 물품 성장 + 생산 slice 분리 — gameStore **3,036 → 2,774줄**
+  - `src/store/slices/goodsGrowthSlice.ts` (신설): growGoods + Production 5액션(getEmptySlots·
+    startProduction·selectProductionSlot·confirmProduction·cancelProduction) — goodsDisplay 조작 위주
+  - nextPhase의 goodsGrowth 진입 로직(생산 선택자 currentPlayer 설정 등)은 gameStore에 잔류
+  - 검증: tsc 0 에러 + 전체 vitest 24파일 207개 통과(1 skipped) + 7개 맵 dev 200
 - 로드맵 5순위(Phase IV/V/nextPhase)는 계획대로 보류 — 가장 위험, 필요할 때만
 
 ### 스텝 3 로드맵 (원문)
@@ -120,5 +124,7 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
 
 - `tsc --noEmit` 0 에러 (기존 17건) — 타입 안전망 복구
 - GameBoard.tsx 1,793 → 965줄, 렌더 레이어 5파일 분리 (로직 무변경)
-- 전체 vitest 24파일 207개 통과, 7개 맵 dev 페이지 정상
+- gameStore.ts **4,832 → 2,774줄 (−43%)**: 모듈 헬퍼 5파일(`store/helpers/`) +
+  slice 3파일(`store/slices/` — uiSlice·auctionSlice·goodsGrowthSlice), 전부 코드 그대로 이동
+- 전체 vitest 24파일 207개 통과, 7개 맵 dev 페이지 정상 (각 스텝마다 게이트 통과)
 - ⚠️ 머지 전 확인: dev 서버 내리고 `npm run build` 1회 (dev 실행 중엔 빌드 금지 규칙)

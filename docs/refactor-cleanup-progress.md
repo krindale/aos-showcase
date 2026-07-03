@@ -127,9 +127,9 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
 
 - [x] R1: 스텝 1 테스트 타입 수정 3파일 — 동작 불변 검증 (특히 `isAIThinking`→`aiExecution.pending` 교체의 의미, 부분 레코드 타입의 정직성)
 - [x] R2: 스텝 2 GameBoard 분리 5파일 — 이동 충실성·props 정확성·렌더 순서 보존
-- [ ] R3: 스텝 3a helpers 5파일 — 모듈 상태(undo 스택) 이동 동작 보존·재export 호환·type-only 순환 확인
-- [ ] R4: 스텝 3b~3d slice 3파일 — **기계 검증**: 원본 커밋에서 제거된 블록 vs slice 본문 문자열 비교 (공백 정규화)
-- [ ] R5: slice 합성부 — spread 중복 키·Set/Get 타입·Pick 목록과 GameStore 인터페이스 일치
+- [x] R3: 스텝 3a helpers 5파일 — 모듈 상태(undo 스택) 이동 동작 보존·재export 호환·type-only 순환 확인
+- [x] R4: 스텝 3b~3d slice 3파일 — **기계 검증**: 원본 커밋에서 제거된 블록 vs slice 본문 문자열 비교 (공백 정규화)
+- [x] R5: slice 합성부 — spread 중복 키·Set/Get 타입·Pick 목록과 GameStore 인터페이스 일치
 - [ ] R6: ConfirmDialog/PhasePanel — 엣지(진행 중 중복 클릭·스크롤락 복원·백드롭/ESC)·접근성
 - [ ] R7: 문서·위생 — progress 문서 사실성, 미사용 임포트/lint 잔존
 - [ ] R8: 최종 게이트 — tsc + 전체 vitest + 프로덕션 빌드 재확인
@@ -154,6 +154,24 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
 - 관찰(수정 불요): `isCityNumberBoxBlack` 인라인 화살표 prop은 매 렌더 재생성되지만 자식이 memo가
   아니라 리렌더 동작 원본과 동일 — 추후 memo화할 때만 주의
 - 실플레이 교차 검증: 트랙/마을/도시/큐브/도시화 하이라이트/미리보기/이동 경로·애니/펄스 전 레이어 육안 확인 완료
+
+**R3 (통과, 발견 0건)** — helpers 5파일:
+- **기계 검증**: origin/main gameStore의 함수 본문 vs helpers 파일 본문을 공백 정규화 비교 —
+  boardRules 4·setup 2·transcontinental 1·aiScheduler 4 = **11/11 IDENTICAL** (export 키워드 차이만)
+- undo.ts: `undoSnapshots` 배열이 ES 모듈 live binding 싱글턴으로 유지 — gameStore의 `.pop()`,
+  `clearUndo()`, PhasePanel의 `getUndoLabel()` 모두 동일 인스턴스 조작. 본문도 원본과 동일
+- 순환 없음: gameStore를 참조하는 4파일(aiScheduler + slice 3) 전부 `import type` — 런타임 의존 0
+- 재export 호환: getUndoLabel·createInitialGameState·TUTORIAL_GAME_CONFIG·AIPlayerConfig — 기존 소비자
+  (PhasePanel·테스트) 수정 없이 동작
+
+**R4 (통과, 발견 0건)** — slice 3파일 이동 충실성 기계 검증:
+- origin/main gameStore **구현부**의 액션 본문 vs slice 본문 비교 (스크립트, 공백 정규화):
+  uiSlice 24 + auctionSlice 5 + goodsGrowthSlice 6 = **35/35 IDENTICAL** — 코드 그대로 이동이 기계적으로 증명됨
+
+**R5 (통과, 발견 0건)** — slice 합성부:
+- gameStore 구현부(create 이후)에 이동 액션 35개의 **중복 정의 0건** — spread가 각 키의 유일한 제공자
+- `create<GameStore>()` 타입 체크 통과 = 전체 키 충족 보장, Pick 목록·시그니처 일치는 tsc가 강제
+- Set/Get 타입: `StoreApi<GameStore>['setState'/'getState']` — persist 미들웨어의 set과 호환 (tsc 통과)
 
 ## 최종 결과 요약
 

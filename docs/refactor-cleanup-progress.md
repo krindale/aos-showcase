@@ -212,6 +212,21 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
 **리뷰 총평**: 발견(수정 필요) **0건**, 관찰 2건(접근성·포털화 — 선택 개선). 이동 충실성은
 46/46 기계 검증으로 증명, 렌더 z-order·합성 중복·순환 의존 전부 확인. **머지 가능 판정.**
 
+## PR #18 2차 코드리뷰 (2026-07-03, 스텝 3e~3g 추가분 — 순차 진행)
+
+> 대상: 커밋 87ab0ac(3e)·af7c1b7(3f)·1617d00(3g)·8d4bb73(lint) — buildSlice·moveSlice·settlementSlice
+> 방식: CLAUDE.md 코드리뷰 규칙 (체크리스트 → 한 스텝씩 → 스텝마다 기록+커밋·푸시)
+
+- [ ] R9: buildSlice — 임포트 정확성(undoSnapshots 사용처·TOWN_SPUR_COST 이동 무결성)·undoCount 동기 메커니즘 보존
+- [ ] R10: moveSlice — releaseAILock 런타임 임포트의 순환 위험 검사 (moveSlice→aiScheduler→@/ai 체인)
+- [ ] R11: settlementSlice — `_get` 시그니처 통일성·GamePhase 사용처·lint 정리의 부작용 없음
+- [ ] R12: gameStore 잔여 — 새 22개 이동 액션의 중복 구현 0건 재검사·고아 임포트 재검사
+- [ ] R13: 종합 — 기계 검증 62/62 재확인·문서 사실성·최종 게이트(tsc) 재확인
+
+### 2차 리뷰 결과 기록
+
+(스텝별로 아래에 추가)
+
 ## 최종 결과 요약
 
 - `tsc --noEmit` 0 에러 (기존 17건) — 타입 안전망 복구

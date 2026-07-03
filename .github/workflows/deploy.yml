@@ -32,6 +32,11 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          # 온라인 멀티플레이 (Supabase). publishable/anon key는 클라이언트 번들에
+          # 어차피 포함되는 공개 전제 키 — 접근 제어는 RLS가 담당 (docs/online-multiplayer-plan.md §3)
+          NEXT_PUBLIC_SUPABASE_URL: https://gklxcdgumdzgvltuyxjl.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_sJiHGhjH_qy_TR8S1Bvh6A_gVAZUfZY
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

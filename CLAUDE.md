@@ -319,6 +319,33 @@ Next가 압축을 안 하므로 원본 대용량 PNG를 그대로 받으면 갤�
 - **Barbados** - 솔로 게임
 - **St. Lucia** - 2인 전용
 
+## 온라인 멀티플레이 (`src/net/`, 2026-07-04)
+
+Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조정 내역은
+[`docs/online-multiplayer-plan.md`](docs/online-multiplayer-plan.md) 참조. Phase 0~5 완료:
+방 코드 초대·재접속(F5 자동 재입장/호스트 승계)·게임 중 채팅·공개방 목록·빠른 매칭.
+
+- **구조**: 방장 클라이언트만 gameStore를 진짜로 실행(랜덤·AI 포함). 게스트는 intent만 보내고
+  호스트가 기존 액션으로 검증·실행 후 압축 스냅샷(persist 포맷, logs 30개·ui 제외, gzip+base64)을
+  브로드캐스트 + rooms 테이블에 저장(재접속·승계용). **gameStore는 net을 모른다** — 의존은
+  net → store 단방향 (자체 서버로 갈아탈 땐 net만 교체).
+- **파일**: `types.ts`(인터페이스) `supabaseTransport.ts`(채널·rooms·presence)
+  `snapshotCodec.ts` `intents.ts`(커밋 액션 카탈로그+게스트 몽키패치 가드+호스트 검증)
+  `netStore.ts`(세션 오케스트레이션) `roomLogic.ts`(좌석 배정·승계 순수 규칙).
+  UI: `OnlineLobby.tsx`(로비/대기실) `GameChat.tsx`(플로팅 채팅), GamePageClient 통합.
+- **⚠️ 새 커밋 액션 추가 시**: gameStore에 게임 상태를 바꾸는 액션을 추가하면
+  `intents.ts`의 `INTENT_SPECS`에도 등록해야 온라인에서 동작한다 (게스트가 로컬 실행해버려
+  디싱크). 커밋이 로컬 ui 선택값을 읽으면 `captureUi`에 그 필드를 지정.
+- **함정 기록**: ① 경매 입찰 차례는 `currentPlayer`가 진실 — `auction.currentBidder`는 갱신
+  안 되는 레거시 필드(검증에 쓰면 정상 입찰 거부). ② intent는 멱등성 id로 중복 실행 차단(채널
+  재조인 재전송 대비). ③ clientId는 sessionStorage(탭별) — F5 좌석 자동 복원 + 한 PC 두 탭 가능.
+  ④ 수송 정산은 호스트 GameBoard의 1000ms 타이머(completeCubeMove) — 게스트에선 guestNoop.
+- **배포**: `.env.local`(로컬) / deploy.yml env(배포)에 NEXT_PUBLIC_SUPABASE_URL·ANON_KEY.
+  anon(publishable) key는 번들 공개 전제, 접근 제어는 RLS(`supabase/setup.sql`).
+  미설정 배포(포크)는 온라인 탭이 자동으로 숨음(`isNetConfigured`).
+- **검증**: `npx vitest run src/net/__tests__/` (코덱/가드/검증/좌석·승계 규칙 23개) +
+  두 브라우저 탭 E2E(방 생성→입장→시작→건설/수송/경매 왕복→F5 재접속→호스트 승계).
+
 ## 반응형 UI & PWA
 
 ### 반응형 UI

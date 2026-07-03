@@ -27,7 +27,7 @@ import {
 import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { isValidConnectionPoint as isValidConnectionPointUtil } from '@/utils/trackValidation';
-import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId, TerrainType } from '@/types/game';
+import { CITY_COLORS, CUBE_COLORS, CubeColor, PLAYER_COLORS, HexCoord, PlayerId, TerrainType } from '@/types/game';
 
 const SQRT3_2 = 0.8660254; // sin(60°) — flat-top 헥스 평변까지 거리 비율
 
@@ -89,6 +89,13 @@ function numberBoxPath(
   const shoulder = apex - tri;     // 세모→네모 경계 (헥스 변)
   return `M ${x0} ${base + rad} Q ${x0} ${base} ${x0 + rad} ${base} L ${x1 - rad} ${base} Q ${x1} ${base} ${x1} ${base + rad} L ${x1} ${shoulder} L ${x} ${apex} L ${x0} ${shoulder} Z`;
 }
+
+// 면화(흰 큐브) 렌더 스펙 — 일반 큐브(12px)보다 20% 크고 어두운 테두리(요청 스펙).
+// 마을/도시/이동 큐브 렌더 3곳이 공유한다 (한 곳만 고치면 시각 불일치 — 여기서만 수정).
+const cubeRenderSize = (color: CubeColor) => (color === 'white' ? 14.4 : 12);
+const cubeStrokeColor = (color: CubeColor, fallback = '#e8eaec') =>
+  color === 'white' ? '#8a857c' : fallback;
+const cubeStrokeWidth = (color: CubeColor, fallback = 1) => (color === 'white' ? 2 : fallback);
 
 // 헥스 꼭짓점 i의 픽셀 좌표 (지도 바깥 외곽 실루엣 선을 그릴 때 사용). 변 e는 꼭짓점 e와 e+1 사이.
 function hexVertex(cx: number, cy: number, i: number, flat: boolean): { x: number; y: number } {
@@ -956,8 +963,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                     const cubeX = x - ((colsInRow - 1) * 18) / 2 + colIdx * 18;
                     // pointy-top(꼭짓점 세로, 서부 US) 맵은 화물을 6px 위로.
                     const cubeY = y + cubeEdge - HEX_SIZE * 0.58 + 4 + row * 15 - (isFlat ? 0 : 6);
-                    // 면화(흰 큐브)는 기존 큐브보다 20% 크고 테두리도 두껍게
-                    const cubeSize = cubeColor === 'white' ? 14.4 : 12;
+                    const cubeSize = cubeRenderSize(cubeColor);
                     return (
                       <rect
                         key={`town-cube-${town.id}-${i}`}
@@ -966,8 +972,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                         width={cubeSize}
                         height={cubeSize}
                         fill={CUBE_COLORS[cubeColor]}
-                        stroke={cubeColor === 'white' ? '#8a857c' : '#e8eaec'}
-                        strokeWidth={cubeColor === 'white' ? 2 : 1}
+                        stroke={cubeStrokeColor(cubeColor)}
+                        strokeWidth={cubeStrokeWidth(cubeColor)}
                         rx="1"
                       />
                     );
@@ -1423,8 +1429,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                     ui.selectedCube?.cityId === city.id &&
                     ui.selectedCube?.cubeIndex === i;
 
-                  // 면화(흰 큐브)는 기존 큐브보다 20% 크고 테두리도 두껍게
-                  const cubeSize = cubeColor === 'white' ? 14.4 : 12;
+                  const cubeSize = cubeRenderSize(cubeColor);
                   return (
                     <rect
                       key={`cube-${city.id}-${i}`}
@@ -1433,8 +1438,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                       width={cubeSize}
                       height={cubeSize}
                       fill={CUBE_COLORS[cubeColor]}
-                      stroke={isSelected ? '#ffffff' : cubeColor === 'white' ? '#8a857c' : '#e8eaec'}
-                      strokeWidth={isSelected || cubeColor === 'white' ? 2 : 1}
+                      stroke={isSelected ? '#ffffff' : cubeStrokeColor(cubeColor)}
+                      strokeWidth={isSelected ? 2 : cubeStrokeWidth(cubeColor)}
                       rx="1"
                       className={
                         currentPhase === 'moveGoods'
@@ -1598,7 +1603,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                 width="18"
                 height="18"
                 fill={CUBE_COLORS[ui.movingCube.color]}
-                stroke={ui.movingCube.color === 'white' ? '#8a857c' : '#ffffff'}
+                stroke={cubeStrokeColor(ui.movingCube.color, '#ffffff')}
                 strokeWidth="2"
                 rx="3"
                 initial={{ x: xPoints[0], y: yPoints[0] }}

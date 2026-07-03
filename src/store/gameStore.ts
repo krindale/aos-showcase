@@ -2848,6 +2848,8 @@ export const useGameStore = create<GameStore>()(
       const newLogs = [...state.logs];
       // 이번 감소량을 플레이어별로 기록 → PlayerPanel "-N (수익 감소)" 배지
       const reductions: Partial<Record<PlayerId, number>> = {};
+      // Southern US: 4턴(남북전쟁)에는 수입 감소 2배 — 플레이어 루프 밖에서 1회 계산
+      const incomeReductionMult = getMapProfile(state.mapId).incomeReductionMultiplier(state.currentTurn);
 
       for (const playerId of state.activePlayers) {
         const player = newPlayers[playerId];
@@ -2861,8 +2863,7 @@ export const useGameStore = create<GameStore>()(
           }
         }
 
-        // Southern US: 4턴(남북전쟁)에는 수입 감소 2배 (incomeReductionMultiplier)
-        reduction *= getMapProfile(state.mapId).incomeReductionMultiplier(state.currentTurn);
+        reduction *= incomeReductionMult;
 
         if (reduction > 0) {
           const oldIncome = player.income;
@@ -4237,16 +4238,15 @@ export const useGameStore = create<GameStore>()(
 
     // 한국 룰: 도시화 시 디스플레이의 해당 신도시 칸에서 큐브 N개(=urbanizeFromDisplayCount)를
     // 신도시 위로 옮기고, 빈 칸을 주머니에서 보충한다. 동적 색상이라 신도시 수요색이 이 큐브로 결정됨.
-    const urbanizeCount = getMapProfile(state.mapId).urbanizeFromDisplayCount;
+    const profile = getMapProfile(state.mapId);
+    const urbanizeCount = profile.urbanizeFromDisplayCount;
     const newCityCubes: CubeColor[] = [];
-    // Southern US: 면화 마을이 도시화되면 면화(마을 위 큐브)는 신규 도시 위로 이동 (룰북)
-    if (getMapProfile(state.mapId).urbanizationMovesTownCubes) {
-      newCityCubes.push(...town.cubes);
-    }
     let updatedGoodsDisplay = state.goodsDisplay;
-    // Western US 룰북: 마을이 도시화되면 마을 위 물품은 주머니로 반환.
-    // (면화 이동 맵(Southern)은 위에서 신규 도시로 이동. 마을 큐브가 없는 맵은 no-op)
-    if (!getMapProfile(state.mapId).urbanizationMovesTownCubes && town.cubes.length > 0) {
+    if (profile.urbanizationMovesTownCubes) {
+      // Southern US: 면화 마을이 도시화되면 면화(마을 위 큐브)는 신규 도시 위로 이동 (룰북)
+      newCityCubes.push(...town.cubes);
+    } else if (town.cubes.length > 0) {
+      // Western US 룰북: 마을이 도시화되면 마을 위 물품은 주머니로 반환 (마을 큐브 없는 맵은 no-op)
       updatedGoodsDisplay = {
         ...updatedGoodsDisplay,
         bag: [...updatedGoodsDisplay.bag, ...town.cubes],
@@ -4285,7 +4285,7 @@ export const useGameStore = create<GameStore>()(
     // 2. 새 도시를 cities 배열에 추가
     // Western US 도시화 특례: Kansas City→동부, San Diego/Portland→서부 (배달/대륙횡단 판정용).
     // 단 신도시는 "시작 도시"가 아니므로 isStartingCity는 여전히 false (트랙 시작 불가).
-    const newCityRegion = getMapProfile(state.mapId).newCityRegion(town.id);
+    const newCityRegion = profile.newCityRegion(town.id);
     const newCity: City = {
       id: selectedTileId,  // 타일 ID를 도시 ID로 사용
       name: `New City ${selectedTileId}`,
@@ -4711,8 +4711,8 @@ export const useGameStore = create<GameStore>()(
     // Western US: 동(east)↔서(west) 배달 +$1 income 보너스 (배달한 플레이어에게).
     // 출발/도착이 모두 east/west 도시여야 함 — 중앙 도시(Denver/SLC)·마을·트랙 출발은 보너스 없음.
     // Southern US: 면화(흰 큐브) 배달 +$1 보너스 (cubeDeliveryBonus).
+    const profile = getMapProfile(state.mapId);
     {
-      const profile = getMapProfile(state.mapId);
       const fromCity = cities.find(c => hexCoordsEqual(c.coord, path[0]));
       const toCity = cities.find(c => hexCoordsEqual(c.coord, path[path.length - 1]));
       const regionBonus = profile.regionDeliveryBonus(fromCity?.region, toCity?.region)
@@ -4747,7 +4747,7 @@ export const useGameStore = create<GameStore>()(
       // 단 Southern US 면화(흰 큐브)는 배달 후 게임에서 제거 (룰북: removed from the game).
       goodsDisplay: {
         ...state.goodsDisplay,
-        bag: getMapProfile(state.mapId).deliveredCubeLeavesGame(color)
+        bag: profile.deliveredCubeLeavesGame(color)
           ? [...state.goodsDisplay.bag]
           : [...state.goodsDisplay.bag, color],
       },

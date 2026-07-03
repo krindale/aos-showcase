@@ -1044,11 +1044,14 @@ describe('2인 화물 수송 우선순위 시뮬레이션 (10회)', () => {
             currentPlayer: pid,
             phaseState: {
               ...state.phaseState,
-              moveGoodsRound: round,
+              moveGoodsRound: round as 1 | 2,
               playerMoves: {
                 player1: false,
                 player2: false,
                 player3: false,
+                player4: false,
+                player5: false,
+                player6: false,
               },
             },
           };

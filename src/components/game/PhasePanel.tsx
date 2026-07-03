@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useGameStore, getUndoLabel } from '@/store/gameStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -29,6 +30,7 @@ import {
 import AuctionPanel from './AuctionPanel';
 import TurnOrderOfferPanel from './TurnOrderOfferPanel';
 import { POP_SPRING, useIsFirstRender } from './uiEffects';
+import ConfirmDialog from './ConfirmDialog';
 import { getMapProfile } from '@/maps/getMapProfile';
 import GoodsGrowthPanel from './GoodsGrowthPanel';
 
@@ -112,6 +114,9 @@ export default function PhasePanel() {
 
   const phaseInfo = PHASE_INFO[currentPhase];
   const currentPlayerData = players[currentPlayer];
+
+  // 이동 건너뛰기 확인 다이얼로그 (window.confirm 대체 — 디자인 시스템 모달)
+  const [skipMoveConfirmOpen, setSkipMoveConfirmOpen] = useState(false);
 
   // 리마운트(모바일 시트 여닫기 등) 시 지난 선택 팝이 일제 재생되지 않게 첫 렌더는 애니메이션 생략
   const firstRender = useIsFirstRender();
@@ -413,7 +418,8 @@ export default function PhasePanel() {
               onClick={() => {
                 // 인간 플레이어가 아직 이동하지 않았으면 확인
                 if (!currentPlayerData.isAI && !phaseState.playerMoves[currentPlayer]) {
-                  if (!window.confirm('물품 이동을 건너뛰시겠습니까?')) return;
+                  setSkipMoveConfirmOpen(true);
+                  return;
                 }
                 handleNextPhase();
               }}
@@ -550,6 +556,19 @@ export default function PhasePanel() {
           <GoodsGrowthPanel />
         )}
       </div>
+
+      {/* 이동 건너뛰기 확인 (fixed 오버레이 — 레이아웃 밖) */}
+      <ConfirmDialog
+        open={skipMoveConfirmOpen}
+        title="이동 건너뛰기"
+        message="물품 이동을 건너뛰시겠습니까? 이번 라운드의 수송 기회가 사라집니다."
+        confirmLabel="건너뛰기"
+        onConfirm={() => {
+          setSkipMoveConfirmOpen(false);
+          handleNextPhase();
+        }}
+        onCancel={() => setSkipMoveConfirmOpen(false)}
+      />
     </motion.div>
   );
 }

@@ -2,6 +2,10 @@
 
 import { useMemo, useCallback, useEffect, useState } from 'react';
 import BoardPulses from './BoardPulses';
+import BoardTracks from './board/BoardTracks';
+import BoardTowns from './board/BoardTowns';
+import BoardCities from './board/BoardCities';
+import BoardOverlays from './board/BoardOverlays';
 import { motion } from 'framer-motion';
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { useGameStore } from '@/store/gameStore';
@@ -21,89 +25,12 @@ import {
   HEX_WIDTH,
   HEX_HEIGHT,
   findCompletedLinks,
-  getMovementPathSVG,
-  getAnimationPoints,
 } from '@/utils/hexGrid';
 import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { isValidConnectionPoint as isValidConnectionPointUtil } from '@/utils/trackValidation';
-import { CITY_COLORS, CUBE_COLORS, CubeColor, PLAYER_COLORS, HexCoord, PlayerId, TerrainType } from '@/types/game';
-
-const SQRT3_2 = 0.8660254; // sin(60°) — flat-top 헥스 평변까지 거리 비율
-
-// hex 색을 amt만큼 밝게(+)/어둡게(-) — 고정비용 육각형의 "필드보다 진한 녹색"용
-function shadeColor(hex: string, amt: number): string {
-  if (!hex.startsWith('#') || hex.length < 7) return hex;
-  const ch = (i: number) =>
-    Math.max(0, Math.min(255, parseInt(hex.slice(i, i + 2), 16) + amt)).toString(16).padStart(2, '0');
-  return `#${ch(1)}${ch(3)}${ch(5)}`;
-}
-
-// 도시/마을 이름 배경 points.
-// flat-top(꼭짓점 가로): 헥스 좌우 꼭짓점까지 닿는 옆으로 긴 육각형.
-// pointy-top(꼭짓점 세로, 서부 미국): 헥스 좌우 평변까지 닿는 네모(사각형).
-function nameBandPoints(x: number, y: number, isFlat: boolean): string {
-  const bh2 = (HEX_SIZE * 0.31) / 2;
-  if (!isFlat) {
-    const rr = SQRT3_2 * HEX_SIZE; // 좌우 평변 끝까지 (헥스 변에 닿게)
-    return [[x + rr, y - bh2], [x + rr, y + bh2], [x - rr, y + bh2], [x - rr, y - bh2]]
-      .map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
-  }
-  const rr = HEX_SIZE; // 좌우 꼭짓점 끝까지 (헥스 변에 닿게)
-  const dx = bh2 * 0.5774; // 헥스 사선 기울기만큼 좌우 끝이 좁아짐
-  return [
-    [x + rr, y], [x + rr - dx, y - bh2], [x - rr + dx, y - bh2],
-    [x - rr, y], [x - rr + dx, y + bh2], [x + rr - dx, y + bh2],
-  ].map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
-}
-
-// 도시 숫자 박스 path.
-// flat-top: 헥스 상/하 평변에 닿는 사각형(안쪽 모서리만 라운드).
-// pointy-top: 헥스 상/하 꼭짓점을 덮는 "네모+세모" 오각형(home plate).
-function numberBoxPath(
-  x: number, y: number, bw: number, bh: number, rad: number, isFlat: boolean, isTop: boolean
-): string {
-  const x0 = x - bw / 2, x1 = x + bw / 2;
-  if (isFlat) {
-    const edge = SQRT3_2 * HEX_SIZE; // 상/하 평변에 닿게
-    if (isTop) {
-      const topY = y - edge;
-      return `M ${x0} ${topY} L ${x1} ${topY} L ${x1} ${topY + bh - rad} Q ${x1} ${topY + bh} ${x1 - rad} ${topY + bh} L ${x0 + rad} ${topY + bh} Q ${x0} ${topY + bh} ${x0} ${topY + bh - rad} Z`;
-    }
-    const botY = y + edge;
-    return `M ${x0} ${botY - bh + rad} Q ${x0} ${botY - bh} ${x0 + rad} ${botY - bh} L ${x1 - rad} ${botY - bh} Q ${x1} ${botY - bh} ${x1} ${botY - bh + rad} L ${x1} ${botY} L ${x0} ${botY} Z`;
-  }
-  // pointy: 헥스 꼭짓점이 위/아래. 네모+세모로 꼭짓점을 덮음.
-  // 세모 꼭짓점 각도 = 120°(헥스 꼭짓점과 동일) → tri = (bw/2)/tan60 = bw/3.4641.
-  // 헥스 변에 닿지 않는 네모 안쪽 모서리만 라운드.
-  const tip = HEX_SIZE;          // 꼭짓점까지 거리 (헥스 변에 닿게)
-  const tri = bw / 3.4641;        // 세모 높이 (꼭짓점 120°)
-  if (isTop) {
-    const apex = y - tip;          // 헥스 상단 꼭짓점
-    const base = apex + bh;        // 네모 아래 (헥스 안쪽)
-    const shoulder = apex + tri;   // 세모→네모 경계 (헥스 변)
-    return `M ${x} ${apex} L ${x1} ${shoulder} L ${x1} ${base - rad} Q ${x1} ${base} ${x1 - rad} ${base} L ${x0 + rad} ${base} Q ${x0} ${base} ${x0} ${base - rad} L ${x0} ${shoulder} Z`;
-  }
-  const apex = y + tip;            // 헥스 하단 꼭짓점
-  const base = apex - bh;          // 네모 위 (헥스 안쪽)
-  const shoulder = apex - tri;     // 세모→네모 경계 (헥스 변)
-  return `M ${x0} ${base + rad} Q ${x0} ${base} ${x0 + rad} ${base} L ${x1 - rad} ${base} Q ${x1} ${base} ${x1} ${base + rad} L ${x1} ${shoulder} L ${x} ${apex} L ${x0} ${shoulder} Z`;
-}
-
-// 면화(흰 큐브) 렌더 스펙 — 일반 큐브(12px)보다 20% 크고 어두운 테두리(요청 스펙).
-// 마을/도시/이동 큐브 렌더 3곳이 공유한다 (한 곳만 고치면 시각 불일치 — 여기서만 수정).
-const cubeRenderSize = (color: CubeColor) => (color === 'white' ? 14.4 : 12);
-const cubeStrokeColor = (color: CubeColor, fallback = '#e8eaec') =>
-  color === 'white' ? '#8a857c' : fallback;
-const cubeStrokeWidth = (color: CubeColor, fallback = 1) => (color === 'white' ? 2 : fallback);
-
-// 헥스 꼭짓점 i의 픽셀 좌표 (지도 바깥 외곽 실루엣 선을 그릴 때 사용). 변 e는 꼭짓점 e와 e+1 사이.
-function hexVertex(cx: number, cy: number, i: number, flat: boolean): { x: number; y: number } {
-  const angle = (Math.PI / 3) * i - Math.PI / 6;
-  const dx = HEX_SIZE * Math.cos(angle);
-  const dy = HEX_SIZE * Math.sin(angle);
-  return flat ? { x: cx + dy, y: cy + dx } : { x: cx + dx, y: cy + dy };
-}
+import { CITY_COLORS, CUBE_COLORS, HexCoord, PlayerId, TerrainType } from '@/types/game';
+import { shadeColor, hexVertex } from './board/boardGeometry';
 
 export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean } = {}) {
   // fitOverlay: 화물 이동 애니메이션을 전체 화면에 꽉 차게(fit) 보여주는 비인터랙티브 오버레이 모드
@@ -820,847 +747,82 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           })
         )}
 
-        {/* 마을 (Town) - 흰색 디스크 */}
-        {board.towns.map((town) => {
-          const { x, y } = hexToPixel(town.coord.col, town.coord.row, undefined, undefined, undefined, isFlat);
-          const isUrbanized = town.newCityColor !== null;
-          // 도시화된 마을은 cities 배열에 추가되어 도시로 렌더링됨 — 여기서 또 그리면 중복
-          if (isUrbanized) return null;
-          const isSourceSelected = ui.sourceHex && hexCoordsEqual(ui.sourceHex, town.coord);
-          const isTownClickable = (currentPhase === 'buildTrack' && !ui.urbanizationMode)
-            // 물품 이동 단계: 큐브가 있는(미도시화) 마을은 출발점으로 클릭 가능 (Western US)
-            || (currentPhase === 'moveGoods' && !ui.movingCube && town.newCityColor === null && town.cubes.length > 0);
+        {/* 마을 레이어 — 흰 디스크·이름 띠·마을 트랙/가닥·도시화 하이라이트·큐브 (board/BoardTowns) */}
+        <BoardTowns
+          towns={board.towns}
+          trackTiles={board.trackTiles}
+          currentPhase={currentPhase}
+          isFlat={isFlat}
+          plainColor={terrainColors.plain}
+          townNames={mapData.townNames}
+          trackPathCache={trackPathCache}
+          sourceHex={ui.sourceHex}
+          urbanizationMode={ui.urbanizationMode}
+          hasSelectedNewCityTile={!!ui.selectedNewCityTile}
+          isMovingCube={!!ui.movingCube}
+          highlightedHexes={ui.highlightedHexes}
+          canPlaceNewCity={canPlaceNewCity}
+          placeNewCity={placeNewCity}
+          canBuildTownSpur={canBuildTownSpur}
+          selectCube={selectCube}
+          onHexClick={handleHexClick}
+          renderTownSpurs={renderTownSpurs}
+        />
 
-          // 도시화 가능 여부 확인
-          const canUrbanize = ui.urbanizationMode && ui.selectedNewCityTile && !isUrbanized;
-          const isUrbanizationClickable = canPlaceNewCity(town.coord);
+        {/* 트랙 레이어 — 트랙 타일·소유 마커·완성 링크 마커·끊김 경고 (board/BoardTracks) */}
+        <BoardTracks
+          trackTiles={board.trackTiles}
+          players={players}
+          currentPlayer={currentPlayer}
+          currentTurn={currentTurn}
+          isBuildPhase={currentPhase === 'buildTrack'}
+          isBuildModeIdle={ui.buildMode === 'idle'}
+          isFlat={isFlat}
+          plainColor={terrainColors.plain}
+          trackPathCache={trackPathCache}
+          completedLinks={completedLinks}
+          disconnectedConnections={disconnectedConnections}
+          isTrackInCompletedLink={isTrackInCompletedLink}
+          canRedirect={canRedirect}
+          selectTrackToRedirect={selectTrackToRedirect}
+          onHexClick={handleHexClick}
+        />
 
-          // 미연결 가닥 완성 가능 여부 (내 트랙이 변에 닿아 있으나 가닥 없음 → 클릭으로 건설)
-          const canCompleteSpur = currentPhase === 'buildTrack' && !ui.urbanizationMode && canBuildTownSpur(town.coord);
+        {/* 도시 레이어 — 도시 헥스·라벨·큐브 + Germany 직결 링크 (board/BoardCities) */}
+        <BoardCities
+          cities={board.cities}
+          dynamicCityColors={board.dynamicCityColors}
+          cottonPorts={board.cottonPorts}
+          directLinks={board.directLinks}
+          players={players}
+          currentPhase={currentPhase}
+          isFlat={isFlat}
+          bonusCityId={bonusCityId}
+          cityDiceNumber={cityDiceNumber}
+          isCityNumberBoxBlack={(cityId, demandColor) => mapProfile.isCityNumberBoxBlack(cityId, demandColor)}
+          sourceHex={ui.sourceHex}
+          reachableDestinations={ui.reachableDestinations}
+          selectedCube={ui.selectedCube}
+          onHexClick={handleHexClick}
+          selectDestinationCity={selectDestinationCity}
+          onCubeClick={handleCubeClick}
+          buildDirectLink={buildDirectLink}
+        />
 
-          // 마을 헥스 자체에 깔린 트랙 (마을 디스크 아래 트랙 타일)
-          const townTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, town.coord));
-          const townTrackCache = townTrack ? trackPathCache.get(townTrack.id) : undefined;
-
-          // 마을 클릭 핸들러
-          const handleTownClick = () => {
-            // 도시화 모드인 경우
-            if (ui.urbanizationMode && isUrbanizationClickable) {
-              placeNewCity(town.coord);
-              return;
-            }
-            // 물품 이동 단계: 마을 위 큐브 선택 (Western US — 'town:<id>' 컨벤션)
-            if (currentPhase === 'moveGoods' && !ui.movingCube && town.newCityColor === null && town.cubes.length > 0) {
-              selectCube(`town:${town.id}`, 0);
-              return;
-            }
-            // 일반 트랙 건설 모드인 경우
-            if (currentPhase === 'buildTrack' && !ui.urbanizationMode) {
-              handleHexClick(town.coord);
-            }
-          };
-
-          // 트랙 건설 가이드: 마을 방향으로 지을 수 있을 때 노란 하이라이트 (헥스와 동일)
-          const isTownHighlighted = currentPhase === 'buildTrack'
-            && ui.highlightedHexes.some(h => hexCoordsEqual(h, town.coord));
-
-          return (
-            <g key={`town-${town.id}`}>
-              {/* 마을 배경 헥스 */}
-              <polygon
-                points={getHexPoints(x, y, HEX_SIZE, isFlat)}
-                fill={isTownHighlighted ? 'rgba(212, 168, 83, 0.45)' : terrainColors.plain}
-                stroke={
-                  isUrbanizationClickable
-                    ? '#3B82F6'  // 도시화 가능: 파란색 테두리
-                    : canCompleteSpur
-                    ? '#f4a261'  // 미연결 가닥 완성 가능: 주황 점선 테두리
-                    : isSourceSelected
-                    ? '#ffffff'
-                    : isTownHighlighted
-                    ? '#d4a853'  // 트랙 건설 가능 방향: 노란(골드) 테두리
-                    : '#2D4A2D'  // 배경 평지 헥스와 동일
-                }
-                strokeWidth={isTownHighlighted ? 1.5 : 0.5}
-                strokeDasharray={canCompleteSpur ? '6 4' : undefined}
-                className={(isTownClickable || isUrbanizationClickable) ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''}
-                onClick={handleTownClick}
-              >
-                {canCompleteSpur && <title>클릭: 마을 가닥 건설 ($1, 건설 1회) — 미연결 노선의 연결을 완성합니다</title>}
-              </polygon>
-
-              {/* 마을 헥스 위 트랙 타일 (마을 디스크 아래 깔린 철길) */}
-              {townTrack && townTrackCache && (
-                <g style={{ pointerEvents: 'none' }}>
-                  <path d={townTrackCache.pathData} fill="none" stroke="#3A3A32" strokeWidth="12" strokeLinecap="round" shapeRendering="geometricPrecision" />
-                  <path d={townTrackCache.pathData} fill="none" stroke={terrainColors.plain} strokeWidth="6" strokeLinecap="round" shapeRendering="geometricPrecision" />
-                  {townTrackCache.ties.map((tie, i) => (
-                    <line
-                      key={`town-tie-${town.id}-${i}`}
-                      x1={tie.x - 8 * Math.cos((tie.angle + 90) * Math.PI / 180)}
-                      y1={tie.y - 8 * Math.sin((tie.angle + 90) * Math.PI / 180)}
-                      x2={tie.x + 8 * Math.cos((tie.angle + 90) * Math.PI / 180)}
-                      y2={tie.y + 8 * Math.sin((tie.angle + 90) * Math.PI / 180)}
-                      stroke="#4A4A42"
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                    />
-                  ))}
-                </g>
-              )}
-              {/* 마을 안 철길 가닥 (실제 건설물 — 원에서 변까지) */}
-              {renderTownSpurs(town.coord, x, y)}
-
-              {/* 도시화 가능 표시 - 글로우 효과 */}
-              {canUrbanize && !isUrbanized && (
-                <circle
-                  cx={x}
-                  cy={y}
-                  r={HEX_SIZE - 6}
-                  fill="rgba(59, 130, 246, 0.15)"
-                  stroke="#3B82F6"
-                  strokeWidth="2"
-                  strokeDasharray="6 3"
-                  className="cursor-pointer"
-                  onClick={handleTownClick}
-                />
-              )}
-
-              {/* 마을 (흰 원 + 헥스 좌우 끝까지 육각형 이름 띠 — 공식 PDF 스타일, 테두리 없음) */}
-              {(() => {
-                const label = mapData.townNames?.[town.id] ?? town.id;
-                const nameFs =
-                  Math.min(HEX_SIZE * 0.2, (2 * (HEX_SIZE - 3) - 22) / Math.max(1, label.length * 0.62)) * 0.8;
-                const SERIF = "Georgia, 'Times New Roman', serif";
-                const clickable = (isTownClickable || isUrbanizationClickable) ? 'cursor-pointer' : '';
-                return (
-                  <>
-                    {/* 흰 원 (가장 낮은 z — 헥스 바로 위, 이름 띠 아래) */}
-                    <circle cx={x} cy={y} r={HEX_SIZE * 0.52} fill="#ffffff" className={clickable} onClick={handleTownClick} />
-                    {/* 이름 띠 (육각형) */}
-                    <polygon points={nameBandPoints(x, y, isFlat)} fill="#ffffff" className={clickable} onClick={handleTownClick} />
-                    <text
-                      x={x} y={y} textAnchor="middle" dominantBaseline="central" fill="#1a1a1a"
-                      fontSize={nameFs} fontWeight="600" letterSpacing="0.5" fontFamily={SERIF}
-                      style={{ pointerEvents: 'none' }}
-                    >
-                      {label.toUpperCase()}
-                    </text>
-                  </>
-                );
-              })()}
-
-              {/* 마을 위 물품 큐브 (도시화 전에만) — 도시 화물과 동일한 위치·크기·2줄 배치 */}
-              {!isUrbanized && town.cubes.length > 0 && (
-                <g>
-                  {town.cubes.map((cubeColor, i) => {
-                    const cubeEdge = isFlat ? SQRT3_2 * HEX_SIZE : HEX_SIZE;
-                    const n = town.cubes.length;
-                    const cols = n >= 4 ? Math.ceil(n / 2) : n;
-                    const row = Math.floor(i / cols);
-                    const colIdx = i % cols;
-                    const colsInRow = row === 0 ? cols : n - cols;
-                    const cubeX = x - ((colsInRow - 1) * 18) / 2 + colIdx * 18;
-                    // pointy-top(꼭짓점 세로, 서부 US) 맵은 화물을 6px 위로.
-                    const cubeY = y + cubeEdge - HEX_SIZE * 0.58 + 4 + row * 15 - (isFlat ? 0 : 6);
-                    const cubeSize = cubeRenderSize(cubeColor);
-                    return (
-                      <rect
-                        key={`town-cube-${town.id}-${i}`}
-                        x={cubeX - cubeSize / 2}
-                        y={cubeY - cubeSize / 2}
-                        width={cubeSize}
-                        height={cubeSize}
-                        fill={CUBE_COLORS[cubeColor]}
-                        stroke={cubeStrokeColor(cubeColor)}
-                        strokeWidth={cubeStrokeWidth(cubeColor)}
-                        rx="1"
-                      />
-                    );
-                  })}
-                </g>
-              )}
-            </g>
-          );
-        })}
-
-        {/* 트랙 타일 */}
-        {board.trackTiles.map((tile) => {
-          const { x, y } = hexToPixel(tile.coord.col, tile.coord.row, undefined, undefined, undefined, isFlat);
-          // 캐시에서 경로 데이터 가져오기 (계산 비용 절감)
-          const cached = trackPathCache.get(tile.id);
-          const pathData = cached?.pathData ?? '';
-          const ties = cached?.ties ?? [];
-          const ownerColor = tile.owner ? PLAYER_COLORS[players[tile.owner].color] : '#888';
-
-          // 복합 트랙인 경우 두 번째 경로도 렌더링
-          const hasSecondary = tile.trackType !== 'simple' && tile.secondaryEdges;
-          const secondaryPathData = cached?.secondaryPathData ?? null;
-          const secondaryTies = cached?.secondaryTies ?? [];
-          const secondaryOwnerColor = hasSecondary && tile.secondaryOwner
-            ? PLAYER_COLORS[players[tile.secondaryOwner].color]
-            : '#888';
-
-          // 방향 전환 가능 여부 확인
-          const isRedirectable = currentPhase === 'buildTrack' && canRedirect(tile.coord);
-          const isTrackClickable = currentPhase === 'buildTrack' && (
-            tile.owner === currentPlayer || isRedirectable
-          );
-
-          // 트랙 클릭 핸들러 (연결점 선택 우선, 방향 전환은 Shift+클릭)
-          const handleTrackClick = (e: React.MouseEvent) => {
-            if (!isTrackClickable) return;
-
-            // 플레이어의 자신의 트랙은 먼저 연결점으로 선택 (이어 짓기용)
-            // Shift+클릭일 때만 방향 전환
-            if (tile.owner === currentPlayer) {
-              if (e.shiftKey && isRedirectable && ui.buildMode === 'idle') {
-                // Shift+클릭: 방향 전환 모드
-                selectTrackToRedirect(tile.coord);
-              } else {
-                // 일반 클릭: 연결점으로 선택 (이어 짓기)
-                handleHexClick(tile.coord);
-              }
-              return;
-            }
-
-            // 소유자가 없는 방향 전환 가능 트랙
-            if (isRedirectable && ui.buildMode === 'idle') {
-              selectTrackToRedirect(tile.coord);
-            }
-          };
-
-          return (
-            <g key={tile.id}>
-              {/* 방향 전환 가능한 트랙 배경 하이라이트 */}
-              {isRedirectable && ui.buildMode === 'idle' && (
-                <circle
-                  cx={x}
-                  cy={y}
-                  r={HEX_SIZE - 8}
-                  fill="rgba(255, 165, 0, 0.15)"
-                  stroke="#ffa500"
-                  strokeWidth="2"
-                  strokeDasharray="4 2"
-                  className="cursor-pointer"
-                  onClick={(e) => handleTrackClick(e)}
-                />
-              )}
-
-              {/* 첫 번째 레일 (기본) */}
-              <path
-                d={pathData}
-                fill="none"
-                stroke="#3A3A32"
-                strokeWidth="12"
-                strokeLinecap="round"
-                shapeRendering="geometricPrecision"
-                className={isTrackClickable ? 'cursor-pointer' : ''}
-                onClick={(e) => handleTrackClick(e)}
-                style={{ pointerEvents: isTrackClickable ? 'auto' : 'none' }}
-              />
-              <path
-                d={pathData}
-                fill="none"
-                stroke={terrainColors.plain}
-                strokeWidth="6"
-                strokeLinecap="round"
-                shapeRendering="geometricPrecision"
-                className={isTrackClickable ? 'cursor-pointer' : ''}
-                onClick={(e) => handleTrackClick(e)}
-                style={{ pointerEvents: isTrackClickable ? 'auto' : 'none' }}
-              />
-              {/* 첫 번째 침목 */}
-              {ties.map((tie, i) => (
-                <line
-                  key={`tie-${tile.id}-${i}`}
-                  x1={tie.x - 8 * Math.cos((tie.angle + 90) * Math.PI / 180)}
-                  y1={tie.y - 8 * Math.sin((tie.angle + 90) * Math.PI / 180)}
-                  x2={tie.x + 8 * Math.cos((tie.angle + 90) * Math.PI / 180)}
-                  y2={tie.y + 8 * Math.sin((tie.angle + 90) * Math.PI / 180)}
-                  stroke="#4A4A42"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  shapeRendering="crispEdges"
-                  style={{ pointerEvents: 'none' }}
-                />
-              ))}
-
-              {/* 복합 트랙: 두 번째 레일 */}
-              {hasSecondary && secondaryPathData && (
-                <>
-                  {/* 교차(crossing)인 경우 다리 효과 표시 */}
-                  {tile.trackType === 'crossing' && (
-                    <path
-                      d={secondaryPathData}
-                      fill="none"
-                      stroke="#2A2A22"
-                      strokeWidth="16"
-                      strokeLinecap="round"
-                      shapeRendering="geometricPrecision"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                  )}
-                  <path
-                    d={secondaryPathData}
-                    fill="none"
-                    stroke="#3A3A32"
-                    strokeWidth="12"
-                    strokeLinecap="round"
-                    shapeRendering="geometricPrecision"
-                    style={{ pointerEvents: 'none' }}
-                  />
-                  <path
-                    d={secondaryPathData}
-                    fill="none"
-                    stroke={terrainColors.plain}
-                    strokeWidth="6"
-                    strokeLinecap="round"
-                    shapeRendering="geometricPrecision"
-                    style={{ pointerEvents: 'none' }}
-                  />
-                  {/* 두 번째 침목 */}
-                  {secondaryTies.map((tie, i) => (
-                    <line
-                      key={`tie2-${tile.id}-${i}`}
-                      x1={tie.x - 8 * Math.cos((tie.angle + 90) * Math.PI / 180)}
-                      y1={tie.y - 8 * Math.sin((tie.angle + 90) * Math.PI / 180)}
-                      x2={tie.x + 8 * Math.cos((tie.angle + 90) * Math.PI / 180)}
-                      y2={tie.y + 8 * Math.sin((tie.angle + 90) * Math.PI / 180)}
-                      stroke="#4A4A42"
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                      shapeRendering="crispEdges"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                  ))}
-                </>
-              )}
-
-              {/* 헥스 외곽선 재묘사 — 레일(12px)이 얇은 헥스 테두리를 덮어 "지워진" 듯 보이는
-                  것 방지. 타일마다 자기 헥스 변을 레일 위에 다시 그려 그리드가 항상 또렷하게. */}
-              <polygon
-                points={getHexPoints(x, y, HEX_SIZE, isFlat)}
-                fill="none"
-                stroke="#2D4A2D"
-                strokeWidth={0.5}
-                style={{ pointerEvents: 'none' }}
-              />
-
-              {/* 이번 턴에 건설한 트랙 표시 (턴이 끝나면 사라짐) — 누적 트랙과 구분용 */}
-              {tile.builtTurn === currentTurn && (
-                <polygon
-                  points={getHexPoints(x, y, HEX_SIZE - 6, isFlat)}
-                  fill="none"
-                  stroke="#ffffff"
-                  strokeWidth="2"
-                  strokeDasharray="5 4"
-                  opacity="0.85"
-                  style={{ pointerEvents: 'none' }}
-                />
-              )}
-
-              {/* 소유자 마커 - 미완성 트랙에만 표시. 파산으로 공용화된(owner null) 트랙은
-                  소유 디스크를 제거하므로 마커를 그리지 않음 (룰: 파산 미완성 트랙 디스크 제거) */}
-              {!isTrackInCompletedLink(tile.coord) && tile.owner !== null && (
-                <circle
-                  cx={x}
-                  cy={y}
-                  r="7"
-                  fill={ownerColor}
-                  stroke={isRedirectable && ui.buildMode === 'idle' ? '#ffa500' : '#1a1a1a'}
-                  strokeWidth={isRedirectable && ui.buildMode === 'idle' ? 2 : 1.5}
-                  className={isTrackClickable ? 'cursor-pointer' : ''}
-                  onClick={(e) => handleTrackClick(e)}
-                  style={{ pointerEvents: isTrackClickable ? 'auto' : 'none' }}
-                />
-              )}
-              {/* 복합 트랙: 두 번째 소유자 마커 (미완성 트랙에만) */}
-              {!isTrackInCompletedLink(tile.coord) && hasSecondary && tile.secondaryOwner && (
-                <circle
-                  cx={x + 10}
-                  cy={y - 10}
-                  r="5"
-                  fill={secondaryOwnerColor}
-                  stroke="#1a1a1a"
-                  strokeWidth="1"
-                />
-              )}
-            </g>
-          );
-        })}
-
-        {/* 완성된 링크 소유 마커 - 링크 중앙에 하나만 표시 */}
-        {completedLinks.map((link) => {
-          const ownerColor = PLAYER_COLORS[players[link.owner].color];
-          // centerPosition은 pointy 기준 좌표 — flat 맵에서도 맞도록 중간 타일에서 재계산
-          const midTile = link.trackTiles[Math.floor(link.trackTiles.length / 2)];
-          const center = midTile
-            ? hexToPixel(midTile.col, midTile.row, undefined, undefined, undefined, isFlat)
-            : link.centerPosition;
-          return (
-            <circle
-              key={link.id}
-              cx={center.x}
-              cy={center.y}
-              r="8"
-              fill={ownerColor}
-              stroke="#1a1a1a"
-              strokeWidth="2"
-              style={{ pointerEvents: 'none' }}
-            />
-          );
-        })}
-
-        {/* 끊어진 트랙 연결 경고 표시 */}
-        {disconnectedConnections.map((conn, index) => {
-          const { x: x1, y: y1 } = hexToPixel(conn.from.col, conn.from.row, undefined, undefined, undefined, isFlat);
-          const { x: x2, y: y2 } = hexToPixel(conn.to.col, conn.to.row, undefined, undefined, undefined, isFlat);
-
-          // 두 트랙 중간 지점
-          const midX = (x1 + x2) / 2;
-          const midY = (y1 + y2) / 2;
-
-          return (
-            <g key={`disconn-${index}`} style={{ pointerEvents: 'none' }}>
-              {/* 끊어진 연결 표시 - 빨간색 X */}
-              <circle
-                cx={midX}
-                cy={midY}
-                r="12"
-                fill="rgba(220, 38, 38, 0.8)"
-                stroke="#fff"
-                strokeWidth="2"
-              />
-              <text
-                x={midX}
-                y={midY + 4}
-                textAnchor="middle"
-                fontSize="14"
-                fontWeight="bold"
-                fill="#fff"
-              >
-                ✗
-              </text>
-              {/* 호버 시 정보 표시 */}
-              <title>
-                트랙 연결 끊김: ({conn.from.col},{conn.from.row}) edge{conn.fromEdge} ↔ ({conn.to.col},{conn.to.row}) edge{conn.toEdge}
-              </title>
-            </g>
-          );
-        })}
-
-        {/* 도시 */}
-        {board.cities.map((city) => {
-          const { x, y } = hexToPixel(city.coord.col, city.coord.row, undefined, undefined, undefined, isFlat);
-          // 외국 터미널(독일 녹색 헥스): 칸은 원본 맵의 teal 녹색으로 채우고 테두리를
-          // "수용 화물색"(city.color)으로. 일반 도시: 도시 색으로 채움.
-          const TERMINAL_GREEN = '#2c908c'; // 원본 germany.png 터미널 헥스에서 추출
-          const goodsColor = CITY_COLORS[city.color];
-          // 한국(동적 색상): 도시는 고정색이 없으므로 회색 헥스로 그리고, 수요색은 하단 큐브로 표현.
-          // (빈 도시 = 수요 없음 = 회색, 신도시도 회색)
-          const DYNAMIC_CITY_GRAY = '#d2d6da'; // 공식 맵의 밝은(거의 흰) 도시 헥스 톤
-          const cityColor = city.isTerminal
-            ? TERMINAL_GREEN
-            : board.dynamicCityColors
-            ? DYNAMIC_CITY_GRAY
-            : city.id === bonusCityId // Berlin: 이름·숫자 없는 정상 회색 도시
-            ? DYNAMIC_CITY_GRAY
-            : goodsColor;
-          const isSourceSelected = ui.sourceHex && hexCoordsEqual(ui.sourceHex, city.coord);
-          const isCityClickable = currentPhase === 'buildTrack';
-          const isReachableDestination = ui.reachableDestinations.some(
-            d => hexCoordsEqual(d, city.coord)
-          );
-          const isMoveGoodsPhase = currentPhase === 'moveGoods';
-
-          // 도시 클릭 핸들러
-          const handleCityClick = () => {
-            if (currentPhase === 'buildTrack') {
-              handleHexClick(city.coord);
-            } else if (isMoveGoodsPhase && isReachableDestination) {
-              selectDestinationCity(city.coord);
-            }
-          };
-
-          return (
-            <g key={`city-${city.id}`}>
-              {/* 도시 헥사곤 (검은 테두리 0.5px) */}
-              <polygon
-                points={getHexPoints(x, y, HEX_SIZE, isFlat)}
-                fill={cityColor}
-                stroke={
-                  isReachableDestination
-                    ? '#e6c77a'  // 골드 악센트 (accent-light)
-                    : isSourceSelected
-                    ? '#ffffff'
-                    : '#1a1a1a'  // 터미널 수용색은 아래 안쪽 폴리곤으로 별도 표시
-                }
-                strokeWidth={0.5}
-                className={
-                  (isCityClickable || isReachableDestination)
-                    ? 'cursor-pointer hover:opacity-90 transition-opacity'
-                    : ''
-                }
-                onClick={handleCityClick}
-              />
-
-              {/* 헥스 테두리 안쪽 얇은 inset 라인 (회색 도시=어두운 회색, 컬러 도시=흰색, 거의 안 보임) */}
-              <polygon
-                points={getHexPoints(x, y, HEX_SIZE - 7, isFlat)}
-                fill="none"
-                stroke={board.dynamicCityColors ? 'rgba(120,124,130,0.75)' : 'rgba(255,255,255,0.85)'}
-                strokeWidth={0.15}
-                style={{ pointerEvents: 'none' }}
-              />
-
-              {/* 면화 항구(Southern US): 헥스 변 안쪽으로 두꺼운 흰 테두리 — 바깥은 지도 외곽선과
-                  겹치므로 안쪽(inset)으로 그린다. 면화(흰 큐브) 배달 종착지 표시. */}
-              {board.cottonPorts?.includes(city.id) && (
-                <>
-                  <polygon
-                    points={getHexPoints(x, y, HEX_SIZE - 5, isFlat)}
-                    fill="none"
-                    stroke="rgba(255,255,255,0.95)"
-                    strokeWidth={7}
-                    style={{ pointerEvents: 'none' }}
-                  />
-                  {/* 흰 테두리 안쪽 경계의 얇은 검은 라인 */}
-                  <polygon
-                    points={getHexPoints(x, y, HEX_SIZE - 9, isFlat)}
-                    fill="none"
-                    stroke="#1a1a1a"
-                    strokeWidth={1}
-                    style={{ pointerEvents: 'none' }}
-                  />
-                </>
-              )}
-
-              {/* 외국 터미널: 얇은 흰 띠 (비인터랙티브). */}
-              {city.isTerminal && (
-                <polygon
-                  points={getHexPoints(x, y, HEX_SIZE - 6, isFlat)}
-                  fill="none"
-                  stroke="rgba(255,255,255,0.9)"
-                  strokeWidth={2.5}
-                  style={{ pointerEvents: 'none' }}
-                />
-              )}
-
-              {/* 라벨: 위·아래 흰/검 숫자 박스(맵별) + 헥스 좌우 끝까지 닿는 이름 띠 (공식 PDF 스타일).
-                  외국 터미널은 ✕, Berlin(bonusCityId)은 이름만. */}
-              {(() => {
-                const dice = cityDiceNumber[city.id];
-                // 신도시(도시화 타일): id가 타일 letter(A~H), name이 "New City X". 이름은 "NEW CITY",
-                // 숫자 자리엔 letter를 표시한다.
-                const isNewCityTile = city.name.startsWith('New City');
-                const showName = true; // 모든 도시 이름 표시 (Berlin 등 보너스 도시 포함)
-                const isBlack = isNewCityTile
-                  ? city.id >= 'E'  // 신도시 A~D = 흰 박스, E~H = 검은 박스
-                  : mapProfile.isCityNumberBoxBlack(city.id, city.color);
-                const boxFill = isBlack ? '#1f1f1f' : '#ffffff';
-                const numColor = isBlack ? '#ffffff' : '#1a1a1a';
-                // flat=상하 평변 / pointy=상하 꼭짓점에 박스가 닿게
-                const bw = HEX_SIZE * 0.56, bh = HEX_SIZE * 0.58 + (isFlat ? 0 : 6), rad = HEX_SIZE * 0.078;
-                const numFs = HEX_SIZE * 0.43;
-                const SERIF = "Georgia, 'Times New Roman', serif";
-                const edge = isFlat ? SQRT3_2 * HEX_SIZE : HEX_SIZE;
-                // 숫자 텍스트 y: flat=박스 중앙 / pointy=네모 부분 중앙(꼭짓점 안쪽)
-                const tri = bw / 3.4641;
-                const topNumY = isFlat ? y - edge + bh / 2 : y - edge + (tri + bh) / 2;
-                const botNumY = isFlat ? y + edge - bh / 2 : y + edge - (tri + bh) / 2;
-                // 이름 배경: 어두운 헥스는 밝은 회색 띠. 밝은 헥스(노랑·터미널)는 약간 어두운 회색.
-                // 동적색(한국 회색 도시 #d2d6da)은 띠가 헥스보다 밝으면 끝이 묻혀 안 보이므로
-                // 또렷이 어두운 회색으로 — Rust Belt(색 헥스+밝은 띠)와 같은 대비 확보.
-                const lightHex = board.dynamicCityColors || city.color === 'yellow' || city.isTerminal;
-                // 회색 헥스(한국 동적색 도시 + Berlin 같은 보너스 회색 도시)는 또렷한 어두운 회색 띠로 대비 확보
-                const grayHex = board.dynamicCityColors || city.id === bonusCityId;
-                const bandFill = grayHex ? '#b3b9c1' : lightHex ? '#dcdce0' : '#f3f3f3';
-                const nameFs =
-                  Math.min(HEX_SIZE * 0.2, (2 * (HEX_SIZE - 3) - 22) / Math.max(1, city.name.length * 0.62)) * 0.8;
-                return (
-                  <g style={{ pointerEvents: 'none' }}>
-                    {(dice != null || isNewCityTile || city.isTerminal) && (() => {
-                      // 일반 도시: 위아래 숫자. 신도시: 위아래 letter(A~H). 터미널: 위 ✕·아래 수용색 큐브.
-                      const isLabelBox = dice != null || isNewCityTile; // 위아래 같은 라벨(숫자/letter)을 가진 박스
-                      const lbl = dice != null ? String(dice) : isNewCityTile ? city.id : '✕';
-                      const bf = isLabelBox ? boxFill : '#ffffff';
-                      const nc = isLabelBox ? numColor : '#1a1a1a';
-                      const nf = isLabelBox ? numFs : numFs * 0.85;
-                      return (
-                        <>
-                          <path d={numberBoxPath(x, y, bw, bh, rad, isFlat, true)} fill={bf} />
-                          <text x={x} y={topNumY} textAnchor="middle" dominantBaseline="central" fill={nc} fontSize={nf} fontWeight="700" fontFamily={SERIF}>{lbl}</text>
-                          <path d={numberBoxPath(x, y, bw, bh, rad, isFlat, false)} fill={isLabelBox ? bf : CUBE_COLORS[city.color]} />
-                          {isLabelBox && (
-                            <text x={x} y={botNumY} textAnchor="middle" dominantBaseline="central" fill={nc} fontSize={nf} fontWeight="700" fontFamily={SERIF}>{lbl}</text>
-                          )}
-                        </>
-                      );
-                    })()}
-                    {showName && (
-                      <>
-                        <polygon points={nameBandPoints(x, y, isFlat)} fill={bandFill} />
-                        <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fill="#1a1a1a" fontSize={nameFs} fontWeight="600" letterSpacing="0.5" fontFamily={SERIF}>{isNewCityTile ? 'NEW CITY' : city.name.toUpperCase()}</text>
-                      </>
-                    )}
-                  </g>
-                );
-              })()}
-
-              {/* 물품 큐브 (도시 하단 숫자 박스 가운데) */}
-              <g>
-                {city.cubes.map((cubeColor, i) => {
-                  const cubeEdge = isFlat ? SQRT3_2 * HEX_SIZE : HEX_SIZE;
-                  // 4개 이상은 2줄로 배치
-                  const n = city.cubes.length;
-                  const cols = n >= 4 ? Math.ceil(n / 2) : n;
-                  const row = Math.floor(i / cols);
-                  const colIdx = i % cols;
-                  const colsInRow = row === 0 ? cols : n - cols;
-                  const cubeX = x - ((colsInRow - 1) * 18) / 2 + colIdx * 18;
-                  // 일반 도시: 화물 상단 = 아래 박스 상단(2줄이면 아래로). 터미널: 아래 수용색 박스 정가운데.
-                  // pointy-top(꼭짓점 세로, 서부 US) 맵은 화물을 6px 위로 올려 헥스 안에 더 잘 들어오게.
-                  const cubeY = (city.isTerminal
-                    ? y + cubeEdge - (HEX_SIZE * 0.58) / 2
-                    : y + cubeEdge - HEX_SIZE * 0.58 + 4 + row * 15)
-                    - (isFlat ? 0 : 6);
-                  const isSelected =
-                    ui.selectedCube?.cityId === city.id &&
-                    ui.selectedCube?.cubeIndex === i;
-
-                  const cubeSize = cubeRenderSize(cubeColor);
-                  return (
-                    <rect
-                      key={`cube-${city.id}-${i}`}
-                      x={cubeX - cubeSize / 2}
-                      y={cubeY - cubeSize / 2}
-                      width={cubeSize}
-                      height={cubeSize}
-                      fill={CUBE_COLORS[cubeColor]}
-                      stroke={isSelected ? '#ffffff' : cubeStrokeColor(cubeColor)}
-                      strokeWidth={isSelected ? 2 : cubeStrokeWidth(cubeColor)}
-                      rx="1"
-                      className={
-                        currentPhase === 'moveGoods'
-                          ? 'cursor-pointer hover:opacity-80 transition-opacity'
-                          : ''
-                      }
-                      onClick={() => handleCubeClick(city.id, i)}
-                    />
-                  );
-                })}
-              </g>
-            </g>
-          );
-        })}
-
-        {/* Germany 도시-도시 직결 링크 (Essen↔Düsseldorf $2) — 도시 위 레이어라야 클릭이 도시에 가로채이지 않음 */}
-        {(board.directLinks ?? []).map((dl, i) => {
-          const a = board.cities.find(c => c.id === dl.cityA);
-          const b = board.cities.find(c => c.id === dl.cityB);
-          if (!a || !b) return null;
-          const pa = hexToPixel(a.coord.col, a.coord.row, undefined, undefined, undefined, isFlat);
-          const pb = hexToPixel(b.coord.col, b.coord.row, undefined, undefined, undefined, isFlat);
-          const mx = (pa.x + pb.x) / 2, my = (pa.y + pb.y) / 2;
-          const buildable = currentPhase === 'buildTrack' && dl.owner === null;
-          const ownerColor = dl.owner ? PLAYER_COLORS[players[dl.owner].color] : null;
-          return (
-            <g
-              key={`directlink-${i}`}
-              className={buildable ? 'cursor-pointer' : ''}
-              onClick={() => buildable && buildDirectLink(dl.cityA, dl.cityB)}
-            >
-              <line
-                x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y}
-                stroke={ownerColor ?? '#d4a853'}
-                strokeWidth={dl.owner ? 9 : 6}
-                strokeDasharray={dl.owner ? undefined : '10 7'}
-                strokeLinecap="round"
-                opacity={dl.owner ? 0.95 : 0.85}
-                style={{ pointerEvents: 'none' }}
-              />
-              {/* 클릭 히트영역(투명, 큰 원) — 건설 가능할 때만 */}
-              {buildable && <circle cx={mx} cy={my} r="22" fill="transparent" />}
-              <circle cx={mx} cy={my} r="14" fill={ownerColor ?? 'rgba(255,255,255,0.92)'} stroke="rgba(0,0,0,0.65)" strokeWidth="2" style={{ pointerEvents: 'none' }} />
-              {!dl.owner && (
-                <text x={mx} y={my + 5} textAnchor="middle" fill="#1a1a1a" fontSize="15" fontWeight="bold" fontFamily="system-ui, sans-serif" style={{ pointerEvents: 'none' }}>
-                  {dl.cost}
-                </text>
-              )}
-            </g>
-          );
-        })}
-
-        {/* 미리보기 트랙 */}
-        {ui.previewTrack && (
-          <g opacity={0.5}>
-            {(() => {
-              const { x, y } = hexToPixel(
-                ui.previewTrack.coord.col,
-                ui.previewTrack.coord.row,
-                undefined, undefined, undefined, isFlat
-              );
-              const pathData = getTrackPath(
-                x,
-                y,
-                ui.previewTrack.edges[0],
-                ui.previewTrack.edges[1],
-                HEX_SIZE - 2,
-                isFlat
-              );
-              return (
-                <path
-                  d={pathData}
-                  fill="none"
-                  stroke="#d4a853"
-                  strokeWidth="8"
-                  strokeLinecap="round"
-                  strokeDasharray="4 4"
-                  shapeRendering="geometricPrecision"
-                  style={{ pointerEvents: 'none' }}
-                />
-              );
-            })()}
-          </g>
-        )}
-
-        {/* 이동 경로 - 트랙을 따라 곡선으로 표시 */}
-        {/* 트랙 위 물품 큐브 — 최상위 레이어 (마을/도시 등 다른 요소에 클릭이 가려지지 않도록) */}
-        {board.trackTiles.filter(t => t.cube).map((tile) => {
-          const { x, y } = hexToPixel(tile.coord.col, tile.coord.row, undefined, undefined, undefined, isFlat);
-          const isSelected = ui.selectedCube?.cityId === `track:${tile.id}`;
-          const clickable = currentPhase === 'moveGoods';
-          const handleClick = (e: React.MouseEvent) => {
-            if (!clickable) return;
-            e.stopPropagation();
-            selectCube(`track:${tile.id}`, 0);
-          };
-          return (
-            <g key={`track-cube-${tile.id}`} className={clickable ? 'cursor-pointer' : ''}>
-              <rect
-                x={x - 6}
-                y={y - 18}
-                width="12"
-                height="12"
-                fill={CUBE_COLORS[tile.cube!]}
-                stroke={isSelected ? '#ffffff' : 'rgba(0,0,0,0.4)'}
-                strokeWidth={isSelected ? 2.5 : 1}
-                rx="2"
-                className={clickable ? 'hover:opacity-80' : ''}
-                onClick={handleClick}
-              />
-              {/* 투명 히트 영역 (작은 큐브도 클릭하기 쉽게) */}
-              <circle
-                cx={x}
-                cy={y - 12}
-                r="16"
-                fill="transparent"
-                onClick={handleClick}
-              />
-            </g>
-          );
-        })}
-
-        {ui.movePath.length > 1 && !ui.movingCube && (
-          <path
-            d={getMovementPathSVG(ui.movePath, board, HEX_SIZE - 2, isFlat)}
-            fill="none"
-            stroke="#d4a853"
-            strokeWidth="4"
-            strokeLinecap="round"
-            strokeDasharray="8 4"
-            shapeRendering="geometricPrecision"
-            style={{ pointerEvents: 'none' }}
-          />
-        )}
-
-        {/* 이동 중인 큐브 애니메이션 - Framer Motion 사용 */}
-        {ui.movingCube && (() => {
-          // 경로의 모든 애니메이션 포인트 계산
-          const animPoints = getAnimationPoints(ui.movingCube.path, board, HEX_SIZE - 2, 5, isFlat);
-
-          // 모든 x, y 좌표 배열 생성
-          const xPoints = animPoints.map(p => p.x - 9);
-          const yPoints = animPoints.map(p => p.y - 9);
-
-          return (
-            <g>
-              {/* 이동 경로 표시 - 트랙을 따라 점선으로 */}
-              <path
-                d={getMovementPathSVG(ui.movingCube.path, board, HEX_SIZE - 2, isFlat)}
-                fill="none"
-                stroke={CUBE_COLORS[ui.movingCube.color]}
-                strokeWidth="4"
-                strokeLinecap="round"
-                strokeDasharray="6 3"
-                opacity={0.4}
-              />
-
-              {/* 큐브 - Framer Motion으로 경로 따라 이동 */}
-              <motion.rect
-                key="moving-cube"
-                width="18"
-                height="18"
-                fill={CUBE_COLORS[ui.movingCube.color]}
-                stroke={cubeStrokeColor(ui.movingCube.color, '#ffffff')}
-                strokeWidth="2"
-                rx="3"
-                initial={{ x: xPoints[0], y: yPoints[0] }}
-                animate={{ x: xPoints, y: yPoints }}
-                transition={{
-                  duration: 1,
-                  ease: 'linear',
-                  times: animPoints.map((_, i) => i / (animPoints.length - 1))
-                }}
-                style={{
-                  willChange: 'transform', // GPU acceleration
-                }}
-              />
-            </g>
-          );
-        })()}
-
-        {/* 지도 바깥 외곽선 — 헥스 실루엣의 바깥 변(이웃 없는 변)을 두꺼운 실선으로 연결 (맵 테두리색) */}
-        {mapOutlinePath && (
-          <path
-            d={mapOutlinePath}
-            fill="none"
-            stroke={mapData.colors.border}
-            strokeWidth={4}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{ pointerEvents: 'none' }}
-          />
-        )}
-
-        {/* 철도 건설 불가 내부 경계 변 — 외곽선 2배(8px) 굵기, 검은색 */}
-        {blockedEdgePath && (
-          <path
-            d={blockedEdgePath}
-            fill="none"
-            stroke="#000000"
-            strokeWidth={8}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{ pointerEvents: 'none' }}
-          />
-        )}
-
-        {/* 외국 터미널(독일) 수용 화물색 테두리 — z 최상단(외곽선보다 위). 도시 그룹이 아닌 여기서 그림. */}
-        {board.cities.filter(c => c.isTerminal).map(city => {
-          const { x, y } = hexToPixel(city.coord.col, city.coord.row, undefined, undefined, undefined, isFlat);
-          return (
-            <polygon
-              key={`terminal-border-top-${city.id}`}
-              points={getHexPoints(x, y, HEX_SIZE, isFlat)}
-              fill="none"
-              stroke={CITY_COLORS[city.color]}
-              strokeWidth={4}
-              style={{ pointerEvents: 'none' }}
-            />
-          );
-        })}
+        {/* 오버레이 레이어 — 미리보기·트랙 위 큐브·이동 경로/큐브·외곽선·경계·터미널 테두리 (board/BoardOverlays) */}
+        <BoardOverlays
+          board={board}
+          currentPhase={currentPhase}
+          isFlat={isFlat}
+          mapOutlinePath={mapOutlinePath}
+          blockedEdgePath={blockedEdgePath}
+          borderColor={mapData.colors.border}
+          previewTrack={ui.previewTrack}
+          selectedCubeCityId={ui.selectedCube?.cityId ?? null}
+          movePath={ui.movePath}
+          movingCube={ui.movingCube}
+          selectCube={selectCube}
+        />
         {/* 인플레이스 펄스 레이어 (건설/큐브 유입) — memo 자식으로 분리, 미니 오버레이에서도 표시 */}
         <BoardPulses isFlat={isFlat} />
         {/* 좌표 오버레이 — 모든 요소 위(그룹 내 최상위). 줌/팬 변환 그룹 안에 있어야

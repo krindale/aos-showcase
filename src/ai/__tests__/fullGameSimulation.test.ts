@@ -400,7 +400,11 @@ function runFullGame(rng: () => number): SimulationResult {
   const financials: Record<PlayerId, TurnFinancials[]> = {
     player1: [],
     player2: [],
-  } as Record<PlayerId, TurnFinancials[]>;
+    player3: [],
+    player4: [],
+    player5: [],
+    player6: [],
+  };
 
   let anyBankrupt = false;
   let anyIncomeReduced = false;
@@ -412,12 +416,12 @@ function runFullGame(rng: () => number): SimulationResult {
   complexTracksBuiltCounter = 0;
 
   // 턴별 스냅샷 추적
-  let turnStart: Record<PlayerId, { cash: number; income: number; shares: number; engine: number }> | null = null;
-  let afterIssueShares: Record<PlayerId, { shares: number }> | null = null;
-  let afterSelectActions: Record<PlayerId, { action: string | null }> | null = null;
-  let beforeBuildTrack: Record<PlayerId, { cash: number; trackCount: number }> | null = null;
-  let beforeMoveGoods: Record<PlayerId, { income: number }> | null = null;
-  let afterMoveGoodsR1: Record<PlayerId, { income: number }> | null = null;
+  let turnStart: Partial<Record<PlayerId, { cash: number; income: number; shares: number; engine: number }>> | null = null;
+  let afterIssueShares: Partial<Record<PlayerId, { shares: number }>> | null = null;
+  let afterSelectActions: Partial<Record<PlayerId, { action: string | null }>> | null = null;
+  let beforeBuildTrack: Partial<Record<PlayerId, { cash: number; trackCount: number }>> | null = null;
+  let beforeMoveGoods: Partial<Record<PlayerId, { income: number }>> | null = null;
+  let afterMoveGoodsR1: Partial<Record<PlayerId, { income: number }>> | null = null;
 
   const MAX_ITERATIONS = 5000;
   let iterations = 0;
@@ -447,7 +451,7 @@ function runFullGame(rng: () => number): SimulationResult {
 
     // --- 턴 시작 스냅샷 (issueShares 단계 진입 시) ---
     if (state.currentPhase === 'issueShares' && turnStart === null) {
-      turnStart = {} as typeof turnStart;
+      turnStart = {};
       for (const pid of playerIds) {
         const p = state.players[pid];
         if (p) {
@@ -466,7 +470,7 @@ function runFullGame(rng: () => number): SimulationResult {
         executePerPlayerPhase();
         // 단계 전환 시 스냅샷
         if (useGameStore.getState().currentPhase !== 'issueShares' && !afterIssueShares) {
-          afterIssueShares = {} as typeof afterIssueShares;
+          afterIssueShares = {};
           for (const pid of playerIds) {
             const p = useGameStore.getState().players[pid];
             if (p) {
@@ -496,7 +500,7 @@ function runFullGame(rng: () => number): SimulationResult {
           executePerPlayerPhase();
           // 모든 선택 완료 확인
           if (useGameStore.getState().currentPhase !== 'selectActions') {
-            afterSelectActions = {} as typeof afterSelectActions;
+            afterSelectActions = {};
             for (const pid of playerIds) {
               const p = useGameStore.getState().players[pid];
               if (p) {
@@ -504,7 +508,7 @@ function runFullGame(rng: () => number): SimulationResult {
               }
             }
             // 트랙 건설 전 스냅샷
-            beforeBuildTrack = {} as typeof beforeBuildTrack;
+            beforeBuildTrack = {};
             for (const pid of playerIds) {
               const p = useGameStore.getState().players[pid];
               if (p) {
@@ -518,14 +522,14 @@ function runFullGame(rng: () => number): SimulationResult {
         } else {
           executePerPlayerPhase();
           if (useGameStore.getState().currentPhase !== 'selectActions' && !afterSelectActions) {
-            afterSelectActions = {} as typeof afterSelectActions;
+            afterSelectActions = {};
             for (const pid of playerIds) {
               const p = useGameStore.getState().players[pid];
               if (p) {
                 afterSelectActions![pid] = { action: p.selectedAction };
               }
             }
-            beforeBuildTrack = {} as typeof beforeBuildTrack;
+            beforeBuildTrack = {};
             for (const pid of playerIds) {
               const p = useGameStore.getState().players[pid];
               if (p) {
@@ -547,7 +551,7 @@ function runFullGame(rng: () => number): SimulationResult {
 
         // moveGoods 진입 직전 스냅샷
         if (useGameStore.getState().currentPhase === 'moveGoods' && !beforeMoveGoods) {
-          beforeMoveGoods = {} as typeof beforeMoveGoods;
+          beforeMoveGoods = {};
           for (const pid of playerIds) {
             const p = useGameStore.getState().players[pid];
             if (p) {
@@ -561,7 +565,7 @@ function runFullGame(rng: () => number): SimulationResult {
       case 'moveGoods': {
         // moveGoods 전 스냅샷 (첫 진입 시)
         if (!beforeMoveGoods) {
-          beforeMoveGoods = {} as typeof beforeMoveGoods;
+          beforeMoveGoods = {};
           for (const pid of playerIds) {
             const p = state.players[pid];
             if (p) {
@@ -575,7 +579,7 @@ function runFullGame(rng: () => number): SimulationResult {
         // 라운드 1→2 전환 시 스냅샷
         const afterState = useGameStore.getState();
         if (afterState.currentPhase === 'moveGoods' && afterState.phaseState.moveGoodsRound === 2 && !afterMoveGoodsR1) {
-          afterMoveGoodsR1 = {} as typeof afterMoveGoodsR1;
+          afterMoveGoodsR1 = {};
           for (const pid of playerIds) {
             const p = afterState.players[pid];
             if (p) {

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import HeroBoardVignette from './HeroBoardVignette';
+import { RULEBOOK_URL } from './Navigation';
 
 const stats = [
   { v: '1–6', l: '플레이어' },
@@ -47,9 +48,9 @@ export default function HeroSection() {
             <Link href="/gameplay">
               <button className="btn-primary">게임 살펴보기 →</button>
             </Link>
-            <Link href="/calculator">
-              <button className="btn-secondary">계산기 열기</button>
-            </Link>
+            <a href={RULEBOOK_URL} target="_blank" rel="noopener noreferrer">
+              <button className="btn-secondary">공식 룰북 (PDF)</button>
+            </a>
           </div>
         </motion.div>
 

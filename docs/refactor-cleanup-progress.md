@@ -88,7 +88,12 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
   - gameStore 임포트 정리: 이동 코드만 쓰던 8개 제거 (isValidConnectionPoint·getBuildableNeighbors·
     getExitDirections·findLongestPath·findReachableDestinations·countPathLinks·cityAcceptsCube·isBlockedEdge)
   - 검증: tsc 0 에러 + 전체 vitest 24파일 207개 통과(1 skipped=기존 게이트) + 7개 맵 dev 200
-- [ ] 3c (로드맵 3순위): 경매 + 교대 선공권 slice 분리
+- [x] 3c (로드맵 3순위): 경매 + 교대 선공권 slice 분리 — gameStore **3,432 → 3,036줄**
+  - `src/store/slices/auctionSlice.ts` (신설): placeBid·passBid·skipBid·resolveAuction·
+    respondTurnOrderOffer 5개 액션 — uiSlice와 동일 패턴(`Pick<GameStore,...>` 반환 + type-only import)
+  - 자기완결적 상태(auction·turnOrderOffer)만 조작, 진행은 scheduleAICheck/`get().nextPhase()` 위임 —
+    코드 그대로 이동, 로직 무변경. gameStore 임포트 정리 불필요(전부 다른 곳에서도 사용)
+  - 검증: tsc 0 에러 + 전체 vitest 24파일 207개 통과(1 skipped) + 7개 맵 dev 200
 - [ ] 3d (로드맵 4순위): 물품 성장 + 생산 slice 분리
 - 로드맵 5순위(Phase IV/V/nextPhase)는 계획대로 보류 — 가장 위험, 필요할 때만
 

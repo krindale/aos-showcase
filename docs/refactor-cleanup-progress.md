@@ -130,9 +130,9 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
 - [x] R3: 스텝 3a helpers 5파일 — 모듈 상태(undo 스택) 이동 동작 보존·재export 호환·type-only 순환 확인
 - [x] R4: 스텝 3b~3d slice 3파일 — **기계 검증**: 원본 커밋에서 제거된 블록 vs slice 본문 문자열 비교 (공백 정규화)
 - [x] R5: slice 합성부 — spread 중복 키·Set/Get 타입·Pick 목록과 GameStore 인터페이스 일치
-- [ ] R6: ConfirmDialog/PhasePanel — 엣지(진행 중 중복 클릭·스크롤락 복원·백드롭/ESC)·접근성
-- [ ] R7: 문서·위생 — progress 문서 사실성, 미사용 임포트/lint 잔존
-- [ ] R8: 최종 게이트 — tsc + 전체 vitest + 프로덕션 빌드 재확인
+- [x] R6: ConfirmDialog/PhasePanel — 엣지(진행 중 중복 클릭·스크롤락 복원·백드롭/ESC)·접근성
+- [x] R7: 문서·위생 — progress 문서 사실성, 미사용 임포트/lint 잔존
+- [x] R8: 최종 게이트 — tsc + 전체 vitest + 프로덕션 빌드 재확인
 
 ### 리뷰 결과 기록
 
@@ -172,6 +172,28 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
 - gameStore 구현부(create 이후)에 이동 액션 35개의 **중복 정의 0건** — spread가 각 키의 유일한 제공자
 - `create<GameStore>()` 타입 체크 통과 = 전체 키 충족 보장, Pick 목록·시그니처 일치는 tsc가 강제
 - Set/Get 타입: `StoreApi<GameStore>['setState'/'getState']` — persist 미들웨어의 set과 호환 (tsc 통과)
+
+**R6 (통과, 관찰 2건 — 수정 불요)** — ConfirmDialog/PhasePanel:
+- `window.confirm/alert/prompt` 잔존 **0건** (주석 언급만 남음)
+- 상태 안전성: 다이얼로그가 백드롭으로 전 화면을 덮어 열려 있는 동안 다른 상태 전이 불가(사람 차례라
+  AI 스케줄러도 유휴) → 열림 중 phase가 바뀌어 잘못된 nextPhase를 쏘는 경로 없음. 스크롤 락은 effect
+  cleanup으로 이전 값 복원
+- 관찰 ①: ESC 키/포커스 트랩 없음 — 백드롭 클릭·취소 버튼으로 충분하나 접근성 개선 여지
+- 관찰 ②: fixed 오버레이가 framer-motion transform 조상(PhasePanel 루트) 안 — transform이 rest에서
+  none이 되므로 정상이나, 패널 등장 애니메이션(~0.3s) 중에 열리면 이론상 위치 어긋남. 실사용은 클릭
+  후 열림이라 무해(실플레이 정상 확인). 추후 createPortal화가 근본 해법
+
+**R7 (통과)** — 문서 사실성·위생:
+- 문서의 줄 수 주장은 각 시점 기준 정확. 현재 값: gameStore 2,770 / GameBoard 955
+  (기록 이후 lint 정리 커밋 ca393f8에서 미사용 임포트 제거로 소폭 감소 — 문서 무모순)
+- 미사용 임포트: 프로덕션 빌드 ESLint 통과로 0건 확인
+
+**R8 (통과)** — 최종 게이트 재확인:
+- `tsc --noEmit` 0 에러 · 전체 vitest 24파일 207개 통과(1 skipped=기존 게이트) ·
+  `npm run build` 성공(린트+타입 포함, 16페이지 SSG)
+
+**리뷰 총평**: 발견(수정 필요) **0건**, 관찰 2건(접근성·포털화 — 선택 개선). 이동 충실성은
+46/46 기계 검증으로 증명, 렌더 z-order·합성 중복·순환 의존 전부 확인. **머지 가능 판정.**
 
 ## 최종 결과 요약
 

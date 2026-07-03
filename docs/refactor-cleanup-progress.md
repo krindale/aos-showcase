@@ -126,7 +126,7 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
 > 대상: origin/main(726275e)..HEAD 전체 diff (스텝 1~3d + ConfirmDialog + 문서)
 
 - [x] R1: 스텝 1 테스트 타입 수정 3파일 — 동작 불변 검증 (특히 `isAIThinking`→`aiExecution.pending` 교체의 의미, 부분 레코드 타입의 정직성)
-- [ ] R2: 스텝 2 GameBoard 분리 5파일 — 이동 충실성·props 정확성·렌더 순서 보존
+- [x] R2: 스텝 2 GameBoard 분리 5파일 — 이동 충실성·props 정확성·렌더 순서 보존
 - [ ] R3: 스텝 3a helpers 5파일 — 모듈 상태(undo 스택) 이동 동작 보존·재export 호환·type-only 순환 확인
 - [ ] R4: 스텝 3b~3d slice 3파일 — **기계 검증**: 원본 커밋에서 제거된 블록 vs slice 본문 문자열 비교 (공백 정규화)
 - [ ] R5: slice 합성부 — spread 중복 키·Set/Get 타입·Pick 목록과 GameStore 인터페이스 일치
@@ -143,6 +143,17 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
 - `playerMoves` p4~6 false 보충: 기존에도 2인 게임에 p3:false가 있었고 통과 → 체커는 activePlayers 기준, 추가 false 키 무해
 - `isAIThinking`(항상 undefined) → `aiExecution.pending`: **의도된 의미론 수정** — "AI 실행 중엔 stuck 카운트 제외"가 원래 의도였는데 항상 카운트되던 버그. 수정 방향 올바름, 테스트 통과
 - `Array.from(counts.entries())`: 스프레드와 동일 의미
+
+**R2 (통과, 발견 0건)** — GameBoard 분리 5파일 렌더 충실성:
+- **z-order 보존 확인 (SVG 핵심)**: main 원본 주석 시퀀스(배경→마을→트랙→완성링크마커→끊김경고→도시→직결→
+  미리보기→이동경로/트랙큐브→이동큐브애니→외곽선→경계변→터미널→펄스→좌표→범례) vs 현재 합성
+  (배경→BoardTowns→BoardTracks→BoardCities→BoardOverlays→BoardPulses→좌표→범례) + 각 컴포넌트 내부
+  주석 순서 대조 — **전부 일치**
+- props 배선: store 값·계산 캐시(trackPathCache/completedLinks/disconnected)·핸들러 완전 전달,
+  `isBuildPhase` 등 사전 계산 불리언은 원본 인라인 조건과 등가
+- 관찰(수정 불요): `isCityNumberBoxBlack` 인라인 화살표 prop은 매 렌더 재생성되지만 자식이 memo가
+  아니라 리렌더 동작 원본과 동일 — 추후 memo화할 때만 주의
+- 실플레이 교차 검증: 트랙/마을/도시/큐브/도시화 하이라이트/미리보기/이동 경로·애니/펄스 전 레이어 육안 확인 완료
 
 ## 최종 결과 요약
 

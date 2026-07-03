@@ -33,6 +33,7 @@ import { POP_SPRING, useIsFirstRender } from './uiEffects';
 import ConfirmDialog from './ConfirmDialog';
 import { getMapProfile } from '@/maps/getMapProfile';
 import GoodsGrowthPanel from './GoodsGrowthPanel';
+import { useNetStore } from '@/net/netStore';
 
 const PHASE_ICONS: Record<GamePhase, React.ReactNode> = {
   issueShares: <FileText size={18} />,
@@ -97,9 +98,17 @@ export default function PhasePanel() {
   // 실행 취소 가능한 확정 행동 수 (주식 발행/행동 선택/트랙 건설 — 단계 전환 전까지)
   const undoCount = useGameStore((s) => s.undoCount);
 
+  // 온라인: 취소 버튼은 내 차례에만 (undoCount는 호스트 스냅샷으로 동기화되므로
+  // 상대 차례의 취소 가능 행동까지 내 화면에 버튼이 뜨는 것을 막는다)
+  const netMode = useNetStore((s) => s.mode);
+  const netMySeat = useNetStore((s) => s.mySeat);
+  const myPlayerId =
+    netMode === 'offline' || netMySeat === null ? null : activePlayers[netMySeat] ?? null;
+  const undoAllowedForMe = myPlayerId === null || myPlayerId === currentPlayer;
+
   // 실행 취소 버튼 (사람 차례에만, 취소할 행동이 있을 때만)
   const undoButton =
-    undoCount > 0 && !players[currentPlayer]?.isAI ? (
+    undoCount > 0 && !players[currentPlayer]?.isAI && undoAllowedForMe ? (
       <button
         onClick={undoLastAction}
         disabled={isAIExecuting}

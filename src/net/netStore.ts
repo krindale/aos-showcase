@@ -182,9 +182,9 @@ export const useNetStore = create<NetStore>()((set, get) => {
     if (lastAppliedRev !== msg.rev) return; // 디코딩 중 더 새 스냅샷이 적용됨
     useGameStore.setState({
       ...state,
-      // 로컬 전용 필드는 항상 안전값으로 (persist merge와 같은 원칙)
+      // 로컬 전용 필드는 항상 안전값으로 (persist merge와 같은 원칙).
+      // undoCount는 스냅샷 값 유지 — 게스트 취소 버튼 표시용 (되돌리기는 인텐트로 호스트가 실행)
       aiExecution: { pending: false, executionId: 0 },
-      undoCount: 0,
     } as never);
   };
 

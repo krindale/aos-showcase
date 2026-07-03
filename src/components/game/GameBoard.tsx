@@ -29,8 +29,9 @@ import {
 import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { isValidConnectionPoint as isValidConnectionPointUtil } from '@/utils/trackValidation';
-import { CITY_COLORS, CUBE_COLORS, HexCoord, PlayerId, TerrainType } from '@/types/game';
+import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId, TerrainType } from '@/types/game';
 import { shadeColor, hexVertex } from './board/boardGeometry';
+import { useNetStore } from '@/net/netStore';
 
 export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean } = {}) {
   // fitOverlay: 화물 이동 애니메이션을 전체 화면에 꽉 차게(fit) 보여주는 비인터랙티브 오버레이 모드
@@ -540,7 +541,78 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     return !isCity && !isTown;
   };
 
+  // 보드 위 호버링 HUD (사용자 요청 2026-07-04): 스크롤해도 보이는 현재 플레이어 표시 + 줌 컨트롤.
+  // 보드 컨테이너가 overflow-hidden이라 sticky가 안 먹혀 컨테이너 밖(fragment)에 둔다.
+  const netMode = useNetStore((s) => s.mode);
+  const netMySeat = useNetStore((s) => s.mySeat);
+  const activePlayersForHud = useGameStore((s) => s.activePlayers);
+  const myPlayerId =
+    netMode === 'offline' || netMySeat === null ? null : activePlayersForHud[netMySeat] ?? null;
+  const hudPlayer = players[currentPlayer];
+  // 다른 사람(온라인) 또는 AI 차례일 때만 표시
+  const showTurnHud =
+    !fitOverlay && hudPlayer && (hudPlayer.isAI || (myPlayerId !== null && currentPlayer !== myPlayerId));
+
   return (
+    <>
+    {/* 스크롤 추적 HUD — h-0이라 레이아웃 무영향, 보드 위에 떠 있음 */}
+    {!fitOverlay && (
+      <div className="sticky top-[70px] z-30 h-0 px-2 pointer-events-none">
+        <div className="flex items-start justify-between gap-2">
+          {showTurnHud ? (
+            <div
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-background-secondary/95 border shadow-lg backdrop-blur-sm"
+              style={{ borderColor: `${PLAYER_COLORS[hudPlayer.color]}99` }}
+            >
+              <span
+                className="w-2.5 h-2.5 rounded-full animate-pulse"
+                style={{ backgroundColor: PLAYER_COLORS[hudPlayer.color] }}
+              />
+              <span className="text-xs font-semibold text-foreground whitespace-nowrap">
+                {hudPlayer.name} 플레이 중{hudPlayer.isAI ? ' (AI)' : ''}…
+              </span>
+            </div>
+          ) : (
+            <div />
+          )}
+          <div className="pointer-events-auto flex gap-1.5">
+            <motion.button
+              onClick={zoomIn}
+              className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
+              aria-label="확대"
+              title="확대"
+              whileTap={{ scale: 0.95 }}
+              transition={{ duration: 0.1 }}
+              style={{ WebkitTapHighlightColor: 'transparent' }}
+            >
+              <ZoomIn className="w-4 h-4 text-accent" />
+            </motion.button>
+            <motion.button
+              onClick={zoomOut}
+              className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
+              aria-label="축소"
+              title="축소"
+              whileTap={{ scale: 0.95 }}
+              transition={{ duration: 0.1 }}
+              style={{ WebkitTapHighlightColor: 'transparent' }}
+            >
+              <ZoomOut className="w-4 h-4 text-accent" />
+            </motion.button>
+            <motion.button
+              onClick={resetZoom}
+              className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
+              aria-label="원래 크기"
+              title="원래 크기"
+              whileTap={{ scale: 0.95 }}
+              transition={{ duration: 0.1 }}
+              style={{ WebkitTapHighlightColor: 'transparent' }}
+            >
+              <Maximize2 className="w-4 h-4 text-accent" />
+            </motion.button>
+          </div>
+        </div>
+      </div>
+    )}
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
@@ -882,44 +954,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
       </svg>
 
 
-      {/* 줌 컨트롤 — 좌표 ON/OFF 버튼 아래(보드 우측 상단). 데스크톱 포함 항상 표시. */}
-      {!fitOverlay && (
-        <div className="absolute top-14 right-3 flex flex-row gap-1.5 z-10">
-          <motion.button
-            onClick={zoomIn}
-            className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
-            aria-label="확대"
-            title="확대"
-            whileTap={{ scale: 0.95 }}
-            transition={{ duration: 0.1 }}
-            style={{ WebkitTapHighlightColor: 'transparent' }}
-          >
-            <ZoomIn className="w-4 h-4 text-accent" />
-          </motion.button>
-          <motion.button
-            onClick={zoomOut}
-            className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
-            aria-label="축소"
-            title="축소"
-            whileTap={{ scale: 0.95 }}
-            transition={{ duration: 0.1 }}
-            style={{ WebkitTapHighlightColor: 'transparent' }}
-          >
-            <ZoomOut className="w-4 h-4 text-accent" />
-          </motion.button>
-          <motion.button
-            onClick={resetZoom}
-            className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
-            aria-label="원래 크기"
-            title="원래 크기"
-            whileTap={{ scale: 0.95 }}
-            transition={{ duration: 0.1 }}
-            style={{ WebkitTapHighlightColor: 'transparent' }}
-          >
-            <Maximize2 className="w-4 h-4 text-accent" />
-          </motion.button>
-        </div>
-      )}
+      {/* (줌 컨트롤은 스크롤 추적 HUD로 이동 — return 상단 fragment 참조) */}
 
       {/* 범례 */}
       <div className="flex flex-wrap justify-center items-center gap-x-8 gap-y-2 py-4 px-6 bg-background-secondary/50 border-t border-foreground/10">
@@ -951,5 +986,6 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
         </div>
       </div>
     </motion.div>
+    </>
   );
 }

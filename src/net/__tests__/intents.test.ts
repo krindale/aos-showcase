@@ -52,15 +52,23 @@ describe('게스트 가드', () => {
     expect(sent[0].payload.ui).toEqual({ selectedNewCityTile: 'A' });
   });
 
-  it('guestNoop 액션은 intent도 보내지 않고 로컬 실행도 안 된다 (completeCubeMove·undo)', () => {
+  it('guestNoop 액션은 intent도 보내지 않고 로컬 실행도 안 된다 (completeCubeMove·정산)', () => {
     const sent: { type: string }[] = [];
     installGuestGuard((type) => sent.push({ type }));
 
     useGameStore.getState().completeCubeMove();
-    useGameStore.getState().undoLastAction();
     useGameStore.getState().collectIncome();
+    useGameStore.getState().payExpenses();
 
     expect(sent).toHaveLength(0);
+  });
+
+  it('undoLastAction은 게스트에서 intent로 전송된다 (자기 차례 취소)', () => {
+    const sent: { type: string }[] = [];
+    installGuestGuard((type) => sent.push({ type }));
+
+    useGameStore.getState().undoLastAction();
+    expect(sent).toEqual([{ type: 'undoLastAction' }]);
   });
 
   it('가드 해제 시 원본 액션이 복원된다', () => {

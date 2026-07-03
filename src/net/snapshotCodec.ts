@@ -11,8 +11,12 @@
  * (필드 열거가 아니라 "함수·제외 키 빼고 전부" — GameState 필드가 늘어도 자동 동기화).
  */
 
-/** 스냅샷에서 제외하는 로컬 전용 키 */
-const LOCAL_ONLY_KEYS = new Set(['ui', 'aiExecution', 'undoCount']);
+/**
+ * 스냅샷에서 제외하는 로컬 전용 키.
+ * undoCount는 동기화한다 — 게스트의 취소 버튼 표시용 (실제 되돌리기는 undoLastAction 인텐트로
+ * 호스트가 실행. 스냅샷을 적용해도 호스트 쪽 undo 스택 길이가 그대로 전달되어야 버튼이 보인다)
+ */
+const LOCAL_ONLY_KEYS = new Set(['ui', 'aiExecution']);
 
 /** 스냅샷에 포함할 최근 로그 수 */
 const RECENT_LOGS = 30;

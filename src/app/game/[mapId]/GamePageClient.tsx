@@ -36,6 +36,7 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
 import GameBoard from '@/components/game/GameBoard';
 import GameChat from '@/components/game/GameChat';
 import OnlineLobby from '@/components/game/OnlineLobby';
+import PhaseTransition from '@/components/game/PhaseTransition';
 import { useNetStore } from '@/net/netStore';
 import { isNetConfigured } from '@/net';
 import PlayerPanel from '@/components/game/PlayerPanel';
@@ -809,6 +810,9 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
 
       {/* 온라인 채팅 (Phase 3) — 오프라인이면 자체적으로 렌더 안 함 */}
       <GameChat />
+
+      {/* 단계 전환 1초 멈춤 오버레이 */}
+      <PhaseTransition />
     </div>
   );
 }

@@ -15,8 +15,8 @@ describe('snapshotCodec', () => {
     const synced = extractSyncedState(state);
     expect(synced.ui).toBeUndefined();
     expect(synced.aiExecution).toBeUndefined();
-    expect(synced.undoCount).toBeUndefined();
     expect(synced.issueShare).toBeUndefined();
+    expect(synced.undoCount).toBe(3); // 게스트 취소 버튼 표시용 — 동기화 대상
     expect(synced.board).toBeDefined();
     expect(synced.players).toBeDefined();
     expect(synced.currentPhase).toBe('issueShares');

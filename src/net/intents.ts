@@ -69,7 +69,9 @@ const INTENT_SPECS: Record<string, IntentSpec> = {
   payExpenses: { guestNoop: true },
   applyIncomeReduction: { guestNoop: true },
   endTurn: { guestNoop: true },
-  undoLastAction: { guestNoop: true }, // 게스트 undo 금지 (Phase 1 단순안)
+  // 게스트도 자기 차례엔 취소 가능 — 호스트가 차례 검증 후 자기 undo 스택으로 되돌리고
+  // 스냅샷 전파. undo 스택은 nextPhase마다 비워지므로 자기 차례 행동만 되돌려진다.
+  undoLastAction: {},
   executeAITurn: { guestNoop: true }, // AI는 호스트에서만
   initGame: { guestNoop: true },
   resetGame: { guestNoop: true },

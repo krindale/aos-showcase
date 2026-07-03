@@ -74,7 +74,21 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
   - 기존 import 경로 호환: `getUndoLabel`·`createInitialGameState`·`TUTORIAL_GAME_CONFIG`·`AIPlayerConfig`를
     gameStore에서 재export (PhasePanel·테스트 수정 불필요)
   - 검증: tsc 0 에러 + 전체 vitest 24파일 207개 통과 + dev 200
-- [ ] 3b (로드맵 2순위): UI 선택/건설 플로우 액션 slice 분리
+- [ ] 3b (로드맵 2순위): UI 선택/건설 플로우 액션 slice 분리 — **재개 지점 (분석 완료, 코드 미변경)**
+  - 계획: `src/store/slices/uiSlice.ts`에 `createUiSlice(set, get): Pick<GameStore, ...>` 패턴
+    (`import type { GameStore } from '../gameStore'` — 3a에서 export해둠. 반환 타입을 Pick으로 명시하면
+    액션 파라미터가 contextual typing으로 자동 추론됨). gameStore 본문에서 `...createUiSlice(set, get),`로 합성.
+  - 이동 대상 (bcd20b8 시점 라인, **순수 UI 상태/store 액션 위임만** — 게임 상태 직접 변경 액션 제외):
+    ① 2788~2968 selectHex·selectCube·clearSelection
+    ② 3017~3318 cancelSelection·setPreviewTrack·setHighlightedHexes·setMovePath·selectSourceHex·
+      selectTargetHex·selectExitDirection·updateTrackPreview·resetBuildMode·복합트랙 show/hide·
+      canRedirect·selectTrackToRedirect
+    ③ 3430~3508 hideRedirectSelection·도시화 모드 enter/exit·selectNewCityTile·canPlaceNewCity
+    ④ 3806~3943 selectDestinationCity·startCubeAnimation·advanceCubeAnimation
+  - **잔류** (게임 상태 변경 — 이동 금지): undoLastAction(2969)·redirectTrack(3319)·placeNewCity(3509)·
+    Production 그룹(3651~3804)·completeCubeMove(3944)·addLog
+  - 확인 완료: selectExitDirection/selectDestinationCity는 `get().buildTrack(...)` 식으로 store 액션을
+    호출하므로 이동 안전. 게이트: tsc + 전체 vitest + dev 200 (스텝 3a와 동일)
 - [ ] 3c (로드맵 3순위): 경매 + 교대 선공권 slice 분리
 - [ ] 3d (로드맵 4순위): 물품 성장 + 생산 slice 분리
 - 로드맵 5순위(Phase IV/V/nextPhase)는 계획대로 보류 — 가장 위험, 필요할 때만

@@ -12,7 +12,7 @@
  *  - 연결: 신도시로 실제 배달 가능한 출발 도시를 찾아 connectRoute로 반환 → 건설이 이를 커밋
  */
 
-import { GameState, PlayerId, HexCoord, NewCityTileId, City, CubeColor } from '@/types/game';
+import { GameState, PlayerId, HexCoord, NewCityTileId, City, CubeColor, GAME_CONSTANTS } from '@/types/game';
 import { hexDistance, hexCoordsEqual, getNeighborHex, cityAcceptsCube } from '@/utils/hexGrid';
 import { getDisplaySlotRange } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
@@ -50,6 +50,11 @@ export function planUrbanizationCached(
   state: GameState,
   playerId: PlayerId,
 ): UrbanizationPlan | null {
+  // 구조 가드: 배치 실행 Phase(buildTrack)는 건설 결정마다 보드가 변하므로 캐시 부적용 —
+  // 주석 규칙에 기대지 않고 항상 재계산으로 강제한다.
+  if (state.currentPhase === 'buildTrack') {
+    return planUrbanization(state, playerId);
+  }
   const cached = planCache.get(playerId);
   if (cached && cached.turn === state.currentTurn && cached.phase === state.currentPhase) {
     return cached.plan;
@@ -59,9 +64,25 @@ export function planUrbanizationCached(
   return plan;
 }
 
-/** 게임 리셋 시 캐시 초기화 (이전 게임의 같은 턴·Phase 키 충돌 방지) */
+/** 게임 리셋·실행 취소 시 캐시 초기화 (이전 게임/취소 전 상태 기준 계획의 잔존 방지) */
 export function clearUrbanizationPlanCache(): void {
   planCache.clear();
+}
+
+/**
+ * 커밋된 계획이 아직 실행 가능한지 — 후보 생성 필터(위 towns/availableTiles)와 같은 술어.
+ * 유효성 조건이 늘 때 생산(planUrbanization)과 검증이 한 파일에서 함께 갱신되도록 여기에 둔다.
+ */
+export function isUrbanizationPlanStillValid(
+  state: GameState,
+  plan: UrbanizationPlan,
+): boolean {
+  return (
+    state.newCityTiles.some(t => t.id === plan.tileId && !t.used) &&
+    state.board.towns.some(
+      t => hexCoordsEqual(t.coord, plan.townCoord) && t.newCityColor === null
+    )
+  );
 }
 
 /**
@@ -172,12 +193,21 @@ export function planUrbanization(
   // 이번 턴에 철도로 연결할 수 있는 범위 = "남은" 건설 슬롯 수. 도시화는 보통 build 단계
   // 첫머리(0개 건설)지만, 첫 시도에서 배치를 보류하고 트랙을 먼저 깐 뒤 재시도되는 경우가 있어
   // 이미 쓴 슬롯을 빼야 한다 — 안 빼면 연결 불가능한 마을에 배치해 끝까지 미연결로 남는다.
+  // ★ 한도는 "내" 건설 한도로 계산 — phaseState.maxTracksThisTurn은 selectActions에서 다른
+  //   플레이어가 Engineer를 고르는 순간 전역으로 4가 되는 공유 값이라(빌더별 재설정은 buildTrack
+  //   진입 후), 행동 선택·커밋 시점에 그대로 읽으면 남의 한도로 후보 범위가 부풀어 이번 턴 연결
+  //   불가능한 마을에 배치된다. 도시화 선택자는 Engineer가 아니므로 보통 3.
   // ⚠️ 동적색 맵(한국)은 신도시 수요가 소모성·전역 공유라, 내 연결 편의보다 "수요를 어디에 만드나"가
   //   지배적 — 배치 제한(잔여 슬롯·계획 경로)을 걸면 VP가 회귀해(100시드 실측) 기존 범위를 유지한다.
+  const player = state.players[playerId];
+  const myMaxTracks =
+    player?.selectedAction === 'engineer' && !getMapProfile(state.mapId).engineerHalfCost
+      ? GAME_CONSTANTS.ENGINEER_TRACK_LIMIT
+      : GAME_CONSTANTS.NORMAL_TRACK_LIMIT;
   const dynamicLegacy = !!board.dynamicCityColors;
   const slots = dynamicLegacy
-    ? (state.phaseState.maxTracksThisTurn ?? 3)
-    : Math.max(0, (state.phaseState.maxTracksThisTurn ?? 3) - (state.phaseState.builtTracksThisTurn ?? 0));
+    ? myMaxTracks
+    : Math.max(0, myMaxTracks - (state.phaseState.builtTracksThisTurn ?? 0));
   // 내 트랙의 변이 그 마을을 직접 향하면, 도시화 즉시 연결된다(도시는 모든 변 연결) — 슬롯 불필요.
   const instantlyConnected = (townCoord: HexCoord): boolean =>
     myTracks.some(t => t.edges.some(e => hexCoordsEqual(getNeighborHex(t.coord, e), townCoord)));

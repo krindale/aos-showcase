@@ -35,19 +35,28 @@ npx vitest run src/ai/__tests__/rustBeltSimulation.test.ts \
 
 ---
 
-## 현재 베이스라인 (2026-07-03, PR #14 잔여 이슈 정리 — 도시화 계획 커밋 + 캐시/가드 리팩토링)
+## 현재 베이스라인 (2026-07-03b, PR #16 코드리뷰 8건 반영)
 
-PR #14 코드리뷰 잔여 이슈 처리: ① **planUrbanizationCached** — 경매 루프의 도시화 계획 반복 계산을
-같은 턴·Phase 키 캐시로 제거(순수 성능, 행동 불변). ② **engineUpgradeShortfall 단일 소스** — vp/moveGoods의
-파산 판정 수식 통합(순수 리팩토링, 행동 불변). ③ **도시화 평가-실행 일치** — 행동 선택 시 가치를 매긴
-계획을 AIPlayer가 커밋해 배치에 그대로 실행(Rust만 +0.11, 나머지 불변).
+PR #14 잔여 이슈 정리(2026-07-03a) 직후 셀프 코드리뷰(8앵글×검증)에서 나온 8건을 반영:
+① **도시화 슬롯을 "내 한도"로 계산**(urbanization.ts myMaxTracks) — 공유 maxTracksThisTurn이
+selectActions에서 남의 Engineer 선택으로 4가 되어 연결 불가 마을에 배치되던 부풀림 수정.
+② **커밋 게이트** — 도시화 계획 커밋을 평가가 실제 계획을 쓰는 조건(다인 3+ cityCubes)으로 한정,
+2인/trackCubes 맵은 배치 시점 재계산(기존 측정 동작) 복원 — St.Lucia 파산 16→15/20 원상복구.
+③ **경매 절실함 턴 캐시**(auction.ts desperationCache) — 입찰마다 rankActionsByDeltaVP 전체
+(hasContestedDelivery DFS 포함) 재계산 제거. ④ **undo 시 AI 캐시 무효화** + **buildTrack Phase
+구조 가드**(캐시 부적용 강제). ⑤ **레거시 getAIDecision 폴백 제거**(지연 getOrCreate 등록 —
+rehydrate/HMR 후 도시화 배치 생략 갭 봉합). ⑥ isUrbanizationPlanStillValid 추출, SiteShell 죽은
+분기 제거 등 정리. 그 전 03a: planUrbanizationCached·engineUpgradeShortfall 단일 소스(행동 불변).
 
-| 맵 (인원) | 평균 VP | 파산/게임 |
-|---|---|---|
-| Rust Belt (5인) | 17.85 | 0.33 |
-| Western US (6인) | 11.05 | 0.50 |
-| Korea (4인) | 26.73 | 0.53 |
-| Germany (4인) | 25.76 | 0.34 |
+| 맵 (인원) | 평균 VP | 파산/게임 | 최종 승자 분포 | 1번(선공) 점유 |
+|---|---|---|---|---|
+| Rust Belt (5인) | 17.77 | 0.33 | 22/12/23/22/21 | 96/51/325/138/90 |
+| Western US (6인) | 11.07 | 0.50 | 21/23/18/26/5/7 | 52/86/117/128/80/137 |
+| Korea (4인) | 26.73 | 0.53 | 8/40/13/39 | 89/74/250/386 |
+| Germany (4인) | 25.76 | 0.34 | 30/24/29/17 | 215/206/171/208 |
+
+player별 VP(Rust): 20.8 / 11.3 / 18.8 / 18.7 / 19.3. 슬롯 부풀림 수정(①)의 총량 영향은 미미
+(Rust 17.85→17.77, 나머지 불변) — 부풀림 발동 창이 좁지만 발동 시 미연결 신도시를 만드는 결함이라 수정.
 
 기각(100시드 악화 실측): "도시화 계획 null이면 가치 0.2→0으로 필러 선택 차단"은 Germany −1.88(게이트
 위반)·Rust −0.97·파산↑ — 계획 null 필러 도시화는 건설 후 배치 재시도가 성공하는 **회복 경로**라 유지가 옳다.

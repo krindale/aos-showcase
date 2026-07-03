@@ -13,6 +13,7 @@ import { clearTurnPlans } from './strategy/turnPlan';
 import { clearCurrentRoutes } from './strategy/state';
 import { clearPathCache, clearOpportunitiesCache } from './strategy/analyzer';
 import { clearUrbanizationPlanCache } from './strategies/urbanization';
+import { clearDesperationCache } from './strategies/auction';
 
 /** 게임 간 모듈 레벨 AI 상태 전체 정리 (이전 게임의 경로/캐시 누출 방지) */
 function clearModuleLevelAIState(): void {
@@ -21,6 +22,7 @@ function clearModuleLevelAIState(): void {
   clearPathCache();
   clearOpportunitiesCache();
   clearUrbanizationPlanCache();
+  clearDesperationCache();
 }
 
 export class AIPlayerManager {

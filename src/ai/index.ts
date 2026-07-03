@@ -16,16 +16,13 @@ import { GameState, PlayerId, SpecialAction, HexCoord, NewCityTileId } from '@/t
 // aiPlayerManager만 임포트 (클래스는 하단에서 재export)
 import { aiPlayerManager } from './AIPlayerManager';
 
-// === 기존 전략 함수 (호환성 유지용) ===
-import { decideSharesIssue } from './strategies/issueShares';
-import { decideAuctionBid, decideTurnOrderOffer, AuctionDecision } from './strategies/auction';
-import { getMapProfile } from '@/maps/getMapProfile';
-import { decideAction } from './strategies/selectAction';
-import { decideBuildTrack, TrackBuildDecision } from './strategies/buildTrack';
-import { decideMoveGoods, MoveGoodsDecision } from './strategies/moveGoods';
+// === 결정 타입 (AIDecision 구성용) ===
+import type { AuctionDecision } from './strategies/auction';
+import type { TrackBuildDecision } from './strategies/buildTrack';
+import type { MoveGoodsDecision } from './strategies/moveGoods';
 
 // 전략 시스템 임포트 (호환성 유지용)
-import { reevaluateStrategy, getNextTargetRoute } from './strategy/selector';
+import { getNextTargetRoute } from './strategy/selector';
 import { getSelectedStrategy, setCurrentRoute, resetStrategyStates, hasSelectedStrategy, logStrategyState, getCurrentRoute as _getCurrentRoute } from './strategy/state';
 void _getCurrentRoute; // 재export용
 import { DynamicStrategy } from './strategy/types';
@@ -92,65 +89,17 @@ export function resetAIStrategies(): void {
  * @returns AI 결정
  */
 export function getAIDecision(state: GameState, playerId: PlayerId): AIDecision {
-  // 새 시스템: AIPlayer 인스턴스가 등록되어 있으면 사용
-  const aiPlayer = aiPlayerManager.get(playerId);
-  if (aiPlayer) {
-    return aiPlayer.decide(state);
-  }
-
-  // === 레거시 로직 (호환성 유지) ===
   const player = state.players[playerId];
   if (!player) {
     console.error(`[AI] 플레이어 없음: ${playerId}`);
     return { type: 'skip' };
   }
 
-  const phase = state.currentPhase;
-
-  // 턴 시작 시 전략 재평가 (issueShares 단계에서만)
-  if (phase === 'issueShares') {
-    reevaluateStrategy(state, playerId);
-  }
-
-  switch (phase) {
-    case 'issueShares': {
-      const amount = decideSharesIssue(state, playerId);
-      return { type: 'issueShares', amount };
-    }
-
-    case 'determinePlayerOrder': {
-      // 교대 선공권 맵 (St. Lucia): 경매 대신 선공권 수락/거절 결정
-      const profile = getMapProfile(state.mapId);
-      if (profile.alternateTurnOrder) {
-        if (state.turnOrderOffer && state.turnOrderOffer.offerPlayer === playerId) {
-          const accept = decideTurnOrderOffer(state, playerId, profile.firstSeatCost);
-          return { type: 'turnOrderOffer', accept };
-        }
-        return { type: 'skip' };
-      }
-
-      const decision = decideAuctionBid(state, playerId);
-      return { type: 'auction', decision };
-    }
-
-    case 'selectActions': {
-      const action = decideAction(state, playerId);
-      return { type: 'selectAction', action };
-    }
-
-    case 'buildTrack': {
-      const decision = decideBuildTrack(state, playerId);
-      return { type: 'buildTrack', decision };
-    }
-
-    case 'moveGoods': {
-      const decision = decideMoveGoods(state, playerId);
-      return { type: 'moveGoods', decision };
-    }
-
-    default:
-      return { type: 'skip' };
-  }
+  // 인스턴스가 없으면 지연 등록 — 모든 결정이 AIPlayer.decide 단일 경로를 타게 한다.
+  // (구 레거시 Phase 스위치는 도시화 배치(placeNewCity)가 없어, persist rehydrate/HMR처럼
+  //  initGame을 거치지 않은 상태에서 AI가 도시화를 잡으면 배치가 통째로 생략되는 갭이 있었다)
+  const aiPlayer = aiPlayerManager.getOrCreate(playerId, player.name);
+  return aiPlayer.decide(state);
 }
 
 /**

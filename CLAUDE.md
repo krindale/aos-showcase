@@ -11,6 +11,10 @@ Age of Steam 보드게임의 프리미엄 비주얼 쇼케이스 웹사이트입
 
 - **언어**: 모든 과정 설명, 메모리 기록, 그리고 **생각(Thought Process)**은 반드시 **한글**로 작성해야 합니다.
 - **라이브러리**: 새로운 라이브러리를 추가하거나 기존 라이브러리를 삭제할 때는 반드시 **사용자에게 먼저 이야기(승인 요청)**해야 합니다. 임의로 추가/삭제하지 마십시오.
+- **코드리뷰 방식**: 코드리뷰는 병렬 에이전트 fan-out이 아니라 **순차(스텝바이스텝)**로 진행합니다.
+  ① 리뷰 체크리스트(스텝 목록)를 먼저 만들고, ② 한 번에 한 스텝씩 수행하며, ③ 각 스텝이 끝날
+  때마다 결과(통과/발견 사항)를 기록하고 **관련 사항을 즉시 커밋·푸시**합니다 — 토큰이 중간에
+  소진되어도 git 이력만으로 다른 PC에서 이어갈 수 있어야 합니다.
 
 
 ## 기술 스택
@@ -152,6 +156,7 @@ src/
 │       ├── rustBeltSimulation.test.ts    # Rust Belt 5인 AI 동기식 전체게임 러너 + 베이스라인
 │       ├── germanySimulation.test.ts     # Germany 4인 AI 동기식 전체게임 러너(8턴) + 베이스라인
 │       ├── westernUsSimulation.test.ts   # Western US 6인 AI 동기식 전체게임 러너(6턴) + 베이스라인
+│       ├── southernUsSimulation.test.ts  # Southern US 6인 AI 동기식 전체게임 러너(6턴) + 면화 불변식 + 베이스라인
 │       ├── koreaSimulation.test.ts       # Korea 4인 AI 동기식 전체게임 러너(8턴) + 베이스라인
 │       └── helpers/
 │           └── mockState.ts    # 테스트용 Mock 데이터 헬퍼
@@ -166,6 +171,7 @@ src/
 │       ├── RustBeltMapProfile.ts   # Rust Belt override (Pittsburgh/Wheeling 큐브 3)
 │       ├── GermanyMapProfile.ts    # Germany override (Engineer 절반/미완성금지/Berlin보너스/큐브수)
 │       ├── WesternUsMapProfile.ts  # Western US override (마을큐브/$20시작/시작도시제한/연속성/동서보너스/대륙횡단)
+│       ├── SouthernUsMapProfile.ts # Southern US override (면화/항구/Atlanta 호황/남북전쟁 수입감소 2배)
 │       └── KoreaMapProfile.ts     # Korea override (동적색은 board플래그/도시화 디스플레이보충/no-growth/큐브수)
 │
 ├── components/                 # UI 컴포넌트
@@ -220,6 +226,7 @@ src/
     ├── rustBeltMap.ts          # Rust Belt 맵 데이터 정의 (5인 전용, flat-top 전치, 좌표 0-base)
     ├── germanyMap.ts           # Germany 맵 데이터 정의 (4인 전용, flat-top 전치, 터미널/고정비용/직결)
     ├── westernUsMap.ts         # Western US 맵 데이터 정의 (6인 전용, pointy-top 네이티브, 마을큐브/지형fixedCost/동서region)
+    ├── southernUsMap.ts        # Southern US 맵 데이터 정의 (6인 전용, flat-top 전치, 면화/4대 항구/애팔래치아)
     ├── koreaMap.ts             # Korea 맵 데이터 정의 (4인 전용, flat-top 전치, 동적색 플래그/산fixedCost/수원 직결)
     ├── mapRegistry.ts          # 맵 룰 분리 레지스트리 (MapRuleConfig·columnMapping·boardDisplayScale 등)
     ├── debugConfig.ts          # 디버그 설정 (로그 카테고리 토글 + logAction 종합 액션 로깅)
@@ -272,7 +279,7 @@ docs/
 
 ### MapsPage
 페이퍼 카드 그리드 (3열). 카드 = 맵 이미지(16:10) + 난이도 배지(입문/표준/중급/고급) +
-설명 + 플레이 버튼(`/game/<slug>/`). 튜토리얼 포함 7개 맵, Barbados만 "준비 중".
+설명 + 플레이 버튼(`/game/<slug>/`). 튜토리얼 포함 8개 맵, Barbados만 "준비 중".
 
 **맵 이미지는 WebP** (`public/maps/*.webp`, 폭 1600·q84, 맵당 ~200KB). 새 맵 추가 시 원본을
 `cwebp -q 84`(필요 시 폭 1600 다운스케일)로 변환해 넣을 것 — `unoptimized: true`(static export)라
@@ -283,7 +290,7 @@ Next가 압축을 안 하므로 원본 대용량 PNG를 그대로 받으면 갤�
 - **Rust Belt** (기본) - 미국 북동부
 - **Korea** (플레이 가능) - 한반도, 동적 도시 색상, 4인 8턴 (도시 수요색=현재 큐브색·수원 직결 링크·신도시 회색)
 - **Western U.S.** (플레이 가능) - 대륙횡단 철도, 6인 6턴 (마을 큐브·동서 배달 보너스·대륙횡단 연결 보너스)
-- **Southern U.S.** - 면화 운송
+- **Southern U.S.** (플레이 가능) - 면화 운송, 6인 6턴 (마을 면화→4대 항구 배달·Atlanta 호황·4턴 남북전쟁 수입감소 2배)
 - **Germany** (플레이 가능) - 외국 터미널·헥스 고정비용·도시 직결, 4인 8턴
 - **Barbados** - 솔로 게임
 - **St. Lucia** - 2인 전용
@@ -795,6 +802,36 @@ Age of Steam 확장맵 3 — 한국 (Martin Wallace 2004 / James Mathias 아트 
   (임시 하니스: issueShares 스냅샷 + 건설/배달/엔진업 카운트 + SKIP 플래그).
 - 잔여 파산(Korea 0.53·Western 0.50)은 boxed-out income 정체(건설 많고 배달 저조) — income 천장 작업 축.
 
+#### Southern US 맵 구현 (2026-07-03, 면화 운송 6인)
+
+사용자 제공 디자인 이미지(2000×1435)를 색상 자동검출 + 격자 피팅으로 추출한 **6인 전용 6턴** 맵.
+도시 12 + 마을 14 + 산 15 + 강 11 (Tennessee/Alabama/Chattahoochee/Savannah).
+
+- **flat-top 보드**: Germany/Korea처럼 **전치 저장**(데이터 col=화면세로 0~10, row=화면가로 0~16) +
+  `orientation:'flat'` 렌더. 화면 짝수 열이 아래로 반 칸 밀린 배열이라 odd-r 패리티를 맞추기 위해
+  **row = 화면열 + 1** (Western US row 0 기법) — row 0은 비어 lake, `trimLeftHexes: 1`로 가림.
+  확정 근거: 도시 헥스 바운딩 120×104(=2R×√3R, flat) + 격자 피치 x108/y61.2(=1.5R/√3R/2, R≈71).
+- **★ 면화(흰 큐브) 시스템 (시그니처)**: `CubeColor`에 'white' 추가 (CityColor와 분리 —
+  도시색은 여전히 5색). 셋업 시 모든 마을에 면화 1개(`MapProfile.townFixedCube`, 주머니에서 안 뽑음).
+  - **4대 항구 배달 종료**: `BoardState.cottonPorts`(charleston/savannah/mobile/neworleans) +
+    `cityAcceptsCube`에 white 분기 — 흰 큐브는 항구에서만 수용, 다른 도시는 통과. 이 헬퍼 한 곳으로
+    경로탐색(hexGrid)·AI(analyzer/vp/buildTrack) 전체에 전파 (Korea 동적색과 같은 패턴).
+  - **+1 보너스 수입**: `MapProfile.cubeDeliveryBonus(color)` — completeCubeMove(엔진) +
+    moveGoods.ts/vp.ts(AI ΔVP) 세 곳 모두 regionDeliveryBonus 옆에 가산.
+  - **배달 후 게임에서 제거**: `MapProfile.deliveredCubeLeavesGame(color)` — completeCubeMove의
+    주머니 반환을 건너뜀 (시뮬 테스트가 "주머니/디스플레이에 white 없음" 불변식으로 검증).
+  - **도시화 시 면화 이동**: `MapProfile.urbanizationMovesTownCubes` — placeNewCity가 마을 큐브를
+    신규 도시 위로 옮김 (다른 맵은 기존대로 제거).
+- **Atlanta 호황**: Germany Berlin의 `bonusCityCubeId` 재사용 + **`bonusCityCubeMaxTurn=4`**
+  (1~4턴만 물품 성장마다 주머니에서 1개 — 남북전쟁 전 호황).
+- **4턴 남북전쟁**: `MapProfile.incomeReductionMultiplier(turn)` — applyIncomeReduction에서
+  룰 테이블 감소량에 배수 적용 (Southern: turn===4 → 2배).
+- **도시 초기 큐브**: Atlanta 4 / 항구 3 / 나머지 1 (`cityCubeCounts` — 기본 2를 쓰는 도시가 없어 전부 명시).
+- **AI**: `incomeSources: ['cityCubes','townCubes']` — Western의 마을 큐브 배달 인프라('town:<id>')를
+  그대로 타서 면화 목표 생성·클릭 배달이 추가 코드 없이 동작. 흰 큐브 목적지는 cityAcceptsCube로 항구 자동.
+- **측정** (`southernUsSimulation.test.ts`, 100시드): 아래 표. 다른 맵 회귀 게이트 보존.
+- **주의**: 면화는 `CUBE_COLORS.white`가 밝은 색이라 보드 렌더에서 흰 큐브만 어두운 테두리(#8a857c)로 구분.
+
 #### 마을 가닥(스퍼) 모델 (2026-06-12 재설계, 모든 맵 공통)
 
 마을 = 헥스 안의 원. **마을 헥스에는 트랙 타일을 배치할 수 없다** (도시처럼).
@@ -885,6 +922,7 @@ npx vitest run src/ai/__tests__/fullGameSimulation.test.ts -t "executeAITurn" # 
 - `src/ai/__tests__/rustBeltSimulation.test.ts` - Rust Belt 5인 AI 동기식 전체게임 러너 + 베이스라인
 - `src/ai/__tests__/germanySimulation.test.ts` - Germany 4인 AI 동기식 전체게임 러너(8턴) + 베이스라인
 - `src/ai/__tests__/westernUsSimulation.test.ts` - Western US 6인 AI 동기식 전체게임 러너(6턴) + 베이스라인
+- `src/ai/__tests__/southernUsSimulation.test.ts` - Southern US 6인 AI 동기식 전체게임 러너(6턴) + 면화 불변식 + 베이스라인
 - `src/ai/__tests__/koreaSimulation.test.ts` - Korea 4인 AI 동기식 전체게임 러너(8턴) + 베이스라인
 - **다인 맵 시뮬은 모두 100시드로 측정** (8/20시드는 편차가 커 노이즈). 변경 전/후 비교 기준 수치는
   [`docs/ai-auction-baseline-100seed.md`](ai-auction-baseline-100seed.md)에 표로 저장 — AI 로직 변경 시 이 표와 비교해 회귀/개선 판정
@@ -951,7 +989,7 @@ export default function ComponentName() {
 - [x] **Germany 맵 4인 플레이어블** — 외국 터미널·헥스 고정비용·도시 직결·Engineer 절반·Berlin 보너스 (8턴)
 - [x] **Western U.S. 맵 6인 플레이어블** — pointy-top 추출, 마을 큐브·$20 시작·늪/산 비용·동서 배달 보너스·시작도시 제한·연속성·대륙횡단 보너스 (6턴)
 - [x] **Korea 맵 4인 플레이어블** — flat-top 추출, 동적 도시 색상·수원 직결 링크·도시화 디스플레이 보충·평양/수원 no-growth (8턴)
-- [ ] **Southern U.S. 맵** (다음 큰 작업) — 공식 맵 추출, 면화/항구 배달·남북전쟁(4턴 Atlanta 파괴)
+- [x] **Southern U.S. 맵 6인 플레이어블** — 사용자 디자인 이미지 추출(flat-top 전치), 면화(흰 큐브)→4대 항구 배달·Atlanta 1~4턴 보너스·4턴 수입감소 2배 (6턴)
 - [ ] Western/Germany/Rust Belt AI 추가 밸런싱 (파산률↓, AI 대륙횡단·직결 링크 활용)
 - [ ] Three.js로 3D 게임보드 구현
 - [ ] GSAP ScrollTrigger 고급 애니메이션 (라이브러리는 설치됨, 미적용)

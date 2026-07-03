@@ -93,7 +93,9 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
         let deltaVP = deliveryDeltaVP(state, playerId, ownTrackCount, linksCount - ownTrackCount);
 
         // Western US: 동↔서 배달 보너스(+$1 income, 배달자에게) — ΔVP에 가산
-        const regionBonus = profile.regionDeliveryBonus(sourceRegion, destCity.region);
+        // Southern US: 면화(흰 큐브) 배달 +$1 보너스도 동일하게 가산
+        const regionBonus = profile.regionDeliveryBonus(sourceRegion, destCity.region)
+          + profile.cubeDeliveryBonus(cubeColor);
         if (regionBonus > 0) deltaVP += VP_PER_INCOME * regionBonus;
 
         // 선점 보너스: 상대도 같은 배달이 가능하면, 내가 먼저 옮겨 상대의 income 기회를 차단

@@ -2,17 +2,20 @@
 import { debugLog } from '@/utils/debugConfig';
 // GameBoardPreview.tsx에서 추출
 
-import { HexCoord, BoardState, PlayerId, CityColor, City, TrackTile } from '@/types/game';
+import { HexCoord, BoardState, PlayerId, CubeColor, City, TrackTile } from '@/types/game';
 
 /**
  * 도시가 특정 색 큐브를 "수용"하는가 (= 배달 목적지이자 통과 불가 지점).
  * - 표준 맵: 도시는 고정색 → city.color === cubeColor.
  * - 한국(board.dynamicCityColors): 도시 수요색 = 현재 놓인 큐브색 → city.cubes 에 cubeColor 포함.
  *   빈 도시는 cubes=[] 이라 어떤 색도 수용 안 함(= 수요 없음, 통과 가능).
+ * - 남부 미국(board.cottonPorts): 면화(흰 큐브)는 4대 항구에서만 배달 종료 — 그 외 도시는 통과.
+ *   비-남부 맵은 cottonPorts 미설정 + 흰 큐브 자체가 없어 기존 동작 그대로.
  * 한국엔 터미널이 없고 표준 맵은 city.color 경로를 그대로 타므로, Germany 터미널(color=수용색)
  * 배달 판정도 기존과 동일하게 유지된다. 터미널의 "통과 불가"는 호출부의 isTerminal 분기가 별도 처리.
  */
-export function cityAcceptsCube(city: City, cubeColor: CityColor, board: BoardState): boolean {
+export function cityAcceptsCube(city: City, cubeColor: CubeColor, board: BoardState): boolean {
+  if (cubeColor === 'white') return !!board.cottonPorts?.includes(city.id);
   return board.dynamicCityColors ? city.cubes.includes(cubeColor) : city.color === cubeColor;
 }
 
@@ -854,7 +857,7 @@ function findAllPaths(
   board: BoardState,
   playerId: PlayerId,
   maxLength: number,
-  cubeColor: CityColor
+  cubeColor: CubeColor
 ): HexCoord[][] {
   const allPaths: HexCoord[][] = [];
 
@@ -949,7 +952,7 @@ export function findLongestPath(
   board: BoardState,
   playerId: PlayerId,
   engineLevel: number,
-  cubeColor: CityColor
+  cubeColor: CubeColor
 ): HexCoord[] | null {
   // 목적지 도시 확인
   const targetCity = board.cities.find(c => hexCoordsEqual(c.coord, targetCityCoord));
@@ -996,7 +999,7 @@ export function findReachableDestinations(
   board: BoardState,
   playerId: PlayerId,
   engineLevel: number,
-  cubeColor: CityColor
+  cubeColor: CubeColor
 ): City[] {
   // 룰: 물품은 "같은 색 첫 도시"에 도착하면 멈춘다. 신규 도시도 board.cities에 있으므로 동등하게 적용.
   // DFS로 트랙을 따라가며 같은 색 도시를 처음 만나면 그 도시를 목적지로 추가하고 거기서 멈춘다

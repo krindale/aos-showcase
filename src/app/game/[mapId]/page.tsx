@@ -8,6 +8,7 @@ export function generateStaticParams() {
     { mapId: 'rust-belt' },
     { mapId: 'germany' },
     { mapId: 'western-us' },
+    { mapId: 'southern-us' },
     { mapId: 'korea' },
   ];
 }

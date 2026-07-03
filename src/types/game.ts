@@ -5,7 +5,9 @@
 export type PlayerId = 'player1' | 'player2' | 'player3' | 'player4' | 'player5' | 'player6';
 
 export type CityColor = 'red' | 'blue' | 'yellow' | 'purple' | 'black';
-export type CubeColor = CityColor;
+/** 물품 큐브 색 — 도시 색 + 면화(white, Southern US 전용).
+ *  면화는 도시 색이 될 수 없고, 4대 항구(board.cottonPorts)에서만 배달이 끝난다. */
+export type CubeColor = CityColor | 'white';
 
 // 6인용 플레이어 색상 (룰북 기준)
 export type PlayerColor = 'orange' | 'blue' | 'green' | 'pink' | 'gray' | 'yellow';
@@ -154,6 +156,9 @@ export interface BoardState {
   /** 철도 건설 불가 경계 변 — 두 인접 헥스의 공유 변을 막아 그 변으로는 트랙을 잇지 못한다(한국 산맥 등).
    *  렌더는 지도 외곽선의 2배 굵기 실선으로 표시. (a,b 순서 무관) */
   blockedEdges?: { a: HexCoord; b: HexCoord }[];
+  /** 남부 미국(Southern US): 면화(흰 큐브)의 배달 종착 항구 도시 id 목록.
+   *  흰 큐브는 이 도시들에서만 배달이 끝난다 (cityAcceptsCube 헬퍼 참조). 비-남부 맵은 미설정. */
+  cottonPorts?: string[];
 }
 
 /** 도시-도시 직접 링크 (사이 헥스 없이 인접한 두 도시를 잇는 특수 트랙) */
@@ -467,6 +472,7 @@ export const CUBE_COLORS: Record<CubeColor, string> = {
   yellow: '#FFB300',
   purple: '#8E24AA',
   black: '#455A64',
+  white: '#FAF7EF',   // 면화 (Southern US) — 밝아서 렌더 시 어두운 테두리 필요
 };
 
 // === 맵 설정 ===

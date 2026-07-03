@@ -184,7 +184,16 @@ src/
 │   ├── FeatureCards.tsx        # 핵심 경험 4카드
 │   ├── OfflineIndicator.tsx    # 오프라인/동기화 상태 표시 (PWA)
 │   └── game/                   # 게임 UI 컴포넌트
-│       ├── GameBoard.tsx       # 헥스 그리드 게임보드 (SVG, 좌표 표시 토글, 화물 경로 골드 점선)
+│       ├── GameBoard.tsx       # 헥스 그리드 게임보드 본체 (store 구독·useMemo 캐시·클릭 핸들러·줌/좌표)
+│       ├── board/              # GameBoard 렌더 레이어 분리 (2026-07-03, 코드 그대로 이동 + props 주입)
+│       │   ├── boardGeometry.ts    # 순수 기하/스타일 헬퍼 (shadeColor·nameBandPoints·큐브 스펙 등)
+│       │   ├── BoardTracks.tsx     # 트랙 타일·소유 마커·완성 링크 마커·끊김 경고
+│       │   ├── BoardTowns.tsx      # 마을 디스크·가닥·큐브·도시화 하이라이트
+│       │   ├── BoardCities.tsx     # 도시 헥스·라벨·큐브·직결 링크
+│       │   └── BoardOverlays.tsx   # 미리보기·트랙 위 큐브·이동 경로/큐브·외곽선·경계변·터미널 테두리
+│       │   # ⚠️ SVG는 렌더 순서 = z-order: GameBoard 합성 순서(배경→Towns→Tracks→Cities→Overlays→Pulses→좌표) 유지
+│       ├── ConfirmDialog.tsx   # 디자인 시스템 확인 모달 (window.confirm 대체 — 네이티브 다이얼로그 사용 금지:
+│       │                       #   자동화/E2E를 블로킹하고 디자인과 부조화. 스크롤락·백드롭 취소 내장)
 │       ├── PlayerPanel.tsx     # 플레이어 정보 패널 (AI 표시 포함)
 │       ├── PhasePanel.tsx      # 현재 단계 표시 (AI 생각 중 상태)
 │       ├── AuctionPanel.tsx    # 경매 UI
@@ -208,8 +217,23 @@ src/
 │   ├── useOrientation.ts       # 가로/세로 방향 감지
 │   └── useTouchGestures.ts     # 터치 제스처 (핀치 줌, 팬)
 │
-├── store/                      # 상태 관리
-│   ├── gameStore.ts            # Zustand 게임 상태 관리 (AI 턴 실행 포함)
+├── store/                      # 상태 관리 (2026-07-03 slice 분리 — 전부 "코드 그대로 이동", 로직 무변경)
+│   ├── gameStore.ts            # 오케스트레이션 허브 (1,480줄): GameStore 인터페이스(계약)·initGame/resetGame·
+│   │                           #   executeAITurn·issueShare·selectAction·nextPhase/endTurn·undoLastAction·
+│   │                           #   placeNewCity·addLog·persist 설정 + slice 합성(...createXxxSlice(set, get))
+│   ├── helpers/                # 모듈 레벨 헬퍼 (set/get 클로저 밖 순수 함수)
+│   │   ├── undo.ts             # 실행 취소 스냅샷 스택(undoSnapshots 싱글턴)·captureUndo·getUndoLabel
+│   │   ├── boardRules.ts       # crossesBlockedEdge·findMissingTownSpurs·releaseUnextendedTrack·removeIncompleteNewTracks
+│   │   ├── setup.ts            # createInitialGameState·drawBalancedCubes·TUTORIAL_GAME_CONFIG·AIPlayerConfig
+│   │   ├── transcontinental.ts # computeTranscontinental (Western US 대륙횡단 감지)
+│   │   └── aiScheduler.ts      # AI 실행 락·컨텍스트 검증·scheduleAICheck (150ms debounce)
+│   ├── slices/                 # 도메인별 액션 구현 (인터페이스 정의는 gameStore에 유지, Pick으로 참조)
+│   │   ├── uiSlice.ts          # UI 선택/건설 플로우 24액션 (selectHex·selectCube·건설 상태기계·도시화 모드·큐브 애니)
+│   │   ├── auctionSlice.ts     # 경매 5액션 (placeBid·passBid·skipBid·resolveAuction·respondTurnOrderOffer)
+│   │   ├── buildSlice.ts       # Phase IV 건설 10액션 (buildTrack·복합·마을 가닥·직결·redirectTrack·대륙횡단 적용)
+│   │   ├── moveSlice.ts        # Phase V 이동 4액션 (moveGoods·upgradeEngine·moveTrackCube·completeCubeMove)
+│   │   ├── settlementSlice.ts  # Phase VI-VIII 정산 3액션 (collectIncome·payExpenses·applyIncomeReduction)
+│   │   └── goodsGrowthSlice.ts # Phase IX 물품 성장 + 생산 6액션 (growGoods·Production 5종)
 │   └── __tests__/
 │       ├── payExpenses.test.ts # 비용 지불/파산 로직 테스트
 │       └── trackBuilding.test.ts   # 트랙 건설 메커니즘 store 레벨 테스트 (방향 전환, 교차/공존, UI 플로우)
@@ -377,14 +401,30 @@ interface GameStore {
   players: Record<PlayerId, PlayerState>;
   board: BoardState;
   auction: AuctionState | null;
-  isAIThinking: boolean;  // AI 턴 진행 중 여부
+  aiExecution: AIExecutionQueue;  // AI 실행 상태 { pending, executionId } (구 isAIThinking 대체)
 
-  // 주요 함수
+  // 주요 함수 (구현은 slices/에 분산 — 아래 slice 아키텍처 참조)
   placeBid, passBid, skipBid, resolveAuction,
   selectAction, buildTrack, completeCubeMove,
   nextPhase, resetGame, executeAITurn, ...
 }
 ```
+
+**slice 아키텍처 (2026-07-03, gameStore 4,832 → 1,480줄)**: 액션 **인터페이스는 전부
+`GameStore`(gameStore.ts)에 유지**하고, 구현만 도메인별 `slices/` 6파일로 분산한다.
+- 패턴: `createXxxSlice(set, get): XxxSlice`에서 `XxxSlice = Pick<GameStore, '액션'...>` —
+  반환 타입을 Pick으로 명시하면 액션 파라미터가 contextual typing으로 자동 추론된다.
+  gameStore 본문에서 `...createXxxSlice(set, get),`로 합성 (spread가 각 액션의 유일한 제공자).
+- **순환 방지**: slice/helpers에서 gameStore는 반드시 `import type { GameStore }` (type-only).
+  런타임 값은 helpers(undo·aiScheduler 등)나 utils에서 가져온다.
+- **새 액션 추가 시**: ① GameStore 인터페이스에 선언(gameStore.ts), ② 해당 도메인 slice에 구현
+  + Pick 목록에 이름 추가. 어느 slice에도 안 맞는 오케스트레이션(단계 전환·라이프사이클)만 gameStore 본문에.
+- gameStore 잔류(의도적): 인터페이스·initGame/resetGame·executeAITurn·issueShare·selectAction·
+  nextPhase/endTurn·undoLastAction·placeNewCity·addLog·persist. **nextPhase는 분리 금지** —
+  모든 단계 전환·persist·AI 스케줄과 얽힌 코어라 허브에 남긴다.
+- 검증 이력: 분리는 전부 "코드 그대로 이동"으로, origin/main 대비 본문 기계 비교 62/62 IDENTICAL
+  (PR #18). 이동 시 undo 스냅샷 스택(`helpers/undo.ts`의 `undoSnapshots`)은 ES 모듈 싱글턴이라
+  slice·gameStore가 같은 인스턴스를 공유한다.
 
 **persist + 1회성 상태 (중요)**: 스토어는 `persist`(localStorage, name `age-of-steam-game`)로
 게임을 새로고침 후에도 이어가게 한다. 따라서 **새 게임마다 비워야 하는 1회성/실행 상태는 두 곳을
@@ -875,11 +915,12 @@ Age of Steam 확장맵 3 — 한국 (Martin Wallace 2004 / James Mathias 아트 
   큐브 선택, 복합/방향전환 패널, 도시화 모드. 진행 중 큐브 애니메이션(`movingCube`)은 보존
 - **실행 취소** (`undoLastAction` + `undoCount`): 확정 행동의 스냅샷 복원.
   대상: 주식 발행, 행동 선택(locomotive 즉시 엔진업 포함 복원), buildTrack/복합/방향전환/
-  마을 가닥/도시화. 스냅샷(`board`/`players`/`phaseState`/`newCityTiles`/`logs`)은
-  gameStore 모듈 레벨 스택에 보관(비영속), **`nextPhase`마다 초기화** = 단계/차례 전환 시 확정
+  마을 가닥/도시화. 스냅샷(`board`/`players`/`phaseState`/`newCityTiles`/`goodsDisplay`/`logs`)은
+  `store/helpers/undo.ts`의 모듈 레벨 스택 `undoSnapshots`에 보관(비영속, ES 모듈 싱글턴이라
+  slice/gameStore가 공유), **`nextPhase`마다 초기화** = 단계/차례 전환 시 확정
 - `captureUndo`는 AI 차례면 저장 안 함 (사람 전용). 취소 내역은 게임 로그에 `↩ 취소: ...`
 - 새 커밋 액션을 추가하면 검증 통과 직후 `captureUndo(state, label)` + set에
-  `undoCount: undoSnapshots.length` 포함할 것
+  `undoCount: undoSnapshots.length` 포함할 것 (둘 다 `../helpers/undo`에서 임포트)
 - UI: PhasePanel에 단계별 버튼 (`getUndoLabel()`로 취소 대상 표시)
 - 테스트: `townHubModel.test.ts`의 실행 취소 케이스 3건
 

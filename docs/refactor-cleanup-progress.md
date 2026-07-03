@@ -125,7 +125,7 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
 > 방식: CLAUDE.md 코드리뷰 규칙 — 한 번에 한 스텝, 스텝마다 결과 기록 + 즉시 커밋·푸시.
 > 대상: origin/main(726275e)..HEAD 전체 diff (스텝 1~3d + ConfirmDialog + 문서)
 
-- [ ] R1: 스텝 1 테스트 타입 수정 3파일 — 동작 불변 검증 (특히 `isAIThinking`→`aiExecution.pending` 교체의 의미, 부분 레코드 타입의 정직성)
+- [x] R1: 스텝 1 테스트 타입 수정 3파일 — 동작 불변 검증 (특히 `isAIThinking`→`aiExecution.pending` 교체의 의미, 부분 레코드 타입의 정직성)
 - [ ] R2: 스텝 2 GameBoard 분리 5파일 — 이동 충실성·props 정확성·렌더 순서 보존
 - [ ] R3: 스텝 3a helpers 5파일 — 모듈 상태(undo 스택) 이동 동작 보존·재export 호환·type-only 순환 확인
 - [ ] R4: 스텝 3b~3d slice 3파일 — **기계 검증**: 원본 커밋에서 제거된 블록 vs slice 본문 문자열 비교 (공백 정규화)
@@ -136,7 +136,13 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
 
 ### 리뷰 결과 기록
 
-(스텝별로 아래에 추가)
+**R1 (통과, 발견 0건)** — 스텝 1 커밋(773ead8) 전체 diff 검토:
+- `financials` 6인 전체 키 초기화: 2인 시뮬에서 p3~6은 미접근 키 → 런타임 무영향, 거짓 캐스트만 제거
+- 스냅샷 6변수 `Partial<Record>` + `{}`: 런타임 값 동일(빈 객체), 접근부는 tsc 통과로 안전성 보장
+- `round as 1 | 2`: round는 1~2 루프 변수 — 캐스트 유효
+- `playerMoves` p4~6 false 보충: 기존에도 2인 게임에 p3:false가 있었고 통과 → 체커는 activePlayers 기준, 추가 false 키 무해
+- `isAIThinking`(항상 undefined) → `aiExecution.pending`: **의도된 의미론 수정** — "AI 실행 중엔 stuck 카운트 제외"가 원래 의도였는데 항상 카운트되던 버그. 수정 방향 올바름, 테스트 통과
+- `Array.from(counts.entries())`: 스프레드와 동일 의미
 
 ## 최종 결과 요약
 

@@ -33,6 +33,7 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
     send('log', ['=== 콘솔 미러 연결됨 ===']);
   }
 }
+import ConfirmDialog from '@/components/game/ConfirmDialog';
 import GameBoard from '@/components/game/GameBoard';
 import GameChat from '@/components/game/GameChat';
 import OnlineLobby from '@/components/game/OnlineLobby';
@@ -125,6 +126,9 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   const netPresent = useNetStore((s) => s.presentClientIds);
   const leaveRoom = useNetStore((s) => s.leaveRoom);
   const autoRejoin = useNetStore((s) => s.autoRejoin);
+  const disconnectedSeat = useNetStore((s) => s.disconnectedSeat);
+  const convertSeatToAI = useNetStore((s) => s.convertSeatToAI);
+  const dismissDisconnectPrompt = useNetStore((s) => s.dismissDisconnectPrompt);
   const isOnline = netMode !== 'offline';
   // 호스트 연결 끊김 (게스트 시점) — 재접속/승계 대기 안내
   const hostAbsent =
@@ -813,6 +817,19 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
 
       {/* 단계 전환 1초 멈춤 오버레이 */}
       <PhaseTransition />
+
+      {/* 호스트: 이탈한 게스트를 AI로 전환할지 확인 (10초 유예 후 표시) */}
+      <ConfirmDialog
+        open={netMode === 'host' && disconnectedSeat !== null}
+        title="플레이어 연결 끊김"
+        message={`${disconnectedSeat?.name}님의 연결이 끊겼습니다. 이 자리를 AI로 전환해 게임을 계속할까요? 기다리면 재접속 시 자동으로 복귀합니다. (AI 전환 후에는 이번 게임에서 되돌릴 수 없어요)`}
+        confirmLabel="AI로 전환"
+        cancelLabel="계속 기다리기"
+        onConfirm={() => {
+          if (disconnectedSeat) void convertSeatToAI(disconnectedSeat.seat);
+        }}
+        onCancel={dismissDisconnectPrompt}
+      />
     </div>
   );
 }

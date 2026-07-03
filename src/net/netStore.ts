@@ -47,6 +47,8 @@ export interface NetStore {
   /** 공개방 목록 (Phase 4 — refreshPublicRooms로 갱신) */
   publicRooms: RoomInfo[];
   publicRoomsLoading: boolean;
+  /** 호스트 전용: 게임 중 이탈이 확인된 게스트 좌석 (10초 유예 후) — AI 전환 확인 다이얼로그용 */
+  disconnectedSeat: { seat: number; name: string } | null;
 
   /** 방 생성 (호스트). seats의 seat 0이 호스트 좌석 — clientId는 자동 주입 */
   hostRoom: (opts: {
@@ -69,6 +71,10 @@ export interface NetStore {
   updateSeats: (seats: RoomSeat[]) => Promise<void>;
   /** 호스트 전용: 게임 시작 — initGame + status 'playing' */
   startOnlineGame: () => Promise<void>;
+  /** 호스트 전용: 이탈한 게스트 좌석을 AI로 전환 (players.isAI + seats.kind — 게임 계속) */
+  convertSeatToAI: (seat: number) => Promise<void>;
+  /** 호스트 전용: 이탈 좌석 AI 전환 다이얼로그 닫기 (그 좌석은 이번 게임에 다시 묻지 않음) */
+  dismissDisconnectPrompt: () => void;
 }
 
 // ---- 모듈 레벨 연결/루프 상태 (직렬화 불가 객체는 store 밖에) ----
@@ -76,6 +82,9 @@ let connection: RoomConnection | null = null;
 let unsubscribeStore: (() => void) | null = null;
 let broadcastTimer: ReturnType<typeof setTimeout> | null = null;
 let takeoverTimer: ReturnType<typeof setTimeout> | null = null;
+let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
+/** AI 전환을 물었다가 거절한 좌석 — 이번 게임엔 다시 묻지 않음 (leaveRoom/게임시작 시 초기화) */
+let dismissedDisconnectSeats = new Set<number>();
 let rev = 0;
 let lastSyncedJson = '';
 let lastAppliedRev = 0;
@@ -238,12 +247,54 @@ export const useNetStore = create<NetStore>()((set, get) => {
     onPresence: (clientIds) => {
       set({ presentClientIds: clientIds });
       checkHostTakeover();
+      checkGuestDisconnect();
     },
     onRoom: (room) => {
       set({ room, mySeat: seatOf(room, getClientId()) });
       checkHostTakeover(); // 승계 완료/호스트 교체 통지 반영
+      checkGuestDisconnect();
     },
   });
+
+  // ---- 호스트: 게스트 이탈 감지 → AI 전환 제안 (10초 유예 — 새로고침 재접속 오탐 방지) ----
+  const GUEST_DISCONNECT_GRACE = 10_000;
+
+  const findOfflineGuestSeat = () => {
+    const { room, presentClientIds } = get();
+    return room?.seats.find(
+      (s) =>
+        s.kind === 'human' &&
+        s.clientId &&
+        s.clientId !== getClientId() &&
+        !presentClientIds.includes(s.clientId) &&
+        !dismissedDisconnectSeats.has(s.seat)
+    );
+  };
+
+  const checkGuestDisconnect = (): void => {
+    const { mode, room, disconnectedSeat } = get();
+    if (mode !== 'host' || !room || room.status !== 'playing') {
+      if (disconnectTimer !== null) { clearTimeout(disconnectTimer); disconnectTimer = null; }
+      if (disconnectedSeat) set({ disconnectedSeat: null });
+      return;
+    }
+    const offline = findOfflineGuestSeat();
+    if (!offline) {
+      // 전원 복귀 — 유예 타이머/다이얼로그 해제
+      if (disconnectTimer !== null) { clearTimeout(disconnectTimer); disconnectTimer = null; }
+      if (disconnectedSeat) set({ disconnectedSeat: null });
+      return;
+    }
+    if (disconnectedSeat || disconnectTimer !== null) return; // 이미 묻는 중/대기 중
+    disconnectTimer = setTimeout(() => {
+      disconnectTimer = null;
+      const still = findOfflineGuestSeat();
+      if (get().mode === 'host' && still) {
+        console.log(`[net] 게스트 이탈 확인: ${still.name} (seat ${still.seat}) — AI 전환 제안`);
+        set({ disconnectedSeat: { seat: still.seat, name: still.name } });
+      }
+    }, GUEST_DISCONNECT_GRACE);
+  };
 
   // ---- 호스트 승계 (Phase 2) ----
   const cancelTakeover = (): void => {
@@ -300,6 +351,55 @@ export const useNetStore = create<NetStore>()((set, get) => {
     lastSnapshotBytes: 0,
     publicRooms: [],
     publicRoomsLoading: false,
+    disconnectedSeat: null,
+
+    convertSeatToAI: async (seat) => {
+      const conn = connection;
+      const { mode, room } = get();
+      if (!conn || mode !== 'host' || !room) return;
+      const seatInfo = room.seats.find((s) => s.seat === seat);
+      if (!seatInfo || seatInfo.kind === 'ai') return;
+
+      // ① 게임 상태: 해당 플레이어를 AI로 (스냅샷으로 전원에 전파)
+      const playerId = useGameStore.getState().activePlayers[seat];
+      if (playerId) {
+        useGameStore.setState((s) => ({
+          players: {
+            ...s.players,
+            [playerId]: { ...s.players[playerId], isAI: true },
+          },
+          logs: [
+            ...s.logs,
+            {
+              turn: s.currentTurn,
+              phase: s.currentPhase,
+              player: playerId,
+              action: `[시스템] ${s.players[playerId]?.name} 연결 끊김 — AI로 전환`,
+              timestamp: Date.now(),
+            },
+          ],
+        }) as never);
+      }
+      // ② 방 좌석: AI로 (재입장 좌석 이어받기 대상에서 제외)
+      const seats = room.seats.map((s) =>
+        s.seat === seat ? { ...s, kind: 'ai' as const, clientId: null } : s
+      );
+      try {
+        await conn.updateRoom({ seats });
+        await conn.broadcastRoom();
+      } catch (e) {
+        console.warn('[net] AI 전환 방 갱신 실패:', e);
+      }
+      set({ room: conn.room, disconnectedSeat: null });
+      // 전환한 좌석이 지금 차례면 AI가 즉시 이어서 진행
+      scheduleAICheck(useGameStore.getState);
+    },
+
+    dismissDisconnectPrompt: () => {
+      const seat = get().disconnectedSeat?.seat;
+      if (seat !== undefined) dismissedDisconnectSeats.add(seat);
+      set({ disconnectedSeat: null });
+    },
 
     refreshPublicRooms: async () => {
       set({ publicRoomsLoading: true });
@@ -445,6 +545,8 @@ export const useNetStore = create<NetStore>()((set, get) => {
       stopHostLoop();
       cancelTakeover();
       clearLastRoom();
+      if (disconnectTimer !== null) { clearTimeout(disconnectTimer); disconnectTimer = null; }
+      dismissedDisconnectSeats = new Set();
       const conn = connection;
       connection = null;
       lastAppliedRev = 0;
@@ -456,6 +558,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
         chat: [],
         connected: false,
         error: null,
+        disconnectedSeat: null,
       });
       try {
         await conn?.leave();
@@ -488,6 +591,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
       const conn = connection;
       const { room, mode } = get();
       if (!conn || mode !== 'host' || !room || room.status !== 'waiting') return;
+      dismissedDisconnectSeats = new Set(); // 새 게임 — 이탈 프롬프트 기록 초기화
       const seats = room.seats;
       const names = seats.map((s) => s.name);
       const aiPlayers = seats

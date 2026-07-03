@@ -71,8 +71,11 @@
       UndoSnapshot.goodsDisplay(structuredClone) 존재 → 취소 시 주머니/마을 큐브 복원 정합.
       한국(마을 큐브 0)·St.Lucia(hexCube)·튜토리얼·Rust·Germany는 no-op으로 무영향.
       발견 F3(경미): urbanizationMovesTownCubes를 if/!if로 2회 조회 — 스텝 7에서 if/else+호이스트.
-- [ ] **스텝 5 — AI 계층**: vp/moveGoods 보너스 가산 위치, townCubes 기회 생성이 남부에서 의도대로,
-      성능(cityAcceptsCube 호출 빈도) 문제 없는지
+- [x] **스텝 5 — AI 계층** ✅ 통과 (2026-07-03):
+      vp.estimateRouteVP(opp.cubeColor)·moveGoods(반복 중인 cubeColor) 보너스 가산 정확,
+      비-남부 맵은 cubeDeliveryBonus=0이라 무영향(diff 재확인). 마을 면화 목표는 analyzer의
+      incomeSources townCubes 게이트로 생성(신규 분기 없음). cityAcceptsCube white 분기는
+      동등 비교 1회 추가로 성능 무영향. 100시드에서 면화 8.4/게임 배달로 AI 활용 실증.
 - [ ] **스텝 6 — UI**: GameBoard 항구 테두리/큐브 크기 변경이 다른 맵 렌더에 부작용 없는지,
       좌표 토글 라벨
 - [ ] **스텝 7 — 발견 사항 수정 반영 + 재검증(관련 테스트) + 커밋 푸시**

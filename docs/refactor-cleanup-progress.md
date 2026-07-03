@@ -32,7 +32,7 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
   - [x] 2a: 순수 기하/스타일 헬퍼 → `board/boardGeometry.ts` (SQRT3_2·shadeColor·nameBandPoints·numberBoxPath·큐브 스펙 3종·hexVertex)
   - [x] 2b: 트랙 레이어 → `board/BoardTracks.tsx` (트랙 타일·소유 마커·완성 링크 마커·끊김 경고, 265줄 이동)
   - [x] 2c: 마을 레이어 → `board/BoardTowns.tsx` (마을 디스크·가닥·큐브·도시화 하이라이트, 163줄 이동)
-  - [ ] 2d: 도시 레이어 → `board/BoardCities.tsx` (도시 헥스·라벨·큐브·직결 링크)
+  - [x] 2d: 도시 레이어 → `board/BoardCities.tsx` (도시 헥스·라벨·큐브·직결 링크, 240줄 이동)
   - [ ] 2e: 오버레이 → `board/BoardOverlays.tsx` (미리보기·이동 경로·이동 큐브·외곽선·범례·좌표)
   - 검증(각 서브 스텝): `npx tsc --noEmit` + dev 페이지 200 확인, 스텝 2 종료 시 `npx vitest run` 전체
     (⚠️ dev 서버 실행 중이라 `npm run build` 금지 — 머지 전 dev 중단 후 1회 빌드 검증)

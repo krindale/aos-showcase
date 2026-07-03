@@ -35,6 +35,35 @@ export interface UrbanizationPlan {
   connectRoute: DeliveryRoute | null;
 }
 
+/** 같은 턴·같은 Phase의 계획 캐시 (경매 루프가 입찰마다 재계산하는 것 방지) */
+const planCache: Map<PlayerId, { turn: number; phase: string; plan: UrbanizationPlan | null }> = new Map();
+
+/**
+ * planUrbanization의 캐시 버전 — 행동 가치 평가(selectAction/경매)용.
+ *
+ * 경매는 입찰 결정마다 rankActionsByDeltaVP → planUrbanization(O(도시×마을) 순회)을 반복
+ * 호출하지만, 입찰/행동 선택 중에는 보드(마을·큐브·트랙·타일)가 변하지 않으므로 같은 턴·같은
+ * Phase 안에서는 1회만 계산한다. 배치 실행 시점(buildTrack Phase)은 보드가 변하므로
+ * AIPlayer가 원본 planUrbanization을 직접 호출한다 — 이 캐시를 쓰지 말 것.
+ */
+export function planUrbanizationCached(
+  state: GameState,
+  playerId: PlayerId,
+): UrbanizationPlan | null {
+  const cached = planCache.get(playerId);
+  if (cached && cached.turn === state.currentTurn && cached.phase === state.currentPhase) {
+    return cached.plan;
+  }
+  const plan = planUrbanization(state, playerId);
+  planCache.set(playerId, { turn: state.currentTurn, phase: state.currentPhase, plan });
+  return plan;
+}
+
+/** 게임 리셋 시 캐시 초기화 (이전 게임의 같은 턴·Phase 키 충돌 방지) */
+export function clearUrbanizationPlanCache(): void {
+  planCache.clear();
+}
+
 /**
  * 도시화 계획: 어느 마을에 어떤 색 신규 도시를 놓을지 + 그 가치와 연결 경로
  *

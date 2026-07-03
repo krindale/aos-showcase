@@ -542,6 +542,8 @@ setAllDebug(true);                   // 모든 로그 on/off
 - **엔진 타이밍 정책 (moveGoods/selectAction)**: front-load(초반 수송 1개 포기로 엔진 3) →
   T4 이후 move-round 엔진업 금지(엔진은 Locomotive 액션으로만) → T6+ 엔진 4 floor는
   "4링크+ 배달 가능한 깊은 큐브가 있을 때만"(얕은 게임 비용 낭비 차단).
+  단 front-load는 **파산 확정이 아닌 경우에만** — 치명적 디폴트 가드(`engineUpgradeShortfall.bankrupt`)가
+  T1 저현금(cash $3~8·income 0) front-load를 차단하며, 측정상 개선(파산 18→15, VP −23→−19)이라 정책 확정.
 - **도시화 가치 (`evaluateUrbanizationForTrackCubes`, selectAction)**: 도시화 가치를 "아직 도시
   없는 색의 큐브 수"(배달 목적지 확충)로 산정 + **도시 수 체감(decay)** (도시 2개→×0.7, 3개→×0.4,
   4개+→×0.3) — 도시가 충분하면 도시화 남발 대신 라인 확장·깊은 배달 우선.
@@ -586,7 +588,8 @@ setAllDebug(true);                   // 모든 로그 on/off
 선행조건(여기선 분산)이 바뀌면 뒤집힌다, 막다른길을 영구 배제 말 것.
 
 남은 작업: income 천장(목표 20) 향해 "도시화한 도시로 즉시 배달 + 1턴완성 결합", Engineer 4칸 건설을
-완성 판정에 반영, `getConnectedCities` 트랙0 빈배열 버그 근본수정(analyzer).
+완성 판정에 반영. (`getConnectedCities` 트랙0 빈배열은 의도된 동작으로 확정 — 전 도시 반환 시
+연결성 보너스가 무의미해짐, analyzer.ts 주석 참조)
 
 #### Germany 맵 구현 (2026-06-22, feature/germany-map)
 
@@ -845,22 +848,10 @@ Age of Steam 확장맵 3 — 한국 (Martin Wallace 2004 / James Mathias 아트 
 
 #### 알려진 이슈 (미해결)
 
-- **`getConnectedCities` 트랙 없음 시 반환값**: 트랙이 0개일 때 빈 배열 반환 (테스트에서 4를 기대하는 기존 실패 1건)
-- ~~턴 내 대체 경로 탐색 시 경로 변경~~ → 2026-06 재설계에서 해결 (모든 경로 전환 시 `setCurrentRoute` 동기화 + 경로 커밋)
-
-**PR #14 코드리뷰 잔여 이슈 (2026-07-02, 의도적 보류 — 손댈 때 반드시 100시드 재검):**
-- **엔진업 이중 가드 통합 (moveGoods.ts:229 + vp.ts:225)**: 유사하지만 미묘하게 다른 파산 판정이
-  두 파일에 존재(cash+income<expenses vs income−shortage<0). 근본 수정 = front-load 지름길(return 5)도
-  `engineUpgradeDeltaVP`의 가드를 통과하게 구조화. 파산·VP 직결 민감 경로라 별도 PR로.
-- **St.Lucia front-load 차단 부작용 (moveGoods.ts 치명적 디폴트 가드)**: 새 가드가 trackCubes T1
-  front-load(cash $3~8·income 0)를 차단 — 측정상 오히려 개선(파산 18→15, VP −23→−19)이라 유지 중이나,
-  "T4까지 엔진 3 front-load" 문서 정책과 어긋남. St.Lucia 개선 작업 시 의도 재확인.
-- **경매 루프의 planUrbanization 반복 실행 (selectAction.ts ← auction.ts rankActionsByDeltaVP)**:
-  입찰 결정마다 O(도시×마을)+BFS 재계산. 체감 저하는 미미하나 TurnPlan에 1회 계산·캐시가 맞는 방향.
-- **도시화 평가-실행 시점 불일치 (urbanization.ts slots)**: 행동 선택 시(0건설)와 배치 재시도 시(N건설)의
-  잔여 슬롯이 달라, 선택 땐 가치 있다고 본 도시화가 실행 시 배치 null로 낭비될 수 있음(의도된 보수화).
-- **트랙 없음 + planPath null이면 도시화 배치 불가 (urbanization.ts nearPlanPath)**: T1에 경로 탐색이
-  실패한 플레이어가 도시화를 잡으면 통째로 낭비 — 가치 0.2로 선택 확률은 낮췄으나 필러 선택 시 발생.
+- 현재 없음 (2026-07-03 기준). PR #14 코드리뷰 잔여 이슈 5건은 전부 종결 — 처리 내역과 기각 실험
+  기록은 [`docs/ai-auction-baseline-100seed.md`](docs/ai-auction-baseline-100seed.md)의 2026-07-03
+  섹션 참조. 특히 **"도시화 계획 null이면 필러 선택 차단" 수정은 실측 기각**(Germany −1.88 게이트
+  위반) — 계획 null 필러 도시화는 건설 후 배치 재시도가 성공하는 회복 경로이므로 재수정 금지.
 
 ## 빌드 & 배포
 

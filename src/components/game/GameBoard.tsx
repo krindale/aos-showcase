@@ -2,6 +2,7 @@
 
 import { useMemo, useCallback, useEffect, useState } from 'react';
 import BoardPulses from './BoardPulses';
+import BoardTracks from './board/BoardTracks';
 import { motion } from 'framer-motion';
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { useGameStore } from '@/store/gameStore';
@@ -918,271 +919,24 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           );
         })}
 
-        {/* 트랙 타일 */}
-        {board.trackTiles.map((tile) => {
-          const { x, y } = hexToPixel(tile.coord.col, tile.coord.row, undefined, undefined, undefined, isFlat);
-          // 캐시에서 경로 데이터 가져오기 (계산 비용 절감)
-          const cached = trackPathCache.get(tile.id);
-          const pathData = cached?.pathData ?? '';
-          const ties = cached?.ties ?? [];
-          const ownerColor = tile.owner ? PLAYER_COLORS[players[tile.owner].color] : '#888';
-
-          // 복합 트랙인 경우 두 번째 경로도 렌더링
-          const hasSecondary = tile.trackType !== 'simple' && tile.secondaryEdges;
-          const secondaryPathData = cached?.secondaryPathData ?? null;
-          const secondaryTies = cached?.secondaryTies ?? [];
-          const secondaryOwnerColor = hasSecondary && tile.secondaryOwner
-            ? PLAYER_COLORS[players[tile.secondaryOwner].color]
-            : '#888';
-
-          // 방향 전환 가능 여부 확인
-          const isRedirectable = currentPhase === 'buildTrack' && canRedirect(tile.coord);
-          const isTrackClickable = currentPhase === 'buildTrack' && (
-            tile.owner === currentPlayer || isRedirectable
-          );
-
-          // 트랙 클릭 핸들러 (연결점 선택 우선, 방향 전환은 Shift+클릭)
-          const handleTrackClick = (e: React.MouseEvent) => {
-            if (!isTrackClickable) return;
-
-            // 플레이어의 자신의 트랙은 먼저 연결점으로 선택 (이어 짓기용)
-            // Shift+클릭일 때만 방향 전환
-            if (tile.owner === currentPlayer) {
-              if (e.shiftKey && isRedirectable && ui.buildMode === 'idle') {
-                // Shift+클릭: 방향 전환 모드
-                selectTrackToRedirect(tile.coord);
-              } else {
-                // 일반 클릭: 연결점으로 선택 (이어 짓기)
-                handleHexClick(tile.coord);
-              }
-              return;
-            }
-
-            // 소유자가 없는 방향 전환 가능 트랙
-            if (isRedirectable && ui.buildMode === 'idle') {
-              selectTrackToRedirect(tile.coord);
-            }
-          };
-
-          return (
-            <g key={tile.id}>
-              {/* 방향 전환 가능한 트랙 배경 하이라이트 */}
-              {isRedirectable && ui.buildMode === 'idle' && (
-                <circle
-                  cx={x}
-                  cy={y}
-                  r={HEX_SIZE - 8}
-                  fill="rgba(255, 165, 0, 0.15)"
-                  stroke="#ffa500"
-                  strokeWidth="2"
-                  strokeDasharray="4 2"
-                  className="cursor-pointer"
-                  onClick={(e) => handleTrackClick(e)}
-                />
-              )}
-
-              {/* 첫 번째 레일 (기본) */}
-              <path
-                d={pathData}
-                fill="none"
-                stroke="#3A3A32"
-                strokeWidth="12"
-                strokeLinecap="round"
-                shapeRendering="geometricPrecision"
-                className={isTrackClickable ? 'cursor-pointer' : ''}
-                onClick={(e) => handleTrackClick(e)}
-                style={{ pointerEvents: isTrackClickable ? 'auto' : 'none' }}
-              />
-              <path
-                d={pathData}
-                fill="none"
-                stroke={terrainColors.plain}
-                strokeWidth="6"
-                strokeLinecap="round"
-                shapeRendering="geometricPrecision"
-                className={isTrackClickable ? 'cursor-pointer' : ''}
-                onClick={(e) => handleTrackClick(e)}
-                style={{ pointerEvents: isTrackClickable ? 'auto' : 'none' }}
-              />
-              {/* 첫 번째 침목 */}
-              {ties.map((tie, i) => (
-                <line
-                  key={`tie-${tile.id}-${i}`}
-                  x1={tie.x - 8 * Math.cos((tie.angle + 90) * Math.PI / 180)}
-                  y1={tie.y - 8 * Math.sin((tie.angle + 90) * Math.PI / 180)}
-                  x2={tie.x + 8 * Math.cos((tie.angle + 90) * Math.PI / 180)}
-                  y2={tie.y + 8 * Math.sin((tie.angle + 90) * Math.PI / 180)}
-                  stroke="#4A4A42"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  shapeRendering="crispEdges"
-                  style={{ pointerEvents: 'none' }}
-                />
-              ))}
-
-              {/* 복합 트랙: 두 번째 레일 */}
-              {hasSecondary && secondaryPathData && (
-                <>
-                  {/* 교차(crossing)인 경우 다리 효과 표시 */}
-                  {tile.trackType === 'crossing' && (
-                    <path
-                      d={secondaryPathData}
-                      fill="none"
-                      stroke="#2A2A22"
-                      strokeWidth="16"
-                      strokeLinecap="round"
-                      shapeRendering="geometricPrecision"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                  )}
-                  <path
-                    d={secondaryPathData}
-                    fill="none"
-                    stroke="#3A3A32"
-                    strokeWidth="12"
-                    strokeLinecap="round"
-                    shapeRendering="geometricPrecision"
-                    style={{ pointerEvents: 'none' }}
-                  />
-                  <path
-                    d={secondaryPathData}
-                    fill="none"
-                    stroke={terrainColors.plain}
-                    strokeWidth="6"
-                    strokeLinecap="round"
-                    shapeRendering="geometricPrecision"
-                    style={{ pointerEvents: 'none' }}
-                  />
-                  {/* 두 번째 침목 */}
-                  {secondaryTies.map((tie, i) => (
-                    <line
-                      key={`tie2-${tile.id}-${i}`}
-                      x1={tie.x - 8 * Math.cos((tie.angle + 90) * Math.PI / 180)}
-                      y1={tie.y - 8 * Math.sin((tie.angle + 90) * Math.PI / 180)}
-                      x2={tie.x + 8 * Math.cos((tie.angle + 90) * Math.PI / 180)}
-                      y2={tie.y + 8 * Math.sin((tie.angle + 90) * Math.PI / 180)}
-                      stroke="#4A4A42"
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                      shapeRendering="crispEdges"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                  ))}
-                </>
-              )}
-
-              {/* 헥스 외곽선 재묘사 — 레일(12px)이 얇은 헥스 테두리를 덮어 "지워진" 듯 보이는
-                  것 방지. 타일마다 자기 헥스 변을 레일 위에 다시 그려 그리드가 항상 또렷하게. */}
-              <polygon
-                points={getHexPoints(x, y, HEX_SIZE, isFlat)}
-                fill="none"
-                stroke="#2D4A2D"
-                strokeWidth={0.5}
-                style={{ pointerEvents: 'none' }}
-              />
-
-              {/* 이번 턴에 건설한 트랙 표시 (턴이 끝나면 사라짐) — 누적 트랙과 구분용 */}
-              {tile.builtTurn === currentTurn && (
-                <polygon
-                  points={getHexPoints(x, y, HEX_SIZE - 6, isFlat)}
-                  fill="none"
-                  stroke="#ffffff"
-                  strokeWidth="2"
-                  strokeDasharray="5 4"
-                  opacity="0.85"
-                  style={{ pointerEvents: 'none' }}
-                />
-              )}
-
-              {/* 소유자 마커 - 미완성 트랙에만 표시. 파산으로 공용화된(owner null) 트랙은
-                  소유 디스크를 제거하므로 마커를 그리지 않음 (룰: 파산 미완성 트랙 디스크 제거) */}
-              {!isTrackInCompletedLink(tile.coord) && tile.owner !== null && (
-                <circle
-                  cx={x}
-                  cy={y}
-                  r="7"
-                  fill={ownerColor}
-                  stroke={isRedirectable && ui.buildMode === 'idle' ? '#ffa500' : '#1a1a1a'}
-                  strokeWidth={isRedirectable && ui.buildMode === 'idle' ? 2 : 1.5}
-                  className={isTrackClickable ? 'cursor-pointer' : ''}
-                  onClick={(e) => handleTrackClick(e)}
-                  style={{ pointerEvents: isTrackClickable ? 'auto' : 'none' }}
-                />
-              )}
-              {/* 복합 트랙: 두 번째 소유자 마커 (미완성 트랙에만) */}
-              {!isTrackInCompletedLink(tile.coord) && hasSecondary && tile.secondaryOwner && (
-                <circle
-                  cx={x + 10}
-                  cy={y - 10}
-                  r="5"
-                  fill={secondaryOwnerColor}
-                  stroke="#1a1a1a"
-                  strokeWidth="1"
-                />
-              )}
-            </g>
-          );
-        })}
-
-        {/* 완성된 링크 소유 마커 - 링크 중앙에 하나만 표시 */}
-        {completedLinks.map((link) => {
-          const ownerColor = PLAYER_COLORS[players[link.owner].color];
-          // centerPosition은 pointy 기준 좌표 — flat 맵에서도 맞도록 중간 타일에서 재계산
-          const midTile = link.trackTiles[Math.floor(link.trackTiles.length / 2)];
-          const center = midTile
-            ? hexToPixel(midTile.col, midTile.row, undefined, undefined, undefined, isFlat)
-            : link.centerPosition;
-          return (
-            <circle
-              key={link.id}
-              cx={center.x}
-              cy={center.y}
-              r="8"
-              fill={ownerColor}
-              stroke="#1a1a1a"
-              strokeWidth="2"
-              style={{ pointerEvents: 'none' }}
-            />
-          );
-        })}
-
-        {/* 끊어진 트랙 연결 경고 표시 */}
-        {disconnectedConnections.map((conn, index) => {
-          const { x: x1, y: y1 } = hexToPixel(conn.from.col, conn.from.row, undefined, undefined, undefined, isFlat);
-          const { x: x2, y: y2 } = hexToPixel(conn.to.col, conn.to.row, undefined, undefined, undefined, isFlat);
-
-          // 두 트랙 중간 지점
-          const midX = (x1 + x2) / 2;
-          const midY = (y1 + y2) / 2;
-
-          return (
-            <g key={`disconn-${index}`} style={{ pointerEvents: 'none' }}>
-              {/* 끊어진 연결 표시 - 빨간색 X */}
-              <circle
-                cx={midX}
-                cy={midY}
-                r="12"
-                fill="rgba(220, 38, 38, 0.8)"
-                stroke="#fff"
-                strokeWidth="2"
-              />
-              <text
-                x={midX}
-                y={midY + 4}
-                textAnchor="middle"
-                fontSize="14"
-                fontWeight="bold"
-                fill="#fff"
-              >
-                ✗
-              </text>
-              {/* 호버 시 정보 표시 */}
-              <title>
-                트랙 연결 끊김: ({conn.from.col},{conn.from.row}) edge{conn.fromEdge} ↔ ({conn.to.col},{conn.to.row}) edge{conn.toEdge}
-              </title>
-            </g>
-          );
-        })}
+        {/* 트랙 레이어 — 트랙 타일·소유 마커·완성 링크 마커·끊김 경고 (board/BoardTracks) */}
+        <BoardTracks
+          trackTiles={board.trackTiles}
+          players={players}
+          currentPlayer={currentPlayer}
+          currentTurn={currentTurn}
+          isBuildPhase={currentPhase === 'buildTrack'}
+          isBuildModeIdle={ui.buildMode === 'idle'}
+          isFlat={isFlat}
+          plainColor={terrainColors.plain}
+          trackPathCache={trackPathCache}
+          completedLinks={completedLinks}
+          disconnectedConnections={disconnectedConnections}
+          isTrackInCompletedLink={isTrackInCompletedLink}
+          canRedirect={canRedirect}
+          selectTrackToRedirect={selectTrackToRedirect}
+          onHexClick={handleHexClick}
+        />
 
         {/* 도시 */}
         {board.cities.map((city) => {

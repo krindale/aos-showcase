@@ -62,6 +62,8 @@ export interface RoomEvents {
   onChat?: (msg: ChatMessage) => void;
   onPresence?: (clientIds: string[]) => void; // 접속자 변화 (이탈 감지·호스트 승계)
   onRoom?: (room: RoomInfo) => void; // 방 메타 변경 (좌석 배정·상태 전환 — 호스트가 broadcastRoom)
+  /** 내 채널 연결 상태 변화 (순단/재접속) — false면 netStore가 자동 재연결 시도 */
+  onConnectionState?: (connected: boolean) => void;
 }
 
 export interface RoomConnection {

@@ -170,14 +170,28 @@ export class SupabaseTransport implements NetTransport {
       );
 
     return new Promise((resolve, reject) => {
+      let resolved = false;
       channel.subscribe(async (status, err) => {
         if (status === 'SUBSCRIBED') {
+          // 최초 구독 + 순단 후 자동 재조인 양쪽에서 호출됨
           await channel.track({ joinedAt: Date.now() });
-          resolve(new SupabaseRoomConnection(this.client, channel, room, clientId));
+          events.onConnectionState?.(true);
+          if (!resolved) {
+            resolved = true;
+            resolve(new SupabaseRoomConnection(this.client, channel, room, clientId));
+          }
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          reject(new Error(`채널 연결 실패(${status})${err ? `: ${err.message}` : ''}`));
+          if (!resolved) {
+            resolved = true;
+            reject(new Error(`채널 연결 실패(${status})${err ? `: ${err.message}` : ''}`));
+          } else {
+            console.warn(`[net] 채널 연결 끊김 (${status})`);
+            events.onConnectionState?.(false);
+          }
+        } else if (status === 'CLOSED' && resolved) {
+          // leave()로 정상 종료됐거나 서버가 닫음 — netStore가 세션 상태로 재연결 여부 판단
+          events.onConnectionState?.(false);
         }
-        // 'CLOSED'는 leave()로 정상 종료된 경우 — 무시
       });
     });
   }
@@ -239,6 +253,13 @@ class SupabaseRoomConnection implements RoomConnection {
   }
 
   private async broadcast(event: string, payload: unknown): Promise<void> {
+    // 순단/종료된 채널에 push하면 phoenix가 throw("before joining") — 크래시 대신 드롭.
+    // 연결 복구는 onConnectionState(false) → netStore의 자동 재연결이 담당하고,
+    // 스냅샷은 rooms 테이블에도 저장되므로 재연결 시 최신 상태로 복원된다.
+    if (this.channel.state !== 'joined') {
+      console.warn(`[net] 채널 미연결(${this.channel.state}) — ${event} 전송 건너뜀`);
+      return;
+    }
     const result = await this.channel.send({ type: 'broadcast', event, payload });
     if (result !== 'ok') throw new Error(`메시지 전송 실패(${event}): ${result}`);
   }

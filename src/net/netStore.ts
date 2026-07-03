@@ -83,6 +83,8 @@ let unsubscribeStore: (() => void) | null = null;
 let broadcastTimer: ReturnType<typeof setTimeout> | null = null;
 let takeoverTimer: ReturnType<typeof setTimeout> | null = null;
 let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectAttempts = 0;
 /** AI 전환을 물었다가 거절한 좌석 — 이번 게임엔 다시 묻지 않음 (leaveRoom/게임시작 시 초기화) */
 let dismissedDisconnectSeats = new Set<number>();
 let rev = 0;
@@ -203,14 +205,18 @@ export const useNetStore = create<NetStore>()((set, get) => {
     const { room, presentClientIds } = get();
     if (!conn || !room) return;
 
-    const name = (msg.payload as { name?: string } | undefined)?.name;
-    const newSeats = assignSeatForClaim(room.seats, room.status, presentClientIds, msg.clientId, name);
-    if (newSeats && newSeats !== room.seats) {
-      await conn.updateRoom({ seats: newSeats });
+    try {
+      const name = (msg.payload as { name?: string } | undefined)?.name;
+      const newSeats = assignSeatForClaim(room.seats, room.status, presentClientIds, msg.clientId, name);
+      if (newSeats && newSeats !== room.seats) {
+        await conn.updateRoom({ seats: newSeats });
+      }
+      // 배정 불가(만석)여도 현재 좌석 상태는 재통지 — 게스트는 관전 상태로 남음
+      await conn.broadcastRoom();
+      set({ room: conn.room, mySeat: seatOf(conn.room, conn.clientId) });
+    } catch (e) {
+      console.warn('[net] 좌석 배정 처리 실패:', e);
     }
-    // 배정 불가(만석)여도 현재 좌석 상태는 재통지 — 게스트는 관전 상태로 남음
-    await conn.broadcastRoom();
-    set({ room: conn.room, mySeat: seatOf(conn.room, conn.clientId) });
   };
 
   // 처리한 intent id 캐시 — 채널 재조인 시 push 재전송 등 중복 도착을 1회만 실행 (멱등성)
@@ -254,7 +260,39 @@ export const useNetStore = create<NetStore>()((set, get) => {
       checkHostTakeover(); // 승계 완료/호스트 교체 통지 반영
       checkGuestDisconnect();
     },
+    onConnectionState: (connected) => {
+      set({ connected });
+      if (connected) {
+        reconnectAttempts = 0;
+        if (reconnectTimer !== null) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+        return;
+      }
+      scheduleReconnect();
+    },
   });
+
+  // ---- 순단 자동 재연결 (채널이 끊기면 방 코드로 다시 붙는다 — 호스트는 복귀, 게스트는 재입장) ----
+  const RECONNECT_DELAY = 5_000;
+  const MAX_RECONNECT_ATTEMPTS = 5;
+
+  const scheduleReconnect = (): void => {
+    const { mode, room, mySeat } = get();
+    if (mode === 'offline' || !room || reconnectTimer !== null) return;
+    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      set({ error: '서버 연결이 끊겼습니다 — 새로고침하면 다시 접속합니다.' });
+      return;
+    }
+    const code = room.code;
+    const name = (mySeat !== null && room.seats[mySeat]?.name) || getLastRoom()?.name || '플레이어';
+    reconnectAttempts += 1;
+    console.log(`[net] ${RECONNECT_DELAY / 1000}초 후 재연결 시도 (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}): ${code}`);
+    reconnectTimer = setTimeout(async () => {
+      reconnectTimer = null;
+      if (get().connected || get().mode === 'offline') return; // 자동 재조인으로 이미 복구됨
+      await get().joinRoom(code, name);
+      if (!get().connected) scheduleReconnect(); // 실패 — 다음 시도 예약
+    }, RECONNECT_DELAY);
+  };
 
   // ---- 호스트: 게스트 이탈 감지 → AI 전환 제안 (10초 유예 — 새로고침 재접속 오탐 방지) ----
   const GUEST_DISCONNECT_GRACE = 10_000;
@@ -514,7 +552,9 @@ export const useNetStore = create<NetStore>()((set, get) => {
         installGuestGuard((type, payload: GameIntentPayload) => {
           const seat = get().mySeat;
           if (seat === null) return; // 미배정(관전) — 커밋 불가
-          void connection?.sendIntent({ seat, type, payload });
+          connection?.sendIntent({ seat, type, payload }).catch((e) => {
+            console.warn(`[net] 인텐트 전송 실패 (${type}):`, e);
+          });
         });
         saveLastRoom(conn.room.code, name);
         // 좌석 요청 (대기실 입장·재입장·게임 중 끊긴 좌석 이어받기 — 호스트가 배정)
@@ -546,6 +586,8 @@ export const useNetStore = create<NetStore>()((set, get) => {
       cancelTakeover();
       clearLastRoom();
       if (disconnectTimer !== null) { clearTimeout(disconnectTimer); disconnectTimer = null; }
+      if (reconnectTimer !== null) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      reconnectAttempts = 0;
       dismissedDisconnectSeats = new Set();
       const conn = connection;
       connection = null;
@@ -576,15 +618,19 @@ export const useNetStore = create<NetStore>()((set, get) => {
       const msg: ChatMessage = { clientId: conn.clientId, name, text: trimmed, at: Date.now() };
       // broadcast self=false — 내 메시지는 로컬에 직접 추가
       set((s) => ({ chat: [...s.chat, msg].slice(-100) }));
-      void conn.sendChat(name, trimmed);
+      conn.sendChat(name, trimmed).catch((e) => console.warn('[net] 채팅 전송 실패:', e));
     },
 
     updateSeats: async (seats) => {
       const conn = connection;
       if (!conn || get().mode !== 'host') return;
-      await conn.updateRoom({ seats });
-      await conn.broadcastRoom();
-      set({ room: conn.room });
+      try {
+        await conn.updateRoom({ seats });
+        await conn.broadcastRoom();
+        set({ room: conn.room });
+      } catch (e) {
+        console.warn('[net] 좌석 갱신 실패:', e);
+      }
     },
 
     startOnlineGame: async () => {
@@ -598,9 +644,13 @@ export const useNetStore = create<NetStore>()((set, get) => {
         .filter((s) => s.kind === 'ai')
         .map((s) => ({ playerIndex: s.seat, name: s.name }));
       useGameStore.getState().initGame(room.mapId, names, aiPlayers);
-      await conn.updateRoom({ status: 'playing' });
-      await conn.broadcastRoom();
-      set({ room: conn.room });
+      try {
+        await conn.updateRoom({ status: 'playing' });
+        await conn.broadcastRoom();
+        set({ room: conn.room });
+      } catch (e) {
+        console.warn('[net] 게임 시작 상태 전파 실패:', e);
+      }
     },
   };
 });

@@ -26,7 +26,9 @@ import {
   removeGuestGuard,
   type GameIntentPayload,
 } from './intents';
+import { assignSeatForClaim, isHostAbsent, pickHostSuccessor } from './roomLogic';
 import { useGameStore } from '@/store/gameStore';
+import { scheduleAICheck } from '@/store/helpers/aiScheduler';
 
 export type NetMode = 'offline' | 'host' | 'guest';
 
@@ -50,8 +52,10 @@ export interface NetStore {
     isPublic?: boolean;
     seats: RoomSeat[];
   }) => Promise<void>;
-  /** 방 코드로 입장 (게스트). 좌석은 호스트가 배정해 room 브로드캐스트로 통지 */
+  /** 방 코드로 입장 (게스트 / 새로고침한 호스트 복귀). 좌석은 호스트가 배정해 room 브로드캐스트로 통지 */
   joinRoom: (code: string, name: string) => Promise<void>;
+  /** 같은 탭 새로고침 후 마지막 방으로 자동 재입장 (성공 여부 반환) */
+  autoRejoin: () => Promise<boolean>;
   leaveRoom: () => Promise<void>;
   sendChat: (text: string) => void;
   /** 호스트 전용: 로비에서 좌석 구성 변경 (사람↔AI 등) */
@@ -64,16 +68,47 @@ export interface NetStore {
 let connection: RoomConnection | null = null;
 let unsubscribeStore: (() => void) | null = null;
 let broadcastTimer: ReturnType<typeof setTimeout> | null = null;
+let takeoverTimer: ReturnType<typeof setTimeout> | null = null;
 let rev = 0;
 let lastSyncedJson = '';
 let lastAppliedRev = 0;
 
 /** 스냅샷 브로드캐스트 debounce (ms) — 액션 연쇄(정산 등)를 한 번에 묶는다 */
 const BROADCAST_DEBOUNCE = 300;
+/** 호스트 이탈 감지 후 승계까지 대기 (ms) — presence 플랩(짧은 끊김) 오탐 방지 */
+const HOST_TAKEOVER_DELAY = 6000;
 
 function seatOf(room: RoomInfo | null, clientId: string): number | null {
   const seat = room?.seats.find((s) => s.clientId === clientId);
   return seat ? seat.seat : null;
+}
+
+// ---- 자동 재입장 (같은 탭 새로고침 시 방 복귀 — sessionStorage) ----
+const LAST_ROOM_KEY = 'aos-net-last-room';
+
+function saveLastRoom(code: string, name: string): void {
+  try {
+    window.sessionStorage.setItem(LAST_ROOM_KEY, JSON.stringify({ code, name }));
+  } catch {
+    /* storage 불가 환경 — 자동 재입장만 포기 */
+  }
+}
+
+function clearLastRoom(): void {
+  try {
+    window.sessionStorage.removeItem(LAST_ROOM_KEY);
+  } catch {
+    /* noop */
+  }
+}
+
+export function getLastRoom(): { code: string; name: string } | null {
+  try {
+    const raw = window.sessionStorage.getItem(LAST_ROOM_KEY);
+    return raw ? (JSON.parse(raw) as { code: string; name: string }) : null;
+  } catch {
+    return null;
+  }
 }
 
 export const useNetStore = create<NetStore>()((set, get) => {
@@ -136,28 +171,18 @@ export const useNetStore = create<NetStore>()((set, get) => {
     } as never);
   };
 
-  // ---- 호스트: 로비 좌석 배정 ----
+  // ---- 호스트: 좌석 배정 (대기실 입장 + 게임 중 끊긴 좌석 이어받기) ----
   const handleClaimSeat = async (msg: IntentMessage): Promise<void> => {
     const conn = connection;
-    const room = get().room;
+    const { room, presentClientIds } = get();
     if (!conn || !room) return;
 
-    let seats = room.seats;
-    const existing = seats.find((s) => s.clientId === msg.clientId);
-    if (!existing) {
-      if (room.status !== 'waiting') return; // 게임 중 신규 입장은 관전만 (Phase 2에서 재접속 좌석 복원)
-      const open = seats.find((s) => s.kind === 'human' && !s.clientId);
-      if (!open) {
-        // 만석 — 현재 좌석 상태만 재통지 (게스트는 관전 상태로 남음)
-        await conn.broadcastRoom();
-        return;
-      }
-      const name = (msg.payload as { name?: string } | undefined)?.name;
-      seats = seats.map((s) =>
-        s.seat === open.seat ? { ...s, clientId: msg.clientId, name: name?.trim() || s.name } : s
-      );
-      await conn.updateRoom({ seats });
+    const name = (msg.payload as { name?: string } | undefined)?.name;
+    const newSeats = assignSeatForClaim(room.seats, room.status, presentClientIds, msg.clientId, name);
+    if (newSeats && newSeats !== room.seats) {
+      await conn.updateRoom({ seats: newSeats });
     }
+    // 배정 불가(만석)여도 현재 좌석 상태는 재통지 — 게스트는 관전 상태로 남음
     await conn.broadcastRoom();
     set({ room: conn.room, mySeat: seatOf(conn.room, conn.clientId) });
   };
@@ -193,11 +218,58 @@ export const useNetStore = create<NetStore>()((set, get) => {
       void applySnapshotAsGuest(msg);
     },
     onChat: (msg) => set((s) => ({ chat: [...s.chat, msg].slice(-100) })),
-    onPresence: (clientIds) => set({ presentClientIds: clientIds }),
+    onPresence: (clientIds) => {
+      set({ presentClientIds: clientIds });
+      checkHostTakeover();
+    },
     onRoom: (room) => {
       set({ room, mySeat: seatOf(room, getClientId()) });
+      checkHostTakeover(); // 승계 완료/호스트 교체 통지 반영
     },
   });
+
+  // ---- 호스트 승계 (Phase 2) ----
+  const cancelTakeover = (): void => {
+    if (takeoverTimer !== null) {
+      clearTimeout(takeoverTimer);
+      takeoverTimer = null;
+    }
+  };
+
+  /** 게스트: 호스트 이탈 감지 → 결정론적 후계자(접속 중 가장 빠른 좌석)가 6초 후 승계 */
+  const checkHostTakeover = (): void => {
+    const { mode, room, presentClientIds } = get();
+    if (mode !== 'guest' || !room || room.status !== 'playing') return cancelTakeover();
+    if (!isHostAbsent(room.hostClientId, presentClientIds)) return cancelTakeover();
+    if (pickHostSuccessor(room.seats, presentClientIds) !== getClientId()) return cancelTakeover();
+    if (takeoverTimer !== null) return; // 이미 대기 중
+    console.log(`[net] 호스트 이탈 감지 — ${HOST_TAKEOVER_DELAY / 1000}초 후 승계 시도`);
+    takeoverTimer = setTimeout(() => {
+      takeoverTimer = null;
+      void promoteToHost();
+    }, HOST_TAKEOVER_DELAY);
+  };
+
+  const promoteToHost = async (): Promise<void> => {
+    const conn = connection;
+    const { mode, room, presentClientIds } = get();
+    if (!conn || mode !== 'guest' || !room) return;
+    if (!isHostAbsent(room.hostClientId, presentClientIds)) return; // 호스트 복귀 — 승계 취소
+    console.log('[net] 호스트 승계 실행 — 이 클라이언트가 게임 엔진을 이어받음');
+    removeGuestGuard();
+    rev = lastAppliedRev; // 스냅샷 리비전 연속성 (게스트들의 역순 가드 통과)
+    set({ mode: 'host' });
+    startHostLoop();
+    try {
+      await conn.updateRoom({ hostClientId: conn.clientId });
+      await conn.broadcastRoom();
+      set({ room: conn.room });
+    } catch (e) {
+      console.warn('[net] 승계 중 방 갱신 실패:', e);
+    }
+    // 이어받은 시점이 AI 차례면 즉시 재가동 (AI 인스턴스는 getAIDecision이 지연 등록)
+    scheduleAICheck(useGameStore.getState);
+  };
 
   return {
     mode: 'offline',
@@ -231,6 +303,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
           presentClientIds: [clientId],
         });
         startHostLoop();
+        saveLastRoom(conn.room.code, seats[0]?.name ?? '호스트');
       } catch (e) {
         set({ busy: false, error: e instanceof Error ? e.message : String(e) });
       }
@@ -243,6 +316,35 @@ export const useNetStore = create<NetStore>()((set, get) => {
         const conn = await getTransport().joinRoom(code, makeEvents());
         connection = conn;
         lastAppliedRev = 0;
+        const snap = conn.room.snapshot as { rev?: number; z?: string } | null;
+
+        // ── 호스트 복귀 (같은 탭 새로고침): 내가 아직 이 방의 호스트면 엔진을 다시 이어받는다
+        if (conn.room.hostClientId === conn.clientId) {
+          if (snap?.z) {
+            const state = await decodeSnapshot(snap.z);
+            useGameStore.setState({
+              ...state,
+              aiExecution: { pending: false, executionId: 0 },
+              undoCount: 0,
+            } as never);
+          }
+          rev = snap?.rev ?? 0; // 리비전 연속성
+          set({
+            mode: 'host',
+            room: conn.room,
+            mySeat: seatOf(conn.room, conn.clientId),
+            connected: true,
+            busy: false,
+            chat: [],
+          });
+          startHostLoop();
+          saveLastRoom(conn.room.code, name);
+          await conn.broadcastRoom(); // 호스트 복귀 통지 (게스트들의 승계 타이머 취소)
+          scheduleAICheck(useGameStore.getState);
+          return;
+        }
+
+        // ── 게스트 입장/재입장
         set({
           mode: 'guest',
           room: conn.room,
@@ -257,10 +359,10 @@ export const useNetStore = create<NetStore>()((set, get) => {
           if (seat === null) return; // 미배정(관전) — 커밋 불가
           void connection?.sendIntent({ seat, type, payload });
         });
-        // 좌석 요청 (이미 배정돼 있으면 호스트가 좌석 상태만 재통지 — 재입장 겸용)
+        saveLastRoom(conn.room.code, name);
+        // 좌석 요청 (대기실 입장·재입장·게임 중 끊긴 좌석 이어받기 — 호스트가 배정)
         await conn.sendIntent({ seat: -1, type: 'claimSeat', payload: { name } });
         // 게임 중 입장(재접속): 방에 저장된 최신 스냅샷 즉시 복원
-        const snap = conn.room.snapshot as { rev?: number; z?: string } | null;
         if (conn.room.status === 'playing' && snap?.z) {
           await applySnapshotAsGuest({ rev: snap.rev ?? 1, z: snap.z });
         }
@@ -270,9 +372,22 @@ export const useNetStore = create<NetStore>()((set, get) => {
       }
     },
 
+    autoRejoin: async () => {
+      if (get().mode !== 'offline' || get().busy) return false;
+      const last = getLastRoom();
+      if (!last) return false;
+      console.log(`[net] 자동 재입장 시도: ${last.code}`);
+      await get().joinRoom(last.code, last.name);
+      const ok = get().mode !== 'offline';
+      if (!ok) clearLastRoom(); // 방이 사라졌으면 더 시도하지 않음
+      return ok;
+    },
+
     leaveRoom: async () => {
       removeGuestGuard();
       stopHostLoop();
+      cancelTakeover();
+      clearLastRoom();
       const conn = connection;
       connection = null;
       lastAppliedRev = 0;
@@ -335,4 +450,9 @@ export function getMyPlayerId(): string | null {
   if (mode === 'offline' || mySeat === null) return null;
   const active = useGameStore.getState().activePlayers;
   return active[mySeat] ?? null;
+}
+
+// 디버깅용: 전역에 노출 (__GAME_STORE__와 동일 패턴)
+if (typeof window !== 'undefined') {
+  (window as unknown as { __NET_STORE__: typeof useNetStore }).__NET_STORE__ = useNetStore;
 }

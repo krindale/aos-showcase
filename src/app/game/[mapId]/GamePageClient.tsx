@@ -120,8 +120,22 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   const netMode = useNetStore((s) => s.mode);
   const netRoom = useNetStore((s) => s.room);
   const netMySeat = useNetStore((s) => s.mySeat);
+  const netPresent = useNetStore((s) => s.presentClientIds);
   const leaveRoom = useNetStore((s) => s.leaveRoom);
+  const autoRejoin = useNetStore((s) => s.autoRejoin);
   const isOnline = netMode !== 'offline';
+  // 호스트 연결 끊김 (게스트 시점) — 재접속/승계 대기 안내
+  const hostAbsent =
+    isOnline &&
+    netMode === 'guest' &&
+    Boolean(netRoom?.hostClientId) &&
+    !netPresent.includes(netRoom?.hostClientId as string);
+
+  // 같은 탭 새로고침(F5) 후 마지막 방으로 자동 재입장 (Phase 2 재접속)
+  useEffect(() => {
+    void autoRejoin();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const myPlayerId = isOnline && netMySeat !== null ? activePlayers[netMySeat] ?? null : null;
   // 지금 행동해야 하는 플레이어 — 경매 입찰 차례 포함 currentPlayer가 단일 진실
   // (auction.currentBidder는 갱신 안 되는 레거시 필드 — AuctionPanel.tsx:39 주석 참조)
@@ -689,6 +703,13 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       {/* 메인 콘텐츠 */}
       <main className={`${isLandscape ? 'pt-12 pb-2 px-2 h-[calc(100vh-3.5rem)] overflow-y-auto' : 'pt-20 pb-8 px-4 md:pb-8 pb-[30vh]'}`}>
         <div className={`mx-auto ${isLandscape ? '' : 'max-w-[1800px]'}`}>
+          {/* 온라인: 호스트 연결 끊김 안내 (재접속 대기 → 6초 후 자동 승계) */}
+          {hostAbsent && (
+            <div className="mb-3 px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-sm text-red-500 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              호스트 연결이 끊겼습니다 — 재접속을 기다리는 중 (잠시 후 자동 승계)
+            </div>
+          )}
           {/* 온라인: 차례 안내 배너 */}
           {isOnline && !isMyTurn && actingPlayerState && (
             <div className="mb-3 px-4 py-2 rounded-lg bg-background-tertiary border border-foreground/10 text-sm text-foreground-secondary flex items-center gap-2">

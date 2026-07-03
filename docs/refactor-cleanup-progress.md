@@ -99,7 +99,14 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
     startProduction·selectProductionSlot·confirmProduction·cancelProduction) — goodsDisplay 조작 위주
   - nextPhase의 goodsGrowth 진입 로직(생산 선택자 currentPlayer 설정 등)은 gameStore에 잔류
   - 검증: tsc 0 에러 + 전체 vitest 24파일 207개 통과(1 skipped) + 7개 맵 dev 200
-- 로드맵 5순위(Phase IV/V/nextPhase)는 계획대로 보류 — 가장 위험, 필요할 때만
+- [x] 3e (로드맵 5순위 일부, 사용자 지시로 착수): Phase IV 건설 slice 분리 — gameStore **2,770 → 2,068줄**
+  - `src/store/slices/buildSlice.ts` (734줄): canBuildTrack·buildTrack·applyTranscontinental·
+    dismissTranscontinental·복합(can/build)·마을 가닥(can/build)·buildDirectLink·redirectTrack 10개 액션
+    + TOWN_SPUR_COST 상수 (build 전용이라 함께 이동)
+  - placeNewCity는 undo/디스플레이 보충과 얽혀 잔류. gameStore 고아 임포트 13개 정리
+  - 기계 검증: origin/main 대비 **9/9 IDENTICAL** (누적 55/55)
+  - 검증: tsc 0 에러 + 전체 vitest 24파일 207개 통과 + 7개 맵 dev 200
+- 로드맵 5순위 잔여(Phase V 이동/정산/nextPhase) 중 이동·정산은 3f/3g로 진행, nextPhase는 오케스트레이션 허브로 잔류 예정
 
 ### 스텝 3 로드맵 (원문)
 

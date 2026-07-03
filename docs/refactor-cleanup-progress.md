@@ -27,10 +27,15 @@ gameStore slice 분리는 위험 대비 이득이 낮아 **이번 범위에서 �
   - `fullSimulation.test.ts` 2건: `phaseState.moveGoodsRound: number` vs `1 | 2`
   - `buildLimitByLog.test.ts` 3건: 존재하지 않는 `isAIThinking` 프로퍼티 참조, MapIterator 순회(target 이슈)
   - 검증: `npx tsc --noEmit` + `npx vitest run` 전체 통과 (테스트 동작 불변 — 타입만 고침)
-- [ ] 스텝 2: GameBoard.tsx 서브 컴포넌트 분리
+- [ ] 스텝 2: GameBoard.tsx 서브 컴포넌트 분리 (서브 스텝별 커밋)
   - 원칙: **순수 렌더 분리만** — 게임 로직/store 액션/시뮬레이션 무영향. props로 내려서 분리
-  - 후보 레이어: 헥스 타일 배경, 트랙(+마을 가닥), 도시/마을(라벨·큐브·직결 링크), 오버레이(경로 하이라이트·이동 큐브·좌표)
-  - 검증: `npx vitest run` + `npm run build` + dev 시각 확인 (기능 불변)
+  - [x] 2a: 순수 기하/스타일 헬퍼 → `board/boardGeometry.ts` (SQRT3_2·shadeColor·nameBandPoints·numberBoxPath·큐브 스펙 3종·hexVertex)
+  - [ ] 2b: 트랙 레이어 → `board/BoardTracks.tsx` (트랙 타일·소유 마커·완성 링크 마커·끊김 경고)
+  - [ ] 2c: 마을 레이어 → `board/BoardTowns.tsx` (마을 디스크·가닥·큐브·도시화 하이라이트)
+  - [ ] 2d: 도시 레이어 → `board/BoardCities.tsx` (도시 헥스·라벨·큐브·직결 링크)
+  - [ ] 2e: 오버레이 → `board/BoardOverlays.tsx` (미리보기·이동 경로·이동 큐브·외곽선·범례·좌표)
+  - 검증(각 서브 스텝): `npx tsc --noEmit` + dev 페이지 200 확인, 스텝 2 종료 시 `npx vitest run` 전체
+    (⚠️ dev 서버 실행 중이라 `npm run build` 금지 — 머지 전 dev 중단 후 1회 빌드 검증)
 - [ ] 스텝 3: gameStore slice 분리 로드맵 문서화 (실행은 추후 — 해당 영역을 수정할 일이 생길 때 점진)
 
 ## 스텝별 결과 기록

@@ -61,8 +61,10 @@
       그 외 흐름은 전부 CubeColor로 넓혀졌고 tsc strict가 역방향 누출을 구조적으로 차단.
       CUBE_COLORS 소비처 14곳은 white 키 추가로 undefined 조회 없음. NewCityTile.color는
       CityColor 타입이라 white 신도시 원천 불가. 100시드 불변식(주머니/디스플레이 white 0) 실증 완료.
-- [ ] **스텝 3 — 맵 데이터** (southernUsMap.ts): 좌표 중복/범위, LAND-지형 일관성, columnMapping
-      diceNumber 합계(52슬롯), 인접 패리티(전치 odd-r)
+- [x] **스텝 3 — 맵 데이터** ✅ 통과 (2026-07-03, 스크립트 검증):
+      좌표 중복/범위 0건, 마을 전부 plain 타일·도시 헥스 타일 없음, 디스플레이 52슬롯 정확,
+      주사위 1~6 각 2도시, 항구 4곳 실존, 인접 패리티 스팟체크(Atlanta–산/Knoxville–산/
+      Savannah–강/Mobile–강) 통과, createSouthernUsBoardState의 cottonPorts 4개 주입 확인.
 - [ ] **스텝 4 — Western 주머니 반환 + placeNewCity 순서**: updatedGoodsDisplay 병합 순서(면화 이동
       vs 한국 디스플레이 보충 vs 반환), undo 스냅샷 복원 정합
 - [ ] **스텝 5 — AI 계층**: vp/moveGoods 보너스 가산 위치, townCubes 기회 생성이 남부에서 의도대로,

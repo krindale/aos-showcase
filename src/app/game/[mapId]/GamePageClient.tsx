@@ -106,7 +106,6 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     currentTurn,
     currentPhase,
     currentPlayer,
-    auction,
     players,
     activePlayers,
     maxTurns,
@@ -124,9 +123,9 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   const leaveRoom = useNetStore((s) => s.leaveRoom);
   const isOnline = netMode !== 'offline';
   const myPlayerId = isOnline && netMySeat !== null ? activePlayers[netMySeat] ?? null : null;
-  // 지금 행동해야 하는 플레이어 (경매 중엔 현재 입찰자)
-  const actingPlayer =
-    (currentPhase === 'determinePlayerOrder' && auction ? auction.currentBidder : null) ?? currentPlayer;
+  // 지금 행동해야 하는 플레이어 — 경매 입찰 차례 포함 currentPlayer가 단일 진실
+  // (auction.currentBidder는 갱신 안 되는 레거시 필드 — AuctionPanel.tsx:39 주석 참조)
+  const actingPlayer = currentPlayer;
   const actingPlayerState = players[actingPlayer] ?? null;
   const isMyTurn = !isOnline || actingPlayer === myPlayerId;
   // 상호작용 허용: 오프라인 전부 / 온라인은 내 차례 / 정산·물품성장 진행은 호스트가 담당

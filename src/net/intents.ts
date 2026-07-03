@@ -80,6 +80,9 @@ export type SendIntent = (type: string, payload: GameIntentPayload) => void;
 
 let patchedOriginals: Record<string, unknown> | null = null;
 
+/** 프록시 함수 식별 마커 — HMR로 모듈 인스턴스가 갈려도 프록시 위에 프록시가 안 씌워지게 */
+const PROXY_FLAG = '__aosIntentProxy';
+
 /** 게스트 가드 설치: 커밋 액션을 intent 프록시로 교체 */
 export function installGuestGuard(send: SendIntent): void {
   if (patchedOriginals) return;
@@ -90,6 +93,10 @@ export function installGuestGuard(send: SendIntent): void {
   for (const [name, spec] of Object.entries(INTENT_SPECS)) {
     const original = state[name];
     if (typeof original !== 'function') continue;
+    if ((original as unknown as Record<string, unknown>)[PROXY_FLAG]) {
+      console.warn(`[net] 가드 중복 설치 감지 — ${name}은 이미 프록시 (건너뜀)`);
+      continue;
+    }
     originals[name] = original;
     patch[name] = (...args: unknown[]) => {
       if (spec.guestNoop) return true;
@@ -103,6 +110,7 @@ export function installGuestGuard(send: SendIntent): void {
       // true를 돌려줘야 UI 플로우(빌드 모드 초기화 등)가 정상 진행된다.
       return true;
     };
+    (patch[name] as unknown as Record<string, unknown>)[PROXY_FLAG] = true;
   }
 
   patchedOriginals = originals;
@@ -120,9 +128,13 @@ export function isGuestGuardInstalled(): boolean {
   return patchedOriginals !== null;
 }
 
-const BID_ACTIONS = new Set(['placeBid', 'passBid', 'skipBid']);
-/** 차례 검증을 건너뛰는 액션 (자체 검증이 있거나 차례 개념이 다름) */
-const TURN_CHECK_EXEMPT = new Set(['respondTurnOrderOffer', 'resolveAuction']);
+/**
+ * 차례 검증을 건너뛰는 액션 (자체 검증이 있거나 차례 개념이 다름).
+ * 경매 입찰(placeBid/passBid/skipBid)도 currentPlayer 검증을 그대로 쓴다 —
+ * 입찰 차례는 store의 currentPlayer가 관리하고 auction.currentBidder는 갱신되지 않는
+ * 레거시 필드다 (AuctionPanel.tsx:39 주석 참조. 실측: 이 필드로 검증하면 정상 입찰이 거부됨).
+ */
+const TURN_CHECK_EXEMPT = new Set(['respondTurnOrderOffer']);
 
 /**
  * 호스트: 게스트 intent 검증 + 기존 store 액션 재실행.
@@ -147,12 +159,8 @@ export function applyGameIntent(msg: IntentMessage): { ok: boolean; reason?: str
     args[spec.playerIdArg] = seatPlayer; // 좌석 주인 강제 — 남 대신 행동 불가
   }
 
-  // 차례 검증
-  if (BID_ACTIONS.has(msg.type)) {
-    if (store.auction?.currentBidder !== seatPlayer) {
-      return { ok: false, reason: `입찰 차례 아님 (${seatPlayer})` };
-    }
-  } else if (!TURN_CHECK_EXEMPT.has(msg.type) && store.currentPlayer !== seatPlayer) {
+  // 차례 검증 (경매 입찰 차례 포함 — currentPlayer가 단일 진실)
+  if (!TURN_CHECK_EXEMPT.has(msg.type) && store.currentPlayer !== seatPlayer) {
     return { ok: false, reason: `차례 아님 (${seatPlayer} ≠ ${store.currentPlayer})` };
   }
 

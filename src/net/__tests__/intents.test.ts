@@ -14,8 +14,9 @@ function otherSeat(): number {
   return currentSeat() === 0 ? 1 : 0;
 }
 
+let intentSeq = 0;
 function intent(seat: number, type: string, payload: GameIntentPayload = {}): IntentMessage {
-  return { clientId: 'test-client', seat, type, payload };
+  return { id: `test-intent-${intentSeq++}`, clientId: 'test-client', seat, type, payload };
 }
 
 describe('게스트 가드', () => {

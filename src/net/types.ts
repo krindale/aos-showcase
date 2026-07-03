@@ -31,6 +31,8 @@ export interface RoomInfo {
 
 /** 게스트 → 호스트: "하고 싶은 행동" 요청. type/payload는 Phase 1에서 store 액션 기반 union으로 구체화 */
 export interface IntentMessage {
+  /** 멱등성 키 — 채널 재조인 시 push 재전송 등으로 같은 intent가 중복 도착해도 1회만 실행 */
+  id: string;
   clientId: string;
   seat: number;
   type: string;
@@ -65,7 +67,8 @@ export interface RoomEvents {
 export interface RoomConnection {
   readonly room: RoomInfo;
   readonly clientId: string;
-  sendIntent(intent: Omit<IntentMessage, 'clientId'>): Promise<void>;
+  /** id·clientId는 transport가 채운다 (id = 멱등성 키) */
+  sendIntent(intent: Omit<IntentMessage, 'clientId' | 'id'>): Promise<void>;
   broadcastSnapshot(snapshot: SnapshotMessage): Promise<void>;
   /** 호스트 전용: 방 메타(좌석/상태) 변경을 전원에게 통지 — 보통 updateRoom 직후 호출 */
   broadcastRoom(): Promise<void>;

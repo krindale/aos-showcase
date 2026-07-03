@@ -37,13 +37,17 @@ function generateRoomCode(): string {
 
 const CLIENT_ID_KEY = 'aos-net-client-id';
 
-/** 브라우저별 고정 ID — 재접속 시 같은 사람으로 식별 (Phase 2 전제) */
+/**
+ * 탭별 고정 ID — sessionStorage라 같은 탭 새로고침(F5)에는 유지되어 좌석 자동 복원,
+ * 같은 브라우저의 다른 탭은 다른 사람으로 식별(한 PC 두 탭 테스트/플레이 가능).
+ * 탭을 닫았다 새로 연 재접속은 좌석 이어받기(Phase 2, 끊긴 좌석 재배정)로 처리.
+ */
 export function getClientId(): string {
   if (typeof window === 'undefined') return 'ssr';
-  let id = window.localStorage.getItem(CLIENT_ID_KEY);
+  let id = window.sessionStorage.getItem(CLIENT_ID_KEY);
   if (!id) {
     id = crypto.randomUUID();
-    window.localStorage.setItem(CLIENT_ID_KEY, id);
+    window.sessionStorage.setItem(CLIENT_ID_KEY, id);
   }
   return id;
 }
@@ -195,8 +199,10 @@ class SupabaseRoomConnection implements RoomConnection {
     return this._room;
   }
 
-  async sendIntent(intent: Omit<IntentMessage, 'clientId'>): Promise<void> {
-    await this.broadcast('intent', { ...intent, clientId: this.clientId });
+  async sendIntent(intent: Omit<IntentMessage, 'clientId' | 'id'>): Promise<void> {
+    const msg: IntentMessage = { ...intent, id: crypto.randomUUID(), clientId: this.clientId };
+    console.log(`[net] intent 전송: ${msg.type} (seat ${msg.seat}, ${msg.id.slice(0, 8)})`);
+    await this.broadcast('intent', msg);
   }
 
   async broadcastSnapshot(snapshot: SnapshotMessage): Promise<void> {

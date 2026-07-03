@@ -162,19 +162,31 @@ export const useNetStore = create<NetStore>()((set, get) => {
     set({ room: conn.room, mySeat: seatOf(conn.room, conn.clientId) });
   };
 
+  // 처리한 intent id 캐시 — 채널 재조인 시 push 재전송 등 중복 도착을 1회만 실행 (멱등성)
+  const seenIntentIds: string[] = [];
+  const isDuplicateIntent = (id: string | undefined): boolean => {
+    if (!id) return false; // 구버전 메시지 — 통과
+    if (seenIntentIds.includes(id)) return true;
+    seenIntentIds.push(id);
+    if (seenIntentIds.length > 300) seenIntentIds.splice(0, 100);
+    return false;
+  };
+
   // ---- 공통 이벤트 배선 ----
   const makeEvents = (): RoomEvents => ({
     onIntent: (msg) => {
       if (get().mode !== 'host') return;
+      if (isDuplicateIntent(msg.id)) {
+        console.warn(`[net] 중복 인텐트 무시: ${msg.type} (${msg.id?.slice(0, 8)})`);
+        return;
+      }
       if (msg.type === 'claimSeat') {
         void handleClaimSeat(msg);
         return;
       }
       if (get().room?.status !== 'playing') return; // 게임 전 게임 인텐트 무시
       const result = applyGameIntent(msg);
-      if (!result.ok) {
-        console.warn(`[net] 인텐트 거부: ${msg.type} — ${result.reason}`);
-      }
+      console.log(`[net] 인텐트 ${result.ok ? '적용' : '거부'}: ${msg.type} (seat ${msg.seat})${result.ok ? '' : ` — ${result.reason}`}`);
     },
     onSnapshot: (msg) => {
       if (get().mode !== 'guest') return;

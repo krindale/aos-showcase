@@ -65,8 +65,12 @@
       좌표 중복/범위 0건, 마을 전부 plain 타일·도시 헥스 타일 없음, 디스플레이 52슬롯 정확,
       주사위 1~6 각 2도시, 항구 4곳 실존, 인접 패리티 스팟체크(Atlanta–산/Knoxville–산/
       Savannah–강/Mobile–강) 통과, createSouthernUsBoardState의 cottonPorts 4개 주입 확인.
-- [ ] **스텝 4 — Western 주머니 반환 + placeNewCity 순서**: updatedGoodsDisplay 병합 순서(면화 이동
-      vs 한국 디스플레이 보충 vs 반환), undo 스냅샷 복원 정합
+- [x] **스텝 4 — Western 주머니 반환 + placeNewCity 순서** ✅ 통과 (2026-07-03):
+      한국 디스플레이 보충이 state.goodsDisplay가 아닌 체인된 updatedGoodsDisplay에서 읽도록
+      수정돼 있어(diff 확인) 주머니 반환과 병합 충돌 없음. captureUndo가 모든 변이 전 호출 +
+      UndoSnapshot.goodsDisplay(structuredClone) 존재 → 취소 시 주머니/마을 큐브 복원 정합.
+      한국(마을 큐브 0)·St.Lucia(hexCube)·튜토리얼·Rust·Germany는 no-op으로 무영향.
+      발견 F3(경미): urbanizationMovesTownCubes를 if/!if로 2회 조회 — 스텝 7에서 if/else+호이스트.
 - [ ] **스텝 5 — AI 계층**: vp/moveGoods 보너스 가산 위치, townCubes 기회 생성이 남부에서 의도대로,
       성능(cityAcceptsCube 호출 빈도) 문제 없는지
 - [ ] **스텝 6 — UI**: GameBoard 항구 테두리/큐브 크기 변경이 다른 맵 렌더에 부작용 없는지,
@@ -80,6 +84,8 @@
   (applyIncomeReduction 루프 내, placeNewCity 4회, completeCubeMove 2회) → 함수 앞에서 1회 캐시.
 - F2 (단순화/경미): GameBoard 면화 큐브 스타일(14.4px/굵은 테두리)이 마을/도시/이동 큐브 3곳에
   중복 → 공용 헬퍼(cubeRenderSize/cubeStroke)로 추출.
+- F3 (단순화/경미): placeNewCity의 urbanizationMovesTownCubes 반대 조건 if 2개 → profile 호이스트
+  + if/else 통합 (F1과 같은 커밋에서 처리).
 
 ### 후보 접수(검증 전 — 해당 스텝에서 판정)
 - 병렬 파인더(단순화/효율/재사용 3개 앵글) 결과 접수. 나머지 5개 앵글 에이전트는 사용자 지시
@@ -88,4 +94,4 @@
   이 PR 범위 밖(전 파일 동일 패턴). 별도 리팩토링 과제로 보류.
 - (효율) cottonPorts string[] → Set 제안 — 4원소 includes라 실측 비용 무의미, 기각.
 - (단순화) MapProfile `void param` 패턴 — 기존 파일 관례와 동일, 기각.
-- (단순화) placeNewCity 반대 조건 2개(if/if) → if-else 통합 검토(스텝 4에서 판정).
+- (단순화) placeNewCity 반대 조건 2개(if/if) → F3으로 확정 (스텝 4).

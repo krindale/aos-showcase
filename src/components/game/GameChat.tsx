@@ -40,7 +40,8 @@ export default function GameChat() {
   };
 
   return (
-    <div className="fixed bottom-4 left-4 z-40">
+    // 좌하단에서 30px 안쪽(우측)으로 — 가장자리에 붙으면 눈에 안 띔 (사용자 피드백)
+    <div className="fixed bottom-4 left-[46px] z-40">
       <AnimatePresence>
         {open && (
           <motion.div

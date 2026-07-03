@@ -554,72 +554,15 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     !fitOverlay && hudPlayer && (hudPlayer.isAI || (myPlayerId !== null && currentPlayer !== myPlayerId));
 
   return (
-    <>
-    {/* 스크롤 추적 HUD — h-0이라 레이아웃 무영향, 보드 위에 떠 있음 */}
-    {!fitOverlay && (
-      <div className="sticky top-[70px] z-30 h-0 px-2 pointer-events-none">
-        <div className="flex items-start justify-between gap-2">
-          {showTurnHud ? (
-            <div
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-background-secondary/95 border shadow-lg backdrop-blur-sm"
-              style={{ borderColor: `${PLAYER_COLORS[hudPlayer.color]}99` }}
-            >
-              <span
-                className="w-2.5 h-2.5 rounded-full animate-pulse"
-                style={{ backgroundColor: PLAYER_COLORS[hudPlayer.color] }}
-              />
-              <span className="text-xs font-semibold text-foreground whitespace-nowrap">
-                {hudPlayer.name} 플레이 중{hudPlayer.isAI ? ' (AI)' : ''}…
-              </span>
-            </div>
-          ) : (
-            <div />
-          )}
-          <div className="pointer-events-auto flex gap-1.5">
-            <motion.button
-              onClick={zoomIn}
-              className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
-              aria-label="확대"
-              title="확대"
-              whileTap={{ scale: 0.95 }}
-              transition={{ duration: 0.1 }}
-              style={{ WebkitTapHighlightColor: 'transparent' }}
-            >
-              <ZoomIn className="w-4 h-4 text-accent" />
-            </motion.button>
-            <motion.button
-              onClick={zoomOut}
-              className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
-              aria-label="축소"
-              title="축소"
-              whileTap={{ scale: 0.95 }}
-              transition={{ duration: 0.1 }}
-              style={{ WebkitTapHighlightColor: 'transparent' }}
-            >
-              <ZoomOut className="w-4 h-4 text-accent" />
-            </motion.button>
-            <motion.button
-              onClick={resetZoom}
-              className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
-              aria-label="원래 크기"
-              title="원래 크기"
-              whileTap={{ scale: 0.95 }}
-              transition={{ duration: 0.1 }}
-              style={{ WebkitTapHighlightColor: 'transparent' }}
-            >
-              <Maximize2 className="w-4 h-4 text-accent" />
-            </motion.button>
-          </div>
-        </div>
-      </div>
-    )}
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.3, ease: 'easeOut' }}
+      // overflow-hidden 금지: 줌 HUD가 sticky로 SVG 영역 안에서만 스크롤을 따라다니려면
+      // 클리핑 조상이 없어야 한다 (모서리 라운딩은 헤더/범례에 rounded-t/b로 개별 적용)
       className={fitOverlay
         ? 'w-full'
-        : 'rounded-xl overflow-hidden border border-foreground/10 mx-auto'}
+        : 'rounded-xl border border-foreground/10 mx-auto'}
       style={{
         backgroundColor: mapData.colors.background,
         contain: 'layout style paint', // Performance optimization
@@ -632,7 +575,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     >
       {/* 보드 헤더 (오버레이 모드에선 숨김) */}
       {!fitOverlay && (
-      <div className="px-4 py-3 bg-background-secondary/50 border-b border-foreground/10">
+      <div className="px-4 py-3 bg-background-secondary/50 border-b border-foreground/10 rounded-t-xl">
         <div className="flex items-center justify-between">
           <span className="text-sm text-foreground-secondary">
             {currentPhase === 'buildTrack' && ui.urbanizationMode && '파란색 테두리의 마을을 클릭하여 신규 도시를 배치하세요'}
@@ -661,7 +604,69 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
       </div>
       )}
 
-      {/* SVG 보드 */}
+      {/* SVG 보드 + 보드 위 호버링 HUD (SVG 영역에만 한정) */}
+      <div className={fitOverlay ? undefined : 'relative'}>
+      {!fitOverlay && (
+        <div className="absolute inset-0 z-20 pointer-events-none">
+          {/* 줌 컨트롤: SVG 영역 안에서만 스크롤을 따라다님 (헤더/페이지 침범 없음) */}
+          <div className="sticky top-[70px] flex justify-end px-3 pt-3">
+            <div className="pointer-events-auto flex gap-1.5">
+              <motion.button
+                onClick={zoomIn}
+                className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
+                aria-label="확대"
+                title="확대"
+                whileTap={{ scale: 0.95 }}
+                transition={{ duration: 0.1 }}
+                style={{ WebkitTapHighlightColor: 'transparent' }}
+              >
+                <ZoomIn className="w-4 h-4 text-accent" />
+              </motion.button>
+              <motion.button
+                onClick={zoomOut}
+                className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
+                aria-label="축소"
+                title="축소"
+                whileTap={{ scale: 0.95 }}
+                transition={{ duration: 0.1 }}
+                style={{ WebkitTapHighlightColor: 'transparent' }}
+              >
+                <ZoomOut className="w-4 h-4 text-accent" />
+              </motion.button>
+              <motion.button
+                onClick={resetZoom}
+                className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
+                aria-label="원래 크기"
+                title="원래 크기"
+                whileTap={{ scale: 0.95 }}
+                transition={{ duration: 0.1 }}
+                style={{ WebkitTapHighlightColor: 'transparent' }}
+              >
+                <Maximize2 className="w-4 h-4 text-accent" />
+              </motion.button>
+            </div>
+          </div>
+          {/* 다른 사람/AI 차례 표시 — 보드 중앙, 화면 위에서 100px 지점에 호버링(스크롤 추적).
+              SVG 영역(absolute 레이어) 안에서만 따라다닌다 */}
+          {showTurnHud && hudPlayer && (
+            <div className="sticky top-[100px] z-20 h-0 flex justify-center pointer-events-none">
+              <div
+                className="flex items-center gap-2.5 px-4 py-2 rounded-full bg-background-secondary/95 border-2 shadow-xl backdrop-blur-sm self-start"
+                style={{ borderColor: `${PLAYER_COLORS[hudPlayer.color]}B3` }}
+              >
+                <span
+                  className="w-3 h-3 rounded-full animate-pulse"
+                  style={{ backgroundColor: PLAYER_COLORS[hudPlayer.color] }}
+                />
+                {/* 텍스트 크기 = 기존(text-xs 12px)의 1.3배 */}
+                <span className="text-[15.6px] font-semibold text-foreground whitespace-nowrap">
+                  {hudPlayer.name} 플레이 중{hudPlayer.isAI ? ' (AI)' : ''}…
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       <svg
         width="100%"
         height={fitOverlay ? undefined : undefined}
@@ -952,12 +957,10 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           );
         })()}
       </svg>
-
-
-      {/* (줌 컨트롤은 스크롤 추적 HUD로 이동 — return 상단 fragment 참조) */}
+      </div>
 
       {/* 범례 */}
-      <div className="flex flex-wrap justify-center items-center gap-x-8 gap-y-2 py-4 px-6 bg-background-secondary/50 border-t border-foreground/10">
+      <div className="flex flex-wrap justify-center items-center gap-x-8 gap-y-2 py-4 px-6 bg-background-secondary/50 border-t border-foreground/10 rounded-b-xl">
         <div className="flex items-center gap-2">
           <div
             className="w-5 h-5 rounded"
@@ -986,6 +989,5 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
         </div>
       </div>
     </motion.div>
-    </>
   );
 }

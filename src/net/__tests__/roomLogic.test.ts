@@ -1,6 +1,6 @@
 // 좌석 배정/호스트 승계 순수 규칙 테스트 (Phase 2)
 import { describe, it, expect } from 'vitest';
-import { assignSeatForClaim, isHostAbsent, pickHostSuccessor } from '../roomLogic';
+import { assignSeatForClaim, isHostAbsent, pickHostSuccessor, uniqueSeatName } from '../roomLogic';
 import type { RoomSeat } from '../types';
 
 const seats = (over: Partial<RoomSeat>[]): RoomSeat[] =>
@@ -22,6 +22,21 @@ describe('assignSeatForClaim', () => {
   it('대기실 만석이면 null (관전)', () => {
     const s = seats([{ clientId: 'host' }, { clientId: 'g1' }]);
     expect(assignSeatForClaim(s, 'waiting', ['host', 'g1'], 'g2', '늦은사람')).toBeNull();
+  });
+
+  it('대기실: 디폴트 이름 중복이면 좌석 순서대로 기차-둘/셋… 자동 부여', () => {
+    const s = seats([{ clientId: 'host', name: '기차-하나' }, {}, {}]);
+    const r1 = assignSeatForClaim(s, 'waiting', ['host'], 'g1', '기차-하나');
+    expect(r1?.[1].name).toBe('기차-둘');
+    const r2 = assignSeatForClaim(r1!, 'waiting', ['host', 'g1'], 'g2', '기차-하나');
+    expect(r2?.[2].name).toBe('기차-셋');
+  });
+
+  it('uniqueSeatName: 안 겹치는 이름은 그대로, 겹치면 좌석 기본 이름', () => {
+    const s = seats([{ name: '기차-하나' }, { name: '철도왕' }]);
+    expect(uniqueSeatName('나만의이름', s, 2)).toBe('나만의이름');
+    expect(uniqueSeatName('철도왕', s, 2)).toBe('기차-셋');
+    expect(uniqueSeatName('', s, 2)).toBe('기차-셋');
   });
 
   it('대기실: 나갔다 안 돌아온(오프라인) 좌석은 새 게스트에게 재배정', () => {

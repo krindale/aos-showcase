@@ -4,6 +4,28 @@
  */
 import type { RoomSeat } from './types';
 
+const KOREAN_ORDINALS = ['하나', '둘', '셋', '넷', '다섯', '여섯'];
+
+/**
+ * 좌석 이름 중복 방지 — 다들 디폴트 이름(기차-하나)으로 들어와도
+ * 좌석 순서대로 기차-하나/기차-둘/기차-셋…이 되게 한다.
+ * 원하는 이름이 다른 좌석과 안 겹치면 그대로 사용.
+ */
+export function uniqueSeatName(
+  desired: string | undefined,
+  seats: RoomSeat[],
+  seat: number
+): string {
+  const others = seats.filter((s) => s.seat !== seat).map((s) => s.name);
+  const trimmed = desired?.trim();
+  if (trimmed && !others.includes(trimmed)) return trimmed;
+  const base = `기차-${KOREAN_ORDINALS[seat] ?? seat + 1}`;
+  let name = base;
+  let i = 2;
+  while (others.includes(name)) name = `${base}${i++}`;
+  return name;
+}
+
 /**
  * claimSeat 좌석 배정 규칙.
  * ① 이미 내 좌석이 있으면 그대로 (같은 탭 새로고침 — sessionStorage clientId 유지)
@@ -29,10 +51,9 @@ export function assignSeatForClaim(
         (s) => s.kind === 'human' && s.clientId && !presentClientIds.includes(s.clientId)
       );
     if (!open) return null;
+    const name = uniqueSeatName(claimName, seats, open.seat);
     return seats.map((s) =>
-      s.seat === open.seat
-        ? { ...s, clientId: claimClientId, name: claimName?.trim() || s.name }
-        : s
+      s.seat === open.seat ? { ...s, clientId: claimClientId, name } : s
     );
   }
 

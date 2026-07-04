@@ -37,7 +37,7 @@ import GoodsGrowthPanel from './GoodsGrowthPanel';
 import { useNetStore } from '@/net/netStore';
 import { safeTimeout } from '@/utils/safeTimers';
 
-const PHASE_ICONS: Record<GamePhase, React.ReactNode> = {
+export const PHASE_ICONS: Record<GamePhase, React.ReactNode> = {
   issueShares: <FileText size={18} />,
   determinePlayerOrder: <Users size={18} />,
   selectActions: <Zap size={18} />,
@@ -51,7 +51,7 @@ const PHASE_ICONS: Record<GamePhase, React.ReactNode> = {
   gameOver: <Sparkles size={18} />,
 };
 
-const ACTIONS: SpecialAction[] = [
+export const ACTIONS: SpecialAction[] = [
   'firstMove',
   'firstBuild',
   'engineer',

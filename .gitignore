@@ -46,4 +46,5 @@ playwright-report
 .claude_settings.json
 .worktrees/
 .security-key
-logs/security/
+# 개발 런타임 로그 (:3999 log-server의 game-mirror.log, security-review 로그 등)
+logs/

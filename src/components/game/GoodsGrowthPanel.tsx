@@ -40,6 +40,10 @@ export default function GoodsGrowthPanel() {
   const productionPlayer = Object.values(players).find(
     (p) => p.selectedAction === 'production'
   );
+  // 사람 생산 홀더가 아직 배치를 안 했으면 주사위/진행을 잠근다 (룰북: 생산 → 주사위).
+  // 배치 불가(빈칸/주머니 없음) 홀더는 goodsGrowth 진입 시 productionUsed 자동 완료라 여기 안 걸림.
+  const productionPending =
+    !!productionPlayer && !productionPlayer.isAI && !phaseState.productionUsed;
 
   // 주사위 수 (플레이어 수) - 탈락하지 않은 활성 플레이어 수
   const activePlayers = Object.values(players).filter(p => !p.eliminated);
@@ -175,12 +179,14 @@ export default function GoodsGrowthPanel() {
             </span>
           </div>
           <p className="text-xs text-purple-300 mt-1">
-            주머니에서 큐브 2개를 물품 디스플레이 빈 칸에 추가합니다.
+            {productionPending
+              ? `${productionPlayer?.name}님이 주머니 큐브를 빈 칸에 배치하는 중입니다. 배치가 끝나면 주사위를 굴릴 수 있어요.`
+              : '주머니에서 큐브 2개를 물품 디스플레이 빈 칸에 추가합니다.'}
           </p>
         </motion.div>
       )}
 
-      {/* 주사위 굴리기 */}
+      {/* 주사위 굴리기 (생산 대기 중이면 잠금 — 룰북: 생산 → 주사위) */}
       <div className="p-4 rounded-lg bg-background/50 border border-foreground/10">
         <div className="flex items-center gap-2 mb-4">
           <Sparkles size={18} className="text-accent" />
@@ -190,8 +196,13 @@ export default function GoodsGrowthPanel() {
         <DiceRoller
           diceCount={diceCount}
           onRoll={handleDiceRoll}
-          disabled={growthApplied}
+          disabled={growthApplied || productionPending}
         />
+        {productionPending && (
+          <p className="mt-2 text-center text-xs text-foreground-secondary">
+            ⏳ 생산 배치 완료를 기다리는 중…
+          </p>
+        )}
       </div>
 
       {/* 결과 미리보기 */}
@@ -298,8 +309,8 @@ export default function GoodsGrowthPanel() {
         </motion.div>
       )}
 
-      {/* 건너뛰기 */}
-      {!growthApplied && diceResults.length === 0 && (
+      {/* 건너뛰기 (생산 대기 중이면 숨김 — 생산을 건너뛰지 못하게) */}
+      {!growthApplied && diceResults.length === 0 && !productionPending && (
         <button
           onClick={handleNextPhase}
           className="w-full py-2 rounded-lg text-xs text-foreground-secondary hover:text-foreground hover:bg-background/30 transition-colors"

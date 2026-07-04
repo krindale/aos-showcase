@@ -26,6 +26,17 @@ export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
   return {
     growGoods: (diceResults) => {
       set((state) => {
+        // 방어: 배치 가능한 사람 생산 홀더가 아직 배치를 안 했으면 주사위 진행을 막는다(룰북: 생산→주사위).
+        // UI(GoodsGrowthPanel)가 이미 잠그지만, 어떤 경로로든 미완료 상태 주사위가 오면 no-op로 차단.
+        // (배치 불가한 홀더는 goodsGrowth 진입 시 productionUsed 자동 완료되므로 여기서 안 걸린다.)
+        const pendingHolder = Object.values(state.players).find(
+          p => p.selectedAction === 'production' && !p.isAI && !p.eliminated
+        );
+        if (pendingHolder && !state.phaseState.productionUsed) {
+          console.warn('[growGoods] 생산 미완료 — 주사위 차단 (홀더 물품 배치 대기)');
+          return state;
+        }
+
         // Production은 이제 수동으로 처리됨 (startProduction/confirmProduction)
         // 여기서는 주사위 결과에 따른 물품 성장만 처리
 
@@ -171,11 +182,14 @@ export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
         return;
       }
 
-      // 주머니에서 큐브 뽑기 (미리보기)
+      // 주머니에서 큐브 뽑기 (미리보기). 배치는 빈 칸에만 가능하므로 빈 칸 수도 상한 —
+      // 빈 칸이 1개인데 2개를 뽑으면 2번째를 놓을 곳이 없어 확정 불가(스턱)했다.
       const bag = [...state.goodsDisplay.bag];
       const cubes: CubeColor[] = [];
+      const emptyCount = state.goodsDisplay.slots.filter(s => s === null).length;
+      const drawCount = Math.min(GAME_CONSTANTS.PRODUCTION_CUBE_COUNT, emptyCount, bag.length);
 
-      for (let i = 0; i < GAME_CONSTANTS.PRODUCTION_CUBE_COUNT && bag.length > 0; i++) {
+      for (let i = 0; i < drawCount; i++) {
         const cube = bag.pop();
         if (cube) cubes.push(cube);
       }

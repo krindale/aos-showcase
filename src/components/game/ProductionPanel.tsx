@@ -2,6 +2,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
+import { useNetStore } from '@/net/netStore';
 import { CUBE_COLORS } from '@/types/game';
 import { Package, X, Check } from 'lucide-react';
 
@@ -11,6 +12,7 @@ export default function ProductionPanel() {
     currentPhase,
     players,
     currentPlayer,
+    activePlayers,
     phaseState,
     goodsDisplay,
     startProduction,
@@ -19,13 +21,21 @@ export default function ProductionPanel() {
     getEmptySlots,
   } = useGameStore();
 
+  // 온라인: 생산 배치는 홀더 본인 좌석에서만 (방장이 게스트 생산을 대신 조작하지 못하게).
+  // 오프라인은 currentPlayer가 곧 로컬 조작자라 항상 허용.
+  const netMode = useNetStore((s) => s.mode);
+  const netMySeat = useNetStore((s) => s.mySeat);
+  const myPlayerId =
+    netMode === 'offline' || netMySeat === null ? null : activePlayers[netMySeat] ?? null;
+  const isMyProduction = netMode === 'offline' || myPlayerId === currentPlayer;
+
   const player = players[currentPlayer];
 
   // Production 행동을 선택한 플레이어인지 확인
   const hasProduction = player.selectedAction === 'production';
 
-  // 물품 성장 단계가 아니거나 Production 행동이 없으면 렌더링하지 않음
-  if (currentPhase !== 'goodsGrowth' || !hasProduction || phaseState.productionUsed) {
+  // 물품 성장 단계가 아니거나 Production 행동이 없으면(또는 내 생산이 아니면) 렌더링하지 않음
+  if (currentPhase !== 'goodsGrowth' || !hasProduction || phaseState.productionUsed || !isMyProduction) {
     return null;
   }
 

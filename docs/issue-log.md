@@ -8,6 +8,72 @@
 
 ---
 
+## 2026-07-05 — 라이브 세션 UX 버그 묶음 (PR #23) + 배포 핫픽스 (PR #24)
+
+두 브라우저 온라인 세션에서 발견된 UX/버그들을 관심사별 커밋으로 수정. 동작 규칙은 CLAUDE.md
+("게스트 취소는 호스트 왕복 + 팬텀 방지", "정산 단계 HUD 억제", "물품성장 결과 게스트 동기화",
+"독일 미완성 링크 금지 UI 가드") 참조.
+
+### 게스트 취소(undo) 팬텀 — 눌러도 안 되돌아감
+
+- **증상**: 온라인 게스트가 건설 후 '취소'를 눌러도 되돌아가지 않음(버튼은 보이는데 무반응).
+- **원인**: `undoCount`는 persist/스냅샷으로 동기화되는 **상태**지만 실제 취소 스택 `undoSnapshots`는
+  호스트 메모리 모듈 싱글턴. 전체 재로드(F5·모바일 탭 복원 등)나 호스트 승계 시 스택은 비는데
+  `undoCount`는 복원돼, 호스트 `undoLastAction`이 `pop()→undefined`로 count만 0으로 만들고 안 되돌린다.
+  (store/net의 undo 경로 자체는 정상 — 진단 테스트로 확인.)
+- **수정**: persist `merge`·`promoteToHost`에 `undoCount:0` 리셋(reconnect-as-host는 이미 리셋 중).
+  게스트 취소 대기 피드백(`PhasePanel`: '취소 중…' → 스냅샷 반영 시 해제, 3.5초 미반영 시 '다시 취소').
+  진단 로그(게스트 전송 / 호스트 실행·팬텀 감지). 회귀 테스트 `net/__tests__/guestUndo.test.ts`.
+
+### 물품 성장 완료 문구가 큐브 개수를 적게 표시
+
+- **증상**: 한 열에서 여러 개 성장해도 완료 문구('물품 성장 완료!')에 1개만 표시(색상도 어긋남).
+- **원인**: 완료 문구가 `calculateGrowthResults()`를 매 렌더 실시간 계산 → 적용(`growGoods`)이 성장
+  큐브를 디스플레이 슬롯에서 빼므로 재계산 시 남은 큐브만 잡혀 개수가 줄었다.
+- **수정**: 적용 직전 결과를 `appliedResults` 스냅샷으로 잡아 완료 문구에 사용(미리보기와 동일).
+
+### 정산 단계에 방장 보드가 게스트 "플레이 중" 착시
+
+- **증상**: 수입 등 정산 단계인데 방장 보드에 "○○(게스트) 플레이 중" HUD가 계속 떠 서로 대기.
+- **원인**: 정산 단계는 방장이 '진행'으로 넘기게 바꿨는데(PR #22), 보드 HUD는 여전히
+  `currentPlayer`(=playerOrder[0], 게스트일 수 있음)를 "플레이 중"으로 표시해 방장이 오해.
+- **수정**: `GameBoard`가 사람 currentPlayer인 정산 단계(`HUD_SUPPRESSED_PHASES`)에선 HUD를 숨김
+  (봇이면 자동 진행 표시로 유지). 하드 교착은 아니었음 — 방장이 '진행' 누르면 진행.
+
+### 독일 미완성 철도가 물품이동 단계로 넘어가며 사라짐
+
+- **증상**: 독일에서 미완성 철도를 만든 뒤 다음 단계로 넘기니 미완성 철도가 삭제됨(나쁜 UX).
+- **원인(설계상 동작)**: 독일(`requireCompleteLinks`)은 완성 링크만 허용 — 단계 전환 시
+  `removeIncompleteNewTracks`가 이번 턴 미완성 신설 트랙을 삭제·환불한다. 사용자가 이를 모르고 넘어감.
+- **수정**: `boardRules`에 `hasIncompleteNewTracks` 헬퍼(제거 로직과 조건 공유). `PhasePanel`이 사람 차례
+  buildTrack에서 미완성 트랙이 있으면 '다음 단계로'를 비활성 + "완성하거나 취소" 경고. 이번 턴 트랙만
+  대상이라 undo로 해소 가능(교착 없음).
+
+### Berlin이 다른 검은 도시와 다르게 회색으로 렌더
+
+- **증상**: 독일 Berlin이 데이터상 `color:'black'`인데 회색으로 보임.
+- **원인**: `grayRenderCityId`(회색렌더 전용 config, bonusCityCubeId와 분리 — Atlanta 회색화 방지용)가
+  Berlin을 회색으로 렌더. `BoardCities`가 그 도시를 `DYNAMIC_CITY_GRAY`로 채우고 이름 띠도 회색.
+- **수정**: `BoardCities`의 회색 특수 처리를 제거해 Berlin도 `goodsColor`(검정)로 렌더 + 검은 도시 기본 띠.
+  Atlanta는 `grayRenderCityId`가 별개라 원래 안전(영향 없음). 보너스 큐브(`bonusCityCubeId`) 로직은 무변경
+  — Berlin 매 턴, Atlanta 1~4턴 큐브 추가 그대로.
+
+### 물품 성장 결과 게스트 표시 (기능 추가)
+
+- 방장이 굴린 주사위와 도시별 추가 큐브를 `GameState.goodsGrowthEvent`로 스냅샷 동기화 → 게스트도
+  `GoodsGrowthPanel`에서 동일하게 봄. `goodsGrowth` 진입 시 null 리셋.
+
+### 룰북 문서 통합 (문서)
+
+- `docs/game-rules.md`(룰북 전문)를 CLAUDE.md로 인라인, 원본 삭제(참조 정리). 헥스 기하는 분리 유지.
+
+### 배포 실패 핫픽스 (PR #24)
+
+- **증상**: PR #23 머지 후 GitHub Pages 배포가 `'bonusCityId' is defined but never used`
+  (@typescript-eslint/no-unused-vars, BoardCities)로 실패. `tsc`는 통과하지만 Next 빌드 ESLint가 막음.
+- **수정**: Berlin 렌더 수정으로 안 쓰이게 된 `bonusCityId` prop 제거(BoardCities 선언·구조분해 +
+  GameBoard useMemo·전달). 재배포 성공. (교훈: 미사용 변수는 tsc 통과해도 Next 빌드 ESLint에서 막힘.)
+
 ## 2026-07-04 — Turn Order 특수행동 무효 + 온라인 공통 버튼 조작 권한 (PR #22)
 
 ### Turn Order 특수행동이 표준 맵에서 사실상 무효

@@ -80,9 +80,7 @@ export default function BoardCities({
           ? TERMINAL_GREEN
           : dynamicCityColors
           ? DYNAMIC_CITY_GRAY
-          : city.id === bonusCityId // Berlin: 이름·숫자 없는 정상 회색 도시
-          ? DYNAMIC_CITY_GRAY
-          : goodsColor;
+          : goodsColor; // Berlin(보너스 도시)도 데이터 색(black) 그대로 — 다른 검은 도시와 동일
         const isSourceSelected = sourceHex && hexCoordsEqual(sourceHex, city.coord);
         const isCityClickable = currentPhase === 'buildTrack';
         const isReachableDestination = reachableDestinations.some(
@@ -189,8 +187,9 @@ export default function BoardCities({
               // 동적색(한국 회색 도시 #d2d6da)은 띠가 헥스보다 밝으면 끝이 묻혀 안 보이므로
               // 또렷이 어두운 회색으로 — Rust Belt(색 헥스+밝은 띠)와 같은 대비 확보.
               const lightHex = dynamicCityColors || city.color === 'yellow' || city.isTerminal;
-              // 회색 헥스(한국 동적색 도시 + Berlin 같은 보너스 회색 도시)는 또렷한 어두운 회색 띠로 대비 확보
-              const grayHex = dynamicCityColors || city.id === bonusCityId;
+              // 회색 헥스(한국 동적색 도시)는 또렷한 어두운 회색 띠로 대비 확보
+              // (Berlin은 이제 일반 검은 도시로 렌더하므로 회색 취급 제외 — 검은 도시 기본 띠 사용)
+              const grayHex = dynamicCityColors;
               const bandFill = grayHex ? '#b3b9c1' : lightHex ? '#dcdce0' : '#f3f3f3';
               const nameFs =
                 Math.min(HEX_SIZE * 0.2, (2 * (HEX_SIZE - 3) - 22) / Math.max(1, city.name.length * 0.62)) * 0.8;

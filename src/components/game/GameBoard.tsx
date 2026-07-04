@@ -58,9 +58,6 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   const currentTurn = useGameStore((state) => state.currentTurn);
   // 맵 데이터(그리드 크기/지형 색): mapRegistry에서 주입 — 튜토리얼 하드코딩 금지
   const mapData = useMemo(() => getMapData(mapId), [mapId]);
-  // 회색 헥스로 그리는 도시(Germany Berlin — 원본 시트 시각 표현). 보너스 규칙(bonusCityCubeId)과
-  // 별개 — 묶으면 Southern US Atlanta(빨강, 보너스만 공유)가 회색이 되는 버그 (실제 겪음)
-  const bonusCityId = useMemo(() => getMapProfile(mapId).grayRenderCityId, [mapId]);
   const mapProfile = useMemo(() => getMapProfile(mapId), [mapId]);
   const terrainColors = mapData.colors.terrain;
   // 산악 헥스: 바깥 밝은 갈색 테두리 + 안쪽 진한 갈색 (모든 맵 공통, 등고선 없음)
@@ -885,7 +882,6 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           players={players}
           currentPhase={currentPhase}
           isFlat={isFlat}
-          bonusCityId={bonusCityId}
           cityDiceNumber={cityDiceNumber}
           isCityNumberBoxBlack={(cityId, demandColor) => mapProfile.isCityNumberBoxBlack(cityId, demandColor)}
           sourceHex={ui.sourceHex}

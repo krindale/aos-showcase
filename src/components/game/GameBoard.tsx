@@ -553,9 +553,16 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   const myPlayerId =
     netMode === 'offline' || netMySeat === null ? null : activePlayersForHud[netMySeat] ?? null;
   const hudPlayer = players[currentPlayer];
+  // 정산 단계(수입·비용·수입감소·턴마커)는 방장이 '진행' 버튼으로 넘긴다 — 아무도 "플레이" 하지
+  // 않는데 currentPlayer(playerOrder[0]) 이름으로 "○○ 플레이 중" HUD가 뜨면 방장은 "남 차례네"로
+  // 오해해 진행을 안 하고, 게스트는 "방장 진행 중" 안내를 봐 서로 대기하는 착시가 생긴다.
+  // 사람 currentPlayer인 정산 단계에선 HUD를 숨긴다 (봇이면 자동 진행 표시로 유지).
+  const HUD_SUPPRESSED_PHASES = ['collectIncome', 'payExpenses', 'incomeReduction', 'advanceTurn'];
+  const isHumanSettlementHud = HUD_SUPPRESSED_PHASES.includes(currentPhase) && !hudPlayer?.isAI;
   // 다른 사람(온라인) 또는 AI 차례일 때만 표시
   const showTurnHud =
-    !fitOverlay && hudPlayer && (hudPlayer.isAI || (myPlayerId !== null && currentPlayer !== myPlayerId));
+    !fitOverlay && hudPlayer && !isHumanSettlementHud &&
+    (hudPlayer.isAI || (myPlayerId !== null && currentPlayer !== myPlayerId));
 
   return (
     <motion.div

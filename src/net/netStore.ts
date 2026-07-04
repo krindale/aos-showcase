@@ -29,6 +29,7 @@ import {
 import { assignSeatForClaim, isHostAbsent, pickHostSuccessor } from './roomLogic';
 import { useGameStore } from '@/store/gameStore';
 import { scheduleAICheck } from '@/store/helpers/aiScheduler';
+import { clearUndo } from '@/store/helpers/undo';
 import { safeInterval, safeTimeout } from '@/utils/safeTimers';
 
 export type NetMode = 'offline' | 'host' | 'guest';
@@ -489,6 +490,11 @@ export const useNetStore = create<NetStore>()((set, get) => {
     if (!isHostAbsent(room.hostClientId, presentClientIds)) return; // 호스트 복귀 — 승계 취소
     console.log('[net] 호스트 승계 실행 — 이 클라이언트가 게임 엔진을 이어받음');
     removeGuestGuard();
+    // 실행 취소 스택(undoSnapshots)은 옛 호스트 메모리에만 있었으므로 승계한 클라이언트엔 없다.
+    // 물려받은 undoCount를 그대로 두면 "버튼은 뜨는데 눌러도 안 되돌아가는" 팬텀 취소가 된다
+    // (undoLastAction이 pop→undefined). 승계 시점 취소 이력은 포기하고 0으로 맞춘다.
+    clearUndo();
+    useGameStore.setState({ undoCount: 0 } as never);
     rev = lastAppliedRev; // 스냅샷 리비전 연속성 (게스트들의 역순 가드 통과)
     set({ mode: 'host' });
     startHostLoop();

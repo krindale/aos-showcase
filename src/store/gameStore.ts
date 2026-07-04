@@ -1330,9 +1330,16 @@ export const useGameStore = create<GameStore>()(
   undoLastAction: () => {
     const snap = undoSnapshots.pop();
     if (!snap) {
+      // 팬텀 취소: undoCount(동기화 상태)는 남았는데 스택(메모리)이 비었다 —
+      // 새로고침·호스트 승계 후 복원 경로에서 어긋난 경우. 되돌릴 게 없어 count만 0으로 자가치유.
+      console.warn(
+        `[undo] 팬텀 취소 — 스택 비어있음(새로고침/호스트 승계 후 가능), count만 0으로 정리`,
+        { undoCountWas: get().undoCount }
+      );
       set({ undoCount: 0 });
       return;
     }
+    console.log(`[undo] 실행: "${snap.label}" → 남은 취소 ${undoSnapshots.length}개`);
     // 취소로 phaseState/보드가 복원되므로, 취소 전 상태 기준으로 계산된 AI 턴 캐시를 비운다
     // (같은 턴·Phase 키라 캐시가 취소를 감지하지 못함 — 다음 AI 결정 시 재계산)
     clearUrbanizationPlanCache();
@@ -1557,6 +1564,10 @@ export const useGameStore = create<GameStore>()(
         transcontinentalEvent: null,
         incomeReductions: null,
         aiExecution: { pending: false, executionId: 0 },
+        // 실행 취소 스택(undoSnapshots)은 메모리 모듈 싱글턴이라 새로고침 후 비어 있다.
+        // undoCount는 persist로 복원되므로 그대로 두면 "버튼은 보이는데 눌러도 안 되돌아가는"
+        // 팬텀 취소가 된다 (undoLastAction이 pop→undefined로 count만 0으로 만듦). 항상 0으로 리셋.
+        undoCount: 0,
       }),
     }
   )

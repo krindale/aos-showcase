@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useGameStore, getUndoLabel } from '@/store/gameStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -109,19 +109,52 @@ export default function PhasePanel() {
     netMode === 'offline' || netMySeat === null ? null : activePlayers[netMySeat] ?? null;
   const isMyTurn = myPlayerId === null || myPlayerId === currentPlayer;
   const amIHost = netMode === 'offline' || netMode === 'host';
+  const isGuest = netMode === 'guest';
+
+  // 게스트 취소 요청 대기 표시 — 게스트의 undoLastAction은 호스트로 intent만 보내고
+  // 실제 되돌리기는 호스트 스냅샷이 도착해야 반영된다(로컬 즉시 반영 아님). 호스트가 잠깐
+  // 불통이면 아무 피드백 없이 "안 먹히는" 것처럼 보였다 → 요청 후 대기 상태를 명시한다.
+  const [undoPending, setUndoPending] = useState<'idle' | 'sent' | 'timeout'>('idle');
+  // 호스트 스냅샷으로 undoCount가 바뀌면 취소가 확정된 것 — 대기 해제
+  useEffect(() => { setUndoPending('idle'); }, [undoCount]);
+  // 3.5초 내 반영 안 되면 호스트 미도달로 간주 (재시도 안내)
+  useEffect(() => {
+    if (undoPending !== 'sent') return;
+    const t = setTimeout(() => setUndoPending('timeout'), 3500);
+    return () => clearTimeout(t);
+  }, [undoPending]);
+
+  const handleUndo = () => {
+    if (isGuest) {
+      // 진단: 게스트가 취소 요청을 실제로 보냈는지 추적 (호스트 onIntent 로그와 대조)
+      console.log('[undo] 게스트 취소 요청 전송', {
+        seat: netMySeat,
+        undoCount,
+        currentPlayer,
+      });
+    }
+    undoLastAction();
+    if (isGuest) setUndoPending('sent'); // 호스트 확정(스냅샷) 대기
+  };
 
   // 실행 취소 버튼 (사람 차례에만, 취소할 행동이 있을 때만)
   const undoButton =
     undoCount > 0 && !players[currentPlayer]?.isAI && isMyTurn ? (
       <button
-        onClick={undoLastAction}
-        disabled={isAIExecuting}
-        className="flex-shrink-0 min-h-[44px] px-3 py-3 md:py-2 rounded-lg text-sm font-medium bg-steam-red/10 text-steam-red border border-steam-red/30 hover:bg-steam-red/20 transition-colors flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+        onClick={handleUndo}
+        disabled={isAIExecuting || undoPending === 'sent'}
+        className={`flex-shrink-0 min-h-[44px] px-3 py-3 md:py-2 rounded-lg text-sm font-medium bg-steam-red/10 text-steam-red border transition-colors flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-steam-red/20 ${
+          undoPending === 'timeout' ? 'border-steam-red/70 ring-1 ring-steam-red/50' : 'border-steam-red/30'
+        }`}
         aria-label="실행 취소"
-        title={`취소: ${getUndoLabel() ?? '마지막 행동'}`}
+        title={
+          undoPending === 'timeout'
+            ? '취소가 아직 반영되지 않았어요 — 다시 눌러 주세요'
+            : `취소: ${getUndoLabel() ?? '마지막 행동'}`
+        }
       >
         <Undo2 className="w-4 h-4" />
-        취소
+        {undoPending === 'sent' ? '취소 중…' : undoPending === 'timeout' ? '다시 취소' : '취소'}
       </button>
     ) : null;
 

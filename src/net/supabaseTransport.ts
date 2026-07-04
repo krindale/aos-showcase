@@ -133,11 +133,15 @@ export class SupabaseTransport implements NetTransport {
   }
 
   async listPublicRooms(): Promise<RoomInfo[]> {
+    // 유령 방 필터: 호스트가 대기실에서 45초마다 하트비트(touchRoom)로 updated_at을 갱신하므로
+    // 2분 넘게 갱신이 없는 waiting 방 = 호스트가 죽은 방 → 목록·빠른매칭에서 제외
+    const freshAfter = new Date(Date.now() - 2 * 60 * 1000).toISOString();
     const { data, error } = await this.client
       .from('rooms')
       .select()
       .eq('is_public', true)
       .eq('status', 'waiting')
+      .gte('updated_at', freshAfter)
       .order('created_at', { ascending: true });
     if (error) throw new Error(`공개방 목록 조회 실패: ${error.message}`);
     return (data as RoomRow[]).map(rowToRoomInfo);
@@ -246,6 +250,22 @@ class SupabaseRoomConnection implements RoomConnection {
     const { error } = await this.client.from('rooms').update(row).eq('id', this._room.id);
     if (error) throw new Error(`방 갱신 실패: ${error.message}`);
     this._room = { ...this._room, ...patch };
+  }
+
+  async touchRoom(): Promise<void> {
+    // 같은 값으로 update해도 트리거가 updated_at을 갱신한다 (대기실 생존 신호)
+    const { error } = await this.client
+      .from('rooms')
+      .update({ status: this._room.status })
+      .eq('id', this._room.id);
+    if (error) throw new Error(`하트비트 실패: ${error.message}`);
+  }
+
+  async closeRoom(): Promise<void> {
+    // RLS가 finished만 삭제 허용 — finished 처리 후 삭제 시도 (삭제 실패해도 목록에선 빠짐)
+    await this.client.from('rooms').update({ status: 'finished' }).eq('id', this._room.id);
+    await this.client.from('rooms').delete().eq('id', this._room.id);
+    this._room = { ...this._room, status: 'finished' };
   }
 
   async leave(): Promise<void> {

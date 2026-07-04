@@ -91,6 +91,25 @@ let takeoverTimer: ReturnType<typeof setTimeout> | null = null;
 let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
+/** 호스트 대기실 하트비트 — 목록의 유령 방 필터(updated_at 2분) 기준 신호 */
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+const HEARTBEAT_INTERVAL = 45_000;
+
+function stopHeartbeat(): void {
+  if (heartbeatTimer !== null) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
+
+function startWaitingHeartbeat(): void {
+  stopHeartbeat();
+  heartbeatTimer = setInterval(() => {
+    const conn = connection;
+    if (!conn || conn.room.status !== 'waiting') return stopHeartbeat();
+    conn.touchRoom().catch((e) => console.warn('[net] 하트비트 실패:', e));
+  }, HEARTBEAT_INTERVAL);
+}
 /** AI 전환을 물었다가 거절한 좌석 — 이번 게임엔 다시 묻지 않음 (leaveRoom/게임시작 시 초기화) */
 let dismissedDisconnectSeats = new Set<number>();
 let rev = 0;
@@ -523,6 +542,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
           presentClientIds: [clientId],
         });
         startHostLoop();
+        startWaitingHeartbeat(); // 공개방 목록 유령 방 필터용 생존 신호
         saveLastRoom(conn.room.code, seats[0]?.name ?? '호스트');
       } catch (e) {
         set({ busy: false, error: e instanceof Error ? e.message : String(e) });
@@ -558,6 +578,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
             chat: [],
           });
           startHostLoop();
+          if (conn.room.status === 'waiting') startWaitingHeartbeat();
           saveLastRoom(conn.room.code, name);
           await conn.broadcastRoom(); // 호스트 복귀 통지 (게스트들의 승계 타이머 취소)
           scheduleAICheck(useGameStore.getState);
@@ -606,9 +627,15 @@ export const useNetStore = create<NetStore>()((set, get) => {
     },
 
     leaveRoom: async () => {
+      // 호스트가 대기실을 명시적으로 떠나면 방 자체를 폐쇄 (목록의 유령 방 방지)
+      const { mode, room } = get();
+      if (mode === 'host' && room?.status === 'waiting' && connection) {
+        await connection.closeRoom().catch((e) => console.warn('[net] 방 폐쇄 실패:', e));
+      }
       connectionGen++; // 이 연결의 이후 이벤트(늦은 CLOSED 등) 전부 무시
       removeGuestGuard();
       stopHostLoop();
+      stopHeartbeat();
       cancelTakeover();
       clearLastRoom();
       if (disconnectTimer !== null) { clearTimeout(disconnectTimer); disconnectTimer = null; }

@@ -259,9 +259,18 @@ export const useNetStore = create<NetStore>()((set, get) => {
     // 이동 애니메이션 상태(netMovingCube)는 ui.movingCube로 주입 — 게스트도 호스트와
     // 같은 화물 이동 애니메이션을 본다 (정산은 게스트 completeCubeMove가 noop이라 안전)
     const { netMovingCube, ...gameState } = state as { netMovingCube?: unknown } & Record<string, unknown>;
+    const curUi = useGameStore.getState().ui;
     useGameStore.setState({
       ...gameState,
-      ui: { ...useGameStore.getState().ui, movingCube: netMovingCube ?? null },
+      ui: {
+        ...curUi,
+        movingCube: netMovingCube ?? null,
+        // 이동이 시작되면(mc 도착) 게스트 로컬의 화물 안내(골드 점선/선택/목적지 하이라이트)를
+        // 함께 정리 — 실행은 호스트가 하므로 안 지우면 이동 후에도 가이드가 남는다 (피드백)
+        ...(netMovingCube
+          ? { selectedCube: null, reachableDestinations: [], movePath: [] }
+          : {}),
+      },
       // 로컬 전용 필드는 항상 안전값으로 (persist merge와 같은 원칙).
       // undoCount는 스냅샷 값 유지 — 게스트 취소 버튼 표시용 (되돌리기는 인텐트로 호스트가 실행)
       aiExecution: { pending: false, executionId: 0 },

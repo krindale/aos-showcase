@@ -77,7 +77,7 @@ const AI_ACTION_VIEW_DELAY =
 export interface GameStore extends GameState {
   // --- 게임 라이프사이클 ---
   /** 게임 초기화 */
-  initGame: (mapId: string, playerNames: string[], aiPlayers?: AIPlayerConfig[]) => void;
+  initGame: (mapId: string, playerNames: string[], aiPlayers?: AIPlayerConfig[], options?: { randomizeStartOrder?: boolean }) => void;
   /** 게임 리셋 (플레이어 이름 유지) */
   resetGame: () => void;
 
@@ -277,7 +277,7 @@ export const useGameStore = create<GameStore>()(
   // ============================================================
   // 게임 라이프사이클
   // ============================================================
-  initGame: (mapId, playerNames, aiPlayers = []) => {
+  initGame: (mapId, playerNames, aiPlayers = [], options = {}) => {
     // 기존 AI 인스턴스 정리
     aiPlayerManager.clear();
     clearUndo();
@@ -291,7 +291,7 @@ export const useGameStore = create<GameStore>()(
 
     // 새 게임 상태 설정
     set({
-      ...createInitialGameState(mapId, playerNames, aiPlayers),
+      ...createInitialGameState(mapId, playerNames, aiPlayers, options),
       aiExecution: { pending: false, executionId: 0 },
     });
 
@@ -331,7 +331,7 @@ export const useGameStore = create<GameStore>()(
     logAction('preparation', 'resetGame', { session: sessionId, mapId: state.mapId, players: playerNames });
 
     set({
-      ...createInitialGameState(state.mapId, playerNames, aiPlayers),
+      ...createInitialGameState(state.mapId, playerNames, aiPlayers, { randomizeStartOrder: true }),
       aiExecution: { pending: false, executionId: 0 },
     });
 

@@ -1227,11 +1227,22 @@ export const useGameStore = create<GameStore>()(
       // 경매 1등이 아닌 사람의 생산 기회가 통째로 사라진다 (실플레이 버그: 독일 맵 생산 스킵).
       // AI 선택자는 제외 (goodsGrowth는 AI 스케줄러 대상이 아니라 사람이 주사위를 진행).
       let phaseEntryPlayer = playerOrder[0];
+      // 배치할 빈 칸/주머니 큐브가 없어 생산이 무의미하면 자동 완료(건너뛰기 아님 — 물리적으로 배치 불가).
+      // 이걸 안 하면 아래 GoodsGrowthPanel이 주사위를 잠근 채 홀더는 배치할 게 없어 교착된다(첫 턴 등).
+      let autoProductionUsed = false;
       if (nextPhaseName === 'goodsGrowth' && !state.phaseState.productionUsed) {
         const productionHolder = activePlayers.find(
           p => state.players[p]?.selectedAction === 'production' && !state.players[p]?.isAI
         );
-        if (productionHolder) phaseEntryPlayer = productionHolder;
+        if (productionHolder) {
+          const hasEmptySlot = state.goodsDisplay.slots.some(s => s === null);
+          const hasBagCube = state.goodsDisplay.bag.length > 0;
+          if (hasEmptySlot && hasBagCube) {
+            phaseEntryPlayer = productionHolder; // 배치 가능 — 홀더가 배치할 때까지 주사위 대기
+          } else {
+            autoProductionUsed = true; // 배치할 게 없음 — 생산 자동 완료 → 주사위 잠금 해제
+          }
+        }
       }
 
       // 단계 전환 로깅
@@ -1240,6 +1251,9 @@ export const useGameStore = create<GameStore>()(
         currentPlayer: phaseEntryPlayer,
         // 물품 성장 진입 시 직전 턴 성장 이벤트를 비운다 (게스트가 이전 결과를 stale하게 보지 않도록)
         ...(nextPhaseName === 'goodsGrowth' ? { goodsGrowthEvent: null } : {}),
+        ...(autoProductionUsed
+          ? { phaseState: { ...state.phaseState, productionUsed: true } }
+          : {}),
         logs: [
           ...state.logs,
           {

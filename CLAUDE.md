@@ -396,12 +396,15 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
   코드를 아는 사람만 찾는 모델, 친구 규모 수용). 강화는 익명 로그인 도입 시(후순위).
 - **알려진 한계(설계상 수용)**: ① 치팅 방어 없음(호스트가 클라이언트 — 친구용) — 필요 시 net만
   자체 서버로 교체해 서버 권위 승격. ② 게스트로 온라인 플레이 시 로컬 싱글 저장(persist)이 스냅샷에
-  덮임. ③ 공개방 인원 수는 presence 미반영(나간 좌석도 착석 집계 가능). ④ 종료(finished) 방 자동
-  정리 미구현(수동 SQL).
+  덮임. ③ 공개방 인원 수는 presence 미반영(나간 좌석도 착석 집계 가능).
 - **배포**: `.env.local`(로컬) / deploy.yml env(배포)에 NEXT_PUBLIC_SUPABASE_URL·ANON_KEY.
   미설정 배포(포크)는 온라인 탭이 자동으로 숨음(`isNetConfigured`). DB 스키마·RLS·grant는
   `supabase/setup.sql`(Supabase MCP `apply_migration`으로 적용). 공개방 목록은 8초 폴링(+수동
   새로고침), 대기실 45초 하트비트(touchRoom)로 유령 방 필터(updated_at 2분).
+- **방 자동 정리(pg_cron)**: `setup.sql`이 `cleanup_stale_rooms()`(security definer + search_path
+  고정) + pg_cron 스케줄을 등록 — `updated_at`(스냅샷 저장·하트비트마다 갱신 = 마지막 활동)이
+  6시간 지난 waiting/playing/finished 방을 하루 2회(UTC 05:00·17:00 = KST 14:00·02:00) 자동 삭제.
+  활성 게임은 최신이라 대상 아님. 접속자 없어도 서버에서 돎(수동 SQL 정리 불필요).
 - **검증**: `npx vitest run src/net/__tests__/` (코덱/가드/검증/좌석·승계 규칙 27개) +
   두 브라우저 탭 E2E(방 생성→입장→시작→건설/수송/경매/도시화 왕복→F5 재접속→호스트 승계).
 - **종합 설계·비용·Phase 체크리스트**: [`docs/online-multiplayer-plan.md`](docs/online-multiplayer-plan.md),

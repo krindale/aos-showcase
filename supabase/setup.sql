@@ -80,3 +80,28 @@ exception
   when undefined_function then null; -- 자동 RLS 설정을 안 쓴 프로젝트면 무시
 end;
 $$;
+
+-- ============================================================
+-- 오래된 방 자동 정리 (마지막 활동 6시간 경과 → 삭제)
+-- pg_cron이 Supabase 서버에서 하루 2회 자동 실행 (접속자 없어도 돎).
+-- updated_at은 게임 중 스냅샷 저장·대기실 하트비트마다 갱신되므로 "마지막 활동 시각".
+-- 활성 게임은 최신이라 대상 아님 — 버려진 waiting/playing/finished 방만 청소.
+-- ============================================================
+create extension if not exists pg_cron;
+
+-- security definer + search_path 고정: 소유자(postgres) 권한으로 RLS 무관하게 삭제 (어드바이저 권고)
+create or replace function public.cleanup_stale_rooms()
+returns void language sql
+security definer
+set search_path = ''
+as $$
+  delete from public.rooms
+  where updated_at < now() - interval '6 hours';
+$$;
+
+-- 하루 2회: UTC 05:00 · 17:00 (= 한국시간 14:00 · 02:00). 같은 이름 재등록 시 갱신(pg_cron 1.6 upsert).
+select cron.schedule(
+  'cleanup-stale-rooms',
+  '0 5,17 * * *',
+  $$ select public.cleanup_stale_rooms(); $$
+);

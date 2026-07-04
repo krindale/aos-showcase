@@ -217,8 +217,8 @@ class SupabaseRoomConnection implements RoomConnection {
     return this._room;
   }
 
-  async sendIntent(intent: Omit<IntentMessage, 'clientId' | 'id'>): Promise<void> {
-    const msg: IntentMessage = { ...intent, id: crypto.randomUUID(), clientId: this.clientId };
+  async sendIntent(intent: Omit<IntentMessage, 'clientId' | 'id'> & { id?: string }): Promise<void> {
+    const msg: IntentMessage = { ...intent, id: intent.id ?? crypto.randomUUID(), clientId: this.clientId };
     console.log(`[net] intent 전송: ${msg.type} (seat ${msg.seat}, ${msg.id.slice(0, 8)})`);
     await this.broadcast('intent', msg);
   }

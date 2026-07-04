@@ -115,6 +115,11 @@ let dismissedDisconnectSeats = new Set<number>();
 let rev = 0;
 let lastSyncedJson = '';
 let lastAppliedRev = 0;
+/** 마지막으로 전송한 스냅샷 페이로드 — 5초 keepalive 재전송용 (유실된 게스트 치유) */
+let lastSnapshotPayload: SnapshotMessage | null = null;
+let snapshotKeepaliveTimer: ReturnType<typeof setInterval> | null = null;
+/** 스냅샷 keepalive 주기 (ms) — 채널 출렁임으로 브로드캐스트를 놓친 게스트를 자동 치유 */
+const SNAPSHOT_KEEPALIVE = 5_000;
 
 /** 스냅샷 브로드캐스트 debounce (ms) — 액션 연쇄(정산 등)를 묶되 게스트 체감 지연 최소화 */
 const BROADCAST_DEBOUNCE = 120;
@@ -179,7 +184,8 @@ export const useNetStore = create<NetStore>()((set, get) => {
     try {
       const { z, bytes } = await encodeSnapshot(synced);
       set({ lastSnapshotBytes: bytes });
-      await conn.broadcastSnapshot({ rev, z });
+      lastSnapshotPayload = { rev, z };
+      await conn.broadcastSnapshot(lastSnapshotPayload);
       console.log(`[net] 스냅샷 전송 rev=${rev} (압축 ${bytes}B)`);
       await conn.updateRoom({ snapshot: { rev, z } }); // 재접속·호스트 승계용 영속화
     } catch (e) {
@@ -197,9 +203,19 @@ export const useNetStore = create<NetStore>()((set, get) => {
 
   const startHostLoop = (): void => {
     stopHostLoop();
-    rev = 0;
+    // ⚠️ rev는 여기서 리셋하지 않는다 — 호스트 복귀/승계는 이어받은 rev로 계속해야
+    // 게스트의 단조 증가 가드에 안 걸린다 (rev=0 리셋 → 게스트가 전부 드롭 → 영구 멈춤 실버그).
+    // 새 방은 hostRoom이 rev=0을 명시적으로 설정한다.
     lastSyncedJson = '';
+    lastSnapshotPayload = null;
     unsubscribeStore = useGameStore.subscribe(scheduleBroadcast);
+    // keepalive: 채널 출렁임으로 브로드캐스트를 놓친 게스트를 위해 최신 스냅샷을 주기 재전송.
+    // 이미 최신인 게스트는 rev 가드로 무시(no-op) — 상태가 안 바뀌어도 멈춘 게스트가 5초 내 치유된다
+    snapshotKeepaliveTimer = setInterval(() => {
+      const conn = connection;
+      if (!conn || !lastSnapshotPayload || get().mode !== 'host') return;
+      conn.broadcastSnapshot(lastSnapshotPayload).catch(() => {});
+    }, SNAPSHOT_KEEPALIVE);
   };
 
   const stopHostLoop = (): void => {
@@ -208,6 +224,10 @@ export const useNetStore = create<NetStore>()((set, get) => {
     if (broadcastTimer !== null) {
       clearTimeout(broadcastTimer);
       broadcastTimer = null;
+    }
+    if (snapshotKeepaliveTimer !== null) {
+      clearInterval(snapshotKeepaliveTimer);
+      snapshotKeepaliveTimer = null;
     }
   };
 
@@ -541,6 +561,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
           chat: [],
           presentClientIds: [clientId],
         });
+        rev = 0; // 새 방 — 리비전 처음부터
         startHostLoop();
         startWaitingHeartbeat(); // 공개방 목록 유령 방 필터용 생존 신호
         saveLastRoom(conn.room.code, seats[0]?.name ?? '호스트');
@@ -594,17 +615,32 @@ export const useNetStore = create<NetStore>()((set, get) => {
           busy: false,
           chat: [],
         });
-        // 커밋 차단 가드 — 이후 이 클라이언트의 커밋 액션은 전부 intent로
+        // 커밋 차단 가드 — 이후 이 클라이언트의 커밋 액션은 전부 intent로.
+        // 채널 출렁임으로 유실될 수 있어 같은 멱등 id로 2.5초 뒤 1회 재전송 (호스트가 중복 무시)
         installGuestGuard((type, payload: GameIntentPayload) => {
           const seat = get().mySeat;
           if (seat === null) return; // 미배정(관전) — 커밋 불가
-          connection?.sendIntent({ seat, type, payload }).catch((e) => {
-            console.warn(`[net] 인텐트 전송 실패 (${type}):`, e);
-          });
+          const id = crypto.randomUUID();
+          const sendOnce = () =>
+            connection?.sendIntent({ id, seat, type, payload }).catch((e) => {
+              console.warn(`[net] 인텐트 전송 실패 (${type}):`, e);
+            });
+          sendOnce();
+          const genAtSend = connectionGen;
+          setTimeout(() => {
+            if (connectionGen === genAtSend && get().mode === 'guest') sendOnce();
+          }, 2_500);
         });
         saveLastRoom(conn.room.code, name);
-        // 좌석 요청 (대기실 입장·재입장·게임 중 끊긴 좌석 이어받기 — 호스트가 배정)
-        await conn.sendIntent({ seat: -1, type: 'claimSeat', payload: { name } });
+        // 좌석 요청 (대기실 입장·재입장·게임 중 끊긴 좌석 이어받기 — 호스트가 배정).
+        // 유실 대비 동일 id로 1회 재전송
+        const claimId = crypto.randomUUID();
+        await conn.sendIntent({ id: claimId, seat: -1, type: 'claimSeat', payload: { name } });
+        setTimeout(() => {
+          if (get().mode === 'guest' && get().mySeat === null) {
+            void conn.sendIntent({ id: claimId, seat: -1, type: 'claimSeat', payload: { name } }).catch(() => {});
+          }
+        }, 2_500);
         // 게임 중 입장(재접속): 방에 저장된 최신 스냅샷 즉시 복원
         if (conn.room.status === 'playing' && snap?.z) {
           await applySnapshotAsGuest({ rev: snap.rev ?? 1, z: snap.z });

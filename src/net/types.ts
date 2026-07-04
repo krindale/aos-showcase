@@ -69,8 +69,8 @@ export interface RoomEvents {
 export interface RoomConnection {
   readonly room: RoomInfo;
   readonly clientId: string;
-  /** id·clientId는 transport가 채운다 (id = 멱등성 키) */
-  sendIntent(intent: Omit<IntentMessage, 'clientId' | 'id'>): Promise<void>;
+  /** clientId는 transport가 채운다. id(멱등성 키)는 재전송을 위해 호출자가 줄 수 있고 없으면 생성 */
+  sendIntent(intent: Omit<IntentMessage, 'clientId' | 'id'> & { id?: string }): Promise<void>;
   broadcastSnapshot(snapshot: SnapshotMessage): Promise<void>;
   /** 호스트 전용: 방 메타(좌석/상태) 변경을 전원에게 통지 — 보통 updateRoom 직후 호출 */
   broadcastRoom(): Promise<void>;

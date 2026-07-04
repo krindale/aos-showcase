@@ -2,9 +2,10 @@
 
 /**
  * 게임 중 채팅 (Phase 3) — 온라인 모드 전용 플로팅 위젯.
- * 접힘: 좌하단 버튼 + 안 읽음 배지 / 펼침: 메시지 목록 + 입력.
+ * 접힘: 게임 보드 우측 하단 호버링 버튼 + 안 읽음 배지 / 펼침: 메시지 목록 + 입력.
  * 채팅은 휘발성(broadcast, DB 저장 안 함) — 재접속 시 이전 대화는 복원되지 않는다(의도).
- * 차례 차단 오버레이(grid 내부) 밖의 fixed 요소라 상대 차례에도 채팅 가능.
+ * GamePageClient의 보드 래퍼(relative) 안에 absolute로 배치 — z-30이라 차례 차단
+ * 오버레이(z-20, 같은 스태킹 컨텍스트)보다 위에 있어 상대 차례에도 채팅 가능.
  */
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -19,12 +20,15 @@ export default function GameChat() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const [seenCount, setSeenCount] = useState(0);
-  const endRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (open) {
       setSeenCount(chat.length);
-      endRef.current?.scrollIntoView({ behavior: 'smooth' });
+      // ⚠️ scrollIntoView 금지 — 페이지 전체가 딸려 스크롤된다(사용자 피드백).
+      // 메시지 목록 컨테이너 내부만 맨 아래로.
+      const list = listRef.current;
+      if (list) list.scrollTop = list.scrollHeight;
     }
   }, [open, chat.length]);
 
@@ -40,8 +44,11 @@ export default function GameChat() {
   };
 
   return (
-    // 좌하단에서 30px 안쪽(우측)으로 — 가장자리에 붙으면 눈에 안 띔 (사용자 피드백)
-    <div className="fixed bottom-4 left-[46px] z-40">
+    // 게임 보드 우측 하단 호버링 (사용자 피드백) — 보드가 화면보다 길면 sticky로
+    // 뷰포트 하단에 따라붙고(줌 버튼의 sticky top 패턴의 하단판), 보드 끝에 도달하면 멈춘다.
+    // 바깥 레이어는 pointer-events-none이라 보드 클릭을 가리지 않는다.
+    <div className="absolute inset-0 z-30 pointer-events-none flex flex-col items-end justify-end">
+      <div className="sticky bottom-3 pointer-events-auto mr-3 mb-3 flex flex-col items-end">
       <AnimatePresence>
         {open && (
           <motion.div
@@ -61,7 +68,7 @@ export default function GameChat() {
                 <X size={13} />
               </button>
             </div>
-            <div className="h-48 overflow-y-auto p-2 space-y-1">
+            <div ref={listRef} className="h-48 overflow-y-auto p-2 space-y-1">
               {chat.length === 0 && (
                 <div className="text-xs text-foreground-muted text-center py-4">
                   아직 메시지가 없습니다
@@ -73,7 +80,6 @@ export default function GameChat() {
                   {m.text}
                 </div>
               ))}
-              <div ref={endRef} />
             </div>
             <div className="flex border-t border-foreground/10">
               <input
@@ -107,6 +113,7 @@ export default function GameChat() {
           </span>
         )}
       </button>
+      </div>
     </div>
   );
 }

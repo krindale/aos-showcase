@@ -11,6 +11,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 import { GamePhase, PHASE_INFO } from '@/types/game';
 import { ChevronRight } from 'lucide-react';
+import { safeTimeout } from '@/utils/safeTimers';
 
 /**
  * 팝업 유지 시간 (ms) — 스르르 등장(0.4s) → 1.2초 유지 → 스르르 퇴장(0.5s).
@@ -45,8 +46,10 @@ export default function PhaseTransition() {
     if (!GAME_PHASES.includes(from) || !GAME_PHASES.includes(currentPhase)) return;
 
     setShow({ from, to: currentPhase });
-    const timer = setTimeout(() => setShow(null), PAUSE_MS);
-    return () => clearTimeout(timer);
+    // safeTimeout: 숨김 탭에선 setTimeout이 스로틀돼 팝업이 안 사라진 채
+    // 화면 클릭을 계속 막는 버그가 있었다 (탭 복귀 시 최대 1분 잔존)
+    const cancel = safeTimeout(() => setShow(null), PAUSE_MS);
+    return cancel;
   }, [currentPhase]);
 
   return (
@@ -56,9 +59,11 @@ export default function PhaseTransition() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1, transition: { duration: 0.4, ease: 'easeOut' } }}
           exit={{ opacity: 0, transition: { duration: 0.5, ease: 'easeIn' } }}
-          // 입력만 차단하고 화면은 가리지 않는다 — 직전 행동의 하이라이트가 배경에 그대로 보임.
+          // 순수 안내 팝업 — 입력을 막지 않는다(pointer-events-none). 진행 지연은 엔진
+          // (AI_ACTION_VIEW_DELAY)이 담당. 차단형이면 숨김 탭에서 exit 애니메이션(rAF)이
+          // 멈춰 오버레이가 박제된 채 화면 전체 클릭을 먹는 버그가 있었다.
           // 카드는 상단에 띄워 보드 중앙을 가리지 않는다.
-          className="fixed inset-0 z-[60] flex items-start justify-center pt-24 bg-foreground/5"
+          className="fixed inset-0 z-[60] flex items-start justify-center pt-24 bg-foreground/5 pointer-events-none"
           aria-live="polite"
         >
           <motion.div

@@ -733,14 +733,22 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
           <div className={`grid grid-cols-1 md:grid-cols-12 lg:grid-cols-[minmax(0,1fr)_340px] ${isLandscape ? 'gap-2' : 'gap-6'}`}>
             {/* 왼쪽: 게임 보드 + 물품 디스플레이 */}
             <div className={`
+              relative
               col-span-1
               ${isPanelCollapsed ? 'md:col-span-12' : 'md:col-span-8'}
               lg:col-span-1
               ${isLandscape ? 'space-y-2' : 'space-y-4'}
             `}>
-              <GameBoard />
+              {/* 보드 래퍼(relative): 채팅 버튼을 보드 우측 하단에 호버링 (온라인 전용) */}
+              <div className="relative">
+                <GameBoard />
+                <GameChat />
+              </div>
               {/* 물품 성장이 없는 맵(St. Lucia)은 물품 디스플레이가 무의미 → 숨김 */}
               {!isLandscape && !mapConfig.rules.skipGoodsGrowth && <GoodsDisplayPanel />}
+              {/* 온라인: 내 차례가 아니면 보드/디스플레이 클릭 차단 (호스트 검증의 UX 보강 — 최종
+                  방어는 applyGameIntent). 채팅(z-30)은 오버레이(z-20) 위라 계속 사용 가능. */}
+              {isOnline && !canInteract && <div className="absolute inset-0 z-20" aria-hidden />}
             </div>
 
             {/* 오른쪽: 패널들 (Desktop: always visible, Tablet: collapsible, Mobile: hidden) */}
@@ -751,15 +759,17 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: 20 }}
                   transition={{ duration: 0.3 }}
-                  className="hidden md:block md:col-span-4 lg:col-span-1 space-y-4 md:sticky md:top-20 md:self-start md:max-h-[calc(100vh-6rem)] md:overflow-y-auto md:pr-1"
+                  className="hidden md:block md:col-span-4 lg:col-span-1 md:sticky md:top-20 md:self-start md:max-h-[calc(100vh-6rem)] md:overflow-y-auto md:pr-1"
                 >
-                  {renderPanelContent()}
+                  {/* 온라인 차단: 오버레이 대신 내용만 pointer-events-none — 스크롤 컨테이너
+                      (부모)는 살아 있어 상대 차례에도 패널을 스크롤해 볼 수 있다 (사용자 피드백) */}
+                  <div className={`space-y-4 ${isOnline && !canInteract ? 'pointer-events-none' : ''}`}>
+                    {renderPanelContent()}
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>
           </div>
-          {/* 온라인: 내 차례가 아니면 보드/패널 클릭 차단 (호스트 검증의 UX 보강 — 최종 방어는 applyGameIntent) */}
-          {isOnline && !canInteract && <div className="absolute inset-0 z-20" aria-hidden />}
           </div>
         </div>
       </main>
@@ -811,9 +821,6 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
 
       {/* 대륙횡단 연결 팝업 (Western US) */}
       <TranscontinentalModal />
-
-      {/* 온라인 채팅 (Phase 3) — 오프라인이면 자체적으로 렌더 안 함 */}
-      <GameChat />
 
       {/* 단계 전환 1초 멈춤 오버레이 */}
       <PhaseTransition />

@@ -54,8 +54,9 @@ import DebugPanel from '@/components/game/DebugPanel';
 import { POP_SPRING, useIsFirstRender } from '@/components/game/uiEffects';
 import TranscontinentalModal from '@/components/game/TranscontinentalModal';
 import BottomSheet from '@/components/game/BottomSheet';
+import HelpOverlay from '@/components/game/HelpOverlay';
 import { calculateTrackScore } from '@/utils/trackValidation';
-import { ArrowLeft, RotateCcw, Users, Zap, X, Bot, ChevronRight, ChevronLeft } from 'lucide-react';
+import { ArrowLeft, RotateCcw, Users, Zap, X, Bot, ChevronRight, ChevronLeft, HelpCircle } from 'lucide-react';
 import {
   PLAYER_COLOR_ORDER,
   PLAYER_COLORS,
@@ -96,6 +97,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   const [playerCount, setPlayerCount] = useState(supportedPlayers[0]);
   const [playerNames, setPlayerNames] = useState<string[]>(DEFAULT_NAMES);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   // 리마운트 시 지난 "선택 행동" 칩 팝이 일제 재생되지 않게 첫 렌더는 애니메이션 생략
   const chipFirstRender = useIsFirstRender();
   const [isLandscape, setIsLandscape] = useState(false);
@@ -682,6 +684,16 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
               )}
             </button>
 
+            {/* 도움말 (규칙/단계/특수행동/맵 특수룰) — 온라인·오프라인 공통 */}
+            <button
+              onClick={() => setShowHelp(true)}
+              className="p-1.5 sm:p-2 hover:bg-foreground/10 rounded-lg transition-colors"
+              title="게임 도움말"
+              aria-label="게임 도움말"
+            >
+              <HelpCircle size={18} className="text-foreground-secondary sm:w-5 sm:h-5" />
+            </button>
+
             {isOnline ? (
               <div className="flex items-center gap-1 sm:gap-2">
                 <span className="hidden sm:flex items-center gap-1 px-2 py-1 rounded-full bg-accent/10 text-xs font-semibold text-accent tracking-widest">
@@ -819,6 +831,9 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
 
       {/* 방향 전환 선택 모달 */}
       {ui.redirectTrackSelection && <RedirectTrackPanel />}
+
+      {/* 인게임 규칙/도움말 오버레이 */}
+      <HelpOverlay open={showHelp} onClose={() => setShowHelp(false)} mapId={mapId} />
 
       {/* 디버그 패널 */}
       <DebugPanel />

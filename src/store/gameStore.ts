@@ -382,14 +382,43 @@ export const useGameStore = create<GameStore>()(
 
       const store = get();
 
+      // 이 진행(nextPhase)으로 "단계가 끝나는지" 판정 — 마지막 플레이어일 때만 확인 딜레이.
+      // 그 외(단계 내 다음 플레이어로 넘어가는 경우)는 봇 속도 기존 그대로 즉시 진행.
+      const endsPhaseNow = (): boolean => {
+        const s = get();
+        const alive = s.playerOrder.filter((p) => !s.players[p]?.eliminated);
+        const withPriority = (priority: PlayerId | undefined) =>
+          priority && alive.includes(priority)
+            ? [priority, ...alive.filter((p) => p !== priority)]
+            : alive;
+        switch (s.currentPhase) {
+          case 'issueShares':
+            return isLastPlayer(s.currentPlayer, alive);
+          case 'determinePlayerOrder':
+            return true; // 경매 완료 처리 = 항상 단계 종료
+          case 'selectActions':
+            return allPlayersSelectedAction(s.players, s.activePlayers.filter((p) => !s.players[p]?.eliminated));
+          case 'buildTrack':
+            return isLastPlayer(s.currentPlayer, withPriority(findFirstBuildPlayer(s.players, s.activePlayers)));
+          case 'moveGoods':
+            return (
+              s.phaseState.moveGoodsRound >= 2 &&
+              isLastPlayer(s.currentPlayer, withPriority(findFirstMovePlayer(s.players, s.activePlayers)))
+            );
+          default:
+            return false;
+        }
+      };
+
       // 행동 결과를 화면에 잠시 보여준 뒤 진행 — 락은 유지한 채 대기해 중복 실행 방지.
-      // (view=false: 스킵 등 보여줄 게 없는 경우 즉시 진행)
+      // 딜레이는 "보여줄 행동이 있고(view) + 이 진행으로 단계가 끝날 때"만 (마지막 플레이어 전용)
       const proceedAfterView = (view: boolean) => {
+        const delay = view && endsPhaseNow() ? AI_ACTION_VIEW_DELAY : 0;
         setTimeout(() => {
           get().nextPhase();
           releaseAILock(executionId, get, set);
           scheduleAICheck(get);
-        }, view ? AI_ACTION_VIEW_DELAY : 0);
+        }, delay);
       };
 
       switch (decision.type) {

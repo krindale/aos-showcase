@@ -58,7 +58,7 @@ export default function HelpOverlay({
           onClick={onClose}
         >
           <motion.div
-            className="glass-card relative w-full max-w-2xl max-h-[85vh] overflow-y-auto p-6"
+            className="glass-card relative w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden"
             initial={{ scale: 0.94, y: 16, opacity: 0 }}
             animate={{ scale: 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.96, y: 8, opacity: 0 }}
@@ -68,8 +68,8 @@ export default function HelpOverlay({
             aria-modal="true"
             aria-label="게임 도움말"
           >
-            {/* 헤더 */}
-            <div className="flex items-center justify-between mb-4 sticky -top-6 -mx-6 px-6 pt-6 -mt-6 pb-3 bg-background-secondary/95 backdrop-blur-sm border-b border-glass-border z-10">
+            {/* 헤더 (고정) */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-glass-border shrink-0">
               <h2 className="text-xl font-bold text-gradient">게임 도움말</h2>
               <button
                 onClick={onClose}
@@ -80,6 +80,8 @@ export default function HelpOverlay({
               </button>
             </div>
 
+            {/* 본문 (스크롤) */}
+            <div className="overflow-y-auto px-6 py-5">
             {/* 1. 지금 이 단계 */}
             {activePhaseInfo && (
               <section className="mb-6">
@@ -195,6 +197,7 @@ export default function HelpOverlay({
                 </p>
               </div>
             </section>
+            </div>
           </motion.div>
         </motion.div>
       )}

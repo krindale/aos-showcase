@@ -34,6 +34,8 @@ export class GermanyMapProfile extends StandardMapProfile {
   override get engineerHalfCost(): boolean { return true; }
   override get requireCompleteLinks(): boolean { return true; }
   override get bonusCityCubeId(): string | null { return 'berlin'; }
+  // Berlin은 원본 맵 시트에서 회색 헥스 (보너스 규칙과 별개의 시각 표현)
+  override get grayRenderCityId(): string | null { return 'berlin'; }
   // 기본 검은 박스, 단 공식 시트에서 흰 박스인 도시는 예외
   private static readonly WHITE_BOX_IDS = new Set([
     'oldenburg', 'duesseldorf', 'breslau', 'stuttgart', 'zuerich',

@@ -59,6 +59,10 @@ export abstract class MapProfile {
   /** bonusCityCubeId 보너스가 적용되는 마지막 턴. null이면 매 턴 (Germany Berlin).
    *  Southern US: Atlanta는 1~4턴만 (남북전쟁 전 호황) → 4. */
   get bonusCityCubeMaxTurn(): number | null { return null; }
+  /** 회색 헥스로 렌더하는 도시 id (Germany Berlin — 원본 맵 시트의 시각 표현).
+   *  ⚠️ 보너스 규칙(bonusCityCubeId)과 별개의 순수 시각 속성 — 둘을 묶으면
+   *  Southern US Atlanta(보너스만 공유, 빨강 도시)까지 회색이 되는 버그가 난다. */
+  get grayRenderCityId(): string | null { return null; }
 
   /**
    * 도시 헥스 위·아래 주사위 숫자 박스가 검은색(흰 숫자)인지 — 공식 맵 시트 기준 맵별 규칙.

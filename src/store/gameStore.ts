@@ -988,6 +988,20 @@ export const useGameStore = create<GameStore>()(
           }
         }
 
+        // 룰 IV: 방금 건설을 마친 플레이어의 "이번 턴 미연장" 미완성 구간 소유권 해제(공용화).
+        // 룰북 타이밍은 "자신의 건설 턴에 연장 안 하면 제거" — 턴 종료가 아니라 여기서.
+        // (턴 종료의 전체 대상 해제는 안전망으로 유지. 사용자 버그 리포트 2026-07-04)
+        // ⚠️ trackCubes 맵(St.Lucia)은 제외 — 미완성 구간 소유가 수입원(트랙 큐브 보너스)인데
+        //    AI가 이 타이밍에 적응돼 있지 않아 즉시 해제 시 VP +3.8→−21·파산 15/20으로 붕괴
+        //    (20시드 실측). 기존 턴말 해제를 유지하고, AI 연장 전략 적응은 별도 과제.
+        if (!getMapProfile(state.mapId).incomeSources.includes('trackCubes')) {
+          const rel = releaseUnextendedTrack(bwBoard, state.currentTurn, state.currentPlayer);
+          if (rel.released > 0) {
+            bwBoard = rel.board;
+            console.log(`[소유권 해제] ${state.currentPlayer}: 미연장 미완성 트랙 ${rel.released}개 공용화 (룰 IV)`);
+          }
+        }
+
         // 현재 플레이어를 완료 처리 (이미 완료된 경우 중복 마킹 방지)
         const alreadyCompleted = state.phaseState.playerMoves[state.currentPlayer];
         if (alreadyCompleted) {

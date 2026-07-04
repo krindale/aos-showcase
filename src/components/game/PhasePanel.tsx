@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useGameStore, getUndoLabel } from '@/store/gameStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -32,8 +32,10 @@ import TurnOrderOfferPanel from './TurnOrderOfferPanel';
 import { POP_SPRING, useIsFirstRender } from './uiEffects';
 import ConfirmDialog from './ConfirmDialog';
 import { getMapProfile } from '@/maps/getMapProfile';
+import { hasIncompleteNewTracks } from '@/store/helpers/boardRules';
 import GoodsGrowthPanel from './GoodsGrowthPanel';
 import { useNetStore } from '@/net/netStore';
+import { safeTimeout } from '@/utils/safeTimers';
 
 const PHASE_ICONS: Record<GamePhase, React.ReactNode> = {
   issueShares: <FileText size={18} />,
@@ -95,6 +97,16 @@ export default function PhasePanel() {
       s.ui.redirectTrackSelection !== null
   );
 
+  // 독일(완성 링크만): 이번 턴 미완성 신설 트랙이 있으면 넘어갈 때 삭제·환불된다 → 실수로 잃지
+  // 않게 '다음 단계로'를 막고 안내한다 (사람 차례만, boolean 셀렉터라 값이 바뀔 때만 리렌더).
+  const incompleteBlocks = useGameStore(
+    (s) =>
+      s.currentPhase === 'buildTrack' &&
+      getMapProfile(s.mapId).requireCompleteLinks &&
+      !s.players[s.currentPlayer]?.isAI &&
+      hasIncompleteNewTracks(s.board, s.currentTurn, s.currentPlayer)
+  );
+
   // 실행 취소 가능한 확정 행동 수 (주식 발행/행동 선택/트랙 건설 — 단계 전환 전까지)
   const undoCount = useGameStore((s) => s.undoCount);
 
@@ -109,19 +121,52 @@ export default function PhasePanel() {
     netMode === 'offline' || netMySeat === null ? null : activePlayers[netMySeat] ?? null;
   const isMyTurn = myPlayerId === null || myPlayerId === currentPlayer;
   const amIHost = netMode === 'offline' || netMode === 'host';
+  const isGuest = netMode === 'guest';
+
+  // 게스트 취소 요청 대기 표시 — 게스트의 undoLastAction은 호스트로 intent만 보내고
+  // 실제 되돌리기는 호스트 스냅샷이 도착해야 반영된다(로컬 즉시 반영 아님). 호스트가 잠깐
+  // 불통이면 아무 피드백 없이 "안 먹히는" 것처럼 보였다 → 요청 후 대기 상태를 명시한다.
+  const [undoPending, setUndoPending] = useState<'idle' | 'sent' | 'timeout'>('idle');
+  // 호스트 스냅샷으로 undoCount가 바뀌면 취소가 확정된 것 — 대기 해제
+  useEffect(() => { setUndoPending('idle'); }, [undoCount]);
+  // 3.5초 내 반영 안 되면 호스트 미도달로 간주 (재시도 안내).
+  // safeTimeout 사용 — 백그라운드 탭 스로틀 회피 규칙(CLAUDE.md) 준수.
+  useEffect(() => {
+    if (undoPending !== 'sent') return;
+    return safeTimeout(() => setUndoPending('timeout'), 3500);
+  }, [undoPending]);
+
+  const handleUndo = () => {
+    if (isGuest) {
+      // 진단: 게스트가 취소 요청을 실제로 보냈는지 추적 (호스트 onIntent 로그와 대조)
+      console.log('[undo] 게스트 취소 요청 전송', {
+        seat: netMySeat,
+        undoCount,
+        currentPlayer,
+      });
+    }
+    undoLastAction();
+    if (isGuest) setUndoPending('sent'); // 호스트 확정(스냅샷) 대기
+  };
 
   // 실행 취소 버튼 (사람 차례에만, 취소할 행동이 있을 때만)
   const undoButton =
     undoCount > 0 && !players[currentPlayer]?.isAI && isMyTurn ? (
       <button
-        onClick={undoLastAction}
-        disabled={isAIExecuting}
-        className="flex-shrink-0 min-h-[44px] px-3 py-3 md:py-2 rounded-lg text-sm font-medium bg-steam-red/10 text-steam-red border border-steam-red/30 hover:bg-steam-red/20 transition-colors flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+        onClick={handleUndo}
+        disabled={isAIExecuting || undoPending === 'sent'}
+        className={`flex-shrink-0 min-h-[44px] px-3 py-3 md:py-2 rounded-lg text-sm font-medium bg-steam-red/10 text-steam-red border transition-colors flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-steam-red/20 ${
+          undoPending === 'timeout' ? 'border-steam-red/70 ring-1 ring-steam-red/50' : 'border-steam-red/30'
+        }`}
         aria-label="실행 취소"
-        title={`취소: ${getUndoLabel() ?? '마지막 행동'}`}
+        title={
+          undoPending === 'timeout'
+            ? '취소가 아직 반영되지 않았어요 — 다시 눌러 주세요'
+            : `취소: ${getUndoLabel() ?? '마지막 행동'}`
+        }
       >
         <Undo2 className="w-4 h-4" />
-        취소
+        {undoPending === 'sent' ? '취소 중…' : undoPending === 'timeout' ? '다시 취소' : '취소'}
       </button>
     ) : null;
 
@@ -383,11 +428,21 @@ export default function PhasePanel() {
                   </button>
                 )}
                 {undoButton}
+                {incompleteBlocks && (
+                  <div className="p-2 md:p-3 rounded-lg bg-steam-red/10 border border-steam-red/30 text-[11px] md:text-xs text-steam-red flex items-start gap-1.5">
+                    <span className="mt-0.5">⚠️</span>
+                    <span>
+                      완성되지 않은 철도가 있어요. 이대로 넘어가면 <b>삭제됩니다</b> (독일: 완성 링크만 건설).
+                      연결을 완성하거나 <b>취소</b>한 뒤 넘어가세요.
+                    </span>
+                  </div>
+                )}
                 <button
                   onClick={handleNextPhase}
-                  disabled={isAIExecuting}
+                  disabled={isAIExecuting || incompleteBlocks}
                   className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   aria-label="다음 단계로"
+                  title={incompleteBlocks ? '완성되지 않은 철도가 있어 넘어갈 수 없어요' : undefined}
                 >
                   {(() => {
                     // 클릭 후 상태 예측

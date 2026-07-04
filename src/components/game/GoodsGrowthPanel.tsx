@@ -18,6 +18,7 @@ export default function GoodsGrowthPanel() {
     phaseState,
     growGoods,
     nextPhase,
+    goodsGrowthEvent,
   } = useGameStore();
 
   const columns = getMapData(mapId).columnMapping;
@@ -29,6 +30,11 @@ export default function GoodsGrowthPanel() {
 
   const [diceResults, setDiceResults] = useState<number[]>([]);
   const [growthApplied, setGrowthApplied] = useState(false);
+  // 적용(growGoods)은 성장한 큐브를 디스플레이에서 빼므로, 완료 문구를 실시간 재계산하면
+  // 개수가 줄어든다(예: 2개 성장인데 1개만 표시). 적용 직전 결과를 스냅샷으로 잡아 완료 표시에 쓴다.
+  const [appliedResults, setAppliedResults] = useState<
+    { columnId: string; cityName: string; count: number; cubes: CubeColor[] }[]
+  >([]);
 
   // Production 행동을 선택한 플레이어
   const productionPlayer = Object.values(players).find(
@@ -95,6 +101,7 @@ export default function GoodsGrowthPanel() {
   // 물품 성장 적용
   const handleApplyGrowth = () => {
     if (diceResults.length === 0) return;
+    setAppliedResults(growthResults); // 변형 전 결과 스냅샷 (완료 문구용)
     growGoods(diceResults);
     setGrowthApplied(true);
   };
@@ -106,17 +113,48 @@ export default function GoodsGrowthPanel() {
 
   const growthResults = calculateGrowthResults();
 
-  // 게스트: 방장이 진행하는 물품 성장을 스냅샷으로만 관전
+  // 게스트: 방장이 진행하는 물품 성장을 스냅샷으로 관전 — 주사위 결과와 도시별 추가 큐브를 표시
   if (!amIHost) {
     return (
-      <div className="p-4 rounded-lg bg-background/50 border border-foreground/10 text-center">
-        <div className="flex items-center justify-center gap-2 mb-1 text-accent">
+      <div className="p-4 rounded-lg bg-background/50 border border-foreground/10">
+        <div className="flex items-center gap-2 mb-2 text-accent">
           <Sparkles size={18} />
           <span className="font-medium">물품 성장</span>
         </div>
-        <p className="text-xs md:text-sm text-foreground-secondary">
-          방장이 주사위를 굴리는 중입니다...
-        </p>
+        {goodsGrowthEvent ? (
+          <>
+            <p className="text-xs md:text-sm text-foreground-secondary">
+              방장 주사위:{' '}
+              <span className="font-semibold text-foreground">{goodsGrowthEvent.dice.join(', ')}</span>
+            </p>
+            {goodsGrowthEvent.results.length > 0 ? (
+              <ul className="mt-2 space-y-1 text-sm text-foreground">
+                {goodsGrowthEvent.results.map((r, i) => (
+                  <li key={`${r.cityName}-${i}`} className="flex items-center gap-1.5">
+                    <span className="h-1.5 w-1.5 rounded-full bg-positive" />
+                    <span className="font-semibold">{r.cityName}</span>
+                    <span className="font-bold text-foreground">+</span>
+                    <span className="flex items-center gap-1">
+                      {r.cubes.map((cube, j) => (
+                        <span
+                          key={j}
+                          className="inline-block w-3 h-3 rounded-sm border border-white/60"
+                          style={{ backgroundColor: CUBE_COLORS[cube] }}
+                        />
+                      ))}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-xs text-foreground-secondary">이동한 물품이 없습니다.</p>
+            )}
+          </>
+        ) : (
+          <p className="text-xs md:text-sm text-foreground-secondary">
+            방장이 주사위를 굴리는 중입니다...
+          </p>
+        )}
       </div>
     );
   }
@@ -228,9 +266,9 @@ export default function GoodsGrowthPanel() {
             <span className="font-bold">물품 성장 완료!</span>
           </div>
 
-          {growthResults.length > 0 && (
+          {appliedResults.length > 0 && (
             <ul className="mb-3 space-y-1 text-sm text-foreground">
-              {growthResults.map((r, i) => (
+              {appliedResults.map((r, i) => (
                 <li key={`${r.cityName}-${i}`} className="flex items-center gap-1.5">
                   <span className="h-1.5 w-1.5 rounded-full bg-positive" />
                   <span className="font-semibold">{r.cityName}</span>

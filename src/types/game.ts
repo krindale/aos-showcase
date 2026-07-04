@@ -426,6 +426,13 @@ export interface GameState {
    * 다음 턴 수입 수집(collectIncome) 때 초기화된다.
    */
   incomeReductions?: Partial<Record<PlayerId, number>> | null;
+
+  /**
+   * 직전 물품 성장(Phase IX)에서 굴린 주사위와 도시별 추가된 화물 큐브.
+   * 방장이 굴린 결과(어느 도시에 어떤 큐브가 늘었는지)를 게스트에게도 스냅샷으로 보여주기
+   * 위한 1회성 표시 상태. goodsGrowth 진입 시 null로 초기화된다(다음 턴 stale 방지).
+   */
+  goodsGrowthEvent?: { dice: number[]; results: { cityName: string; cubes: CubeColor[] }[] } | null;
 }
 
 /** 대륙횡단 연결 순간을 사람 플레이어에게 알리는 팝업 데이터. */

@@ -1,6 +1,6 @@
 // 보드 룰 순수 헬퍼 — 경계 변·마을 가닥·미완성 트랙 처리 (gameStore 스텝 3a 분리)
 
-import { BoardState, HexCoord, PlayerId, GAME_CONSTANTS } from '@/types/game';
+import { BoardState, HexCoord, PlayerId, TrackTile, GAME_CONSTANTS } from '@/types/game';
 import { hexCoordsEqual, getNeighborHex, getOppositeEdge, isBlockedEdge } from '@/utils/hexGrid';
 import { isTrackPartOfCompletedLink } from '@/utils/trackValidation';
 
@@ -110,15 +110,36 @@ export function releaseUnextendedTrack(
  * 완성 링크(도시/마을↔도시/마을)에 속하지 않는 것을 제거하고 건설 비용을 환불한다.
  * (룰북: "미완성 트랙 구간 건설 불가, 완성된 링크만 건설 가능")
  */
+/**
+ * 이번 턴에 그 플레이어가 새로 깐 트랙 중 완성 링크에 속하지 않는 것(미완성 신설 트랙) 목록.
+ * requireCompleteLinks(독일) 맵에서 단계 전환 시 제거 대상 — 버튼 비활성 판정도 이걸 공유한다.
+ */
+export function getIncompleteNewTracks(
+  board: BoardState,
+  currentTurn: number,
+  playerId: PlayerId
+): TrackTile[] {
+  return board.trackTiles.filter(
+    t => t.owner === playerId && t.builtTurn === currentTurn && !isTrackPartOfCompletedLink(t.coord, board)
+  );
+}
+
+/** 위 목록이 하나라도 있는지 (UI 게이팅용 boolean) */
+export function hasIncompleteNewTracks(
+  board: BoardState,
+  currentTurn: number,
+  playerId: PlayerId
+): boolean {
+  return getIncompleteNewTracks(board, currentTurn, playerId).length > 0;
+}
+
 export function removeIncompleteNewTracks(
   board: BoardState,
   currentTurn: number,
   playerId: PlayerId
 ): { board: BoardState; refund: number } {
   const k = (c: HexCoord) => `${c.col},${c.row}`;
-  const incomplete = board.trackTiles.filter(
-    t => t.owner === playerId && t.builtTurn === currentTurn && !isTrackPartOfCompletedLink(t.coord, board)
-  );
+  const incomplete = getIncompleteNewTracks(board, currentTurn, playerId);
   if (incomplete.length === 0) return { board, refund: 0 };
   const removeKeys = new Set(incomplete.map(t => k(t.coord)));
   let refund = 0;

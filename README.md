@@ -222,8 +222,7 @@ npx vitest run src/store/__tests__/  # 스토어/엔진
 
 | 문서 | 내용 |
 |------|------|
-| [`CLAUDE.md`](CLAUDE.md) | 개발 가이드 (아키텍처·컨벤션·현재 동작) |
-| [`docs/game-rules.md`](docs/game-rules.md) | Age of Steam 룰북 전문 |
+| [`CLAUDE.md`](CLAUDE.md) | 개발 가이드 (아키텍처·컨벤션·현재 동작) + Age of Steam 룰북 전문 |
 | [`docs/ai-system.md`](docs/ai-system.md) | AI 시스템 (의사결정 알고리즘·맵별 구현·밸런싱) |
 | [`docs/hex-geometry.md`](docs/hex-geometry.md) | 헥스 그리드 기하 (엣지 번호·odd-r 공식) |
 | [`docs/online-multiplayer-plan.md`](docs/online-multiplayer-plan.md) | 온라인 멀티 설계·비용·체크리스트 |

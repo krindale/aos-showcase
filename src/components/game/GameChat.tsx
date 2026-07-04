@@ -21,6 +21,8 @@ export default function GameChat() {
   const [input, setInput] = useState('');
   const [seenCount, setSeenCount] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const prevChatLenRef = useRef(chat.length);
 
   useEffect(() => {
     if (open) {
@@ -31,6 +33,35 @@ export default function GameChat() {
       if (list) list.scrollTop = list.scrollHeight;
     }
   }, [open, chat.length]);
+
+  // 채팅창이 닫혀 있을 때 새 메시지 도착 → 짧은 "딩동" 알림음 (사용자 요청).
+  // 외부 오디오 파일 없이 Web Audio로 생성. 닫힌 상태에선 내가 보낼 수 없으므로
+  // 길이 증가 = 상대 메시지. 오토플레이 정책으로 첫 상호작용 전엔 조용히 무시될 수 있음.
+  useEffect(() => {
+    const prev = prevChatLenRef.current;
+    prevChatLenRef.current = chat.length;
+    if (open || chat.length <= prev) return;
+    try {
+      if (!audioCtxRef.current) audioCtxRef.current = new AudioContext();
+      const ctx = audioCtxRef.current;
+      if (ctx.state === 'suspended') void ctx.resume();
+      const t = ctx.currentTime;
+      const gain = ctx.createGain();
+      gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.06, t + 0.01); // 은은한 볼륨
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, t); // A5 → D6 두 음 상승 "딩동"
+      osc.frequency.setValueAtTime(1174.66, t + 0.09);
+      osc.connect(gain);
+      osc.start(t);
+      osc.stop(t + 0.4);
+    } catch {
+      // 오디오 미지원/차단 환경 — 알림음만 생략 (배지는 그대로)
+    }
+  }, [chat.length, open]);
 
   if (mode === 'offline') return null;
 

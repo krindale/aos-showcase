@@ -30,6 +30,8 @@ import {
   isBlockedEdge,
 } from '@/utils/hexGrid';
 import { logAction } from '@/utils/debugConfig';
+import { useToastStore } from '../toastStore';
+import { getBuildBlockReason } from '../helpers/buildReason';
 
 type Set = StoreApi<GameStore>['setState'];
 type Get = StoreApi<GameStore>['getState'];
@@ -291,6 +293,15 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
       const neighbors = getBuildableNeighbors(coord, state.board, currentPlayer, true)
         .filter(n => !isBlockedEdge(state.board, coord, n.coord));
 
+      // 노란 칸이 하나도 안 뜨는 흔한 원인 = 이번 턴 건설 제한 도달. 그 경우만 토스트로 안내
+      // (그 외 "여기 방향 없음"은 다른 곳 클릭하면 되므로 노이즈 방지 차원에서 생략).
+      if (neighbors.length === 0) {
+        const { builtTracksThisTurn: b, maxTracksThisTurn: m } = state.phaseState;
+        if (b >= m) {
+          useToastStore.getState().showToast(`이번 턴 건설 제한에 도달했어요 (${b}/${m})`);
+        }
+      }
+
       // 하이라이트할 헥스 목록
       const highlightedHexes = neighbors.map(n => n.coord);
 
@@ -402,6 +413,10 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
       if (success) {
         // 빌드 모드 초기화
         state.resetBuildMode();
+      } else {
+        // 실패 사유를 토스트로 안내 (대개 현금 부족 — canBuildTrack은 통과했으나 비용 미달).
+        // 이 경로는 사람 클릭(board)에서만 오므로 AI엔 안 뜬다.
+        useToastStore.getState().showToast(getBuildBlockReason(state, targetHex, edges));
       }
 
       return success;

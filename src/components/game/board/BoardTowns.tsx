@@ -183,7 +183,9 @@ export default function BoardTowns({
               );
             })()}
 
-            {/* 마을 위 물품 큐브 (도시화 전에만) — 도시 화물과 동일한 위치·크기·2줄 배치 */}
+            {/* 마을 위 물품 큐브 (도시화 전에만) — 도시 화물과 동일한 위치·크기·2줄 배치.
+                큐브가 헥스 위에 그려져 클릭을 삼키므로, 이동 단계엔 큐브 자체를 선택
+                핸들러로(마을 클릭과 동일 동작), 그 외 단계엔 클릭을 헥스로 통과시킨다. */}
             {!isUrbanized && town.cubes.length > 0 && (
               <g>
                 {town.cubes.map((cubeColor, i) => {
@@ -197,6 +199,8 @@ export default function BoardTowns({
                   // pointy-top(꼭짓점 세로, 서부 US) 맵은 화물을 6px 위로.
                   const cubeY = y + cubeEdge - HEX_SIZE * 0.58 + 4 + row * 15 - (isFlat ? 0 : 6);
                   const cubeSize = cubeRenderSize(cubeColor);
+                  const cubeClickable =
+                    currentPhase === 'moveGoods' && !isMovingCube && town.newCityColor === null;
                   return (
                     <rect
                       key={`town-cube-${town.id}-${i}`}
@@ -208,6 +212,9 @@ export default function BoardTowns({
                       stroke={cubeStrokeColor(cubeColor)}
                       strokeWidth={cubeStrokeWidth(cubeColor)}
                       rx="1"
+                      className={cubeClickable ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}
+                      style={cubeClickable ? undefined : { pointerEvents: 'none' }}
+                      onClick={cubeClickable ? () => selectCube(`town:${town.id}`, i) : undefined}
                     />
                   );
                 })}

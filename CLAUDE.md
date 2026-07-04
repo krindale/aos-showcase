@@ -364,6 +364,14 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
 - **게스트 이동 애니메이션 동기화**(`netMovingCube`, snapshotCodec): `ui.movingCube`를 스냅샷에
   승격해 게스트도 호스트와 같은 화물 이동 애니메이션을 본다. 정산(completeCubeMove)은 호스트 타이머
   전용(게스트는 guestNoop). 이동 시작 스냅샷 도착 시 게스트 로컬 안내(골드 점선/선택/목적지)도 정리.
+- **버튼 조작 권한(UI 게이팅)**: "아무나 눌러도 넘어가는" 혼란을 없애려 화면 버튼을 두 부류로 나눈다.
+  ① **공통 진행/정산 단계**(수입·비용·수입감소·물품성장·턴마커)의 '진행'/'주사위'는 **방장(offline·host)만**
+  — 게스트는 대기 안내(`PhasePanel` `amIHost`, `GoodsGrowthPanel`은 게스트 early-return). ② **개인 결정 단계**
+  (주식·행동선택·건설·이동·경매 입찰)는 **차례 플레이어 좌석만** 버튼 표시(`PhasePanel` `isMyTurn` /
+  `AuctionPanel` `isMyBid`, 아니면 관전 안내). 좌석 판정은 `netStore.mode`/`mySeat`→`activePlayers[mySeat]`
+  (undo 게이팅과 동일 매핑), **오프라인은 `myPlayerId=null`이라 항상 true → 동작 무변경**. 호스트 권위
+  검증(차례/거부)은 그대로라 이건 **혼란 방지용 표시 계층**일 뿐 — 안 걸어도 게임은 정상이나 비차례
+  게스트가 눌러 optimistic 반영 후 호스트가 거부·되돌리는 깜빡임이 생긴다.
 - **⚠️ 새 커밋 액션 추가 시**: gameStore에 게임 상태를 바꾸는 액션을 추가하면
   `intents.ts`의 `INTENT_SPECS`에도 등록해야 온라인에서 동작한다 (게스트가 로컬 실행해버려
   디싱크). 커밋이 로컬 ui 선택값을 읽으면 `captureUi`에 그 필드를 지정 — **can계열 검증이
@@ -456,6 +464,15 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
 
 **7가지 특수 행동**
 - First Move, First Build, Engineer, Locomotive, Urbanization, Production, Turn Order
+
+**Turn Order 특수행동 (효과는 "다음 턴" 경매)**
+- 다른 행동과 달리 phase III에서 고른 turnOrder의 효과는 **다음 턴** phase II(경매)의 무탈락 패스 1회다.
+  `selectedAction`은 턴 롤오버 때 지워지므로 그대로 판정하면 표준 맵에선 패스가 절대 안 뜬다 → `resetPlayerActions`가
+  롤오버 시 "직전 턴에 turnOrder를 골랐는지"를 `PlayerState.turnOrderPassAvailable`로 넘겨받아 다음 턴
+  경매에서 판정한다(사람 `AuctionPanel` `canUseTurnOrderPass` · AI `strategies/auction.ts` 공통).
+- 패스 사용 플래그(`turnOrderPassUsed`) 세팅은 **`skipBid` 액션 내부에서 중앙 처리** — AI·테스트도
+  `skipBid`를 직접 호출하므로 외부(패널/호스트 intent)에서만 세우면 봇이 매 라운드 무한 스킵한다. 롤오버 때
+  `turnOrderPassUsed`도 리셋. St.Lucia(교대 선공권)는 경매/skipBid를 안 써 turnOrderPassAvailable이 무해.
 
 **엔진 업그레이드 (수송 단계, 턴당 1회 — 룰북)**
 - 룰: Move Goods는 2라운드. **두 번의 수송(물품 이동) 기회 중 1번**을 물품 이동 대신 엔진 트랙 1칸

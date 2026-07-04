@@ -123,8 +123,8 @@ function collectAuctionDecision(
   const maxBid = Math.floor(currentCash * 0.3);
   const cashRatio = currentCash > 0 ? currentBid / currentCash : 0;
 
-  // Turn Order 행동을 선택했는지 확인
-  const turnOrderPassAvailable = player?.selectedAction === 'turnOrder';
+  // Turn Order 패스 보유 여부 (직전 턴 turnOrder 선택으로 부여 — selectedAction은 롤오버 때 지워짐)
+  const turnOrderPassAvailable = (player?.turnOrderPassAvailable ?? false) && !player?.turnOrderPassUsed;
 
   let decision: 'bid' | 'pass' | 'skip' | 'complete' = 'pass';
   let bidAmount: number | undefined;

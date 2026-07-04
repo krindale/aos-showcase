@@ -98,17 +98,21 @@ export default function PhasePanel() {
   // 실행 취소 가능한 확정 행동 수 (주식 발행/행동 선택/트랙 건설 — 단계 전환 전까지)
   const undoCount = useGameStore((s) => s.undoCount);
 
-  // 온라인: 취소 버튼은 내 차례에만 (undoCount는 호스트 스냅샷으로 동기화되므로
-  // 상대 차례의 취소 가능 행동까지 내 화면에 버튼이 뜨는 것을 막는다)
+  // 온라인 좌석/역할 판정
+  // - myPlayerId: 내 좌석의 플레이어 (offline이면 null = 단일 조작자)
+  // - isMyTurn: 개인 결정(주식/행동/건설/이동) 버튼 표시 조건 — 내 차례에만
+  // - amIHost: 공통 진행(정산/물품성장/턴마커) 버튼 표시 조건 — 방장(또는 오프라인)만.
+  //   게스트가 공통 버튼을 눌러도 호스트가 거부해 되돌아가 혼란스러웠던 것을 UI에서 차단한다.
   const netMode = useNetStore((s) => s.mode);
   const netMySeat = useNetStore((s) => s.mySeat);
   const myPlayerId =
     netMode === 'offline' || netMySeat === null ? null : activePlayers[netMySeat] ?? null;
-  const undoAllowedForMe = myPlayerId === null || myPlayerId === currentPlayer;
+  const isMyTurn = myPlayerId === null || myPlayerId === currentPlayer;
+  const amIHost = netMode === 'offline' || netMode === 'host';
 
   // 실행 취소 버튼 (사람 차례에만, 취소할 행동이 있을 때만)
   const undoButton =
-    undoCount > 0 && !players[currentPlayer]?.isAI && undoAllowedForMe ? (
+    undoCount > 0 && !players[currentPlayer]?.isAI && isMyTurn ? (
       <button
         onClick={undoLastAction}
         disabled={isAIExecuting}
@@ -123,6 +127,22 @@ export default function PhasePanel() {
 
   const phaseInfo = PHASE_INFO[currentPhase];
   const currentPlayerData = players[currentPlayer];
+
+  // 상대 차례 안내 (개인 결정 단계에서 내 차례가 아닐 때 버튼 대신 표시)
+  const otherTurnNote = (
+    <div className="text-center py-3 md:py-4">
+      <p className="text-xs md:text-sm text-foreground-secondary">
+        <span className="text-accent font-medium">{currentPlayerData.name}</span>님의 차례입니다
+      </p>
+    </div>
+  );
+
+  // 방장 진행 대기 안내 (공통 정산/진행 단계에서 게스트에게 표시)
+  const hostProgressNote = (
+    <div className="text-center py-3 text-xs md:text-sm text-foreground-secondary">
+      방장이 진행하기를 기다리는 중...
+    </div>
+  );
 
   // 이동 건너뛰기 확인 다이얼로그 (window.confirm 대체 — 디자인 시스템 모달)
   const [skipMoveConfirmOpen, setSkipMoveConfirmOpen] = useState(false);
@@ -179,6 +199,8 @@ export default function PhasePanel() {
                   {currentPlayerData.name} (BOT) 주식 발행 중...
                 </div>
               </div>
+            ) : !isMyTurn ? (
+              otherTurnNote
             ) : (
               <div className="flex gap-2">
                 <button
@@ -210,9 +232,13 @@ export default function PhasePanel() {
                   {currentPlayerData.name} (BOT) 행동 선택 중...
                 </div>
               </div>
-            ) : (
+            ) : isMyTurn ? (
               <p className="text-xs md:text-sm text-foreground-secondary mb-2 md:mb-3">
                 <span className="text-accent font-medium">{currentPlayerData.name}</span>, 행동을 선택하세요:
+              </p>
+            ) : (
+              <p className="text-xs md:text-sm text-foreground-secondary mb-2 md:mb-3">
+                <span className="text-accent font-medium">{currentPlayerData.name}</span>님이 행동을 선택하는 중...
               </p>
             )}
             {/* 선택 현황 표시 — 선택되는 순간 그 항목이 플레이어 색으로 팝 (탈락자는 제외) */}
@@ -241,8 +267,8 @@ export default function PhasePanel() {
                 );
               })}
             </div>
-            {/* AI가 아닌 경우에만 행동 선택 버튼 표시 */}
-            {!currentPlayerData.isAI && (
+            {/* 내 차례(오프라인 포함)이고 AI가 아닐 때만 행동 선택 버튼 표시 */}
+            {!currentPlayerData.isAI && isMyTurn && (
               <>
                 <div className="grid grid-cols-1 gap-1.5 md:gap-2">
                   {ACTIONS.map((action) => {
@@ -344,39 +370,45 @@ export default function PhasePanel() {
                 </p>
               )}
             </div>
-            {hasActiveSelection && !currentPlayerData.isAI && (
-              <button
-                onClick={cancelSelection}
-                className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-steam-red/10 text-steam-red border border-steam-red/30 hover:bg-steam-red/20 transition-colors flex items-center justify-center gap-2"
-                aria-label="선택 취소"
-              >
-                <X className="w-4 h-4" />
-                선택 취소
-              </button>
-            )}
-            {undoButton}
-            <button
-              onClick={handleNextPhase}
-              disabled={isAIExecuting}
-              className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              aria-label="다음 단계로"
-            >
-              {(() => {
-                // 클릭 후 상태 예측
-                const updatedMoves = { ...phaseState.playerMoves, [currentPlayer]: true };
-                const willAllBuilt = activePlayers.every(p => updatedMoves[p]);
+            {isMyTurn ? (
+              <>
+                {hasActiveSelection && !currentPlayerData.isAI && (
+                  <button
+                    onClick={cancelSelection}
+                    className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-steam-red/10 text-steam-red border border-steam-red/30 hover:bg-steam-red/20 transition-colors flex items-center justify-center gap-2"
+                    aria-label="선택 취소"
+                  >
+                    <X className="w-4 h-4" />
+                    선택 취소
+                  </button>
+                )}
+                {undoButton}
+                <button
+                  onClick={handleNextPhase}
+                  disabled={isAIExecuting}
+                  className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  aria-label="다음 단계로"
+                >
+                  {(() => {
+                    // 클릭 후 상태 예측
+                    const updatedMoves = { ...phaseState.playerMoves, [currentPlayer]: true };
+                    const willAllBuilt = activePlayers.every(p => updatedMoves[p]);
 
-                if (!willAllBuilt) {
-                  // 아직 건설 안 한 플레이어 찾기
-                  const nextBuilder = activePlayers.find(p => !updatedMoves[p]);
-                  if (nextBuilder) {
-                    return `${players[nextBuilder].name} 건설 차례로`;
-                  }
-                }
-                return '물품 이동 단계로';
-              })()}
-              <ChevronRight className="w-4 h-4" />
-            </button>
+                    if (!willAllBuilt) {
+                      // 아직 건설 안 한 플레이어 찾기
+                      const nextBuilder = activePlayers.find(p => !updatedMoves[p]);
+                      if (nextBuilder) {
+                        return `${players[nextBuilder].name} 건설 차례로`;
+                      }
+                    }
+                    return '물품 이동 단계로';
+                  })()}
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </>
+            ) : (
+              otherTurnNote
+            )}
           </div>
         )}
 
@@ -405,61 +437,67 @@ export default function PhasePanel() {
                 </p>
               )}
             </div>
-            {hasActiveSelection && !currentPlayerData.isAI && (
-              <button
-                onClick={cancelSelection}
-                className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-steam-red/10 text-steam-red border border-steam-red/30 hover:bg-steam-red/20 transition-colors flex items-center justify-center gap-2"
-                aria-label="선택 취소"
-              >
-                <X className="w-4 h-4" />
-                선택 취소
-              </button>
-            )}
-            <button
-              onClick={() => upgradeEngine()}
-              disabled={isAIExecuting || currentPlayerData.engineLevel >= GAME_CONSTANTS.MAX_ENGINE || phaseState.playerMoves[currentPlayer]}
-              className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-background/50 hover:bg-background/70 text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              aria-label="엔진 업그레이드"
-            >
-              엔진 업그레이드 (+1 링크)
-            </button>
-            <button
-              onClick={() => {
-                // 인간 플레이어가 아직 이동하지 않았으면 확인
-                if (!currentPlayerData.isAI && !phaseState.playerMoves[currentPlayer]) {
-                  setSkipMoveConfirmOpen(true);
-                  return;
-                }
-                handleNextPhase();
-              }}
-              disabled={isAIExecuting}
-              className={`w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-                !currentPlayerData.isAI && !phaseState.playerMoves[currentPlayer]
-                  ? 'bg-foreground/10 text-foreground-secondary hover:bg-foreground/20 border border-foreground/20'
-                  : 'bg-accent text-background hover:bg-accent-light'
-              }`}
-              aria-label="다음 단계로"
-            >
-              {(() => {
-                // 인간이 아직 이동 안 했으면 "이동 건너뛰기"
-                if (!currentPlayerData.isAI && !phaseState.playerMoves[currentPlayer]) {
-                  return '이동 건너뛰기';
-                }
-                // 클릭 후 상태 예측
-                const updatedMoves = { ...phaseState.playerMoves, [currentPlayer]: true };
-                const willBothMoved = updatedMoves.player1 && updatedMoves.player2;
+            {isMyTurn ? (
+              <>
+                {hasActiveSelection && !currentPlayerData.isAI && (
+                  <button
+                    onClick={cancelSelection}
+                    className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-steam-red/10 text-steam-red border border-steam-red/30 hover:bg-steam-red/20 transition-colors flex items-center justify-center gap-2"
+                    aria-label="선택 취소"
+                  >
+                    <X className="w-4 h-4" />
+                    선택 취소
+                  </button>
+                )}
+                <button
+                  onClick={() => upgradeEngine()}
+                  disabled={isAIExecuting || currentPlayerData.engineLevel >= GAME_CONSTANTS.MAX_ENGINE || phaseState.playerMoves[currentPlayer]}
+                  className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-background/50 hover:bg-background/70 text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  aria-label="엔진 업그레이드"
+                >
+                  엔진 업그레이드 (+1 링크)
+                </button>
+                <button
+                  onClick={() => {
+                    // 인간 플레이어가 아직 이동하지 않았으면 확인
+                    if (!currentPlayerData.isAI && !phaseState.playerMoves[currentPlayer]) {
+                      setSkipMoveConfirmOpen(true);
+                      return;
+                    }
+                    handleNextPhase();
+                  }}
+                  disabled={isAIExecuting}
+                  className={`w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                    !currentPlayerData.isAI && !phaseState.playerMoves[currentPlayer]
+                      ? 'bg-foreground/10 text-foreground-secondary hover:bg-foreground/20 border border-foreground/20'
+                      : 'bg-accent text-background hover:bg-accent-light'
+                  }`}
+                  aria-label="다음 단계로"
+                >
+                  {(() => {
+                    // 인간이 아직 이동 안 했으면 "이동 건너뛰기"
+                    if (!currentPlayerData.isAI && !phaseState.playerMoves[currentPlayer]) {
+                      return '이동 건너뛰기';
+                    }
+                    // 클릭 후 상태 예측
+                    const updatedMoves = { ...phaseState.playerMoves, [currentPlayer]: true };
+                    const willBothMoved = updatedMoves.player1 && updatedMoves.player2;
 
-                if (!willBothMoved) {
-                  const otherPlayer = currentPlayer === 'player1' ? players.player2.name : players.player1.name;
-                  return `${otherPlayer} 이동 차례로`;
-                }
-                if (phaseState.moveGoodsRound < 2) {
-                  return '라운드 2로';
-                }
-                return '수입 수집 단계로';
-              })()}
-              <ChevronRight className="w-4 h-4" />
-            </button>
+                    if (!willBothMoved) {
+                      const otherPlayer = currentPlayer === 'player1' ? players.player2.name : players.player1.name;
+                      return `${otherPlayer} 이동 차례로`;
+                    }
+                    if (phaseState.moveGoodsRound < 2) {
+                      return '라운드 2로';
+                    }
+                    return '수입 수집 단계로';
+                  })()}
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </>
+            ) : (
+              otherTurnNote
+            )}
           </div>
         )}
 
@@ -479,15 +517,19 @@ export default function PhasePanel() {
                 </div>
               );
             })}
-            <button
-              onClick={handleNextPhase}
-              disabled={isAIExecuting}
-              className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              aria-label="진행"
-            >
-              진행
-              <ChevronRight className="w-4 h-4" />
-            </button>
+            {amIHost ? (
+              <button
+                onClick={handleNextPhase}
+                disabled={isAIExecuting}
+                className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                aria-label="진행"
+              >
+                진행
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            ) : (
+              hostProgressNote
+            )}
           </div>
         )}
 
@@ -530,15 +572,19 @@ export default function PhasePanel() {
                 </div>
               );
             })}
-            <button
-              onClick={handleNextPhase}
-              disabled={isAIExecuting}
-              className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              aria-label="진행"
-            >
-              진행
-              <ChevronRight className="w-4 h-4" />
-            </button>
+            {amIHost ? (
+              <button
+                onClick={handleNextPhase}
+                disabled={isAIExecuting}
+                className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                aria-label="진행"
+              >
+                진행
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            ) : (
+              hostProgressNote
+            )}
           </div>
         )}
 
@@ -548,15 +594,19 @@ export default function PhasePanel() {
             <p className="text-xs md:text-sm text-foreground-secondary">
               이 단계는 자동으로 처리됩니다.
             </p>
-            <button
-              onClick={handleNextPhase}
-              disabled={isAIExecuting}
-              className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              aria-label="진행"
-            >
-              진행
-              <ChevronRight className="w-4 h-4" />
-            </button>
+            {amIHost ? (
+              <button
+                onClick={handleNextPhase}
+                disabled={isAIExecuting}
+                className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                aria-label="진행"
+              >
+                진행
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            ) : (
+              hostProgressNote
+            )}
           </div>
         )}
 

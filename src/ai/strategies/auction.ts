@@ -73,8 +73,9 @@ export function decideAuctionBid(state: GameState, playerId: PlayerId): AuctionD
 
   const currentBid = auction.highestBid;
 
-  // Turn Order 행동: 입찰 상한을 넘어선 경합에서 무료 잔류 패스 사용
-  if (player.selectedAction === 'turnOrder' && !player.turnOrderPassUsed && currentBid >= maxBid) {
+  // Turn Order 패스 보유: 입찰 상한을 넘어선 경합에서 무료 잔류 패스 사용
+  // (권한은 직전 턴 turnOrder 선택으로 부여된 turnOrderPassAvailable — selectedAction은 롤오버 때 지워짐)
+  if (player.turnOrderPassAvailable && !player.turnOrderPassUsed && currentBid >= maxBid) {
     debugLog.preparation(`[Phase II: 경매] ${player.name}: Turn Order 스킵 사용 (현재 $${currentBid} >= 상한 $${maxBid})`);
     return { action: 'skip' };
   }

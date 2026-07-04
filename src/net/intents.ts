@@ -47,7 +47,7 @@ const INTENT_SPECS: Record<string, IntentSpec> = {
   // Phase II 경매/선공권
   placeBid: { playerIdArg: 0, optimistic: true },
   passBid: { playerIdArg: 0, optimistic: true },
-  skipBid: { playerIdArg: 0, optimistic: true }, // 호스트에서 turnOrderPassUsed 플래그도 함께 (AuctionPanel raw setState 재현)
+  skipBid: { playerIdArg: 0, optimistic: true }, // turnOrderPassUsed 플래그는 skipBid 액션 내부에서 세팅
   resolveAuction: { optimistic: true },
   respondTurnOrderOffer: { playerIdArg: 0, optimistic: true },
   // Phase III 행동 선택
@@ -198,15 +198,7 @@ export function applyGameIntent(msg: IntentMessage): { ok: boolean; reason?: str
     return { ok: false, reason: `차례 아님 (${seatPlayer} ≠ ${store.currentPlayer})` };
   }
 
-  // AuctionPanel의 raw setState 재현: Turn Order 패스는 플래그를 먼저 세운다
-  if (msg.type === 'skipBid') {
-    useGameStore.setState((s) => ({
-      players: {
-        ...s.players,
-        [seatPlayer]: { ...s.players[seatPlayer], turnOrderPassUsed: true },
-      },
-    }));
-  }
+  // (Turn Order 패스 사용 플래그는 skipBid 액션 내부에서 세팅 — 여기서 별도 처리 불필요)
 
   // 게스트 로컬 ui 선택값 주입 (placeNewCity의 selectedNewCityTile 등).
   // 주입한 키는 실행 후 호스트 원래 값으로 복원 — 안 하면 거부/완료 후에도 게스트의

@@ -8,6 +8,35 @@
 
 ---
 
+## 2026-07-04 — Turn Order 특수행동 무효 + 온라인 공통 버튼 조작 권한 (PR #22)
+
+### Turn Order 특수행동이 표준 맵에서 사실상 무효
+
+- **증상**: Turn Order 특수행동을 골라도 다음 턴 경매에서 "Turn Order 패스" 버튼이 뜨지 않음(사람·AI 모두).
+- **원인**: 패스 권한을 `player.selectedAction === 'turnOrder'`로만 판정했는데, Turn Order 효과는
+  phase III(행동 선택)에서 골라 **다음 턴** phase II(경매)에 발동한다. 그런데 `selectedAction`은 턴
+  롤오버(`resetPlayerActions`) 때 지워지므로, 경매가 열리는 다음 턴엔 항상 null → `canUseTurnOrderPass`가
+  늘 false. 표준 맵에서 이 액션이 사실상 무효였다(St.Lucia는 경매가 아니라 교대 선공권이라 별도 경로로 동작).
+- **수정**: `PlayerState.turnOrderPassAvailable` 지속 플래그 추가. `resetPlayerActions`가 롤오버 시
+  "직전 턴 selectedAction === 'turnOrder'"로 부여 + `turnOrderPassUsed` 리셋. 사람(`AuctionPanel`)·
+  AI(`strategies/auction.ts`) 판정을 새 플래그로 교체.
+- **부작용 차단**: AI·테스트는 `skipBid`를 직접 호출하는데 `skipBid`가 `turnOrderPassUsed`를 안 세우면
+  `available && !used`가 계속 참이라 **봇이 매 라운드 무한 스킵**. 사용 플래그 세팅을 `skipBid` 액션 내부로
+  **중앙화**하고(사람 패널·호스트 intent의 중복 raw setState 제거), 스냅샷은 `extractSyncedState`가 players를
+  통째로 직렬화해 새 필드 자동 동기화.
+- **측정**: tsc, net/store 유닛 99개, fullGameSimulation 16개, Rust Belt 100시드 베이스라인 통과(다인 맵 거동 게이트 유지).
+
+### 온라인 공통 버튼을 아무나 눌러 넘김(혼란·깜빡임)
+
+- **증상**: 온라인에서 정산·물품성장·턴마커처럼 공통으로 넘기는 버튼을 아무 플레이어나 눌러도 넘어가고,
+  비차례 게스트가 눌러 optimistic 반영 후 호스트가 거부·되돌려 화면이 깜빡임.
+- **수정**: 버튼을 두 부류로 게이팅(동작 규칙은 CLAUDE.md "버튼 조작 권한(UI 게이팅)" 참조). ① 공통 진행/정산
+  단계는 방장(offline·host)만, 게스트는 대기 안내(`PhasePanel` `amIHost`·`GoodsGrowthPanel` early-return).
+  ② 개인 결정 단계(주식·행동·건설·이동·경매 입찰)는 차례 좌석만(`PhasePanel` `isMyTurn`·`AuctionPanel` `isMyBid`).
+  오프라인은 `myPlayerId=null`이라 항상 true → 무변경.
+- **리뷰 발견 수정** (`c1db560`): 초기 커밋은 PhasePanel만 게이팅해 경매(별도 `AuctionPanel`)의
+  입찰/포기/스킵/완료/건너뛰기가 비차례 게스트에게 그대로 노출돼 같은 깜빡임이 남아 있었다 → `isMyBid`로 통일.
+
 ## 2026-07-04 — 온라인에서 봇 전환 후 정산/물품성장 단계 교착 (PR #21)
 
 - **증상**: 온라인 플레이 중 게스트가 연결이 끊겨 봇으로 전환했더니, 호스트 화면에 "봇 차례"로

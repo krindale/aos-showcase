@@ -77,6 +77,7 @@ export function createMockPlayer(
     engineLevel: GAME_CONSTANTS.STARTING_ENGINE,
     issuedShares: GAME_CONSTANTS.STARTING_SHARES,
     selectedAction: null,
+    turnOrderPassAvailable: false,
     turnOrderPassUsed: false,
     eliminated: false,
     isAI: true,

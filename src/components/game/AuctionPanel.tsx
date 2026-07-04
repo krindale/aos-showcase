@@ -3,18 +3,20 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
+import { useNetStore } from '@/net/netStore';
 import { useShallow } from 'zustand/react/shallow';
 import { PLAYER_COLORS } from '@/types/game';
 import { DollarSign, User, Crown, Check, Bot } from 'lucide-react';
 import { POP_SPRING, CROWN_GOLD, CROWN_INK, useIsFirstRender } from './uiEffects';
 
 export default function AuctionPanel() {
-  const { auction, players, playerOrder, currentPlayer } = useGameStore(
+  const { auction, players, playerOrder, currentPlayer, activePlayers } = useGameStore(
     useShallow((state) => ({
       auction: state.auction,
       players: state.players,
       playerOrder: state.playerOrder,
       currentPlayer: state.currentPlayer,
+      activePlayers: state.activePlayers,
     }))
   );
   const { placeBid, passBid, skipBid, resolveAuction, nextPhase } = useGameStore();
@@ -45,6 +47,15 @@ export default function AuctionPanel() {
   // AI 차례엔 사람이 임의로 입찰/포기하지 못하게 컨트롤을 막는다 (AI가 자동 입찰).
   const isAITurn = currentBidderData?.isAI ?? false;
 
+  // 온라인: 입찰 컨트롤은 현재 입찰자 좌석에만 노출 — 내 차례가 아닌 게스트가 눌러도
+  // 호스트가 거부해 되돌아가는 깜빡임을 막는다 (PhasePanel 개인 결정 단계 게이팅과 동일).
+  // 오프라인은 myPlayerId=null → 항상 true라 기존 동작 그대로.
+  const netMode = useNetStore((s) => s.mode);
+  const netMySeat = useNetStore((s) => s.mySeat);
+  const myPlayerId =
+    netMode === 'offline' || netMySeat === null ? null : activePlayers[netMySeat] ?? null;
+  const isMyBid = myPlayerId === null || myPlayerId === currentBidder;
+
   // 경매 종료 조건 확인
   const isAuctionComplete = () => {
     if (!auction) return false;
@@ -54,10 +65,10 @@ export default function AuctionPanel() {
     return activePlayers.length <= 1;
   };
 
-  // Turn Order 패스 사용 가능 여부
+  // Turn Order 패스 사용 가능 여부 (직전 턴 turnOrder 선택으로 부여된 권한 — 이번 경매에 유효)
   const canUseTurnOrderPass = () => {
     const player = players[currentBidder];
-    return player.selectedAction === 'turnOrder' && !player.turnOrderPassUsed;
+    return player.turnOrderPassAvailable && !player.turnOrderPassUsed;
   };
 
   // 입찰 가능 금액 범위
@@ -76,20 +87,8 @@ export default function AuctionPanel() {
     passBid(currentBidder);
   };
 
-  // Turn Order 패스 핸들러 (탈락 없이 패스)
+  // Turn Order 패스 핸들러 (탈락 없이 패스) — 사용 플래그 설정은 skipBid가 중앙에서 처리
   const handleTurnOrderPass = () => {
-    // 1. Turn Order 패스 사용 플래그 설정
-    useGameStore.setState((state) => ({
-      players: {
-        ...state.players,
-        [currentBidder]: {
-          ...state.players[currentBidder],
-          turnOrderPassUsed: true,
-        },
-      },
-    }));
-
-    // 2. skipBid 호출로 다음 입찰자로 진행 (탈락 없음)
     skipBid(currentBidder);
   };
 
@@ -219,7 +218,7 @@ export default function AuctionPanel() {
                     </motion.span>
                   )}
                 </div>
-                {player.selectedAction === 'turnOrder' && (
+                {player.turnOrderPassAvailable && (
                   <div className="mt-1 text-xs text-purple-400">
                     Turn Order {player.turnOrderPassUsed ? '(사용됨)' : '(사용 가능)'}
                   </div>
@@ -267,13 +266,19 @@ export default function AuctionPanel() {
                   </p>
                 )}
               </div>
-              <button
-                onClick={handleCompleteAuction}
-                className="w-full py-3 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2"
-              >
-                <Check size={18} />
-                경매 완료 및 다음 단계
-              </button>
+              {isMyBid ? (
+                <button
+                  onClick={handleCompleteAuction}
+                  className="w-full py-3 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2"
+                >
+                  <Check size={18} />
+                  경매 완료 및 다음 단계
+                </button>
+              ) : (
+                <div className="p-3 rounded-lg bg-background/30 text-center text-sm text-foreground-secondary">
+                  경매 결과를 정리하는 중...
+                </div>
+              )}
             </motion.div>
           ) : (
             /* 입찰 UI */
@@ -305,6 +310,12 @@ export default function AuctionPanel() {
                 <div className="p-3 rounded-lg bg-background/30 text-center text-sm text-foreground-secondary flex items-center justify-center gap-2">
                   <Bot size={16} className="text-blue-400" />
                   {currentBidderData.name} 입찰 중…
+                </div>
+              ) : !isMyBid ? (
+                /* 온라인: 내 입찰 차례가 아님 — 관전 안내 */
+                <div className="p-3 rounded-lg bg-background/30 text-center text-sm text-foreground-secondary flex items-center justify-center gap-2">
+                  <User size={16} style={{ color: playerColor }} />
+                  {currentBidderData.name}님이 입찰 중…
                 </div>
               ) : (
                 <>
@@ -375,8 +386,8 @@ export default function AuctionPanel() {
           )}
         </AnimatePresence>
 
-      {/* 간소화 모드 버튼 (개발용) */}
-      {!auction && (
+      {/* 간소화 모드 버튼 (개발용) — 내 입찰 차례에만 (온라인 비차례 게스트 스킵 방지) */}
+      {!auction && isMyBid && (
         <div className="pt-2 border-t border-foreground/10">
           <button
             onClick={handleSkipAuction}

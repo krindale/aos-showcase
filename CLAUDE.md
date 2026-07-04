@@ -209,8 +209,21 @@ src/
 │       ├── DebugPanel.tsx      # 디버그 패널 UI
 │       ├── TranscontinentalModal.tsx  # 대륙횡단 연결 팝업 (Western US: 보너스 수령자·연속성 해제 안내)
 │       ├── MoveCubeOverlay.tsx # 화물 이동·AI 건설 중 보드 미니맵 (모든 맵, 우측 하단 fit)
+│       ├── PhaseTransition.tsx # 단계 전환 안내 팝업 (마지막 플레이어 행동 확인용, pointer-events-none 순수 안내)
+│       ├── OnlineLobby.tsx     # 온라인 로비/대기실 (방 만들기·코드 입장·좌석·공개방·빠른매칭)
+│       ├── GameChat.tsx        # 게임 중 플로팅 채팅 (보드 우측 하단 sticky, 닫힘 시 알림음)
 │       ├── BottomSheet.tsx     # 모바일용 드래그 바텀 시트 (반응형)
 │       └── CollapsiblePanel.tsx    # 태블릿용 접이식 사이드 패널 (반응형)
+│
+├── net/                        # 온라인 멀티 (Supabase Realtime + 호스트 권위) — gameStore와 단방향(net→store)
+│   ├── types.ts                # 전송 계층 인터페이스 (RoomInfo·IntentMessage·SnapshotMessage·NetTransport)
+│   ├── supabaseTransport.ts    # Supabase 구현 (채널·rooms 테이블·presence·하트비트·방 폐쇄)
+│   ├── snapshotCodec.ts        # 게임 상태 gzip+base64 인코딩 (ui/aiExecution 제외, movingCube 승격)
+│   ├── intents.ts              # 커밋 액션 카탈로그(INTENT_SPECS)+게스트 몽키패치 가드+호스트 검증
+│   ├── netStore.ts             # 세션 오케스트레이션 (호스트 루프·스냅샷 적용·재연결·승계·좌석)
+│   ├── roomLogic.ts            # 좌석 배정·호스트 승계 순수 규칙 (단위 테스트 대상)
+│   ├── index.ts                # 엔트리 (getTransport·getClientId·isNetConfigured)
+│   └── __tests__/              # 코덱/가드/검증/좌석·승계 규칙 27개
 │
 ├── hooks/                      # 반응형 UI 커스텀 훅
 │   ├── useMediaQuery.ts        # 미디어 쿼리 브레이크포인트 감지
@@ -255,6 +268,7 @@ src/
     ├── mapRegistry.ts          # 맵 룰 분리 레지스트리 (MapRuleConfig·columnMapping·boardDisplayScale 등)
     ├── debugConfig.ts          # 디버그 설정 (로그 카테고리 토글 + logAction 종합 액션 로깅)
     ├── pwaUtils.ts             # Service Worker 등록/관리 유틸리티
+    ├── safeTimers.ts           # Web Worker 기반 타이머 (백그라운드 탭 스로틀 회피, Worker 불가 시 setTimeout 폴백)
     └── testHelpers.ts          # 단위 테스트 헬퍼 함수
 
 public/
@@ -266,6 +280,8 @@ public/
 docs/
 ├── ai-strategy.md              # AI 전략 알고리즘 심층 가이드
 ├── ai-auction-baseline-100seed.md  # ★ AI 다인 맵 성능 베이스라인(100시드) — 로직 변경 시 비교 기준(VP·파산·선공/승자 분포)
+├── online-multiplayer-plan.md  # 온라인 멀티 종합 설계·비용·Phase 체크리스트
+├── issue-log.md                # ★ 버그·이슈 수정 이력 (CLAUDE.md는 현재 동작만, 수정 이력은 여기)
 └── presentation-script.md      # 프레젠테이션 스크립트
 ```
 
@@ -336,38 +352,56 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
 - **낙관적 반영(optimistic)**: 게스트 자기 액션은 즉시 로컬 실행(체감 지연 0) + intent 전송,
   호스트 스냅샷이 도착하면 통째로 덮어 확정/교정(거부 시 호스트가 정본 강제 재전송). 로컬 검증이
   false면 전송 생략. `INTENT_SPECS`의 `optimistic` 플래그 — 이동 애니메이션이 얽힌 커밋은 제외.
-- **⚠️ 타이머는 전부 `src/utils/safeTimers.ts`(safeTimeout/safeInterval)**: 크롬은 숨김 탭의
-  setTimeout을 최소 1초로 스로틀 → 봇 진행·스냅샷 전송이 3~4배 느려지거나 멈춘다(실측). Web Worker
-  타이머라 스로틀 없음, vitest/SSR에선 setTimeout 폴백. 봇 행동 간격 ≈1.5초(debounce 150 +
-  `AI_TURN_DELAY` 1350). 넷/게임 진행/이동 정산 타이머 전부 이걸 쓸 것.
-- **마지막 플레이어 확인 딜레이**(`AI_ACTION_VIEW_DELAY` 1200, gameStore): 봇/사람이 **단계의
-  마지막 플레이어** 행동으로 넘어갈 때만 그 결과를 화면에 잠시 보여준 뒤 진행(중간 봇은 즉시).
-  스냅샷 쪽도 `PHASE_CHANGE_HOLD` 1200으로 단계 전환 스냅샷을 홀드해 게스트도 동일하게 본다.
+- **⚠️ 넷·게임 진행·이동 정산 타이머는 전부 `src/utils/safeTimers.ts`(safeTimeout/safeInterval)**:
+  크롬은 숨김 탭의 setTimeout을 최소 1초로 스로틀 → 봇 진행·스냅샷 전송이 느려지거나 멈춘다. Web
+  Worker 타이머라 스로틀 없음(vitest/SSR은 setTimeout 폴백). 봇 행동 간격 ≈1.5초(scheduleAICheck
+  debounce 150 + `AI_TURN_DELAY` 1350). 새 타이머 추가 시 raw setTimeout 쓰지 말 것.
+- **마지막 플레이어 확인 딜레이**(`AI_ACTION_VIEW_DELAY` 1200, gameStore + 스냅샷 `PHASE_CHANGE_HOLD`
+  1200, netStore): 봇/사람이 **단계의 마지막 플레이어** 행동으로 넘어갈 때만 결과를 잠시 보여준 뒤
+  진행(중간 봇은 즉시). 스냅샷 쪽 홀드로 게스트도 동일하게 본다.
 - **게스트 이동 애니메이션 동기화**(`netMovingCube`, snapshotCodec): `ui.movingCube`를 스냅샷에
-  승격해 게스트도 호스트와 같은 화물 이동 애니메이션을 본다(정산은 호스트 타이머 전용, 게스트
-  completeCubeMove는 noop). 이동 시작 스냅샷이 도착하면 게스트 로컬 안내(골드 점선/선택/목적지)도 정리.
+  승격해 게스트도 호스트와 같은 화물 이동 애니메이션을 본다. 정산(completeCubeMove)은 호스트 타이머
+  전용(게스트는 guestNoop). 이동 시작 스냅샷 도착 시 게스트 로컬 안내(골드 점선/선택/목적지)도 정리.
 - **⚠️ 새 커밋 액션 추가 시**: gameStore에 게임 상태를 바꾸는 액션을 추가하면
   `intents.ts`의 `INTENT_SPECS`에도 등록해야 온라인에서 동작한다 (게스트가 로컬 실행해버려
   디싱크). 커밋이 로컬 ui 선택값을 읽으면 `captureUi`에 그 필드를 지정 — **can계열 검증이
-  읽는 ui 필드까지 전부** (placeNewCity가 selectedNewCityTile만 보내고 canPlaceNewCity가
-  요구하는 urbanizationMode를 빠뜨려 "게스트 도시화가 계속 사라지는" 실버그가 났었다:
-  호스트 거부 → 정정 스냅샷이 낙관 배치를 되돌림). 호스트는 주입한 ui 키를 실행 후 원값으로
-  **복원**한다 — 안 하면 거부 후에도 게스트 선택이 호스트 화면에 남는다(코드리뷰 수정).
+  읽는 ui 필드까지 전부**(예: placeNewCity는 selectedNewCityTile뿐 아니라 canPlaceNewCity가
+  요구하는 urbanizationMode까지). 호스트는 주입한 ui 키를 실행 후 원값으로 **복원**한다.
 - **함정 기록**: ① 경매 입찰 차례는 `currentPlayer`가 진실 — `auction.currentBidder`는 갱신
   안 되는 레거시 필드(검증에 쓰면 정상 입찰 거부). ② intent는 멱등성 id로 중복 실행 차단(채널
   재조인 재전송 대비). ③ clientId는 sessionStorage(탭별) — F5 좌석 자동 복원 + 한 PC 두 탭 가능.
   ④ 수송 정산은 호스트 GameBoard의 1000ms `safeTimeout`(completeCubeMove) — 게스트에선 guestNoop.
   ⑤ 호스트 승계 직후(6초 경계) 옛 호스트 복귀 = 이중 호스트 경합 → `onRoom`에서 방 메타의
-  hostClientId가 내가 아니면 게스트로 강등(코드리뷰 수정). ⑥ 채널 구독이 SUBSCRIBED도 에러도
-  못 받으면 입장이 무한 대기 → 15초 타임아웃(코드리뷰 수정).
-- **채팅**(`GameChat.tsx`): 게임 보드 우측 하단 sticky 호버링(보드가 화면보다 길면 뷰포트 하단에
-  따라붙음), 닫혀 있을 때 새 메시지 도착 시 Web Audio로 "딩동" 알림음(외부 파일 없음). 목록
-  스크롤은 컨테이너 내부만 — scrollIntoView는 페이지 전체를 끌어당겨 금지.
+  hostClientId가 내가 아니면 게스트로 강등. ⑥ 채널 구독이 SUBSCRIBED도 에러도 못 받으면 입장이
+  무한 대기 → 15초 타임아웃으로 방지.
+- **채팅**(`GameChat.tsx`): 게임 보드 우측 하단 sticky 호버링, 닫혀 있을 때 새 메시지 도착 시
+  Web Audio "딩동" 알림음(외부 파일 없음). 목록 스크롤은 컨테이너 내부만(scrollIntoView는 페이지
+  전체를 끌어당겨 금지 — 로비 채팅도 동일).
+- **왜 호스트 권위인가**: 전원이 각자 계산하면 조금만 달라져도 디싱크 → 호스트만 계산하고
+  결과를 스냅샷으로 전파해 원천 차단. **랜덤 시드화도 불필요**(랜덤·AI가 호스트에서만 실행).
+  Supabase는 게임 규칙을 모르고 메시지 전달·스냅샷 저장·채팅·방 목록만 한다.
+- **스냅샷 세부**: persist 포맷 재사용하되 **logs 최근 30개만 + gzip 압축**(egress·256KB 한도 대비,
+  압축 후 ~2KB). **rev(단조 증가)** 로 역순 도착 무시. 게스트 적용 시 persist `merge`의 1회성 상태
+  초기화(transcontinentalEvent·incomeReductions·aiExecution)를 재사용해 "옛 모달/배지 부활" 방지.
+- **비용/티어**: 친구 규모(동시 수 판 이하)는 **$0**. Free 티어 동시접속 200·메시지 200만/월·
+  egress 5GB. 유일한 불편은 **1주 미접속 시 프로젝트 자동 정지**(대시보드에서 수동 재개) — 공개
+  서비스로 키우면 Pro $25/월.
+- **보안**: 브라우저에 들어가는 건 URL + anon(publishable) key뿐(공개 전제 키). **Service Role
+  Key는 절대 클라이언트/저장소에 넣지 않는다**(RLS 우회 관리자 키). anon만 쓰면 모든 클라이언트가
+  Supabase 입장에서 동일 익명 사용자라 "참가자/호스트 구분" RLS는 불가 → 시작은 허용형 RLS(방
+  코드를 아는 사람만 찾는 모델, 친구 규모 수용). 강화는 익명 로그인 도입 시(후순위).
+- **알려진 한계(설계상 수용)**: ① 치팅 방어 없음(호스트가 클라이언트 — 친구용) — 필요 시 net만
+  자체 서버로 교체해 서버 권위 승격. ② 게스트로 온라인 플레이 시 로컬 싱글 저장(persist)이 스냅샷에
+  덮임. ③ 공개방 인원 수는 presence 미반영(나간 좌석도 착석 집계 가능). ④ 종료(finished) 방 자동
+  정리 미구현(수동 SQL).
 - **배포**: `.env.local`(로컬) / deploy.yml env(배포)에 NEXT_PUBLIC_SUPABASE_URL·ANON_KEY.
-  anon(publishable) key는 번들 공개 전제, 접근 제어는 RLS(`supabase/setup.sql`).
-  미설정 배포(포크)는 온라인 탭이 자동으로 숨음(`isNetConfigured`).
+  미설정 배포(포크)는 온라인 탭이 자동으로 숨음(`isNetConfigured`). DB 스키마·RLS·grant는
+  `supabase/setup.sql`(Supabase MCP `apply_migration`으로 적용). 공개방 목록은 8초 폴링(+수동
+  새로고침), 대기실 45초 하트비트(touchRoom)로 유령 방 필터(updated_at 2분).
 - **검증**: `npx vitest run src/net/__tests__/` (코덱/가드/검증/좌석·승계 규칙 27개) +
   두 브라우저 탭 E2E(방 생성→입장→시작→건설/수송/경매/도시화 왕복→F5 재접속→호스트 승계).
+- **종합 설계·비용·Phase 체크리스트**: [`docs/online-multiplayer-plan.md`](docs/online-multiplayer-plan.md),
+  **과거 이슈 수정 이력**: [`docs/issue-log.md`](docs/issue-log.md).
 
 ## 반응형 UI & PWA
 
@@ -428,17 +462,15 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
 - ⚠️ persist 주의: 이 필드는 `PhaseState` 필수이나 `upgradeEngine`에서 `?.`(optional)로 읽어 배포 전
   저장본(필드 없음) rehydrate에도 안전. 단 그 저장본의 "진행 중 라운드2"는 1회 재현 가능(다음 턴 정상).
 
-**배달 큐브 주머니 반환 + 생산 기회 보장 (2026-07-03, 실플레이 룰북 버그 수정)**
-- **주머니 반환 (룰북 V)**: "이동 완료 후 큐브는 미사용 물품 주머니로 반환" — `completeCubeMove`가
-  반환 없이 큐브를 소멸시켜 주머니가 게임 진행에 따라 고갈됐다(생산·Berlin 보너스·한국 도시화 보충이
-  어긋남). 일반 배달·마을 큐브·트랙 큐브 모두 `ui.movingCube` → `completeCubeMove` 경로라 이 한 곳에서
-  `goodsDisplay.bag`에 반환. 100시드 영향: Korea +0.7 VP·Germany −0.85(게이트 내), Rust/Western 불변.
-- **생산(Production) 기회 보장 (룰북 IX)**: goodsGrowth 진입 시 `currentPlayer`가 무조건
-  `playerOrder[0]`이라, 생산 선택자가 경매 1등이 아니면 ProductionPanel(= currentPlayer가 선택자일
-  때만 렌더)이 안 떠 **모든 맵에서 생산이 통째로 스킵**됐다(독일 실플레이에서 발견). `nextPhase`의
-  goodsGrowth 진입에서 사람(비AI) 생산 선택자를 currentPlayer로 설정 — goodsGrowth는 AI 스케줄러
-  대상이 아니므로(PLAYER_ACTION_PHASES 제외) AI 선택자는 기존대로 둔다.
+**배달 큐브 주머니 반환 + 생산 기회 보장 (룰북 V·IX)**
+- **주머니 반환 (룰북 V)**: 이동 완료 후 큐브는 `completeCubeMove`가 `goodsDisplay.bag`으로 반환
+  (일반 배달·마을 큐브·트랙 큐브 모두 `ui.movingCube` → `completeCubeMove` 경로라 이 한 곳). ⚠️ 반환을
+  빠뜨리면 주머니가 고갈돼 생산·Berlin 보너스·한국 도시화 보충이 어긋난다.
+- **생산(Production) 기회 보장 (룰북 IX)**: goodsGrowth 진입 시 사람(비AI) 생산 선택자를
+  `currentPlayer`로 설정 — ProductionPanel이 currentPlayer가 선택자일 때만 렌더되기 때문. AI 선택자는
+  기존대로(goodsGrowth는 AI 스케줄러 대상 아님 — PLAYER_ACTION_PHASES 제외).
 - 회귀 테스트: `src/store/__tests__/productionAndBagReturn.test.ts` (5개 맵 × 생산 진입 + 주머니 반환).
+- 이전 버그 이력은 [`docs/issue-log.md`](docs/issue-log.md).
 
 ### 게임 상태 관리 (Zustand)
 
@@ -717,22 +749,25 @@ setAllDebug(true);                   // 모든 로그 on/off
 - **측정** (`germanySimulation.test.ts`, 20시드): VP +14.88, income 11.2, 파산~1명/4, 8턴완주.
   tutorial/St.Lucia/Rust Belt VP 회귀 게이트 보존. 남은 작업: AI 직결 활용·파산률 밸런싱·강 표현 연속성.
 
-**후속 수정/실측 검증 (2026-06-22, 플레이 피드백 반영):**
+**Germany 추가 규칙·동작:**
 - **미완성 링크 금지 강제(엔진)**: AI 첫착공 게이트뿐 아니라, 각 플레이어 트랙 건설 종료(buildTrack
   단계 전환) 시 `removeIncompleteNewTracks`로 이번 턴 신설 미완성 트랙 제거+비용 환불(딸린 마을 가닥도).
   AI·사람 모두 보드에 미완성 트랙이 안 남는다(requireCompleteLinks 맵 한정).
-- **★ 완성 링크 판정 근본 버그 수정(모든 맵)**: `checkConnectionToCity`가 마을을 가닥(spur) 없이
-  닿기만 해도 연결로 오판 → dangling 트랙이 완성으로 잘못 판정됐다. 미도시화 마을은 **진입 변에
-  townSpur가 있을 때만** 연결 인정으로 수정(도시는 모든 변). 회귀 없음(186 테스트 통과).
+- **★ 완성 링크 판정(모든 맵)**: `checkConnectionToCity`는 미도시화 마을을 **진입 변에 townSpur가
+  있을 때만** 연결로 인정한다(도시는 모든 변). ⚠️ 가닥 없이 닿기만 해도 연결로 보면 dangling 트랙이
+  완성으로 오판된다.
 - **Engineer 절반비용**: 평지($2)에 낭비 말고 `cost > PLAIN_TRACK_COST`인 비싼 헥스에 우선 적용.
-- **직결 링크 클릭**: 도시 위 레이어로 + 투명 히트영역(도시 헥스에 클릭 가로채이던 것 수정). `germanyDirectLink.test.ts`.
+- **직결 링크 클릭**: 도시 위 레이어 + 투명 히트영역(도시 헥스가 클릭을 가로채지 않게). `germanyDirectLink.test.ts`.
 - **Berlin 시작 큐브 2개** (룰북 "each other City" = 2) + 매 턴 물품성장 보너스 1개(`bonusCityCubeId`, `growGoods` 안 `[Berlin 보너스]` 로그). `germanyBerlin.test.ts`.
+- **Berlin 회색 렌더**: `MapProfile.grayRenderCityId`(Germany만 'berlin') — 회색 헥스는 **순수 시각
+  속성**으로 보너스 규칙(`bonusCityCubeId`)과 분리한다. 둘을 묶으면 같은 보너스 필드를 쓰는 다른 맵
+  도시(예: Southern US Atlanta, 빨강)까지 회색이 된다.
 - **도시 주사위번호 원본대로**(columnMapping.diceNumber): 화면 표시+물품성장 결정. 1 München·Zürich…6 Königsberg·Breslau.
 - **도시 큰 라벨**: 번호 있으면 번호, 없으면 city.id, 단 터미널/Berlin(풀네임)은 생략(GameBoard 전역).
 - **액션 UI**: 독일 Engineer 설명을 "트랙 1개 절반 비용"으로 표시(engineerHalfCost).
 
-**UI 공통 개선:**
-- **Production 패널**: 전체화면 모달이 물품 디스플레이를 가려 배치 불가하던 것 → 우하단 고정 패널로(디스플레이 직접 클릭).
+**UI 공통 동작:**
+- **Production 패널**: 우하단 고정 패널(디스플레이를 가리지 않고 직접 클릭 — 전체화면 모달 금지).
 - **이동/AI건설 미니 오버레이** (`MoveCubeOverlay`): 세로로 긴 맵(독일/세인트루시아)에서만, 화물 이동·AI 철도건설 중
   전체 맵을 **우측에 작게**(fit) 띄워 진행을 보여줌. 왼쪽 메인 지도는 안 가림. 가로 넓은 맵(Rust Belt 등)은
   종횡비(`calculateBoardDimensions` height>width) 자동 판정으로 끔. GameBoard `fitOverlay` prop(비인터랙티브 fit).
@@ -956,19 +991,6 @@ Age of Steam 확장맵 3 — 한국 (Martin Wallace 2004 / James Mathias 아트 
 - 게임 로그에 `[N/max]` 카운트 병기, 이번 턴 건설 트랙에 흰 점선 링 표시
 - 디버깅: dev 모드에서 브라우저 콘솔 로그를 localhost:3999로 미러링하는 코드가
   GamePageClient에 있음 (수신 서버는 별도 실행 필요 — 없어도 무해, fetch 실패 무시)
-
-#### 미완성 트랙 소유 마커 해제 타이밍 (룰 IV, 2026-07-04)
-
-- 룰북: "미완성 트랙 구간을 자기 턴에 연장 안 하면 소유 디스크가 제거돼 미소유(공용)가 된다."
-  → `releaseUnextendedTrack`(boardRules)이 **각 플레이어의 건설 차례가 끝날 때**(nextPhase의
-  buildTrack 차례 전환) 그 플레이어(ownerId)의 이번 턴 미연장 미완성 구간을 owner null로.
-  턴 종료의 전체 대상 해제는 안전망으로 유지. (기존엔 턴 전체 종료 때만 해제 → 마커가 그 턴
-  내내 남던 것을 룰북 타이밍으로 수정)
-- **구간 단위 판정**: 연결된 같은-소유자 구간에 이번 턴(`builtTurn===currentTurn`) 타일이 하나라도
-  있으면 유지(점진 건설이 매 턴 끊기지 않게). 완성 링크는 영구 소유라 대상 아님.
-- **⚠️ trackCubes 맵(St.Lucia)은 제외**: 미완성 구간 소유 자체가 수입원(트랙 큐브 보너스)인데
-  AI가 이 타이밍에 미적응이라 즉시 해제 시 붕괴(20시드 VP 추가 악화). `incomeSources`에
-  `trackCubes` 있으면 skip. 테스트 `store/__tests__/releaseUnextendedTrack.test.ts`(7케이스).
 
 #### 실행 취소 / 선택 취소 (2026-06-13)
 

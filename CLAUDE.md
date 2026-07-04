@@ -371,6 +371,19 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
   (undo 게이팅과 동일 매핑), **오프라인은 `myPlayerId=null`이라 항상 true → 동작 무변경**. 호스트 권위
   검증(차례/거부)은 그대로라 이건 **혼란 방지용 표시 계층**일 뿐 — 안 걸어도 게임은 정상이나 비차례
   게스트가 눌러 optimistic 반영 후 호스트가 거부·되돌리는 깜빡임이 생긴다.
+- **게스트 취소(undo)는 호스트 왕복 + 팬텀 방지**: `undoLastAction`은 게스트에선 intent만 보내고
+  실제 되돌리기는 호스트 스냅샷이 와야 반영된다(로컬 즉시 반영 아님). `PhasePanel`이 '취소 중…' 대기
+  표시 → 스냅샷으로 `undoCount` 바뀌면 해제, 3.5초 미반영 시 '다시 취소' 안내. ⚠️ `undoCount`는
+  persist/스냅샷 동기화 **상태**지만 취소 스택(`undoSnapshots`)은 호스트 메모리 모듈 싱글턴이라, 전체
+  재로드(F5·모바일 탭 복원 등)·호스트 승계 시 스택은 비고 count만 남아 **팬텀 취소**(눌러도 안 되돌아감)가
+  된다 → persist `merge`·`promoteToHost`에서 `undoCount:0` 리셋(reconnect-as-host는 원래부터 리셋).
+- **정산 단계 "플레이 중" HUD 억제**: 정산 단계(수입·비용·수입감소·턴마커)는 방장이 '진행'으로 넘기는데,
+  보드 HUD가 `currentPlayer`(=playerOrder[0], 게스트일 수 있음)를 "○○ 플레이 중"으로 띄우면 방장은
+  "남 차례네"로 오해해 서로 대기하는 착시가 난다. `GameBoard`는 **사람 currentPlayer인 정산 단계에선
+  HUD를 숨긴다**(봇이면 자동 진행 표시로 유지). `HUD_SUPPRESSED_PHASES` 가드.
+- **물품성장 결과 게스트 동기화**(`goodsGrowthEvent`): 방장이 굴린 주사위와 도시별 추가 큐브를
+  `growGoods`가 `GameState.goodsGrowthEvent`로 남겨 스냅샷 동기화 → 게스트도 `GoodsGrowthPanel`에서
+  동일하게 본다. `goodsGrowth` 진입(`nextPhase`) 시 null 리셋(직전 턴 stale 방지).
 - **⚠️ 새 커밋 액션 추가 시**: gameStore에 게임 상태를 바꾸는 액션을 추가하면
   `intents.ts`의 `INTENT_SPECS`에도 등록해야 온라인에서 동작한다 (게스트가 로컬 실행해버려
   디싱크). 커밋이 로컬 ui 선택값을 읽으면 `captureUi`에 그 필드를 지정 — **can계열 검증이
@@ -563,6 +576,7 @@ AI는 객체 지향 아키텍처(`AIPlayer`/`AIPlayerManager`/`AIDebugger`) + **
 **게임 엔진 메커니즘 (현재 동작)**:
 - **마을 가닥(스퍼) 모델**: 마을 헥스엔 타일 배치 불가 — 원→변 가닥(`buildTownSpur`)으로 연결. 타일 1개=1카운트, 가닥은 그 마을을 이번 턴 처음 변경할 때만 1카운트(가닥 개수 무관). 이동/완성/배달 판정은 가닥 있는 변으로만.
 - **건설 제한**: 턴당 3개(Engineer 4). 모든 건설 경로(buildTrack/복합/방향전환/마을가닥)가 `builtTracksThisTurn` 카운트 검사.
+- **독일 미완성 링크 금지 UI 가드**: 독일(`requireCompleteLinks`)은 완성 링크만 건설 가능 — 이번 턴 미완성 신설 트랙은 단계 전환 시 `removeIncompleteNewTracks`가 삭제·환불한다. 모르고 넘어가 트랙이 사라지는 걸 막으려 `PhasePanel`이 사람 차례 buildTrack에서 미완성 트랙이 있으면(`hasIncompleteNewTracks`) '다음 단계로'를 **비활성 + 경고**한다. 이번 턴 트랙만 대상이라 undo로 해소 가능(교착 없음).
 - **실행/선택 취소**: `undoLastAction`(확정 행동 스냅샷 복원, `nextPhase`마다 초기화·사람 전용) / `cancelSelection`(커밋 전 UI 선택만). 새 커밋 액션 추가 시 검증 통과 직후 `captureUndo(state, label)` + set에 `undoCount` 포함.
 
 **상세 — 의사결정 알고리즘 전문·Phase별 결정·맵별 구현 및 밸런싱 이력·디버깅 시스템·기각 실험 기록**: [docs/ai-system.md](docs/ai-system.md)

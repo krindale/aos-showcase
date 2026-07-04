@@ -34,6 +34,7 @@ import ConfirmDialog from './ConfirmDialog';
 import { getMapProfile } from '@/maps/getMapProfile';
 import GoodsGrowthPanel from './GoodsGrowthPanel';
 import { useNetStore } from '@/net/netStore';
+import { safeTimeout } from '@/utils/safeTimers';
 
 const PHASE_ICONS: Record<GamePhase, React.ReactNode> = {
   issueShares: <FileText size={18} />,
@@ -117,11 +118,11 @@ export default function PhasePanel() {
   const [undoPending, setUndoPending] = useState<'idle' | 'sent' | 'timeout'>('idle');
   // 호스트 스냅샷으로 undoCount가 바뀌면 취소가 확정된 것 — 대기 해제
   useEffect(() => { setUndoPending('idle'); }, [undoCount]);
-  // 3.5초 내 반영 안 되면 호스트 미도달로 간주 (재시도 안내)
+  // 3.5초 내 반영 안 되면 호스트 미도달로 간주 (재시도 안내).
+  // safeTimeout 사용 — 백그라운드 탭 스로틀 회피 규칙(CLAUDE.md) 준수.
   useEffect(() => {
     if (undoPending !== 'sent') return;
-    const t = setTimeout(() => setUndoPending('timeout'), 3500);
-    return () => clearTimeout(t);
+    return safeTimeout(() => setUndoPending('timeout'), 3500);
   }, [undoPending]);
 
   const handleUndo = () => {

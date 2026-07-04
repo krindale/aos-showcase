@@ -32,6 +32,7 @@ import { isValidConnectionPoint as isValidConnectionPointUtil } from '@/utils/tr
 import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId, TerrainType } from '@/types/game';
 import { shadeColor, hexVertex } from './board/boardGeometry';
 import { useNetStore } from '@/net/netStore';
+import { safeTimeout } from '@/utils/safeTimers';
 
 export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean } = {}) {
   // fitOverlay: 화물 이동 애니메이션을 전체 화면에 꽉 차게(fit) 보여주는 비인터랙티브 오버레이 모드
@@ -263,15 +264,17 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
 
   // 큐브 이동 애니메이션 처리 - 1초 후 완료.
   // (오버레이 모드 GameBoard는 표시만 담당 — 메인 GameBoard가 completeCubeMove를 호출하므로 중복 방지)
+  // safeTimeout: 창이 백그라운드여도 스로틀 없이 정산 — 온라인에서 호스트 창이 가려지면
+  // 이동 정산이 멈춰 게임 전체가 서던 문제 방지
   useEffect(() => {
     if (fitOverlay || !ui.movingCube) return;
 
     // 애니메이션 완료 후 처리 (1초)
-    const timeout = setTimeout(() => {
+    const cancel = safeTimeout(() => {
       completeCubeMove();
     }, 1000);
 
-    return () => clearTimeout(timeout);
+    return cancel;
   }, [fitOverlay, ui.movingCube, completeCubeMove]);
 
   // 끊어진 트랙 연결 감지

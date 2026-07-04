@@ -103,9 +103,10 @@ export function getAIDecision(state: GameState, playerId: PlayerId): AIDecision 
 }
 
 /**
- * AI 턴 딜레이 (ms) - 자연스러운 플레이 느낌을 위해
+ * AI 턴 딜레이 (ms) - 자연스러운 플레이 느낌을 위해.
+ * 봇 행동 간 체감 간격 ≈ 스케줄러 debounce(150) + 이 값 → 약 1.5초 (2026-07-04 사용자 확정)
  */
-export const AI_TURN_DELAY = 1000;
+export const AI_TURN_DELAY = 1350;
 
 /**
  * AI 플레이어인지 확인

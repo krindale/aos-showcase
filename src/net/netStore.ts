@@ -29,6 +29,7 @@ import {
 import { assignSeatForClaim, isHostAbsent, pickHostSuccessor } from './roomLogic';
 import { useGameStore } from '@/store/gameStore';
 import { scheduleAICheck } from '@/store/helpers/aiScheduler';
+import { safeInterval, safeTimeout } from '@/utils/safeTimers';
 
 export type NetMode = 'offline' | 'host' | 'guest';
 
@@ -86,25 +87,25 @@ let connection: RoomConnection | null = null;
  */
 let connectionGen = 0;
 let unsubscribeStore: (() => void) | null = null;
-let broadcastTimer: ReturnType<typeof setTimeout> | null = null;
-let takeoverTimer: ReturnType<typeof setTimeout> | null = null;
-let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+// 모든 넷 타이머는 safeTimeout/safeInterval(취소 함수 반환) — 창이 백그라운드로 가려져도
+// 크롬 타이머 스로틀 없이 스냅샷 전송·재연결·하트비트가 계속 돈다
+let broadcastTimer: (() => void) | null = null;
+let takeoverTimer: (() => void) | null = null;
+let disconnectTimer: (() => void) | null = null;
+let reconnectTimer: (() => void) | null = null;
 let reconnectAttempts = 0;
 /** 호스트 대기실 하트비트 — 목록의 유령 방 필터(updated_at 2분) 기준 신호 */
-let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let heartbeatTimer: (() => void) | null = null;
 const HEARTBEAT_INTERVAL = 45_000;
 
 function stopHeartbeat(): void {
-  if (heartbeatTimer !== null) {
-    clearInterval(heartbeatTimer);
-    heartbeatTimer = null;
-  }
+  heartbeatTimer?.();
+  heartbeatTimer = null;
 }
 
 function startWaitingHeartbeat(): void {
   stopHeartbeat();
-  heartbeatTimer = setInterval(() => {
+  heartbeatTimer = safeInterval(() => {
     const conn = connection;
     if (!conn || conn.room.status !== 'waiting') return stopHeartbeat();
     conn.touchRoom().catch((e) => console.warn('[net] 하트비트 실패:', e));
@@ -117,7 +118,7 @@ let lastSyncedJson = '';
 let lastAppliedRev = 0;
 /** 마지막으로 전송한 스냅샷 페이로드 — 5초 keepalive 재전송용 (유실된 게스트 치유) */
 let lastSnapshotPayload: SnapshotMessage | null = null;
-let snapshotKeepaliveTimer: ReturnType<typeof setInterval> | null = null;
+let snapshotKeepaliveTimer: (() => void) | null = null;
 /** 스냅샷 keepalive 주기 (ms) — 채널 출렁임으로 브로드캐스트를 놓친 게스트를 자동 치유 */
 const SNAPSHOT_KEEPALIVE = 5_000;
 
@@ -215,9 +216,9 @@ export const useNetStore = create<NetStore>()((set, get) => {
 
     if (broadcastTimer !== null) {
       if (!phaseChanged) return; // 이미 대기 중 — 그대로 묶어 전송
-      clearTimeout(broadcastTimer); // 단계 전환이 끼었으면 홀드 시간으로 재설정
+      broadcastTimer(); // 단계 전환이 끼었으면 홀드 시간으로 재설정
     }
-    broadcastTimer = setTimeout(() => {
+    broadcastTimer = safeTimeout(() => {
       broadcastTimer = null;
       void broadcastSnapshotNow();
     }, wanted);
@@ -233,7 +234,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
     unsubscribeStore = useGameStore.subscribe(scheduleBroadcast);
     // keepalive: 채널 출렁임으로 브로드캐스트를 놓친 게스트를 위해 최신 스냅샷을 주기 재전송.
     // 이미 최신인 게스트는 rev 가드로 무시(no-op) — 상태가 안 바뀌어도 멈춘 게스트가 5초 내 치유된다
-    snapshotKeepaliveTimer = setInterval(() => {
+    snapshotKeepaliveTimer = safeInterval(() => {
       const conn = connection;
       if (!conn || !lastSnapshotPayload || get().mode !== 'host') return;
       conn.broadcastSnapshot(lastSnapshotPayload).catch(() => {});
@@ -243,14 +244,10 @@ export const useNetStore = create<NetStore>()((set, get) => {
   const stopHostLoop = (): void => {
     unsubscribeStore?.();
     unsubscribeStore = null;
-    if (broadcastTimer !== null) {
-      clearTimeout(broadcastTimer);
-      broadcastTimer = null;
-    }
-    if (snapshotKeepaliveTimer !== null) {
-      clearInterval(snapshotKeepaliveTimer);
-      snapshotKeepaliveTimer = null;
-    }
+    broadcastTimer?.();
+    broadcastTimer = null;
+    snapshotKeepaliveTimer?.();
+    snapshotKeepaliveTimer = null;
   };
 
   // ---- 게스트: 스냅샷 적용 ----
@@ -349,7 +346,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
       set({ connected });
       if (connected) {
         reconnectAttempts = 0;
-        if (reconnectTimer !== null) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+        reconnectTimer?.(); reconnectTimer = null;
         return;
       }
       scheduleReconnect();
@@ -372,7 +369,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
     const name = (mySeat !== null && room.seats[mySeat]?.name) || getLastRoom()?.name || '플레이어';
     reconnectAttempts += 1;
     console.log(`[net] ${RECONNECT_DELAY / 1000}초 후 재연결 시도 (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}): ${code}`);
-    reconnectTimer = setTimeout(async () => {
+    reconnectTimer = safeTimeout(async () => {
       reconnectTimer = null;
       if (get().connected || get().mode === 'offline') return; // 자동 재조인으로 이미 복구됨
       await get().joinRoom(code, name);
@@ -398,19 +395,19 @@ export const useNetStore = create<NetStore>()((set, get) => {
   const checkGuestDisconnect = (): void => {
     const { mode, room, disconnectedSeat } = get();
     if (mode !== 'host' || !room || room.status !== 'playing') {
-      if (disconnectTimer !== null) { clearTimeout(disconnectTimer); disconnectTimer = null; }
+      disconnectTimer?.(); disconnectTimer = null;
       if (disconnectedSeat) set({ disconnectedSeat: null });
       return;
     }
     const offline = findOfflineGuestSeat();
     if (!offline) {
       // 전원 복귀 — 유예 타이머/다이얼로그 해제
-      if (disconnectTimer !== null) { clearTimeout(disconnectTimer); disconnectTimer = null; }
+      disconnectTimer?.(); disconnectTimer = null;
       if (disconnectedSeat) set({ disconnectedSeat: null });
       return;
     }
     if (disconnectedSeat || disconnectTimer !== null) return; // 이미 묻는 중/대기 중
-    disconnectTimer = setTimeout(() => {
+    disconnectTimer = safeTimeout(() => {
       disconnectTimer = null;
       const still = findOfflineGuestSeat();
       if (get().mode === 'host' && still) {
@@ -423,7 +420,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
   // ---- 호스트 승계 (Phase 2) ----
   const cancelTakeover = (): void => {
     if (takeoverTimer !== null) {
-      clearTimeout(takeoverTimer);
+      takeoverTimer();
       takeoverTimer = null;
     }
   };
@@ -436,7 +433,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
     if (pickHostSuccessor(room.seats, presentClientIds) !== getClientId()) return cancelTakeover();
     if (takeoverTimer !== null) return; // 이미 대기 중
     console.log(`[net] 호스트 이탈 감지 — ${HOST_TAKEOVER_DELAY / 1000}초 후 승계 시도`);
-    takeoverTimer = setTimeout(() => {
+    takeoverTimer = safeTimeout(() => {
       takeoverTimer = null;
       void promoteToHost();
     }, HOST_TAKEOVER_DELAY);
@@ -649,7 +646,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
             });
           sendOnce();
           const genAtSend = connectionGen;
-          setTimeout(() => {
+          safeTimeout(() => {
             if (connectionGen === genAtSend && get().mode === 'guest') sendOnce();
           }, 2_500);
         });
@@ -658,7 +655,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
         // 유실 대비 동일 id로 1회 재전송
         const claimId = crypto.randomUUID();
         await conn.sendIntent({ id: claimId, seat: -1, type: 'claimSeat', payload: { name } });
-        setTimeout(() => {
+        safeTimeout(() => {
           if (get().mode === 'guest' && get().mySeat === null) {
             void conn.sendIntent({ id: claimId, seat: -1, type: 'claimSeat', payload: { name } }).catch(() => {});
           }
@@ -696,8 +693,8 @@ export const useNetStore = create<NetStore>()((set, get) => {
       stopHeartbeat();
       cancelTakeover();
       clearLastRoom();
-      if (disconnectTimer !== null) { clearTimeout(disconnectTimer); disconnectTimer = null; }
-      if (reconnectTimer !== null) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      disconnectTimer?.(); disconnectTimer = null;
+      reconnectTimer?.(); reconnectTimer = null;
       reconnectAttempts = 0;
       dismissedDisconnectSeats = new Set();
       const conn = connection;

@@ -48,6 +48,7 @@ import {
   validateExecutionContext,
   scheduleAICheck,
 } from './helpers/aiScheduler';
+import { safeTimeout } from '@/utils/safeTimers';
 // slice 합성 (2026-07-03 스텝 3b~3d 분리 — 로직 무변경, 파일만 이동)
 import { createUiSlice } from './slices/uiSlice';
 import { createAuctionSlice } from './slices/auctionSlice';
@@ -371,8 +372,8 @@ export const useGameStore = create<GameStore>()(
 
     console.log(`[AI] ${player.name} 결정:`, decision);
 
-    // 결정 실행 (약간의 딜레이 후)
-    setTimeout(() => {
+    // 결정 실행 (약간의 딜레이 후) — safeTimeout: 창이 백그라운드여도 스로틀 없이 진행
+    safeTimeout(() => {
       // 컨텍스트 유효성 검증
       if (!validateExecutionContext(capturedContext, get)) {
         console.warn('[AI] 컨텍스트 불일치 - 실행 취소');
@@ -414,7 +415,7 @@ export const useGameStore = create<GameStore>()(
       // 딜레이는 "보여줄 행동이 있고(view) + 이 진행으로 단계가 끝날 때"만 (마지막 플레이어 전용)
       const proceedAfterView = (view: boolean) => {
         const delay = view && endsPhaseNow() ? AI_ACTION_VIEW_DELAY : 0;
-        setTimeout(() => {
+        safeTimeout(() => {
           get().nextPhase();
           releaseAILock(executionId, get, set);
           scheduleAICheck(get);

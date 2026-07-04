@@ -1238,6 +1238,8 @@ export const useGameStore = create<GameStore>()(
       return {
         currentPhase: nextPhaseName,
         currentPlayer: phaseEntryPlayer,
+        // 물품 성장 진입 시 직전 턴 성장 이벤트를 비운다 (게스트가 이전 결과를 stale하게 보지 않도록)
+        ...(nextPhaseName === 'goodsGrowth' ? { goodsGrowthEvent: null } : {}),
         logs: [
           ...state.logs,
           {

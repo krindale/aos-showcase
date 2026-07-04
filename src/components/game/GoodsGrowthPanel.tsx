@@ -18,6 +18,7 @@ export default function GoodsGrowthPanel() {
     phaseState,
     growGoods,
     nextPhase,
+    goodsGrowthEvent,
   } = useGameStore();
 
   const columns = getMapData(mapId).columnMapping;
@@ -112,17 +113,48 @@ export default function GoodsGrowthPanel() {
 
   const growthResults = calculateGrowthResults();
 
-  // 게스트: 방장이 진행하는 물품 성장을 스냅샷으로만 관전
+  // 게스트: 방장이 진행하는 물품 성장을 스냅샷으로 관전 — 주사위 결과와 도시별 추가 큐브를 표시
   if (!amIHost) {
     return (
-      <div className="p-4 rounded-lg bg-background/50 border border-foreground/10 text-center">
-        <div className="flex items-center justify-center gap-2 mb-1 text-accent">
+      <div className="p-4 rounded-lg bg-background/50 border border-foreground/10">
+        <div className="flex items-center gap-2 mb-2 text-accent">
           <Sparkles size={18} />
           <span className="font-medium">물품 성장</span>
         </div>
-        <p className="text-xs md:text-sm text-foreground-secondary">
-          방장이 주사위를 굴리는 중입니다...
-        </p>
+        {goodsGrowthEvent ? (
+          <>
+            <p className="text-xs md:text-sm text-foreground-secondary">
+              방장 주사위:{' '}
+              <span className="font-semibold text-foreground">{goodsGrowthEvent.dice.join(', ')}</span>
+            </p>
+            {goodsGrowthEvent.results.length > 0 ? (
+              <ul className="mt-2 space-y-1 text-sm text-foreground">
+                {goodsGrowthEvent.results.map((r, i) => (
+                  <li key={`${r.cityName}-${i}`} className="flex items-center gap-1.5">
+                    <span className="h-1.5 w-1.5 rounded-full bg-positive" />
+                    <span className="font-semibold">{r.cityName}</span>
+                    <span className="font-bold text-foreground">+</span>
+                    <span className="flex items-center gap-1">
+                      {r.cubes.map((cube, j) => (
+                        <span
+                          key={j}
+                          className="inline-block w-3 h-3 rounded-sm border border-white/60"
+                          style={{ backgroundColor: CUBE_COLORS[cube] }}
+                        />
+                      ))}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-xs text-foreground-secondary">이동한 물품이 없습니다.</p>
+            )}
+          </>
+        ) : (
+          <p className="text-xs md:text-sm text-foreground-secondary">
+            방장이 주사위를 굴리는 중입니다...
+          </p>
+        )}
       </div>
     );
   }

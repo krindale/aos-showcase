@@ -319,5 +319,6 @@ export function createInitialGameState(
     transcontinentalAwarded: false,
     transcontinentalEvent: null,
     incomeReductions: null,
+    goodsGrowthEvent: null,
   };
 }

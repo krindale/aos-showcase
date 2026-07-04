@@ -65,6 +65,9 @@ export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
         // 한국: 평양·수원은 물품 성장 안 받음 (columnMapping에서 이미 제외되지만 방어 가드)
         const noGrowthCityIds = new Set(getMapProfile(state.mapId).noGrowthCityIds);
 
+        // 게스트에게도 보여줄 결과(도시별 추가된 큐브 색) 수집 — goodsGrowthEvent로 스냅샷 동기화
+        const eventResults: { cityName: string; cubes: CubeColor[] }[] = [];
+
         // 주사위 번호 → 그 번호를 공유하는 모든 도시 열에서 각각 count개씩 도시로 이동
         for (const [diceStr, count] of Object.entries(diceCounts)) {
           const cols = colsByDice[Number(diceStr)];
@@ -75,23 +78,24 @@ export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
             if (!city) continue;
 
             // 위에서부터 큐브 가져오기 (자기 색 큐브는 건너뛰고 다음 큐브를 가져옴)
-            let moved = 0;
-            for (let i = 0; i < col.rowCount && moved < count; i++) {
+            const movedCubes: CubeColor[] = [];
+            for (let i = 0; i < col.rowCount && movedCubes.length < count; i++) {
               const slotIdx = col.startIndex + i;
               const cube = newSlots[slotIdx];
               if (cube && (!skipOwnColor || cube !== city.color)) {
                 city.cubes.push(cube);
                 newSlots[slotIdx] = null;
-                moved++;
+                movedCubes.push(cube);
               }
             }
 
-            if (moved > 0) {
+            if (movedCubes.length > 0) {
+              eventResults.push({ cityName: city.name, cubes: movedCubes });
               newLogs.push({
                 turn: state.currentTurn,
                 phase: state.currentPhase,
                 player: state.currentPlayer,
-                action: `물품 성장: ${city.name}에 ${moved}개 추가`,
+                action: `물품 성장: ${city.name}에 ${movedCubes.length}개 추가`,
                 timestamp: Date.now(),
               });
             }
@@ -133,6 +137,8 @@ export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
             ...state.phaseState,
             productionUsed: true,
           },
+          // 방장이 굴린 주사위와 도시별 추가 큐브 — 게스트도 스냅샷으로 동일하게 본다
+          goodsGrowthEvent: { dice: [...diceResults], results: eventResults },
           logs: newLogs,
         };
       });

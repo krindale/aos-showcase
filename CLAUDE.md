@@ -335,7 +335,10 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
   UI: `OnlineLobby.tsx`(로비/대기실) `GameChat.tsx`(플로팅 채팅), GamePageClient 통합.
 - **⚠️ 새 커밋 액션 추가 시**: gameStore에 게임 상태를 바꾸는 액션을 추가하면
   `intents.ts`의 `INTENT_SPECS`에도 등록해야 온라인에서 동작한다 (게스트가 로컬 실행해버려
-  디싱크). 커밋이 로컬 ui 선택값을 읽으면 `captureUi`에 그 필드를 지정.
+  디싱크). 커밋이 로컬 ui 선택값을 읽으면 `captureUi`에 그 필드를 지정 — **can계열 검증이
+  읽는 ui 필드까지 전부** (placeNewCity가 selectedNewCityTile만 보내고 canPlaceNewCity가
+  요구하는 urbanizationMode를 빠뜨려 "게스트 도시화가 계속 사라지는" 실버그가 났었다:
+  호스트 거부 → 정정 스냅샷이 낙관 배치를 되돌림).
 - **함정 기록**: ① 경매 입찰 차례는 `currentPlayer`가 진실 — `auction.currentBidder`는 갱신
   안 되는 레거시 필드(검증에 쓰면 정상 입찰 거부). ② intent는 멱등성 id로 중복 실행 차단(채널
   재조인 재전송 대비). ③ clientId는 sessionStorage(탭별) — F5 좌석 자동 복원 + 한 PC 두 탭 가능.

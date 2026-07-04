@@ -58,7 +58,9 @@ const INTENT_SPECS: Record<string, IntentSpec> = {
   buildTownSpur: { optimistic: true },
   buildDirectLink: { optimistic: true },
   redirectTrack: { optimistic: true },
-  placeNewCity: { captureUi: ['selectedNewCityTile'], optimistic: true },
+  // urbanizationMode도 함께 — canPlaceNewCity가 ui.urbanizationMode를 요구해 빠뜨리면
+  // 호스트가 거부하고 게스트의 낙관 배치가 스냅샷으로 되돌아간다 (2026-07-04 실버그)
+  placeNewCity: { captureUi: ['urbanizationMode', 'selectedNewCityTile'], optimistic: true },
   // Phase V 이동 — 애니메이션 시작이 곧 부분 커밋(보드 큐브 제거)이므로 여기가 경계.
   // 최종 정산(completeCubeMove)은 호스트 GameBoard의 애니메이션 타이머가 실행한다.
   // (낙관 반영 금지 — 게스트의 completeCubeMove는 noop이라 movingCube가 영구히 남는다)

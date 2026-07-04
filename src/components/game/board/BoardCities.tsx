@@ -28,8 +28,6 @@ interface BoardCitiesProps {
   players: Record<PlayerId, PlayerState>;
   currentPhase: GamePhase;
   isFlat: boolean;
-  /** 이름·숫자 라벨을 생략/회색 처리할 보너스 도시 (Berlin) */
-  bonusCityId: string | null;
   /** cityId → 물품 성장 주사위 번호 */
   cityDiceNumber: Record<string, number>;
   /** MapProfile.isCityNumberBoxBlack — 숫자 박스 흑/백 결정 */
@@ -53,7 +51,6 @@ export default function BoardCities({
   players,
   currentPhase,
   isFlat,
-  bonusCityId,
   cityDiceNumber,
   isCityNumberBoxBlack,
   sourceHex,
@@ -162,7 +159,7 @@ export default function BoardCities({
             )}
 
             {/* 라벨: 위·아래 흰/검 숫자 박스(맵별) + 헥스 좌우 끝까지 닿는 이름 띠 (공식 PDF 스타일).
-                외국 터미널은 ✕, Berlin(bonusCityId)은 이름만. */}
+                외국 터미널은 ✕, 주사위 번호 없는 도시(Berlin 등)는 이름만. */}
             {(() => {
               const dice = cityDiceNumber[city.id];
               // 신도시(도시화 타일): id가 타일 letter(A~H), name이 "New City X". 이름은 "NEW CITY",

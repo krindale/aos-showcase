@@ -333,21 +333,41 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
   `snapshotCodec.ts` `intents.ts`(커밋 액션 카탈로그+게스트 몽키패치 가드+호스트 검증)
   `netStore.ts`(세션 오케스트레이션) `roomLogic.ts`(좌석 배정·승계 순수 규칙).
   UI: `OnlineLobby.tsx`(로비/대기실) `GameChat.tsx`(플로팅 채팅), GamePageClient 통합.
+- **낙관적 반영(optimistic)**: 게스트 자기 액션은 즉시 로컬 실행(체감 지연 0) + intent 전송,
+  호스트 스냅샷이 도착하면 통째로 덮어 확정/교정(거부 시 호스트가 정본 강제 재전송). 로컬 검증이
+  false면 전송 생략. `INTENT_SPECS`의 `optimistic` 플래그 — 이동 애니메이션이 얽힌 커밋은 제외.
+- **⚠️ 타이머는 전부 `src/utils/safeTimers.ts`(safeTimeout/safeInterval)**: 크롬은 숨김 탭의
+  setTimeout을 최소 1초로 스로틀 → 봇 진행·스냅샷 전송이 3~4배 느려지거나 멈춘다(실측). Web Worker
+  타이머라 스로틀 없음, vitest/SSR에선 setTimeout 폴백. 봇 행동 간격 ≈1.5초(debounce 150 +
+  `AI_TURN_DELAY` 1350). 넷/게임 진행/이동 정산 타이머 전부 이걸 쓸 것.
+- **마지막 플레이어 확인 딜레이**(`AI_ACTION_VIEW_DELAY` 1200, gameStore): 봇/사람이 **단계의
+  마지막 플레이어** 행동으로 넘어갈 때만 그 결과를 화면에 잠시 보여준 뒤 진행(중간 봇은 즉시).
+  스냅샷 쪽도 `PHASE_CHANGE_HOLD` 1200으로 단계 전환 스냅샷을 홀드해 게스트도 동일하게 본다.
+- **게스트 이동 애니메이션 동기화**(`netMovingCube`, snapshotCodec): `ui.movingCube`를 스냅샷에
+  승격해 게스트도 호스트와 같은 화물 이동 애니메이션을 본다(정산은 호스트 타이머 전용, 게스트
+  completeCubeMove는 noop). 이동 시작 스냅샷이 도착하면 게스트 로컬 안내(골드 점선/선택/목적지)도 정리.
 - **⚠️ 새 커밋 액션 추가 시**: gameStore에 게임 상태를 바꾸는 액션을 추가하면
   `intents.ts`의 `INTENT_SPECS`에도 등록해야 온라인에서 동작한다 (게스트가 로컬 실행해버려
   디싱크). 커밋이 로컬 ui 선택값을 읽으면 `captureUi`에 그 필드를 지정 — **can계열 검증이
   읽는 ui 필드까지 전부** (placeNewCity가 selectedNewCityTile만 보내고 canPlaceNewCity가
   요구하는 urbanizationMode를 빠뜨려 "게스트 도시화가 계속 사라지는" 실버그가 났었다:
-  호스트 거부 → 정정 스냅샷이 낙관 배치를 되돌림).
+  호스트 거부 → 정정 스냅샷이 낙관 배치를 되돌림). 호스트는 주입한 ui 키를 실행 후 원값으로
+  **복원**한다 — 안 하면 거부 후에도 게스트 선택이 호스트 화면에 남는다(코드리뷰 수정).
 - **함정 기록**: ① 경매 입찰 차례는 `currentPlayer`가 진실 — `auction.currentBidder`는 갱신
   안 되는 레거시 필드(검증에 쓰면 정상 입찰 거부). ② intent는 멱등성 id로 중복 실행 차단(채널
   재조인 재전송 대비). ③ clientId는 sessionStorage(탭별) — F5 좌석 자동 복원 + 한 PC 두 탭 가능.
-  ④ 수송 정산은 호스트 GameBoard의 1000ms 타이머(completeCubeMove) — 게스트에선 guestNoop.
+  ④ 수송 정산은 호스트 GameBoard의 1000ms `safeTimeout`(completeCubeMove) — 게스트에선 guestNoop.
+  ⑤ 호스트 승계 직후(6초 경계) 옛 호스트 복귀 = 이중 호스트 경합 → `onRoom`에서 방 메타의
+  hostClientId가 내가 아니면 게스트로 강등(코드리뷰 수정). ⑥ 채널 구독이 SUBSCRIBED도 에러도
+  못 받으면 입장이 무한 대기 → 15초 타임아웃(코드리뷰 수정).
+- **채팅**(`GameChat.tsx`): 게임 보드 우측 하단 sticky 호버링(보드가 화면보다 길면 뷰포트 하단에
+  따라붙음), 닫혀 있을 때 새 메시지 도착 시 Web Audio로 "딩동" 알림음(외부 파일 없음). 목록
+  스크롤은 컨테이너 내부만 — scrollIntoView는 페이지 전체를 끌어당겨 금지.
 - **배포**: `.env.local`(로컬) / deploy.yml env(배포)에 NEXT_PUBLIC_SUPABASE_URL·ANON_KEY.
   anon(publishable) key는 번들 공개 전제, 접근 제어는 RLS(`supabase/setup.sql`).
   미설정 배포(포크)는 온라인 탭이 자동으로 숨음(`isNetConfigured`).
-- **검증**: `npx vitest run src/net/__tests__/` (코덱/가드/검증/좌석·승계 규칙 23개) +
-  두 브라우저 탭 E2E(방 생성→입장→시작→건설/수송/경매 왕복→F5 재접속→호스트 승계).
+- **검증**: `npx vitest run src/net/__tests__/` (코덱/가드/검증/좌석·승계 규칙 27개) +
+  두 브라우저 탭 E2E(방 생성→입장→시작→건설/수송/경매/도시화 왕복→F5 재접속→호스트 승계).
 
 ## 반응형 UI & PWA
 
@@ -894,6 +914,9 @@ Age of Steam 확장맵 3 — 한국 (Martin Wallace 2004 / James Mathias 아트 
     신규 도시 위로 옮김 (다른 맵은 기존대로 제거).
 - **Atlanta 호황**: Germany Berlin의 `bonusCityCubeId` 재사용 + **`bonusCityCubeMaxTurn=4`**
   (1~4턴만 물품 성장마다 주머니에서 1개 — 남북전쟁 전 호황).
+  ⚠️ Atlanta는 빨강 도시인데 초기엔 회색으로 렌더됐다 — Berlin의 회색 헥스 표현이
+  `bonusCityCubeId`에 묶여 있던 탓. **회색 렌더는 `MapProfile.grayRenderCityId`(순수 시각 속성)로
+  분리**(Germany만 'berlin' 반환) — 보너스 규칙과 렌더를 섞으면 안 됨(2026-07-04 수정).
 - **4턴 남북전쟁**: `MapProfile.incomeReductionMultiplier(turn)` — applyIncomeReduction에서
   룰 테이블 감소량에 배수 적용 (Southern: turn===4 → 2배).
 - **도시 초기 큐브**: Atlanta 4 / 항구 3 / 나머지 1 (`cityCubeCounts` — 기본 2를 쓰는 도시가 없어 전부 명시).
@@ -924,6 +947,10 @@ Age of Steam 확장맵 3 — 한국 (Martin Wallace 2004 / James Mathias 아트 
 - 도시화 시 해당 마을의 가닥 제거 (도시는 모든 변 연결)
 - **도시화된 마을(`town.newCityColor !== null`)은 모든 마을 판정에서 제외** — towns 배열에
   남아 있으므로 `t.newCityColor === null` 조건 필수 (빠뜨리면 도시 연결에 가닥을 요구하는 버그)
+- **마을 위 화물 큐브 클릭(이동 단계)**: townCubes 맵(Western/Southern)에서 마을 큐브는 마을 헥스
+  위에 그려져 클릭을 삼킨다 → 이동 단계엔 `BoardTowns`가 큐브 rect 자체에 선택 핸들러(`selectCube`의
+  `town:<id>` 컨벤션, 해당 index)를 달고, 그 외 단계엔 `pointer-events:none`으로 헥스에 클릭을
+  통과시킨다 (안 그러면 큐브를 피해 마을 원을 눌러야만 수송 선택됐다, 2026-07-04 수정).
 - 핵심 테스트: `src/store/__tests__/townHubModel.test.ts` (15 케이스 — 가닥 카운트/첫 트랙 도시 앵커),
   `buildLimitByLog.test.ts` (게임 로그 기반 턴당 건설 제한 검증 — St. Lucia 1턴 도시화 선점자만 건설)
 
@@ -936,6 +963,19 @@ Age of Steam 확장맵 3 — 한국 (Martin Wallace 2004 / James Mathias 아트 
 - 게임 로그에 `[N/max]` 카운트 병기, 이번 턴 건설 트랙에 흰 점선 링 표시
 - 디버깅: dev 모드에서 브라우저 콘솔 로그를 localhost:3999로 미러링하는 코드가
   GamePageClient에 있음 (수신 서버는 별도 실행 필요 — 없어도 무해, fetch 실패 무시)
+
+#### 미완성 트랙 소유 마커 해제 타이밍 (룰 IV, 2026-07-04)
+
+- 룰북: "미완성 트랙 구간을 자기 턴에 연장 안 하면 소유 디스크가 제거돼 미소유(공용)가 된다."
+  → `releaseUnextendedTrack`(boardRules)이 **각 플레이어의 건설 차례가 끝날 때**(nextPhase의
+  buildTrack 차례 전환) 그 플레이어(ownerId)의 이번 턴 미연장 미완성 구간을 owner null로.
+  턴 종료의 전체 대상 해제는 안전망으로 유지. (기존엔 턴 전체 종료 때만 해제 → 마커가 그 턴
+  내내 남던 것을 룰북 타이밍으로 수정)
+- **구간 단위 판정**: 연결된 같은-소유자 구간에 이번 턴(`builtTurn===currentTurn`) 타일이 하나라도
+  있으면 유지(점진 건설이 매 턴 끊기지 않게). 완성 링크는 영구 소유라 대상 아님.
+- **⚠️ trackCubes 맵(St.Lucia)은 제외**: 미완성 구간 소유 자체가 수입원(트랙 큐브 보너스)인데
+  AI가 이 타이밍에 미적응이라 즉시 해제 시 붕괴(20시드 VP 추가 악화). `incomeSources`에
+  `trackCubes` 있으면 skip. 테스트 `store/__tests__/releaseUnextendedTrack.test.ts`(7케이스).
 
 #### 실행 취소 / 선택 취소 (2026-06-13)
 

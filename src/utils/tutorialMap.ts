@@ -105,8 +105,9 @@ export function getColumnCityInfo(columnId: GoodsColumnId): GoodsColumnMapping |
   return TUTORIAL_COLUMN_MAPPING.find(m => m.columnId === columnId);
 }
 
-// === 호수 타일 ===
-export const TUTORIAL_LAKE_TILES: { col: number; row: number }[] = [
+// === 산 타일 ===
+// 우측 열(col 5)은 원래 호수(건설 불가)였으나 산($4, 건설 가능)으로 변경 (2026-07-04 사용자 요청)
+export const TUTORIAL_MOUNTAIN_TILES: { col: number; row: number }[] = [
   { col: 5, row: 0 },
   { col: 5, row: 1 },
   { col: 5, row: 2 },
@@ -119,8 +120,8 @@ export function generateTutorialHexTiles(): HexTile[] {
 
   for (let row = 0; row < TUTORIAL_MAP.rows; row++) {
     for (let col = TUTORIAL_MAP.startCol; col < TUTORIAL_MAP.cols; col++) {
-      // 호수인지 확인
-      const isLake = TUTORIAL_LAKE_TILES.some(
+      // 산인지 확인
+      const isMountain = TUTORIAL_MOUNTAIN_TILES.some(
         (l) => l.col === col && l.row === row
       );
 
@@ -132,7 +133,7 @@ export function generateTutorialHexTiles(): HexTile[] {
       if (!isCity) {
         tiles.push({
           coord: { col, row },
-          terrain: isLake ? 'lake' : 'plain',
+          terrain: isMountain ? 'mountain' : 'plain',
         });
       }
     }
@@ -241,14 +242,9 @@ export const TUTORIAL_COLORS = {
 
 // === 유효한 헥스인지 확인 ===
 export function isValidHex(col: number, row: number): boolean {
-  // 범위 체크
+  // 범위 체크 (산은 건설 가능 지형이라 제외하지 않는다)
   if (col < TUTORIAL_MAP.startCol || col >= TUTORIAL_MAP.cols) return false;
   if (row < 0 || row >= TUTORIAL_MAP.rows) return false;
-
-  // 호수 체크
-  if (TUTORIAL_LAKE_TILES.some((l) => l.col === col && l.row === row)) {
-    return false;
-  }
 
   return true;
 }

@@ -48,6 +48,7 @@ import {
   validateExecutionContext,
   scheduleAICheck,
 } from './helpers/aiScheduler';
+import { safeTimeout } from '@/utils/safeTimers';
 // slice 합성 (2026-07-03 스텝 3b~3d 분리 — 로직 무변경, 파일만 이동)
 import { createUiSlice } from './slices/uiSlice';
 import { createAuctionSlice } from './slices/auctionSlice';
@@ -60,6 +61,14 @@ import { createSettlementSlice } from './slices/settlementSlice';
 export { getUndoLabel } from './helpers/undo';
 export { createInitialGameState, TUTORIAL_GAME_CONFIG } from './helpers/setup';
 export type { AIPlayerConfig } from './helpers/setup';
+
+/**
+ * AI 행동 결과 확인 딜레이 (ms) — 봇이 행동한 뒤 바로 다음 플레이어/단계로 넘어가면
+ * "마지막 플레이어가 뭘 했는지" 볼 수 없다는 피드백(2026-07-04)으로, 행동이 화면에 머문 뒤
+ * 진행한다. 시뮬/테스트(VITEST)에선 0 — 게임 로직·베이스라인에 영향 없음.
+ */
+const AI_ACTION_VIEW_DELAY =
+  typeof process !== 'undefined' && process.env?.VITEST ? 0 : 1200;
 
 
 // ============================================================
@@ -363,8 +372,8 @@ export const useGameStore = create<GameStore>()(
 
     console.log(`[AI] ${player.name} 결정:`, decision);
 
-    // 결정 실행 (약간의 딜레이 후)
-    setTimeout(() => {
+    // 결정 실행 (약간의 딜레이 후) — safeTimeout: 창이 백그라운드여도 스로틀 없이 진행
+    safeTimeout(() => {
       // 컨텍스트 유효성 검증
       if (!validateExecutionContext(capturedContext, get)) {
         console.warn('[AI] 컨텍스트 불일치 - 실행 취소');
@@ -374,6 +383,45 @@ export const useGameStore = create<GameStore>()(
 
       const store = get();
 
+      // 이 진행(nextPhase)으로 "단계가 끝나는지" 판정 — 마지막 플레이어일 때만 확인 딜레이.
+      // 그 외(단계 내 다음 플레이어로 넘어가는 경우)는 봇 속도 기존 그대로 즉시 진행.
+      const endsPhaseNow = (): boolean => {
+        const s = get();
+        const alive = s.playerOrder.filter((p) => !s.players[p]?.eliminated);
+        const withPriority = (priority: PlayerId | undefined) =>
+          priority && alive.includes(priority)
+            ? [priority, ...alive.filter((p) => p !== priority)]
+            : alive;
+        switch (s.currentPhase) {
+          case 'issueShares':
+            return isLastPlayer(s.currentPlayer, alive);
+          case 'determinePlayerOrder':
+            return true; // 경매 완료 처리 = 항상 단계 종료
+          case 'selectActions':
+            return allPlayersSelectedAction(s.players, s.activePlayers.filter((p) => !s.players[p]?.eliminated));
+          case 'buildTrack':
+            return isLastPlayer(s.currentPlayer, withPriority(findFirstBuildPlayer(s.players, s.activePlayers)));
+          case 'moveGoods':
+            return (
+              s.phaseState.moveGoodsRound >= 2 &&
+              isLastPlayer(s.currentPlayer, withPriority(findFirstMovePlayer(s.players, s.activePlayers)))
+            );
+          default:
+            return false;
+        }
+      };
+
+      // 행동 결과를 화면에 잠시 보여준 뒤 진행 — 락은 유지한 채 대기해 중복 실행 방지.
+      // 딜레이는 "보여줄 행동이 있고(view) + 이 진행으로 단계가 끝날 때"만 (마지막 플레이어 전용)
+      const proceedAfterView = (view: boolean) => {
+        const delay = view && endsPhaseNow() ? AI_ACTION_VIEW_DELAY : 0;
+        safeTimeout(() => {
+          get().nextPhase();
+          releaseAILock(executionId, get, set);
+          scheduleAICheck(get);
+        }, delay);
+      };
+
       switch (decision.type) {
         case 'issueShares': {
           const beforeCash = store.players[capturedContext.currentPlayer]?.cash;
@@ -382,8 +430,8 @@ export const useGameStore = create<GameStore>()(
           }
           const afterCash = get().players[capturedContext.currentPlayer]?.cash;
           console.log(`[AI 주식발행] ${player.name}: ${decision.amount}주 발행, 현금 $${beforeCash} → $${afterCash}, shares=${get().players[capturedContext.currentPlayer]?.issuedShares}`);
-          store.nextPhase();
-          break;
+          proceedAfterView(decision.amount > 0);
+          return;
         }
 
         case 'auction': {
@@ -395,12 +443,10 @@ export const useGameStore = create<GameStore>()(
           } else if (auctionDecision.action === 'skip') {
             store.skipBid(capturedContext.currentPlayer);
           } else if (auctionDecision.action === 'complete') {
-            // 경매 완료 - 혼자 남았을 때
+            // 경매 완료 - 혼자 남았을 때 (결과 도장을 잠시 보여준 뒤 진행)
             console.log('[AI 경매] 경매 완료 처리');
             store.resolveAuction();
-            store.nextPhase();
-            releaseAILock(executionId, get, set);
-            scheduleAICheck(get);
+            proceedAfterView(true);
             return;
           }
           // 경매: 락 해제 후 다음 AI 체크 스케줄링
@@ -438,8 +484,8 @@ export const useGameStore = create<GameStore>()(
           const cashBeforeAction = store.players[capturedContext.currentPlayer]?.cash;
           console.log(`[AI 액션선택] ${player.name}: ${decision.action} 선택, 현금 $${cashBeforeAction}, shares=${store.players[capturedContext.currentPlayer]?.issuedShares}`);
           store.selectAction(capturedContext.currentPlayer, decision.action);
-          store.nextPhase();
-          break;
+          proceedAfterView(true);
+          return;
         }
 
         case 'buildTrack': {
@@ -522,8 +568,9 @@ export const useGameStore = create<GameStore>()(
             }
           }
           // 더 이상 건설 불가하거나 skip이면 다음 플레이어로 전환
-          store.nextPhase();
-          break;
+          // (마지막 건설 타일을 잠시 보여준 뒤 — skip이면 보여줄 게 없어 즉시)
+          proceedAfterView(buildDecision.action !== 'skip');
+          return;
         }
 
         case 'moveGoods': {
@@ -548,23 +595,19 @@ export const useGameStore = create<GameStore>()(
           } else if (moveDecision.action === 'upgradeEngine') {
             // 중요: captured currentPlayer를 사용 (레이스 컨디션 방지)
             store.upgradeEngine(capturedContext.currentPlayer);
-            store.nextPhase();
+            proceedAfterView(true);
           } else {
-            // skip
-            store.nextPhase();
+            // skip — 보여줄 행동 없음, 즉시 진행
+            proceedAfterView(false);
           }
-          break;
+          return;
         }
 
         case 'skip':
         default:
-          store.nextPhase();
-          break;
+          proceedAfterView(false);
+          return;
       }
-
-      // 락 해제 및 다음 AI 체크 스케줄링
-      releaseAILock(executionId, get, set);
-      scheduleAICheck(get);
     }, AI_TURN_DELAY);
   },
 
@@ -942,6 +985,20 @@ export const useGameStore = create<GameStore>()(
             const p = state.players[state.currentPlayer];
             bwPlayers = { ...state.players, [state.currentPlayer]: { ...p, cash: p.cash + r.refund } };
             console.log(`[미완성 제거] ${state.currentPlayer}: 미완성 신설 트랙 제거, $${r.refund} 환불 (Germany 미완성 링크 금지)`);
+          }
+        }
+
+        // 룰 IV: 방금 건설을 마친 플레이어의 "이번 턴 미연장" 미완성 구간 소유권 해제(공용화).
+        // 룰북 타이밍은 "자신의 건설 턴에 연장 안 하면 제거" — 턴 종료가 아니라 여기서.
+        // (턴 종료의 전체 대상 해제는 안전망으로 유지. 사용자 버그 리포트 2026-07-04)
+        // ⚠️ trackCubes 맵(St.Lucia)은 제외 — 미완성 구간 소유가 수입원(트랙 큐브 보너스)인데
+        //    AI가 이 타이밍에 적응돼 있지 않아 즉시 해제 시 VP +3.8→−21·파산 15/20으로 붕괴
+        //    (20시드 실측). 기존 턴말 해제를 유지하고, AI 연장 전략 적응은 별도 과제.
+        if (!getMapProfile(state.mapId).incomeSources.includes('trackCubes')) {
+          const rel = releaseUnextendedTrack(bwBoard, state.currentTurn, state.currentPlayer);
+          if (rel.released > 0) {
+            bwBoard = rel.board;
+            console.log(`[소유권 해제] ${state.currentPlayer}: 미연장 미완성 트랙 ${rel.released}개 공용화 (룰 IV)`);
           }
         }
 

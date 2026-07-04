@@ -25,7 +25,7 @@ export default function MoveCubeOverlay() {
   const showForMove = !!movingCube;
   const showForBuild = currentPhase === 'buildTrack' && isAITurn;
   const show = showForMove || showForBuild;
-  const label = showForMove ? '🚂 물품 이동 중…' : '🛤️ AI 철도 건설 중…';
+  const label = showForMove ? '🚂 물품 이동 중…' : '🛤️ BOT 철도 건설 중…';
 
   return (
     <AnimatePresence>

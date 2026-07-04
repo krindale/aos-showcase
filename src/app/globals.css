@@ -33,7 +33,7 @@ html {
 
 body {
   font-family: var(--font-body);
-  background-color: #f7f5f0;
+  background-color: #efece4; /* 2026-07-04 한 톤 진하게 — 흰빛 눈부심 완화 (구 #f7f5f0) */
   color: #1c1b18;
   overflow-x: hidden;
   line-height: 1.6;
@@ -46,7 +46,7 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #f7f5f0;
+  background: #efece4;
 }
 
 ::-webkit-scrollbar-thumb {
@@ -73,12 +73,12 @@ body {
 
   /* 페이퍼 카드 (구 글래스모피즘 대체 — 클래스명 유지) */
   .glass {
-    background: rgba(255, 255, 255, 0.7);
+    background: rgba(250, 248, 243, 0.7);
     border: 1px solid #e6e1d6;
   }
 
   .glass-card {
-    background: #ffffff;
+    background: #faf8f3;
     border: 1px solid #ebe6dc;
     border-radius: 1.125rem;
     box-shadow: 0 1px 2px rgba(28, 27, 24, 0.04), 0 14px 34px -18px rgba(28, 27, 24, 0.16);
@@ -96,7 +96,7 @@ body {
 
 /* Paper Panel (구 glass-panel — 클래스명 유지) */
 .glass-panel {
-  background: #ffffff;
+  background: #faf8f3;
   border: 1px solid #ebe6dc;
   box-shadow: 0 1px 2px rgba(28, 27, 24, 0.04), 0 18px 40px -22px rgba(28, 27, 24, 0.22);
 }
@@ -131,7 +131,7 @@ body {
   font-size: 16px;
   border: 1px solid #ddd6c8;
   color: #1c1b18;
-  background: #ffffff;
+  background: #faf8f3;
   transition: all 0.25s ease;
   cursor: pointer;
 }

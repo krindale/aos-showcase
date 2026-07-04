@@ -47,8 +47,8 @@ const maps: MapEntry[] = [
     name: 'Tutorial',
     nameKo: '튜토리얼',
     diff: '입문',
-    image: null,
-    description: '규칙을 익히기 위한 2인 학습용 맵. AI와 함께 주식·경매·건설·배송의 한 사이클을 처음부터 끝까지 체험합니다.',
+    image: '/maps/tutorial.webp',
+    description: '규칙을 익히기 위한 2인 학습용 맵. BOT과 함께 주식·경매·건설·배송의 한 사이클을 처음부터 끝까지 체험합니다.',
     playable: true,
     fallbackRules: [
       { detail: '2인 학습용 — 룰북 기본 규칙 그대로 짧게 진행합니다.' },

@@ -29,8 +29,10 @@ import {
 import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { isValidConnectionPoint as isValidConnectionPointUtil } from '@/utils/trackValidation';
-import { CITY_COLORS, CUBE_COLORS, HexCoord, PlayerId, TerrainType } from '@/types/game';
+import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId, TerrainType } from '@/types/game';
 import { shadeColor, hexVertex } from './board/boardGeometry';
+import { useNetStore } from '@/net/netStore';
+import { safeTimeout } from '@/utils/safeTimers';
 
 export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean } = {}) {
   // fitOverlay: 화물 이동 애니메이션을 전체 화면에 꽉 차게(fit) 보여주는 비인터랙티브 오버레이 모드
@@ -56,8 +58,9 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   const currentTurn = useGameStore((state) => state.currentTurn);
   // 맵 데이터(그리드 크기/지형 색): mapRegistry에서 주입 — 튜토리얼 하드코딩 금지
   const mapData = useMemo(() => getMapData(mapId), [mapId]);
-  // 큰 라벨을 생략할 도시(물품성장 안 받는 외국 터미널·Berlin 보너스 도시) — id 풀네임 노출 방지
-  const bonusCityId = useMemo(() => getMapProfile(mapId).bonusCityCubeId, [mapId]);
+  // 회색 헥스로 그리는 도시(Germany Berlin — 원본 시트 시각 표현). 보너스 규칙(bonusCityCubeId)과
+  // 별개 — 묶으면 Southern US Atlanta(빨강, 보너스만 공유)가 회색이 되는 버그 (실제 겪음)
+  const bonusCityId = useMemo(() => getMapProfile(mapId).grayRenderCityId, [mapId]);
   const mapProfile = useMemo(() => getMapProfile(mapId), [mapId]);
   const terrainColors = mapData.colors.terrain;
   // 산악 헥스: 바깥 밝은 갈색 테두리 + 안쪽 진한 갈색 (모든 맵 공통, 등고선 없음)
@@ -262,15 +265,17 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
 
   // 큐브 이동 애니메이션 처리 - 1초 후 완료.
   // (오버레이 모드 GameBoard는 표시만 담당 — 메인 GameBoard가 completeCubeMove를 호출하므로 중복 방지)
+  // safeTimeout: 창이 백그라운드여도 스로틀 없이 정산 — 온라인에서 호스트 창이 가려지면
+  // 이동 정산이 멈춰 게임 전체가 서던 문제 방지
   useEffect(() => {
     if (fitOverlay || !ui.movingCube) return;
 
     // 애니메이션 완료 후 처리 (1초)
-    const timeout = setTimeout(() => {
+    const cancel = safeTimeout(() => {
       completeCubeMove();
     }, 1000);
 
-    return () => clearTimeout(timeout);
+    return cancel;
   }, [fitOverlay, ui.movingCube, completeCubeMove]);
 
   // 끊어진 트랙 연결 감지
@@ -540,14 +545,28 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     return !isCity && !isTown;
   };
 
+  // 보드 위 호버링 HUD (사용자 요청 2026-07-04): 스크롤해도 보이는 현재 플레이어 표시 + 줌 컨트롤.
+  // 보드 컨테이너가 overflow-hidden이라 sticky가 안 먹혀 컨테이너 밖(fragment)에 둔다.
+  const netMode = useNetStore((s) => s.mode);
+  const netMySeat = useNetStore((s) => s.mySeat);
+  const activePlayersForHud = useGameStore((s) => s.activePlayers);
+  const myPlayerId =
+    netMode === 'offline' || netMySeat === null ? null : activePlayersForHud[netMySeat] ?? null;
+  const hudPlayer = players[currentPlayer];
+  // 다른 사람(온라인) 또는 AI 차례일 때만 표시
+  const showTurnHud =
+    !fitOverlay && hudPlayer && (hudPlayer.isAI || (myPlayerId !== null && currentPlayer !== myPlayerId));
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.3, ease: 'easeOut' }}
+      // overflow-hidden 금지: 줌 HUD가 sticky로 SVG 영역 안에서만 스크롤을 따라다니려면
+      // 클리핑 조상이 없어야 한다 (모서리 라운딩은 헤더/범례에 rounded-t/b로 개별 적용)
       className={fitOverlay
         ? 'w-full'
-        : 'rounded-xl overflow-hidden border border-foreground/10 mx-auto'}
+        : 'rounded-xl border border-foreground/10 mx-auto'}
       style={{
         backgroundColor: mapData.colors.background,
         contain: 'layout style paint', // Performance optimization
@@ -560,7 +579,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     >
       {/* 보드 헤더 (오버레이 모드에선 숨김) */}
       {!fitOverlay && (
-      <div className="px-4 py-3 bg-background-secondary/50 border-b border-foreground/10">
+      <div className="px-4 py-3 bg-background-secondary/50 border-b border-foreground/10 rounded-t-xl">
         <div className="flex items-center justify-between">
           <span className="text-sm text-foreground-secondary">
             {currentPhase === 'buildTrack' && ui.urbanizationMode && '파란색 테두리의 마을을 클릭하여 신규 도시를 배치하세요'}
@@ -589,7 +608,69 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
       </div>
       )}
 
-      {/* SVG 보드 */}
+      {/* SVG 보드 + 보드 위 호버링 HUD (SVG 영역에만 한정) */}
+      <div className={fitOverlay ? undefined : 'relative'}>
+      {!fitOverlay && (
+        <div className="absolute inset-0 z-20 pointer-events-none">
+          {/* 줌 컨트롤: SVG 영역 안에서만 스크롤을 따라다님 (헤더/페이지 침범 없음) */}
+          <div className="sticky top-[70px] flex justify-end px-3 pt-3">
+            <div className="pointer-events-auto flex gap-1.5">
+              <motion.button
+                onClick={zoomIn}
+                className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
+                aria-label="확대"
+                title="확대"
+                whileTap={{ scale: 0.95 }}
+                transition={{ duration: 0.1 }}
+                style={{ WebkitTapHighlightColor: 'transparent' }}
+              >
+                <ZoomIn className="w-4 h-4 text-accent" />
+              </motion.button>
+              <motion.button
+                onClick={zoomOut}
+                className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
+                aria-label="축소"
+                title="축소"
+                whileTap={{ scale: 0.95 }}
+                transition={{ duration: 0.1 }}
+                style={{ WebkitTapHighlightColor: 'transparent' }}
+              >
+                <ZoomOut className="w-4 h-4 text-accent" />
+              </motion.button>
+              <motion.button
+                onClick={resetZoom}
+                className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
+                aria-label="원래 크기"
+                title="원래 크기"
+                whileTap={{ scale: 0.95 }}
+                transition={{ duration: 0.1 }}
+                style={{ WebkitTapHighlightColor: 'transparent' }}
+              >
+                <Maximize2 className="w-4 h-4 text-accent" />
+              </motion.button>
+            </div>
+          </div>
+          {/* 다른 사람/AI 차례 표시 — 보드 중앙, 화면 위에서 100px 지점에 호버링(스크롤 추적).
+              SVG 영역(absolute 레이어) 안에서만 따라다닌다 */}
+          {showTurnHud && hudPlayer && (
+            <div className="sticky top-[100px] z-20 h-0 flex justify-center pointer-events-none">
+              <div
+                className="flex items-center gap-2.5 px-4 py-2 rounded-full bg-background-secondary/95 border-2 shadow-xl backdrop-blur-sm self-start"
+                style={{ borderColor: `${PLAYER_COLORS[hudPlayer.color]}B3` }}
+              >
+                <span
+                  className="w-3 h-3 rounded-full animate-pulse"
+                  style={{ backgroundColor: PLAYER_COLORS[hudPlayer.color] }}
+                />
+                {/* 텍스트 크기 = 기존(text-xs 12px)의 1.3배 */}
+                <span className="text-[15.6px] font-semibold text-foreground whitespace-nowrap">
+                  {hudPlayer.name} 플레이 중{hudPlayer.isAI ? ' (BOT)' : ''}…
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       <svg
         width="100%"
         height={fitOverlay ? undefined : undefined}
@@ -880,49 +961,10 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           );
         })()}
       </svg>
-
-
-      {/* 줌 컨트롤 — 좌표 ON/OFF 버튼 아래(보드 우측 상단). 데스크톱 포함 항상 표시. */}
-      {!fitOverlay && (
-        <div className="absolute top-14 right-3 flex flex-row gap-1.5 z-10">
-          <motion.button
-            onClick={zoomIn}
-            className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
-            aria-label="확대"
-            title="확대"
-            whileTap={{ scale: 0.95 }}
-            transition={{ duration: 0.1 }}
-            style={{ WebkitTapHighlightColor: 'transparent' }}
-          >
-            <ZoomIn className="w-4 h-4 text-accent" />
-          </motion.button>
-          <motion.button
-            onClick={zoomOut}
-            className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
-            aria-label="축소"
-            title="축소"
-            whileTap={{ scale: 0.95 }}
-            transition={{ duration: 0.1 }}
-            style={{ WebkitTapHighlightColor: 'transparent' }}
-          >
-            <ZoomOut className="w-4 h-4 text-accent" />
-          </motion.button>
-          <motion.button
-            onClick={resetZoom}
-            className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
-            aria-label="원래 크기"
-            title="원래 크기"
-            whileTap={{ scale: 0.95 }}
-            transition={{ duration: 0.1 }}
-            style={{ WebkitTapHighlightColor: 'transparent' }}
-          >
-            <Maximize2 className="w-4 h-4 text-accent" />
-          </motion.button>
-        </div>
-      )}
+      </div>
 
       {/* 범례 */}
-      <div className="flex flex-wrap justify-center items-center gap-x-8 gap-y-2 py-4 px-6 bg-background-secondary/50 border-t border-foreground/10">
+      <div className="flex flex-wrap justify-center items-center gap-x-8 gap-y-2 py-4 px-6 bg-background-secondary/50 border-t border-foreground/10 rounded-b-xl">
         <div className="flex items-center gap-2">
           <div
             className="w-5 h-5 rounded"

@@ -1263,8 +1263,8 @@ describe('AI 전체 게임 시뮬레이션 (gameStore 기반 통합 테스트)',
     // scheduleAICheck의 debounce (150ms) 진행
     vi.advanceTimersByTime(200);
 
-    // executeAITurn의 setTimeout (AI_TURN_DELAY = 1000ms) 진행
-    vi.advanceTimersByTime(1200);
+    // executeAITurn의 setTimeout (AI_TURN_DELAY = 1350ms) 진행
+    vi.advanceTimersByTime(1600);
 
     // player1이 주식을 발행했는지 확인
     const afterP1Issue = useGameStore.getState();
@@ -1274,8 +1274,8 @@ describe('AI 전체 게임 시뮬레이션 (gameStore 기반 통합 테스트)',
     expect(afterP1Issue.players.player1.cash).toBeGreaterThan(10);
     expect(afterP1Issue.players.player1.issuedShares).toBeGreaterThan(2);
 
-    // player2도 처리될 때까지 충분히 진행
-    vi.advanceTimersByTime(2000);
+    // player2도 처리될 때까지 충분히 진행 (debounce 150 + AI_TURN_DELAY 1350 + 여유)
+    vi.advanceTimersByTime(2600);
 
     const afterP2Issue = useGameStore.getState();
     console.log(`[executeAITurn 테스트] P2 주식발행 후: phase=${afterP2Issue.currentPhase}, player=${afterP2Issue.currentPlayer}, P2.cash=$${afterP2Issue.players.player2.cash}, P2.shares=${afterP2Issue.players.player2.issuedShares}`);

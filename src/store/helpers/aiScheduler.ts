@@ -3,14 +3,15 @@
 
 import { GamePhase, CapturedAIContext } from '@/types/game';
 import { isCurrentPlayerAI } from '@/ai';
+import { safeTimeout } from '@/utils/safeTimers';
 import type { GameStore } from '../gameStore';
 
 // ============================================================
 // AI 동기화 헬퍼 (레이스 컨디션 방지)
 // ============================================================
 
-/** AI 체크 debounce 타임아웃 ID */
-let aiCheckTimeoutId: ReturnType<typeof setTimeout> | null = null;
+/** AI 체크 debounce 취소 함수 (safeTimeout — 백그라운드 탭 스로틀 회피) */
+let cancelAICheck: (() => void) | null = null;
 
 /** AI 체크 debounce 딜레이 (ms) */
 const AI_CHECK_DEBOUNCE = 150;
@@ -87,12 +88,10 @@ export const PLAYER_ACTION_PHASES: GamePhase[] = [
  */
 export const scheduleAICheck = (get: () => GameStore): void => {
   // 기존 타임아웃 취소 (debounce)
-  if (aiCheckTimeoutId) {
-    clearTimeout(aiCheckTimeoutId);
-  }
+  cancelAICheck?.();
 
-  aiCheckTimeoutId = setTimeout(() => {
-    aiCheckTimeoutId = null;
+  cancelAICheck = safeTimeout(() => {
+    cancelAICheck = null;
 
     const state = get();
 

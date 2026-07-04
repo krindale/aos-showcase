@@ -251,7 +251,7 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
           {isAI && (
             <span className="text-[10px] md:text-xs px-1 md:px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400 flex items-center gap-0.5 md:gap-1">
               <Bot className="w-2 h-2 md:w-2.5 md:h-2.5" />
-              AI
+              BOT
             </span>
           )}
           {isEliminated && (

@@ -11,10 +11,11 @@ const config: Config = {
     extend: {
       colors: {
         // 크림 페이퍼 라이트 테마 (claude-design)
+        // 2026-07-04 사용자 피드백 "너무 희어서 눈 아픔" — 한 톤 진하게 (페이지/카드 모두)
         background: {
-          DEFAULT: '#f7f5f0',   // 페이지 배경
-          secondary: '#ffffff', // 카드/패널
-          tertiary: '#efeae1',  // 밴드/호버
+          DEFAULT: '#efece4',   // 페이지 배경 (구 #f7f5f0)
+          secondary: '#faf8f3', // 카드/패널 (구 #ffffff)
+          tertiary: '#e7e1d5',  // 밴드/호버 (구 #efeae1)
         },
         foreground: {
           DEFAULT: '#1c1b18',   // 잉크

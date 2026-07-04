@@ -53,12 +53,20 @@ export function findMissingTownSpurs(
  * 미소유 상태가 된다. 방향 전환만으로는 연장으로 인정되지 않는다."
  * 연결된 같은-소유자 구간 단위로 판정 — 구간에 이번 턴(builtTurn===currentTurn) 타일이 하나라도
  * 있으면 유지, 없으면 그 구간 전체를 owner null로(점진 건설 구간이 매 턴 끊기지 않도록 구간 단위).
+ *
+ * ownerId를 주면 그 플레이어 소유 구간만 판정 — 룰 타이밍상 해제는 "그 플레이어의 건설 차례가
+ * 끝날 때"이므로(gameStore buildTrack 차례 전환), 아직 건설 안 한 다른 플레이어 구간은 건드리지
+ * 않는다. 생략하면 전체 소유자 대상(턴 종료 안전망).
  */
-export function releaseUnextendedTrack(board: BoardState, currentTurn: number): { board: BoardState; released: number } {
+export function releaseUnextendedTrack(
+  board: BoardState,
+  currentTurn: number,
+  ownerId?: PlayerId
+): { board: BoardState; released: number } {
   const k = (c: HexCoord) => `${c.col},${c.row}`;
   // 소유된 미완성 트랙(완성 링크의 일부가 아님)만 대상
   const incomplete = board.trackTiles.filter(
-    t => t.owner != null && !isTrackPartOfCompletedLink(t.coord, board)
+    t => t.owner != null && (ownerId == null || t.owner === ownerId) && !isTrackPartOfCompletedLink(t.coord, board)
   );
   if (incomplete.length === 0) return { board, released: 0 };
   const incByKey = new Map(incomplete.map(t => [k(t.coord), t]));

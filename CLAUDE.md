@@ -411,6 +411,10 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
 - **스냅샷 세부**: persist 포맷 재사용하되 **logs 최근 30개만 + gzip 압축**(egress·256KB 한도 대비,
   압축 후 ~2KB). **rev(단조 증가)** 로 역순 도착 무시. 게스트 적용 시 persist `merge`의 1회성 상태
   초기화(transcontinentalEvent·incomeReductions·aiExecution)를 재사용해 "옛 모달/배지 부활" 방지.
+  ⚠️ **로그는 두 종류**: `state.logs`(인게임 로그, persist 누적·스냅샷 30개 전파)와 `logAction`
+  (:3999 콘솔 전용, 저장·전파 안 함)는 별개다. 전체 History·리플레이 저장은 미구현(스냅샷은 최신
+  1건만 rooms에 덮음). 상태 동기화 모델(Snapshot/로그/Undo) 종합은
+  [`docs/online-multiplayer-plan.md` §8](docs/online-multiplayer-plan.md) 참조.
 - **비용/티어**: 친구 규모(동시 수 판 이하)는 **$0**. Free 티어 동시접속 200·메시지 200만/월·
   egress 5GB. 유일한 불편은 **1주 미접속 시 프로젝트 자동 정지**(대시보드에서 수동 재개) — 공개
   서비스로 키우면 Pro $25/월.
@@ -467,6 +471,14 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
 10. **Advance Turn Marker** - 턴 마커 전진
 
 ### 주요 게임 로직
+
+**첫 턴 플레이어 순서 (실제 게임 = 무작위, 시뮬 = 고정)**
+- 룰북은 첫 플레이어를 주사위로 정한다. 실제 게임 진입점(오프라인 `initGame`·온라인 호스트
+  `startOnlineGame`·`resetGame`)은 `createInitialGameState(..., { randomizeStartOrder: true })`로
+  **좌석(`activePlayers`)은 유지하고 `playerOrder`만 Fisher-Yates 셔플**한다. 2턴부터는 경매(Phase II).
+- ⚠️ **시뮬레이션/단위 테스트는 옵션 미전달 → player-index 고정 순서 유지**. 순서를 섞으면 player별
+  편향(AI 100시드 베이스라인)을 측정할 수 없으므로 랜덤화는 실제 게임 진입점에서만 켠다. 좌석은 불변이라
+  온라인 `mySeat` 매핑·호스트 스냅샷 전파에 안전. 교대 선공권 맵(St. Lucia)은 기존 첫 두 명 스왑 유지.
 
 **수입 계산 (링크 기반)**
 - 물품이 지나가는 각 철도 링크(도시/마을 → 도시/마을)마다 해당 링크 소유자 수입 +1

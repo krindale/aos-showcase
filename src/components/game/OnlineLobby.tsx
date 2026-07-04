@@ -47,10 +47,12 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
   const [matching, setMatching] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [copied, setCopied] = useState(false);
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatListRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // scrollIntoView 금지 — 페이지 전체가 딸려 스크롤됨 (GameChat과 동일 이슈, 리뷰 스텝4)
+    const list = chatListRef.current;
+    if (list) list.scrollTop = list.scrollHeight;
   }, [chat.length]);
 
   // 공개방 목록: 로비 폼이 보이는 동안 8초 폴링 (Phase 4)
@@ -212,7 +214,7 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
 
         {/* 채팅 */}
         <div className="rounded-lg border border-foreground/10 bg-background-secondary">
-          <div className="max-h-32 overflow-y-auto p-2 space-y-1">
+          <div ref={chatListRef} className="max-h-32 overflow-y-auto p-2 space-y-1">
             {chat.length === 0 && (
               <div className="text-xs text-foreground-muted text-center py-2">대기실 채팅</div>
             )}
@@ -221,7 +223,6 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
                 <span className="font-semibold text-foreground-secondary">{m.name}</span> {m.text}
               </div>
             ))}
-            <div ref={chatEndRef} />
           </div>
           <div className="flex border-t border-foreground/10">
             <input

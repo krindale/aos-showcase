@@ -79,6 +79,12 @@ export interface NetStore {
 
 // ---- 모듈 레벨 연결/루프 상태 (직렬화 불가 객체는 store 밖에) ----
 let connection: RoomConnection | null = null;
+/**
+ * 연결 세대 — 재입장/나가기로 버려진 옛 채널의 이벤트(늦게 도착하는 CLOSED·presence 등)를
+ * 무시하기 위한 토큰. 이게 없으면 "옛 채널 CLOSED → 끊김 오인 → 재연결 → 또 CLOSED" 순환으로
+ * 연결이 계속 갈아엎어지며 스냅샷이 유실된다 (실측: 게스트 화면 멈춤의 원인).
+ */
+let connectionGen = 0;
 let unsubscribeStore: (() => void) | null = null;
 let broadcastTimer: ReturnType<typeof setTimeout> | null = null;
 let takeoverTimer: ReturnType<typeof setTimeout> | null = null;
@@ -91,8 +97,8 @@ let rev = 0;
 let lastSyncedJson = '';
 let lastAppliedRev = 0;
 
-/** 스냅샷 브로드캐스트 debounce (ms) — 액션 연쇄(정산 등)를 한 번에 묶는다 */
-const BROADCAST_DEBOUNCE = 300;
+/** 스냅샷 브로드캐스트 debounce (ms) — 액션 연쇄(정산 등)를 묶되 게스트 체감 지연 최소화 */
+const BROADCAST_DEBOUNCE = 120;
 /** 호스트 이탈 감지 후 승계까지 대기 (ms) — presence 플랩(짧은 끊김) 오탐 방지 */
 const HOST_TAKEOVER_DELAY = 6000;
 
@@ -155,6 +161,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
       const { z, bytes } = await encodeSnapshot(synced);
       set({ lastSnapshotBytes: bytes });
       await conn.broadcastSnapshot({ rev, z });
+      console.log(`[net] 스냅샷 전송 rev=${rev} (압축 ${bytes}B)`);
       await conn.updateRoom({ snapshot: { rev, z } }); // 재접속·호스트 승계용 영속화
     } catch (e) {
       console.warn('[net] 스냅샷 전송 실패:', e);
@@ -230,8 +237,13 @@ export const useNetStore = create<NetStore>()((set, get) => {
   };
 
   // ---- 공통 이벤트 배선 ----
-  const makeEvents = (): RoomEvents => ({
+  // 각 연결마다 세대 토큰을 캡처 — 현재 세대가 아니면(버려진 채널) 모든 이벤트 무시
+  const makeEvents = (): RoomEvents => {
+    const gen = ++connectionGen;
+    const stale = () => gen !== connectionGen;
+    return {
     onIntent: (msg) => {
+      if (stale()) return;
       if (get().mode !== 'host') return;
       if (isDuplicateIntent(msg.id)) {
         console.warn(`[net] 중복 인텐트 무시: ${msg.type} (${msg.id?.slice(0, 8)})`);
@@ -244,23 +256,35 @@ export const useNetStore = create<NetStore>()((set, get) => {
       if (get().room?.status !== 'playing') return; // 게임 전 게임 인텐트 무시
       const result = applyGameIntent(msg);
       console.log(`[net] 인텐트 ${result.ok ? '적용' : '거부'}: ${msg.type} (seat ${msg.seat})${result.ok ? '' : ` — ${result.reason}`}`);
+      if (!result.ok) {
+        // 게스트가 낙관적으로 로컬 반영했을 수 있으므로 현재(정본) 상태를 강제 재전송해 교정
+        lastSyncedJson = '';
+        scheduleBroadcast();
+      }
     },
     onSnapshot: (msg) => {
+      if (stale()) return;
       if (get().mode !== 'guest') return;
       void applySnapshotAsGuest(msg);
     },
-    onChat: (msg) => set((s) => ({ chat: [...s.chat, msg].slice(-100) })),
+    onChat: (msg) => {
+      if (stale()) return;
+      set((s) => ({ chat: [...s.chat, msg].slice(-100) }));
+    },
     onPresence: (clientIds) => {
+      if (stale()) return;
       set({ presentClientIds: clientIds });
       checkHostTakeover();
       checkGuestDisconnect();
     },
     onRoom: (room) => {
+      if (stale()) return;
       set({ room, mySeat: seatOf(room, getClientId()) });
       checkHostTakeover(); // 승계 완료/호스트 교체 통지 반영
       checkGuestDisconnect();
     },
     onConnectionState: (connected) => {
+      if (stale()) return; // 버려진 옛 채널의 늦은 CLOSED — 재연결 오작동 방지 (핵심)
       set({ connected });
       if (connected) {
         reconnectAttempts = 0;
@@ -269,7 +293,8 @@ export const useNetStore = create<NetStore>()((set, get) => {
       }
       scheduleReconnect();
     },
-  });
+    };
+  };
 
   // ---- 순단 자동 재연결 (채널이 끊기면 방 코드로 다시 붙는다 — 호스트는 복귀, 게스트는 재입장) ----
   const RECONNECT_DELAY = 5_000;
@@ -581,6 +606,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
     },
 
     leaveRoom: async () => {
+      connectionGen++; // 이 연결의 이후 이벤트(늦은 CLOSED 등) 전부 무시
       removeGuestGuard();
       stopHostLoop();
       cancelTakeover();

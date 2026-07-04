@@ -27,6 +27,14 @@ interface IntentSpec {
   captureUi?: string[];
   /** 게스트에서 no-op — 호스트 전용 커밋/로컬 전용 (intent로도 안 보냄) */
   guestNoop?: boolean;
+  /**
+   * 낙관적 로컬 반영: 게스트가 원본 액션을 즉시 로컬 실행(체감 지연 0)하고 intent를 보낸다.
+   * 호스트 스냅샷이 도착하면 통째로 덮어써 확정/교정된다 (거부 시 호스트가 강제 스냅샷 전송).
+   * 로컬 검증이 false를 돌려주면 intent도 안 보냄 (호스트 거부 왕복 절약).
+   * 애니메이션 타이머가 얽힌 이동 커밋(startCubeAnimation 계열)은 제외 — 게스트 타이머가
+   * noop이라 movingCube가 영구히 남는다.
+   */
+  optimistic?: boolean;
 }
 
 /**
@@ -35,32 +43,38 @@ interface IntentSpec {
  */
 const INTENT_SPECS: Record<string, IntentSpec> = {
   // Phase I 주식
-  issueShare: { playerIdArg: 0 },
+  issueShare: { playerIdArg: 0, optimistic: true },
   // Phase II 경매/선공권
-  placeBid: { playerIdArg: 0 },
-  passBid: { playerIdArg: 0 },
-  skipBid: { playerIdArg: 0 }, // 호스트에서 turnOrderPassUsed 플래그도 함께 (AuctionPanel raw setState 재현)
-  resolveAuction: {},
-  respondTurnOrderOffer: { playerIdArg: 0 },
+  placeBid: { playerIdArg: 0, optimistic: true },
+  passBid: { playerIdArg: 0, optimistic: true },
+  skipBid: { playerIdArg: 0, optimistic: true }, // 호스트에서 turnOrderPassUsed 플래그도 함께 (AuctionPanel raw setState 재현)
+  resolveAuction: { optimistic: true },
+  respondTurnOrderOffer: { playerIdArg: 0, optimistic: true },
   // Phase III 행동 선택
-  selectAction: { playerIdArg: 0 },
+  selectAction: { playerIdArg: 0, optimistic: true },
   // Phase IV 건설
-  buildTrack: {},
-  buildComplexTrack: {},
-  buildTownSpur: {},
-  buildDirectLink: {},
-  redirectTrack: {},
-  placeNewCity: { captureUi: ['selectedNewCityTile'] },
+  buildTrack: { optimistic: true },
+  buildComplexTrack: { optimistic: true },
+  buildTownSpur: { optimistic: true },
+  buildDirectLink: { optimistic: true },
+  redirectTrack: { optimistic: true },
+  placeNewCity: { captureUi: ['selectedNewCityTile'], optimistic: true },
   // Phase V 이동 — 애니메이션 시작이 곧 부분 커밋(보드 큐브 제거)이므로 여기가 경계.
   // 최종 정산(completeCubeMove)은 호스트 GameBoard의 애니메이션 타이머가 실행한다.
+  // (낙관 반영 금지 — 게스트의 completeCubeMove는 noop이라 movingCube가 영구히 남는다)
   startCubeAnimation: { captureUi: ['selectedCube'] },
   moveTrackCube: { captureUi: ['selectedCube'] },
-  upgradeEngine: { playerIdArg: 0 },
+  upgradeEngine: { playerIdArg: 0, optimistic: true },
   // Phase IX 물품 성장/생산
-  growGoods: {}, // 주사위 결과는 인자로 고정 전송 (굴린 사람 값을 호스트가 그대로 적용)
-  confirmProduction: { captureUi: ['productionMode', 'selectedProductionSlots', 'productionCubes'] },
-  // 단계 진행 (내부에서 collectIncome/payExpenses/incomeReduction 정산 실행)
-  nextPhase: {},
+  growGoods: { optimistic: true }, // 주사위 결과는 인자로 고정 전송 (굴린 사람 값을 호스트가 그대로 적용)
+  confirmProduction: {
+    captureUi: ['productionMode', 'selectedProductionSlots', 'productionCubes'],
+    optimistic: true,
+  },
+  // 단계 진행 (내부에서 collectIncome/payExpenses/incomeReduction 정산 실행 —
+  // 게스트 로컬에서도 실행되지만 스냅샷이 통째로 덮어쓰므로 이중 정산이 남지 않고,
+  // AI 자동 실행은 executeAITurn이 게스트에서 noop이라 안 돈다)
+  nextPhase: { optimistic: true },
 
   // --- 게스트 no-op: 호스트 전용 커밋 or 로컬 전용 ---
   completeCubeMove: { guestNoop: true }, // 호스트 타이머가 정산 — 게스트 이중 정산 차단
@@ -107,6 +121,21 @@ export function installGuestGuard(send: SendIntent): void {
         const ui = (useGameStore.getState() as unknown as { ui: Record<string, unknown> }).ui;
         payload.ui = Object.fromEntries(spec.captureUi.map((k) => [k, ui[k]]));
       }
+
+      // 낙관적 로컬 반영: 원본 액션을 즉시 실행해 체감 지연 0 —
+      // 호스트 스냅샷이 도착하면 통째로 덮어써 확정된다.
+      if (spec.optimistic) {
+        let localResult: unknown = true;
+        try {
+          localResult = (original as (...a: unknown[]) => unknown)(...args);
+        } catch (e) {
+          console.warn(`[net] 낙관 실행 오류 (${name}) — intent만 전송:`, e);
+        }
+        if (localResult === false) return false; // 로컬 검증 실패 — 호스트도 거부할 것, 전송 생략
+        send(name, payload);
+        return localResult;
+      }
+
       send(name, payload);
       // 낙관 반환 — 실제 반영은 호스트 스냅샷으로 도착.
       // true를 돌려줘야 UI 플로우(빌드 모드 초기화 등)가 정상 진행된다.

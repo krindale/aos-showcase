@@ -28,7 +28,7 @@ describe('게스트 가드', () => {
     removeGuestGuard();
   });
 
-  it('커밋 액션을 차단하고 intent로 전송한다 (issueShare)', () => {
+  it('낙관적 커밋 액션은 로컬 즉시 반영 + intent 전송 (issueShare)', () => {
     const sent: { type: string; payload: GameIntentPayload }[] = [];
     installGuestGuard((type, payload) => sent.push({ type, payload }));
     expect(isGuestGuardInstalled()).toBe(true);
@@ -36,20 +36,31 @@ describe('게스트 가드', () => {
     const before = useGameStore.getState().players.player1.issuedShares;
     useGameStore.getState().issueShare('player1', 2);
 
-    expect(useGameStore.getState().players.player1.issuedShares).toBe(before); // 로컬 무변경
+    // 낙관 반영: 로컬 즉시 적용 (호스트 스냅샷이 나중에 덮어써 확정)
+    expect(useGameStore.getState().players.player1.issuedShares).toBe(before + 2);
     expect(sent).toEqual([{ type: 'issueShare', payload: { args: ['player1', 2] } }]);
   });
 
-  it('captureUi 지정 액션은 로컬 ui 선택값을 함께 보낸다 (placeNewCity)', () => {
+  it('낙관 액션의 로컬 검증 실패 시 intent를 보내지 않는다 (placeNewCity — 도시화 미선택)', () => {
+    const sent: { type: string }[] = [];
+    installGuestGuard((type) => sent.push({ type }));
+
+    const ok = useGameStore.getState().placeNewCity({ col: 3, row: 3 });
+    expect(ok).toBe(false);
+    expect(sent).toHaveLength(0); // 호스트도 거부할 요청 — 왕복 절약
+  });
+
+  it('captureUi 지정 액션은 로컬 ui 선택값을 함께 보낸다 (startCubeAnimation — 비낙관)', () => {
     const sent: { type: string; payload: GameIntentPayload }[] = [];
     installGuestGuard((type, payload) => sent.push({ type, payload }));
 
-    useGameStore.setState((s) => ({ ui: { ...s.ui, selectedNewCityTile: 'A' } }) as never);
-    useGameStore.getState().placeNewCity({ col: 3, row: 3 });
+    useGameStore.setState((s) => ({ ui: { ...s.ui, selectedCube: { cityId: 'P', cubeIndex: 0 } } }) as never);
+    useGameStore.getState().startCubeAnimation([{ col: 0, row: 0 }, { col: 1, row: 0 }], 'blue');
 
+    expect(useGameStore.getState().ui.movingCube).toBeNull(); // 로컬 미실행 (호스트 타이머가 정산)
     expect(sent).toHaveLength(1);
-    expect(sent[0].type).toBe('placeNewCity');
-    expect(sent[0].payload.ui).toEqual({ selectedNewCityTile: 'A' });
+    expect(sent[0].type).toBe('startCubeAnimation');
+    expect(sent[0].payload.ui).toEqual({ selectedCube: { cityId: 'P', cubeIndex: 0 } });
   });
 
   it('guestNoop 액션은 intent도 보내지 않고 로컬 실행도 안 된다 (completeCubeMove·정산)', () => {

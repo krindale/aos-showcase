@@ -175,6 +175,14 @@ export class SupabaseTransport implements NetTransport {
 
     return new Promise((resolve, reject) => {
       let resolved = false;
+      // SUBSCRIBED도 에러도 안 오는 경우(예: 구독 전 CLOSED) 무한 대기 방지 — 리뷰 발견
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          void this.client.removeChannel(channel);
+          reject(new Error('채널 연결 시간 초과(15s) — 네트워크 상태를 확인하세요'));
+        }
+      }, 15_000);
       channel.subscribe(async (status, err) => {
         if (status === 'SUBSCRIBED') {
           // 최초 구독 + 순단 후 자동 재조인 양쪽에서 호출됨
@@ -182,11 +190,13 @@ export class SupabaseTransport implements NetTransport {
           events.onConnectionState?.(true);
           if (!resolved) {
             resolved = true;
+            clearTimeout(timeout);
             resolve(new SupabaseRoomConnection(this.client, channel, room, clientId));
           }
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           if (!resolved) {
             resolved = true;
+            clearTimeout(timeout);
             reject(new Error(`채널 연결 실패(${status})${err ? `: ${err.message}` : ''}`));
           } else {
             console.warn(`[net] 채널 연결 끊김 (${status})`);
@@ -228,7 +238,9 @@ class SupabaseRoomConnection implements RoomConnection {
   }
 
   async broadcastRoom(): Promise<void> {
-    await this.broadcast('room', this._room);
+    // snapshot(압축 게임 상태 ~2KB+)은 방 메타 통지에 불필요 — 수신측(onRoom)은
+    // seats/status만 쓰므로 제외해 대역폭 절약 (리뷰 발견)
+    await this.broadcast('room', { ...this._room, snapshot: null });
   }
 
   async sendChat(name: string, text: string): Promise<void> {

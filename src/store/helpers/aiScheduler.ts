@@ -83,6 +83,21 @@ export const PLAYER_ACTION_PHASES: GamePhase[] = [
 ];
 
 /**
+ * 봇이 currentPlayer면 자동으로 통과시키는 단계들.
+ * 봇의 "결정"이 필요 없어 executeAITurn(PLAYER_ACTION_PHASES) 대상이 아니고, 원래 사람이
+ * '진행'/'주사위' 버튼으로 넘기던 단계들 — 정산 3단계 + 턴 진행 + 물품 성장(goodsGrowth).
+ * currentPlayer가 봇(온라인에서 끊긴 게스트를 봇 전환한 경우 포함)이면 진행 주체가 없어
+ * 교착되므로 runAIAutoPhase로 대신 진행한다. (goodsGrowth는 그 안에서 주사위까지 자동 처리)
+ */
+export const AI_AUTO_ADVANCE_PHASES: GamePhase[] = [
+  'collectIncome',
+  'payExpenses',
+  'incomeReduction',
+  'goodsGrowth',
+  'advanceTurn',
+];
+
+/**
  * 중앙 집중식 AI 스케줄러 (debounce 적용)
  * 모든 AI 트리거 포인트에서 이 함수를 호출하여 중복 실행 방지
  */
@@ -97,6 +112,7 @@ export const scheduleAICheck = (get: () => GameStore): void => {
 
     // 조건 체크
     const isPhaseMatch = PLAYER_ACTION_PHASES.includes(state.currentPhase);
+    const isAutoAdvance = AI_AUTO_ADVANCE_PHASES.includes(state.currentPhase);
     const isAI = isCurrentPlayerAI(state);
     const notPending = !state.aiExecution.pending;
 
@@ -105,6 +121,11 @@ export const scheduleAICheck = (get: () => GameStore): void => {
     if (isPhaseMatch && isAI && notPending) {
       console.log('[AI 스케줄러] 조건 충족 - AI 턴 실행');
       state.executeAITurn();
+    } else if (isAutoAdvance && isAI && notPending) {
+      // 봇이 정산/물품성장 단계의 currentPlayer — 사람 '진행'/'주사위' 버튼을 대신 눌러 진행.
+      // (진행 후 nextPhase 끝에서 scheduleAICheck가 다시 예약돼 다음 자동 단계로 연쇄된다)
+      console.log('[AI 스케줄러] 봇 자동 단계 진행 - runAIAutoPhase');
+      state.runAIAutoPhase();
     }
   }, AI_CHECK_DEBOUNCE);
 };

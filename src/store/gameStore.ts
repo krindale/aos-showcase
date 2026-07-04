@@ -84,6 +84,14 @@ export interface GameStore extends GameState {
   // --- AI 관련 ---
   /** AI 턴 실행 */
   executeAITurn: () => void;
+  /**
+   * 봇이 currentPlayer인 "자동 단계"를 대신 진행 (정산 collectIncome·payExpenses·
+   * incomeReduction·advanceTurn = 자동 nextPhase / goodsGrowth = 봇 주사위 자동 굴림 후 진행).
+   * 이 단계들은 봇의 결정이 필요 없어 AI 스케줄러(PLAYER_ACTION_PHASES) 대상이 아니고
+   * 원래 사람이 '진행'/'주사위' 버튼으로 넘겼다 — 온라인에서 그 사람(게스트)이 끊겨 봇 전환되면
+   * 진행 주체가 사라져 교착되던 것을 여기서 자동화한다. scheduleAICheck에서만 호출.
+   */
+  runAIAutoPhase: () => void;
   /** AI 실행 상태 (레이스 컨디션 방지) */
   aiExecution: AIExecutionQueue;
 
@@ -1245,6 +1253,29 @@ export const useGameStore = create<GameStore>()(
 
     // AI 턴 트리거 (중앙 집중식 스케줄러 사용)
     scheduleAICheck(get);
+  },
+
+  runAIAutoPhase: () => {
+    const state = get();
+    const player = state.players[state.currentPlayer];
+    // 방어: 봇이 아니면 자동 진행하지 않음 (사람 차례 정산은 '진행' 버튼으로 수동 확인 유지)
+    if (!player?.isAI) return;
+
+    // 물품 성장: 봇이 currentPlayer면 사람이 굴리던 주사위를 대신 굴려 성장을 적용한다.
+    // 주사위 수 = 탈락하지 않은 활성 플레이어 수(각 1개), 값 1~6 (DiceRoller와 동일 규칙).
+    if (state.currentPhase === 'goodsGrowth') {
+      const diceCount = state.activePlayers.filter((p) => !state.players[p]?.eliminated).length;
+      const diceResults = Array.from(
+        { length: diceCount },
+        () => Math.floor(Math.random() * 6) + 1
+      );
+      console.log(`[AI 물품성장] ${player.name} 주사위 자동: [${diceResults.join(', ')}]`);
+      state.growGoods(diceResults);
+    }
+
+    // 정산(collectIncome/payExpenses/incomeReduction/advanceTurn)은 nextPhase가 내부에서
+    // 해당 액션을 호출하며 다음 단계로 넘긴다. goodsGrowth도 위 성장 후 nextPhase로 진행.
+    get().nextPhase();
   },
 
   endTurn: () => {

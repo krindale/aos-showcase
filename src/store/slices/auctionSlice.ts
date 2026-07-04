@@ -196,6 +196,12 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
             lastActedPlayer: playerId,  // 마지막 행동자 업데이트 (passedPlayers에는 추가 안 함)
           },
           currentPlayer: nextBidder,
+          // 패스 사용 처리를 여기서 중앙화한다 — AI/테스트도 skipBid를 직접 호출하므로
+          // 외부(AuctionPanel/호스트 intent)에서만 세팅하면 봇이 플래그를 못 세워 매 라운드 무한 스킵.
+          players: {
+            ...state.players,
+            [playerId]: { ...state.players[playerId], turnOrderPassUsed: true },
+          },
           logs: [
             ...state.logs,
             {

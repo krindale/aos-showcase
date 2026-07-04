@@ -107,7 +107,14 @@ export function resetPlayerActions(
   const updated: Partial<Record<PlayerId, PlayerState>> = {};
   activePlayers.forEach(pid => {
     if (players[pid]) {
-      updated[pid] = { ...players[pid], selectedAction: null };
+      // 롤오버 시 Turn Order 패스 권한을 다음 턴 경매로 넘긴다:
+      // 직전 턴에 turnOrder를 골랐으면 이번 턴 경매에 패스 1회 보유(available), 사용 여부는 리셋.
+      updated[pid] = {
+        ...players[pid],
+        turnOrderPassAvailable: players[pid].selectedAction === 'turnOrder',
+        turnOrderPassUsed: false,
+        selectedAction: null,
+      };
     }
   });
   return { ...players, ...updated };
@@ -136,6 +143,7 @@ export function createInitialPlayerState(
     engineLevel: GAME_CONSTANTS.STARTING_ENGINE,
     issuedShares: GAME_CONSTANTS.STARTING_SHARES,
     selectedAction: null,
+    turnOrderPassAvailable: false,
     turnOrderPassUsed: false,
     eliminated: false,
     isAI,

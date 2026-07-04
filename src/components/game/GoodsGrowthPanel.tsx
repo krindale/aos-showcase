@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
+import { useNetStore } from '@/net/netStore';
 import { CUBE_COLORS, CubeColor } from '@/types/game';
 import { getMapData } from '@/utils/mapRegistry';
 import DiceRoller from './DiceRoller';
@@ -20,6 +21,11 @@ export default function GoodsGrowthPanel() {
   } = useGameStore();
 
   const columns = getMapData(mapId).columnMapping;
+
+  // 물품 성장 주사위/진행은 방장(또는 오프라인)만 조작 — 게스트는 스냅샷으로 결과만 본다.
+  // (아무나 주사위를 굴러 호스트가 거부·되돌리던 혼란 방지)
+  const netMode = useNetStore((s) => s.mode);
+  const amIHost = netMode === 'offline' || netMode === 'host';
 
   const [diceResults, setDiceResults] = useState<number[]>([]);
   const [growthApplied, setGrowthApplied] = useState(false);
@@ -99,6 +105,21 @@ export default function GoodsGrowthPanel() {
   };
 
   const growthResults = calculateGrowthResults();
+
+  // 게스트: 방장이 진행하는 물품 성장을 스냅샷으로만 관전
+  if (!amIHost) {
+    return (
+      <div className="p-4 rounded-lg bg-background/50 border border-foreground/10 text-center">
+        <div className="flex items-center justify-center gap-2 mb-1 text-accent">
+          <Sparkles size={18} />
+          <span className="font-medium">물품 성장</span>
+        </div>
+        <p className="text-xs md:text-sm text-foreground-secondary">
+          방장이 주사위를 굴리는 중입니다...
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

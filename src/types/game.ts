@@ -130,7 +130,11 @@ export interface PlayerState {
   engineLevel: number;         // 기관차 레벨 (1-6)
   issuedShares: number;        // 발행한 주식 수 (2 시작)
   selectedAction: SpecialAction | null;
-  turnOrderPassUsed: boolean;  // Turn Order 패스 사용 여부
+  // Turn Order 액션은 phase III(행동 선택)에서 고르지만 효과는 "다음 턴" phase II(경매)의
+  // 무탈락 패스 1회다. selectedAction은 턴 롤오버 때 지워지므로, 롤오버 시 "직전 턴에
+  // turnOrder를 골랐는지"를 이 지속 플래그로 넘겨받아 다음 턴 경매에서 판정한다.
+  turnOrderPassAvailable: boolean;  // 이번 턴 경매에 쓸 Turn Order 패스 보유 여부
+  turnOrderPassUsed: boolean;  // 이번 경매에서 패스를 이미 썼는지 (롤오버 시 리셋)
   eliminated: boolean;         // 파산으로 탈락 여부
   isAI: boolean;               // AI 플레이어 여부
   /** Western US: 이 플레이어의 철도가 대륙횡단(서부 시작도시↔동부 시작도시)을 달성했는지.

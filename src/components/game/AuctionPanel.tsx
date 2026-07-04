@@ -54,10 +54,10 @@ export default function AuctionPanel() {
     return activePlayers.length <= 1;
   };
 
-  // Turn Order 패스 사용 가능 여부
+  // Turn Order 패스 사용 가능 여부 (직전 턴 turnOrder 선택으로 부여된 권한 — 이번 경매에 유효)
   const canUseTurnOrderPass = () => {
     const player = players[currentBidder];
-    return player.selectedAction === 'turnOrder' && !player.turnOrderPassUsed;
+    return player.turnOrderPassAvailable && !player.turnOrderPassUsed;
   };
 
   // 입찰 가능 금액 범위
@@ -76,20 +76,8 @@ export default function AuctionPanel() {
     passBid(currentBidder);
   };
 
-  // Turn Order 패스 핸들러 (탈락 없이 패스)
+  // Turn Order 패스 핸들러 (탈락 없이 패스) — 사용 플래그 설정은 skipBid가 중앙에서 처리
   const handleTurnOrderPass = () => {
-    // 1. Turn Order 패스 사용 플래그 설정
-    useGameStore.setState((state) => ({
-      players: {
-        ...state.players,
-        [currentBidder]: {
-          ...state.players[currentBidder],
-          turnOrderPassUsed: true,
-        },
-      },
-    }));
-
-    // 2. skipBid 호출로 다음 입찰자로 진행 (탈락 없음)
     skipBid(currentBidder);
   };
 
@@ -219,7 +207,7 @@ export default function AuctionPanel() {
                     </motion.span>
                   )}
                 </div>
-                {player.selectedAction === 'turnOrder' && (
+                {player.turnOrderPassAvailable && (
                   <div className="mt-1 text-xs text-purple-400">
                     Turn Order {player.turnOrderPassUsed ? '(사용됨)' : '(사용 가능)'}
                   </div>

@@ -74,6 +74,19 @@ describe('게스트 가드', () => {
     expect(sent).toHaveLength(0);
   });
 
+  it('runAIAutoPhase는 게스트에서 no-op (봇 정산/물품성장 자동 진행은 호스트 전용)', () => {
+    // 게스트에서 실행되면 내부 growGoods/nextPhase가 optimistic으로 로컬 반영 + intent를
+    // 스팸 전송해 디싱크된다 → executeAITurn과 동일하게 guestNoop이어야 한다.
+    const sent: { type: string }[] = [];
+    installGuestGuard((type) => sent.push({ type }));
+
+    const phaseBefore = useGameStore.getState().currentPhase;
+    useGameStore.getState().runAIAutoPhase();
+
+    expect(sent).toHaveLength(0); // 어떤 intent도 전송 안 함
+    expect(useGameStore.getState().currentPhase).toBe(phaseBefore); // 로컬 상태 불변
+  });
+
   it('undoLastAction은 게스트에서 intent로 전송된다 (자기 차례 취소)', () => {
     const sent: { type: string }[] = [];
     installGuestGuard((type) => sent.push({ type }));

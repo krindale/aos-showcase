@@ -256,8 +256,12 @@ export const useNetStore = create<NetStore>()((set, get) => {
     lastAppliedRev = msg.rev;
     const state = await decodeSnapshot(msg.z);
     if (lastAppliedRev !== msg.rev) return; // 디코딩 중 더 새 스냅샷이 적용됨
+    // 이동 애니메이션 상태(netMovingCube)는 ui.movingCube로 주입 — 게스트도 호스트와
+    // 같은 화물 이동 애니메이션을 본다 (정산은 게스트 completeCubeMove가 noop이라 안전)
+    const { netMovingCube, ...gameState } = state as { netMovingCube?: unknown } & Record<string, unknown>;
     useGameStore.setState({
-      ...state,
+      ...gameState,
+      ui: { ...useGameStore.getState().ui, movingCube: netMovingCube ?? null },
       // 로컬 전용 필드는 항상 안전값으로 (persist merge와 같은 원칙).
       // undoCount는 스냅샷 값 유지 — 게스트 취소 버튼 표시용 (되돌리기는 인텐트로 호스트가 실행)
       aiExecution: { pending: false, executionId: 0 },
@@ -602,8 +606,11 @@ export const useNetStore = create<NetStore>()((set, get) => {
         if (conn.room.hostClientId === conn.clientId) {
           if (snap?.z) {
             const state = await decodeSnapshot(snap.z);
+            // 진행 중이던 이동 애니메이션도 복원 — GameBoard 타이머가 정산을 이어서 실행
+            const { netMovingCube, ...gameState } = state as { netMovingCube?: unknown } & Record<string, unknown>;
             useGameStore.setState({
-              ...state,
+              ...gameState,
+              ui: { ...useGameStore.getState().ui, movingCube: netMovingCube ?? null },
               aiExecution: { pending: false, executionId: 0 },
               undoCount: 0,
             } as never);

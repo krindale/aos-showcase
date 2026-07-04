@@ -36,6 +36,15 @@ export function extractSyncedState(state: Record<string, unknown>): Record<strin
   if (Array.isArray(logs) && logs.length > RECENT_LOGS) {
     synced.logs = logs.slice(-RECENT_LOGS);
   }
+  // 화물 이동 애니메이션 상태만 ui에서 승격해 동기화 — 게스트도 호스트와 같은
+  // 이동 애니메이션을 본다 (게스트 적용부가 자기 ui.movingCube에 주입 후 이 키는 제거).
+  // 정산(completeCubeMove)은 여전히 호스트 타이머 전용 — 게스트의 해당 액션은 noop.
+  // ⚠️ ui가 있을 때만 파생 — encodeSnapshot이 내부에서 재추출하므로(ui 없음),
+  //    무조건 덮으면 null로 지워져 전파가 안 되는 버그가 있었다 (멱등성 유지).
+  if ('ui' in state) {
+    const ui = state.ui as { movingCube?: unknown } | undefined;
+    synced.netMovingCube = ui?.movingCube ?? null;
+  }
   return synced;
 }
 

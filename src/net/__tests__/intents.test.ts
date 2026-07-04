@@ -128,14 +128,17 @@ describe('호스트 인텐트 검증 (applyGameIntent)', () => {
     expect(applyGameIntent(intent(5, 'issueShare', { args: ['player1', 1] })).ok).toBe(false);
   });
 
-  it('payload.ui를 실행 전 호스트 ui에 주입한다 (placeNewCity의 selectedNewCityTile)', () => {
+  it('payload.ui는 실행 중에만 주입되고 실행 후 호스트 원래 값으로 복원된다 (placeNewCity)', () => {
     const seat = currentSeat();
+    const before = useGameStore.getState().ui.selectedNewCityTile; // 호스트 자신의 값
     const result = applyGameIntent(
       intent(seat, 'placeNewCity', { args: [{ col: 3, row: 3 }], ui: { selectedNewCityTile: 'B' } })
     );
-    // 도시화 행동을 선택하지 않았으므로 액션 자체는 거부되지만, ui 주입은 일어나야 한다
+    // 도시화 행동을 선택하지 않았으므로 액션 자체는 거부됨.
+    // 주입된 게스트 선택값이 호스트 화면에 남으면 안 된다 (거부 후 호스트가 도시화
+    // 모드에 빠지는 류의 잔존 버그) — 실행 후 원래 값 복원 확인 (리뷰 스텝2)
     expect(result.ok).toBe(false);
-    expect(useGameStore.getState().ui.selectedNewCityTile).toBe('B');
+    expect(useGameStore.getState().ui.selectedNewCityTile).toBe(before);
   });
 
   it('nextPhase는 현재 차례 좌석만 실행 가능', () => {

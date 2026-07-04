@@ -207,8 +207,13 @@ export function applyGameIntent(msg: IntentMessage): { ok: boolean; reason?: str
     }));
   }
 
-  // 게스트 로컬 ui 선택값 주입 (placeNewCity의 selectedNewCityTile 등)
+  // 게스트 로컬 ui 선택값 주입 (placeNewCity의 selectedNewCityTile 등).
+  // 주입한 키는 실행 후 호스트 원래 값으로 복원 — 안 하면 거부/완료 후에도 게스트의
+  // 선택 상태(urbanizationMode 등)가 호스트 화면에 남는다 (리뷰 발견)
+  let uiBackup: Record<string, unknown> | null = null;
   if (payload.ui) {
+    const curUi = (useGameStore.getState() as unknown as { ui: Record<string, unknown> }).ui;
+    uiBackup = Object.fromEntries(Object.keys(payload.ui).map((k) => [k, curUi[k]]));
     useGameStore.setState((s) => ({ ui: { ...s.ui, ...payload.ui } }) as never);
   }
 
@@ -221,5 +226,10 @@ export function applyGameIntent(msg: IntentMessage): { ok: boolean; reason?: str
     return { ok: true };
   } catch (e) {
     return { ok: false, reason: `실행 오류: ${e instanceof Error ? e.message : String(e)}` };
+  } finally {
+    if (uiBackup) {
+      const restore = uiBackup;
+      useGameStore.setState((s) => ({ ui: { ...s.ui, ...restore } }) as never);
+    }
   }
 }

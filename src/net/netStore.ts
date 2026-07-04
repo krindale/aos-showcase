@@ -297,6 +297,25 @@ export const useNetStore = create<NetStore>()((set, get) => {
     }
   };
 
+  // ---- 게스트 커밋 가드 설치 (intent 전송 + 유실 대비 동일 멱등 id 1회 재전송) ----
+  // joinRoom(게스트 입장)과 이중 호스트 강등 양쪽에서 사용
+  const installGuardWithResend = (): void => {
+    installGuestGuard((type, payload: GameIntentPayload) => {
+      const seat = get().mySeat;
+      if (seat === null) return; // 미배정(관전) — 커밋 불가
+      const id = crypto.randomUUID();
+      const sendOnce = () =>
+        connection?.sendIntent({ id, seat, type, payload }).catch((e) => {
+          console.warn(`[net] 인텐트 전송 실패 (${type}):`, e);
+        });
+      sendOnce();
+      const genAtSend = connectionGen;
+      safeTimeout(() => {
+        if (connectionGen === genAtSend && get().mode === 'guest') sendOnce();
+      }, 2_500);
+    });
+  };
+
   // 처리한 intent id 캐시 — 채널 재조인 시 push 재전송 등 중복 도착을 1회만 실행 (멱등성)
   const seenIntentIds: string[] = [];
   const isDuplicateIntent = (id: string | undefined): boolean => {
@@ -350,6 +369,17 @@ export const useNetStore = create<NetStore>()((set, get) => {
     },
     onRoom: (room) => {
       if (stale()) return;
+      // 이중 호스트 방지 (리뷰 발견): 내가 host인데 방 메타가 다른 호스트를 가리키면 —
+      // 승계 완료 직후(6초 경계) 옛 호스트가 복귀한 경우 — 게스트로 강등한다.
+      // (broadcast self=false라 내 broadcastRoom은 나에게 안 옴 = 이 통지는 항상 타인 발신)
+      if (get().mode === 'host' && room.hostClientId && room.hostClientId !== getClientId()) {
+        console.warn('[net] 다른 클라이언트가 호스트 — 게스트로 강등 (이중 호스트 방지)');
+        stopHostLoop();
+        stopHeartbeat();
+        lastAppliedRev = 0; // 새 호스트의 첫 스냅샷부터 수용 (호스트 권위 = 승계자가 정본)
+        installGuardWithResend();
+        set({ mode: 'guest' });
+      }
       set({ room, mySeat: seatOf(room, getClientId()) });
       checkHostTakeover(); // 승계 완료/호스트 교체 통지 반영
       checkGuestDisconnect();
@@ -652,20 +682,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
         });
         // 커밋 차단 가드 — 이후 이 클라이언트의 커밋 액션은 전부 intent로.
         // 채널 출렁임으로 유실될 수 있어 같은 멱등 id로 2.5초 뒤 1회 재전송 (호스트가 중복 무시)
-        installGuestGuard((type, payload: GameIntentPayload) => {
-          const seat = get().mySeat;
-          if (seat === null) return; // 미배정(관전) — 커밋 불가
-          const id = crypto.randomUUID();
-          const sendOnce = () =>
-            connection?.sendIntent({ id, seat, type, payload }).catch((e) => {
-              console.warn(`[net] 인텐트 전송 실패 (${type}):`, e);
-            });
-          sendOnce();
-          const genAtSend = connectionGen;
-          safeTimeout(() => {
-            if (connectionGen === genAtSend && get().mode === 'guest') sendOnce();
-          }, 2_500);
-        });
+        installGuardWithResend();
         saveLastRoom(conn.room.code, name);
         // 좌석 요청 (대기실 입장·재입장·게임 중 끊긴 좌석 이어받기 — 호스트가 배정).
         // 유실 대비 동일 id로 1회 재전송

@@ -123,6 +123,15 @@ const SNAPSHOT_KEEPALIVE = 5_000;
 
 /** 스냅샷 브로드캐스트 debounce (ms) — 액션 연쇄(정산 등)를 묶되 게스트 체감 지연 최소화 */
 const BROADCAST_DEBOUNCE = 120;
+/**
+ * 단계 전환 홀드 (ms): currentPhase가 바뀌는 스냅샷은 직전 스냅샷 이후 최소 이 시간이
+ * 지나야 내보낸다 — 누가(사람/봇) 단계를 넘겼든, 다른 참가자 화면에 "마지막 플레이어의
+ * 행동"이 최소 이 시간만큼 머문다 (2026-07-04 피드백). 봇은 엔진 딜레이로 이미 간격이
+ * 벌어져 있어 추가 대기가 거의 없다(누적 방지).
+ */
+const PHASE_CHANGE_HOLD = 1200;
+let lastBroadcastAt = 0;
+let lastBroadcastPhase: string | null = null;
 /** 호스트 이탈 감지 후 승계까지 대기 (ms) — presence 플랩(짧은 끊김) 오탐 방지 */
 const HOST_TAKEOVER_DELAY = 6000;
 
@@ -185,6 +194,8 @@ export const useNetStore = create<NetStore>()((set, get) => {
       const { z, bytes } = await encodeSnapshot(synced);
       set({ lastSnapshotBytes: bytes });
       lastSnapshotPayload = { rev, z };
+      lastBroadcastAt = Date.now();
+      lastBroadcastPhase = (synced as { currentPhase?: string }).currentPhase ?? null;
       await conn.broadcastSnapshot(lastSnapshotPayload);
       console.log(`[net] 스냅샷 전송 rev=${rev} (압축 ${bytes}B)`);
       await conn.updateRoom({ snapshot: { rev, z } }); // 재접속·호스트 승계용 영속화
@@ -194,11 +205,22 @@ export const useNetStore = create<NetStore>()((set, get) => {
   };
 
   const scheduleBroadcast = (): void => {
-    if (broadcastTimer !== null) return;
+    // 단계가 바뀌는 스냅샷은 직전 스냅샷 후 PHASE_CHANGE_HOLD가 지나도록 홀드
+    const phaseNow = (useGameStore.getState() as unknown as { currentPhase: string }).currentPhase;
+    const phaseChanged = lastBroadcastPhase !== null && phaseNow !== lastBroadcastPhase;
+    const elapsed = Date.now() - lastBroadcastAt;
+    const wanted = phaseChanged
+      ? Math.max(BROADCAST_DEBOUNCE, PHASE_CHANGE_HOLD - elapsed)
+      : BROADCAST_DEBOUNCE;
+
+    if (broadcastTimer !== null) {
+      if (!phaseChanged) return; // 이미 대기 중 — 그대로 묶어 전송
+      clearTimeout(broadcastTimer); // 단계 전환이 끼었으면 홀드 시간으로 재설정
+    }
     broadcastTimer = setTimeout(() => {
       broadcastTimer = null;
       void broadcastSnapshotNow();
-    }, BROADCAST_DEBOUNCE);
+    }, wanted);
   };
 
   const startHostLoop = (): void => {

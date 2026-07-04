@@ -29,6 +29,11 @@ export default function GoodsGrowthPanel() {
 
   const [diceResults, setDiceResults] = useState<number[]>([]);
   const [growthApplied, setGrowthApplied] = useState(false);
+  // 적용(growGoods)은 성장한 큐브를 디스플레이에서 빼므로, 완료 문구를 실시간 재계산하면
+  // 개수가 줄어든다(예: 2개 성장인데 1개만 표시). 적용 직전 결과를 스냅샷으로 잡아 완료 표시에 쓴다.
+  const [appliedResults, setAppliedResults] = useState<
+    { columnId: string; cityName: string; count: number; cubes: CubeColor[] }[]
+  >([]);
 
   // Production 행동을 선택한 플레이어
   const productionPlayer = Object.values(players).find(
@@ -95,6 +100,7 @@ export default function GoodsGrowthPanel() {
   // 물품 성장 적용
   const handleApplyGrowth = () => {
     if (diceResults.length === 0) return;
+    setAppliedResults(growthResults); // 변형 전 결과 스냅샷 (완료 문구용)
     growGoods(diceResults);
     setGrowthApplied(true);
   };
@@ -228,9 +234,9 @@ export default function GoodsGrowthPanel() {
             <span className="font-bold">물품 성장 완료!</span>
           </div>
 
-          {growthResults.length > 0 && (
+          {appliedResults.length > 0 && (
             <ul className="mb-3 space-y-1 text-sm text-foreground">
-              {growthResults.map((r, i) => (
+              {appliedResults.map((r, i) => (
                 <li key={`${r.cityName}-${i}`} className="flex items-center gap-1.5">
                   <span className="h-1.5 w-1.5 rounded-full bg-positive" />
                   <span className="font-semibold">{r.cityName}</span>

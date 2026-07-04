@@ -32,6 +32,7 @@ import TurnOrderOfferPanel from './TurnOrderOfferPanel';
 import { POP_SPRING, useIsFirstRender } from './uiEffects';
 import ConfirmDialog from './ConfirmDialog';
 import { getMapProfile } from '@/maps/getMapProfile';
+import { hasIncompleteNewTracks } from '@/store/helpers/boardRules';
 import GoodsGrowthPanel from './GoodsGrowthPanel';
 import { useNetStore } from '@/net/netStore';
 import { safeTimeout } from '@/utils/safeTimers';
@@ -94,6 +95,16 @@ export default function PhasePanel() {
       s.ui.selectedCube !== null ||
       s.ui.complexTrackSelection !== null ||
       s.ui.redirectTrackSelection !== null
+  );
+
+  // 독일(완성 링크만): 이번 턴 미완성 신설 트랙이 있으면 넘어갈 때 삭제·환불된다 → 실수로 잃지
+  // 않게 '다음 단계로'를 막고 안내한다 (사람 차례만, boolean 셀렉터라 값이 바뀔 때만 리렌더).
+  const incompleteBlocks = useGameStore(
+    (s) =>
+      s.currentPhase === 'buildTrack' &&
+      getMapProfile(s.mapId).requireCompleteLinks &&
+      !s.players[s.currentPlayer]?.isAI &&
+      hasIncompleteNewTracks(s.board, s.currentTurn, s.currentPlayer)
   );
 
   // 실행 취소 가능한 확정 행동 수 (주식 발행/행동 선택/트랙 건설 — 단계 전환 전까지)
@@ -417,11 +428,21 @@ export default function PhasePanel() {
                   </button>
                 )}
                 {undoButton}
+                {incompleteBlocks && (
+                  <div className="p-2 md:p-3 rounded-lg bg-steam-red/10 border border-steam-red/30 text-[11px] md:text-xs text-steam-red flex items-start gap-1.5">
+                    <span className="mt-0.5">⚠️</span>
+                    <span>
+                      완성되지 않은 철도가 있어요. 이대로 넘어가면 <b>삭제됩니다</b> (독일: 완성 링크만 건설).
+                      연결을 완성하거나 <b>취소</b>한 뒤 넘어가세요.
+                    </span>
+                  </div>
+                )}
                 <button
                   onClick={handleNextPhase}
-                  disabled={isAIExecuting}
+                  disabled={isAIExecuting || incompleteBlocks}
                   className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   aria-label="다음 단계로"
+                  title={incompleteBlocks ? '완성되지 않은 철도가 있어 넘어갈 수 없어요' : undefined}
                 >
                   {(() => {
                     // 클릭 후 상태 예측

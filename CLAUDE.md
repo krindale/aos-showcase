@@ -214,6 +214,7 @@ src/
 │       ├── OnlineLobby.tsx     # 온라인 로비/대기실 (방 만들기·코드 입장·좌석·공개방·빠른매칭)
 │       ├── GameChat.tsx        # 게임 중 플로팅 채팅 (보드 우측 하단 sticky, 닫힘 시 알림음)
 │       ├── BottomSheet.tsx     # 모바일용 드래그 바텀 시트 (반응형)
+│       ├── HelpOverlay.tsx     # 인게임 규칙/도움말 오버레이 (헤더 ? 버튼 → 현재 단계 강조 + 10단계 흐름·특수행동 7종·맵 특수룰·승점 공식). 콘텐츠는 PHASE_INFO/ACTION_INFO/MapProfile.specialRules 재활용, ConfirmDialog 패턴+ESC 닫기. 순수 로컬 UI(스토어 읽기 전용) — 스냅샷/intents 무관
 │       └── CollapsiblePanel.tsx    # 태블릿용 접이식 사이드 패널 (반응형)
 │
 ├── net/                        # 온라인 멀티 (Supabase Realtime + 호스트 권위) — gameStore와 단방향(net→store)

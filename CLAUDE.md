@@ -505,12 +505,16 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
 - **주머니 반환 (룰북 V)**: 이동 완료 후 큐브는 `completeCubeMove`가 `goodsDisplay.bag`으로 반환
   (일반 배달·마을 큐브·트랙 큐브 모두 `ui.movingCube` → `completeCubeMove` 경로라 이 한 곳). ⚠️ 반환을
   빠뜨리면 주머니가 고갈돼 생산·Berlin 보너스·한국 도시화 보충이 어긋난다.
-- **생산(Production) 기회 보장 (룰북 IX)**: goodsGrowth 진입 시 사람(비AI) 생산 선택자를
-  `currentPlayer`로 설정 — ProductionPanel이 currentPlayer가 선택자일 때만 렌더되기 때문. 이 경우
-  `currentPlayer`가 사람이라 `runAIAutoPhase`는 no-op → 사람이 직접 주사위/생산을 진행한다. 반면
-  **생산 선택자가 없거나 봇이면 `currentPlayer`가 봇이 되어 `runAIAutoPhase`가 주사위를 자동으로
-  굴려 통과**한다(위 "봇 자동 단계 진행" 참조). 봇 생산 선택자의 실제 주머니 뽑기는 여전히 미구현.
-- 회귀 테스트: `src/store/__tests__/productionAndBagReturn.test.ts` (5개 맵 × 생산 진입 + 주머니 반환).
+- **생산(Production)은 주사위 전에 강제 (룰북 IX: 생산 → 주사위)**: goodsGrowth 진입 시 사람(비AI)
+  생산 선택자가 **배치 가능**(빈 칸 + 주머니 큐브)하면 `currentPlayer`로 잡아 ProductionPanel(그 사람만)에서
+  배치하게 하고, **그가 배치를 끝낼(`productionUsed=true`) 때까지 GoodsGrowthPanel의 주사위·건너뛰기를
+  잠근다**(온라인에선 방장이 게스트 생산 전에 굴려 스킵하던 버그). 방어로 `growGoods`도 사람 홀더 미완료면
+  no-op. **배치 불가**(만석/빈 주머니)면 진입 시 `productionUsed` **자동 완료**(스킵 아님 — 물리적으로 배치
+  불가, 주사위 잠금 교착 방지). 선택자가 없거나 봇이면 잠금 없이 통과(봇 생산의 실제 주머니 뽑기는 미구현).
+  ⚠️ `ProductionPanel`은 **홀더 본인 좌석에만** 렌더(방장이 게스트 생산 대신 조작 방지). `startProduction`은
+  `min(2, 빈칸, 주머니)` 뽑기(빈 칸보다 많이 뽑아 확정 불가하던 스턱 방지).
+- 회귀 테스트: `src/store/__tests__/productionAndBagReturn.test.ts` (맵별 진입 currentPlayer·자동완료 분기,
+  growGoods 차단/진행, 주머니 반환).
 - 이전 버그 이력은 [`docs/issue-log.md`](docs/issue-log.md).
 
 ### 게임 상태 관리 (Zustand)

@@ -228,3 +228,85 @@ create table public.rooms (
 - **치팅 방어 없음**: 호스트가 클라이언트라 조작 가능 — 친구용이므로 수용. 필요해지면
   net 교체로 서버 권위 승격 (§1).
 - **RLS 허용형의 노출**: 방 코드 모델의 한계(§4-②) — 강화는 익명 로그인 도입 시.
+
+## 8. 상태 동기화 모델 — Snapshot · 로그 · Undo (구현 확정, 2026-07-05)
+
+> "Snapshot에는 현재 상태만, History는 별도 저장" 이라는 일반론과 **이 프로젝트의 실제 구현이
+> 어디서 갈라지는지**를 못박아 둔다. §4-④·§5에 흩어진 스냅샷 얘기를 여기로 종합.
+
+### 8-1. Snapshot = 현재 상태 + 최근 로그 30개 (순수 상태 아님)
+
+교과서적 Snapshot은 "현재 상태만"이지만, 이 프로젝트의 스냅샷은 **`state.logs`의 최근 30개를
+같이 실어 보낸다** (게스트 로그 패널이 재접속·중간 합류 후에도 직전 흐름을 보여주기 위함).
+
+- **인코딩**: `src/net/snapshotCodec.ts` — `extractSyncedState()`가 persist 포맷(전체 GameState)에서
+  ① 함수(zustand 액션) ② 로컬 전용 키(`ui`·`aiExecution`)를 빼고, ③ `logs`는 최근
+  `RECENT_LOGS = 30`개만 남긴 뒤, `encodeSnapshot()`이 `JSON → gzip(CompressionStream) → base64`로
+  압축한다(실측 압축 후 ~2KB, Realtime 256KB 한도/무료 egress 대비).
+- **`ui.movingCube`만 예외 승격**: 화물 이동 애니메이션을 게스트도 보도록 `netMovingCube`로 승격
+  (정산 `completeCubeMove`는 여전히 호스트 타이머 전용, 게스트는 guestNoop).
+- **전파·영속**: `src/net/netStore.ts:185-207` `broadcastSnapshotNow()` — `rev`(단조 증가) 붙여
+  ① 전원 broadcast + ② `rooms.snapshot`에 저장(재접속·호스트 승계용). `rev`로 역순 도착을 무시
+  (`netStore.ts:256` `msg.rev <= lastAppliedRev` 드롭). ui만 바뀐 변화는 전송 생략.
+- **게스트 적용**(`applySnapshotAsGuest`, `netStore.ts:255~`): `decodeSnapshot` 후 `setState`.
+  이때 persist `merge`와 같은 원칙으로 1회성 상태(`transcontinentalEvent`·`incomeReductions`·
+  `aiExecution`)를 안전값으로 초기화 — "옛 모달/배지 부활" 방지.
+
+**요지**: 스냅샷은 "현재 상태 + 꼬리 로그 30개"다. 순수 현재 상태만은 아니지만, 전체 History도
+아니다 — 30개 넘어가면 앞부분은 스냅샷에 실리지 않는다.
+
+### 8-2. "로그"는 두 종류이고 서로 완전히 별개다 (혼동 주의)
+
+| | `state.logs` (GameState 필드) | `logAction` (`utils/debugConfig.ts`) |
+|---|---|---|
+| 정체 | **인게임 이벤트 로그** | **개발/디버깅용 콘솔 로그** |
+| 생성 | `addLog`(`gameStore.ts:1552`) + 각 액션이 append | `logAction(category, type, payload)` 직접 호출 |
+| 형태 | `{turn, phase, player, action, timestamp}` 배열 | `[game:<sessionId>] {"t":...,"c":...}` 한 줄 JSON |
+| 저장 | **persist(localStorage)에 게임 전체 누적** | **저장 안 됨** — 콘솔→:3999 서버로만 출력 |
+| 온라인 전파 | **스냅샷에 최근 30개만** | 전파 안 됨 (게임 상태 아님) |
+| 용도 | UI 로그 패널, 재접속 후 흐름 표시 | AI/버그 추적(:3999에서 `"c":"trackBuilding"` grep) |
+
+→ 흔한 오해: **`logAction`을 "History의 시작"으로 보는 것**. `logAction`은 게임 상태의 일부가
+아니라 저장·동기화되지 않는 디버그 스트림이다. 실제로 저장·전파되는 History 성격 데이터는
+`state.logs`(그마저 온라인은 30개로 잘림)뿐이다.
+
+### 8-3. 별도 History / 리플레이 시스템은 미구현 (의도적)
+
+- **영구 액션 히스토리 DB 없음**: `rooms.snapshot`은 **최신 1건만** 덮어쓴다(재접속·승계용).
+  과거 스냅샷·수 목록을 쌓아두지 않는다.
+- **리플레이(기보 재생) 없음**: "1턴부터 되감기" 재생 기능은 없다.
+- **로컬 persist에는 전체 `state.logs`가 쌓이지만**(그 판 한정, localStorage `age-of-steam-game`),
+  이건 UI 표시용이지 리플레이 엔진이 아니다. 게스트로 온라인 플레이하면 이 로컬 저장은 스냅샷에
+  덮인다(§6 알려진 한계 ②).
+- **확장한다면**: `logAction`의 구조화 JSON(이미 `sessionId`+turn+player+payload 보유)을 별도
+  append-only 스토어(파일/테이블)로 흘려보내면 기보·리플레이의 토대가 된다 — 지금은 콘솔로만
+  나가므로 "수집기"만 붙이면 됨. 온라인이라면 `log` 소형 이벤트를 채널로 별도 전파(§4-④가
+  열어둔 설계)하거나 rooms에 로그 테이블을 추가.
+
+### 8-4. Undo는 "스냅샷 여러 개" 방식 (역계산 아님)
+
+- **모델**: 확정 행동마다 `captureUndo(state, label)`로 전체 상태 스냅샷을 `undoSnapshots`
+  스택(`store/helpers/undo.ts`, **모듈 싱글턴**)에 push. `undoLastAction`은 pop해서 복원 —
+  액션 역연산이 아니라 스냅샷 되돌리기다. `nextPhase`마다 스택 초기화(사람 전용).
+- **온라인 함정**(CLAUDE.md·§6 참조): `undoCount`는 persist/스냅샷 동기화 **상태**지만 실제 스택은
+  **호스트 메모리**에만 있다. F5·호스트 승계 시 스택은 비고 count만 남아 "눌러도 안 되돌아가는"
+  팬텀 취소가 되므로 persist `merge`·`promoteToHost`에서 `undoCount:0` 리셋. 게스트 undo는
+  intent만 보내고 호스트 스냅샷이 와야 반영(로컬 즉시 아님).
+
+### 8-5. 코드 지도 (한눈에)
+
+```
+현재 상태 ── src/store/gameStore.ts (GameState, persist: age-of-steam-game)
+   │           └ state.logs[]  ← addLog / 각 액션이 append (전체 누적)
+   │
+스냅샷 ──── src/net/snapshotCodec.ts  extractSyncedState → encodeSnapshot(gzip+base64)
+   │           · 제외: 함수 · ui · aiExecution
+   │           · logs: 최근 30개(RECENT_LOGS)만
+   │           · netMovingCube: ui.movingCube 승격
+   │
+전파·영속 ── src/net/netStore.ts  broadcastSnapshotNow (rev++, broadcast + rooms.snapshot 1건 덮기)
+   │
+Undo ────── src/store/helpers/undo.ts  undoSnapshots 스택(모듈 싱글턴, 호스트 메모리)
+   │
+디버그 로그 ─ src/utils/debugConfig.ts  logAction → 콘솔/:3999 (저장·전파 안 함, 게임 상태 아님)
+```

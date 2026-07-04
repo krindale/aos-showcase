@@ -914,9 +914,6 @@ Age of Steam 확장맵 3 — 한국 (Martin Wallace 2004 / James Mathias 아트 
     신규 도시 위로 옮김 (다른 맵은 기존대로 제거).
 - **Atlanta 호황**: Germany Berlin의 `bonusCityCubeId` 재사용 + **`bonusCityCubeMaxTurn=4`**
   (1~4턴만 물품 성장마다 주머니에서 1개 — 남북전쟁 전 호황).
-  ⚠️ Atlanta는 빨강 도시인데 초기엔 회색으로 렌더됐다 — Berlin의 회색 헥스 표현이
-  `bonusCityCubeId`에 묶여 있던 탓. **회색 렌더는 `MapProfile.grayRenderCityId`(순수 시각 속성)로
-  분리**(Germany만 'berlin' 반환) — 보너스 규칙과 렌더를 섞으면 안 됨(2026-07-04 수정).
 - **4턴 남북전쟁**: `MapProfile.incomeReductionMultiplier(turn)` — applyIncomeReduction에서
   룰 테이블 감소량에 배수 적용 (Southern: turn===4 → 2배).
 - **도시 초기 큐브**: Atlanta 4 / 항구 3 / 나머지 1 (`cityCubeCounts` — 기본 2를 쓰는 도시가 없어 전부 명시).
@@ -947,10 +944,6 @@ Age of Steam 확장맵 3 — 한국 (Martin Wallace 2004 / James Mathias 아트 
 - 도시화 시 해당 마을의 가닥 제거 (도시는 모든 변 연결)
 - **도시화된 마을(`town.newCityColor !== null`)은 모든 마을 판정에서 제외** — towns 배열에
   남아 있으므로 `t.newCityColor === null` 조건 필수 (빠뜨리면 도시 연결에 가닥을 요구하는 버그)
-- **마을 위 화물 큐브 클릭(이동 단계)**: townCubes 맵(Western/Southern)에서 마을 큐브는 마을 헥스
-  위에 그려져 클릭을 삼킨다 → 이동 단계엔 `BoardTowns`가 큐브 rect 자체에 선택 핸들러(`selectCube`의
-  `town:<id>` 컨벤션, 해당 index)를 달고, 그 외 단계엔 `pointer-events:none`으로 헥스에 클릭을
-  통과시킨다 (안 그러면 큐브를 피해 마을 원을 눌러야만 수송 선택됐다, 2026-07-04 수정).
 - 핵심 테스트: `src/store/__tests__/townHubModel.test.ts` (15 케이스 — 가닥 카운트/첫 트랙 도시 앵커),
   `buildLimitByLog.test.ts` (게임 로그 기반 턴당 건설 제한 검증 — St. Lucia 1턴 도시화 선점자만 건설)
 

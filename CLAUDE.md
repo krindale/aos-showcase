@@ -208,7 +208,8 @@ src/
 │       ├── DiceRoller.tsx      # 주사위 굴리기 UI (1회 굴린 뒤 버튼 숨김 — 재굴림 방지)
 │       ├── DebugPanel.tsx      # 디버그 패널 UI
 │       ├── TranscontinentalModal.tsx  # 대륙횡단 연결 팝업 (Western US: 보너스 수령자·연속성 해제 안내)
-│       ├── MoveCubeOverlay.tsx # 화물 이동·AI 건설 중 보드 미니맵 (모든 맵, 우측 하단 fit)
+│       ├── MoveCubeOverlay.tsx # 화물 이동·AI 건설 중 보드 미니맵 (모든 맵, 우측 하단 fit). 이동 중엔 헤더에 "출발→도착 (N링크)" 경로 표시
+│       ├── Toaster.tsx         # 화면 상단 토스트 렌더러 (toastStore 구독, safeTimeout 자동 사라짐)
 │       ├── PhaseTransition.tsx # 단계 전환 안내 팝업 (마지막 플레이어 행동 확인용, pointer-events-none 순수 안내)
 │       ├── OnlineLobby.tsx     # 온라인 로비/대기실 (방 만들기·코드 입장·좌석·공개방·빠른매칭)
 │       ├── GameChat.tsx        # 게임 중 플로팅 채팅 (보드 우측 하단 sticky, 닫힘 시 알림음)
@@ -234,9 +235,11 @@ src/
 │   ├── gameStore.ts            # 오케스트레이션 허브 (1,480줄): GameStore 인터페이스(계약)·initGame/resetGame·
 │   │                           #   executeAITurn·issueShare·selectAction·nextPhase/endTurn·undoLastAction·
 │   │                           #   placeNewCity·addLog·persist 설정 + slice 합성(...createXxxSlice(set, get))
+│   ├── toastStore.ts           # 화면 상단 토스트(별도 zustand — gameStore와 분리, 스냅샷 미동기화 = 로컬 UI)
 │   ├── helpers/                # 모듈 레벨 헬퍼 (set/get 클로저 밖 순수 함수)
 │   │   ├── undo.ts             # 실행 취소 스냅샷 스택(undoSnapshots 싱글턴)·captureUndo·getUndoLabel
-│   │   ├── boardRules.ts       # crossesBlockedEdge·findMissingTownSpurs·releaseUnextendedTrack·removeIncompleteNewTracks
+│   │   ├── boardRules.ts       # crossesBlockedEdge·findMissingTownSpurs·releaseUnextendedTrack·removeIncompleteNewTracks·hasIncompleteNewTracks
+│   │   ├── buildReason.ts      # getBuildBlockReason (건설 실패 사유 한 줄 — canBuildTrack 미러, 토스트용)
 │   │   ├── setup.ts            # createInitialGameState·drawBalancedCubes·TUTORIAL_GAME_CONFIG·AIPlayerConfig
 │   │   ├── transcontinental.ts # computeTranscontinental (Western US 대륙횡단 감지)
 │   │   └── aiScheduler.ts      # AI 실행 락·컨텍스트 검증·scheduleAICheck (150ms debounce)
@@ -578,6 +581,7 @@ AI는 객체 지향 아키텍처(`AIPlayer`/`AIPlayerManager`/`AIDebugger`) + **
 - **건설 제한**: 턴당 3개(Engineer 4). 모든 건설 경로(buildTrack/복합/방향전환/마을가닥)가 `builtTracksThisTurn` 카운트 검사.
 - **독일 미완성 링크 금지 UI 가드**: 독일(`requireCompleteLinks`)은 완성 링크만 건설 가능 — 이번 턴 미완성 신설 트랙은 단계 전환 시 `removeIncompleteNewTracks`가 삭제·환불한다. 모르고 넘어가 트랙이 사라지는 걸 막으려 `PhasePanel`이 사람 차례 buildTrack에서 미완성 트랙이 있으면(`hasIncompleteNewTracks`) '다음 단계로'를 **비활성 + 경고**한다. 이번 턴 트랙만 대상이라 undo로 해소 가능(교착 없음).
 - **실행/선택 취소**: `undoLastAction`(확정 행동 스냅샷 복원, `nextPhase`마다 초기화·사람 전용) / `cancelSelection`(커밋 전 UI 선택만). 새 커밋 액션 추가 시 검증 통과 직후 `captureUndo(state, label)` + set에 `undoCount` 포함.
+- **건설 실패 사유 토스트**: 조용히 실패하던 건설(현금 부족·제한 도달 등)을 상단 토스트로 안내. `helpers/buildReason.getBuildBlockReason`가 `canBuildTrack` 검사 순서를 미러해 첫 실패 사유를 돌려주고(현금은 canBuildTrack이 안 보므로 마지막에 추정), `toastStore`(gameStore와 분리 = 스냅샷 미동기화)로 띄운다. **트리거는 사람 클릭 UI 경로에만**(`uiSlice.selectExitDirection` 커밋 실패 + `selectSourceHex` 제한 도달) — AI/게스트-거부엔 안 뜬다. ⚠️ `canBuildTrack` 규칙 바꾸면 `getBuildBlockReason` 순서·조건도 함께 맞출 것.
 
 **상세 — 의사결정 알고리즘 전문·Phase별 결정·맵별 구현 및 밸런싱 이력·디버깅 시스템·기각 실험 기록**: [docs/ai-system.md](docs/ai-system.md)
 

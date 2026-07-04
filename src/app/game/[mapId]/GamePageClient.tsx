@@ -49,6 +49,7 @@ import RedirectTrackPanel from '@/components/game/RedirectTrackPanel';
 import UrbanizationPanel from '@/components/game/UrbanizationPanel';
 import ProductionPanel from '@/components/game/ProductionPanel';
 import MoveCubeOverlay from '@/components/game/MoveCubeOverlay';
+import Toaster from '@/components/game/Toaster';
 import DebugPanel from '@/components/game/DebugPanel';
 import { POP_SPRING, useIsFirstRender } from '@/components/game/uiEffects';
 import TranscontinentalModal from '@/components/game/TranscontinentalModal';
@@ -629,6 +630,9 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
 
       {/* 화물 이동 시 전체 맵을 화면에 꽉 차게 보여주는 오버레이 (큰 맵 가독성) */}
       <MoveCubeOverlay />
+
+      {/* 건설 실패 사유 등 화면 상단 토스트 (로컬 UI, 스냅샷 미동기화) */}
+      <Toaster />
 
       {/* 플레이어 패널 (동적 렌더링) — 3인+ 게임은 비활성 플레이어를 한 줄로 압축 */}
       {activePlayers.map(playerId => (

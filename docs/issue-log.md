@@ -8,6 +8,32 @@
 
 ---
 
+## 2026-07-04 — 온라인에서 봇 전환 후 정산/물품성장 단계 교착 (PR #21)
+
+- **증상**: 온라인 플레이 중 게스트가 연결이 끊겨 봇으로 전환했더니, 호스트 화면에 "봇 차례"로
+  표시되지만 봇이 아무 액션도 하지 않고 게임이 멈춤.
+- **원인 확정(Supabase 스냅샷 디코딩)**: 방 `7HHP3U`(Korea 4인, 턴 3)의 rooms 스냅샷을 열어보니
+  `currentPhase=incomeReduction`, `currentPlayer=player2`(봇 전환된 게스트, `isAI:true`)에서 멈춰
+  있었다. 정산 3단계·`advanceTurn`·`goodsGrowth`는 봇의 "결정"이 필요 없어 AI 스케줄러
+  (`PLAYER_ACTION_PHASES`) 대상이 아니고, 원래 사람이 '진행'/'주사위' 버튼으로 넘기던 단계다.
+  게스트가 하필 그 단계의 첫 순서(경매로 `playerOrder[0]`)라 끊긴 뒤 봇 전환해도 진행 주체가
+  사라져 교착됐다. (행동 5단계는 `executeAITurn`으로 자동 진행되므로 봇 전환 시 원래부터 정상)
+- **수정** (`630049c`): `aiScheduler`에 `AI_AUTO_ADVANCE_PHASES` + `scheduleAICheck` 두 번째 분기
+  (봇이 자동 단계 `currentPlayer`면 `runAIAutoPhase`). `gameStore.runAIAutoPhase` — 정산은 자동
+  `nextPhase`, goodsGrowth는 봇 주사위 자동 굴림(활성 플레이어 수만큼 1~6) + `growGoods` 후 진행.
+  `nextPhase` 끝의 재예약으로 정산~물품성장이 debounce 간격으로 연쇄 자동 통과된다. 동작 규칙은
+  CLAUDE.md "봇 자동 단계 진행" 참조.
+- **리뷰 발견 수정** (`144719b`): 초기 구현은 `runAIAutoPhase`를 `intents.ts`에 등록 안 해,
+  게스트가 optimistic `nextPhase`를 로컬 실행해 봇 정산 단계로 넘어가면 게스트에서
+  `runAIAutoPhase`가 실제로 돌아 내부 `growGoods`/`nextPhase`가 로컬 반영 + 거부될 intent를 스팸
+  전송(디싱크)했다 — `executeAITurn`이 `guestNoop`으로 막는 것과 같은 경로가 뚫려 있었다.
+  `runAIAutoPhase: { guestNoop: true }` 등록으로 봇 자동화를 호스트 전용으로 대칭화.
+- **테스트**: `store/__tests__/aiAutoPhase.test.ts`(정산 자동 진행·goodsGrowth 봇 주사위·사람 차례
+  미진행·scheduleAICheck 연쇄 4개) + `net/__tests__/intents.test.ts`에 게스트 no-op 회귀 1개.
+  전체 유닛 245개·타입체크 통과.
+- **한계**: DB에 남은 교착 방 `7HHP3U`는 배포 코드로 돌던 게임이라 이 수정으로 자동 복구되지
+  않음(필요 시 수동 정리). 봇 생산 선택자의 실제 주머니 뽑기는 여전히 미구현(기존 갭, 범위 밖).
+
 ## 2026-07-04 — 온라인 멀티플레이 안정화 + PR #19 코드리뷰
 
 feature/online-multiplayer 브랜치 (PR #19). 온라인 플레이 중 발견된 이슈들과 순차 코드리뷰 결과.

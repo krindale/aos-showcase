@@ -89,6 +89,7 @@ const INTENT_SPECS: Record<string, IntentSpec> = {
   // 스냅샷 전파. undo 스택은 nextPhase마다 비워지므로 자기 차례 행동만 되돌려진다.
   undoLastAction: {},
   executeAITurn: { guestNoop: true }, // AI는 호스트에서만
+  runAIAutoPhase: { guestNoop: true }, // 봇 정산/물품성장 자동 진행 — executeAITurn과 동일, 호스트에서만
   initGame: { guestNoop: true },
   resetGame: { guestNoop: true },
 };

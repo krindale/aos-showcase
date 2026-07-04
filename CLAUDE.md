@@ -369,6 +369,8 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
   디싱크). 커밋이 로컬 ui 선택값을 읽으면 `captureUi`에 그 필드를 지정 — **can계열 검증이
   읽는 ui 필드까지 전부**(예: placeNewCity는 selectedNewCityTile뿐 아니라 canPlaceNewCity가
   요구하는 urbanizationMode까지). 호스트는 주입한 ui 키를 실행 후 원값으로 **복원**한다.
+  AI가 호스트에서만 돌아야 하는 자동 진행 액션(`executeAITurn`·`runAIAutoPhase`)은
+  `guestNoop: true`로 등록 — 안 하면 게스트가 봇 로직을 로컬 실행해 intent 스팸·디싱크.
 - **함정 기록**: ① 경매 입찰 차례는 `currentPlayer`가 진실 — `auction.currentBidder`는 갱신
   안 되는 레거시 필드(검증에 쓰면 정상 입찰 거부). ② intent는 멱등성 id로 중복 실행 차단(채널
   재조인 재전송 대비). ③ clientId는 sessionStorage(탭별) — F5 좌석 자동 복원 + 한 PC 두 탭 가능.
@@ -469,8 +471,10 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
   (일반 배달·마을 큐브·트랙 큐브 모두 `ui.movingCube` → `completeCubeMove` 경로라 이 한 곳). ⚠️ 반환을
   빠뜨리면 주머니가 고갈돼 생산·Berlin 보너스·한국 도시화 보충이 어긋난다.
 - **생산(Production) 기회 보장 (룰북 IX)**: goodsGrowth 진입 시 사람(비AI) 생산 선택자를
-  `currentPlayer`로 설정 — ProductionPanel이 currentPlayer가 선택자일 때만 렌더되기 때문. AI 선택자는
-  기존대로(goodsGrowth는 AI 스케줄러 대상 아님 — PLAYER_ACTION_PHASES 제외).
+  `currentPlayer`로 설정 — ProductionPanel이 currentPlayer가 선택자일 때만 렌더되기 때문. 이 경우
+  `currentPlayer`가 사람이라 `runAIAutoPhase`는 no-op → 사람이 직접 주사위/생산을 진행한다. 반면
+  **생산 선택자가 없거나 봇이면 `currentPlayer`가 봇이 되어 `runAIAutoPhase`가 주사위를 자동으로
+  굴려 통과**한다(위 "봇 자동 단계 진행" 참조). 봇 생산 선택자의 실제 주머니 뽑기는 여전히 미구현.
 - 회귀 테스트: `src/store/__tests__/productionAndBagReturn.test.ts` (5개 맵 × 생산 진입 + 주머니 반환).
 - 이전 버그 이력은 [`docs/issue-log.md`](docs/issue-log.md).
 
@@ -525,6 +529,8 @@ AI는 객체 지향 아키텍처(`AIPlayer`/`AIPlayerManager`/`AIDebugger`) + **
 **핵심 모듈**: `strategy/vp.ts`(ΔVP 환산기 — 모든 튜닝 상수 집중) · `strategy/mapConfig.ts`(맵별 AI 오버라이드 테이블) · `strategy/turnPlan.ts`(턴 시작 계획, Phase 간 공유) · `maps/*MapProfile`(맵별 동작 다형성).
 
 **실행 흐름**: `initGame/resetGame → scheduleAICheck → 150ms debounce → executeAITurn → getAIDecision → 1000ms → 결정 실행 → nextPhase → …`. ⚠️ 상태 변경 함수 끝에 `scheduleAICheck(get)`이 없으면 첫 AI 페이즈가 자동 실행되지 않는다. **단위 테스트와 실제 게임은 실행 경로가 다르므로**, 자동 진행 관련 수정은 `executeAITurn` 경로를 쓰는 통합 테스트(fake timers)로 검증할 것.
+
+**봇 자동 단계 진행(`runAIAutoPhase`)**: 봇은 "결정"이 필요한 행동 5단계(`PLAYER_ACTION_PHASES` = issueShares·determinePlayerOrder·selectActions·buildTrack·moveGoods)만 `executeAITurn`으로 진행하고, 결정이 필요 없어 원래 사람이 '진행'/'주사위' 버튼으로 넘기던 **정산·물품성장 단계(`AI_AUTO_ADVANCE_PHASES` = collectIncome·payExpenses·incomeReduction·goodsGrowth·advanceTurn)는 `currentPlayer`가 봇이면 `runAIAutoPhase`로 자동 통과**한다 (`scheduleAICheck`의 두 번째 분기). 정산은 자동 `nextPhase`, goodsGrowth는 **봇이 주사위를 자동으로 굴려**(활성 플레이어 수만큼 1~6) `growGoods` 후 진행. 사람이 `currentPlayer`면 no-op이라 사람 차례 정산은 '진행' 버튼 수동 유지. 온라인에서 끊긴 게스트를 봇 전환했을 때 이 단계들에서 진행 주체가 사라져 교착되던 것을 자동화한 것(오프라인 봇 게임도 동일 적용 — 봇이 경매 1등인 턴의 정산/물품성장이 자동으로 넘어감). ⚠️ **`runAIAutoPhase`는 `executeAITurn`과 함께 `intents.ts`에 `guestNoop`으로 등록** — 게스트에서 돌면 봇 자동화가 로컬 실행돼 디싱크(AI는 호스트에서만).
 
 **항상 지킬 규칙 (함정)**:
 - **맵 분기 금지**: `mapId === 'x'` 하드코딩 대신 `MapProfile` override / `mapConfig` 테이블. 새 맵은 프로파일만 추가.

@@ -790,7 +790,8 @@ export const useNetStore = create<NetStore>()((set, get) => {
       const aiPlayers = seats
         .filter((s) => s.kind === 'ai')
         .map((s) => ({ playerIndex: s.seat, name: s.name }));
-      useGameStore.getState().initGame(room.mapId, names, aiPlayers);
+      // 좌석은 유지, 첫 턴 순서만 무작위 (호스트 권위 → 스냅샷으로 게스트에 전파)
+      useGameStore.getState().initGame(room.mapId, names, aiPlayers, { randomizeStartOrder: true });
       try {
         await conn.updateRoom({ status: 'playing' });
         await conn.broadcastRoom();

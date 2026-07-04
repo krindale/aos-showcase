@@ -68,7 +68,8 @@ export function drawBalancedCubes(
 export function createInitialGameState(
   mapId: string,
   playerNames: string[],
-  aiPlayers: AIPlayerConfig[] = []
+  aiPlayers: AIPlayerConfig[] = [],
+  options: { randomizeStartOrder?: boolean } = {}
 ): GameState {
   const mapData = getMapData(mapId);
   const boardState = mapData.createBoardState();
@@ -214,13 +215,23 @@ export function createInitialGameState(
   // 맵별 턴 수 (튜토리얼 3턴, St. Lucia 8턴 등 - mapRegistry에서 정의)
   const maxTurns = mapData.maxTurns || (TURNS_BY_PLAYER_COUNT[playerCount] || 6);
 
-  // 교대 선공권 맵: 첫 턴 1번 플레이어를 무작위 결정 (룰북: randomly determine the first player)
-  // (일반 맵은 player-index 고정 순서 유지 — player별 성적으로 편향을 측정·진단하기 위함.
-  //  순서를 무작위로 섞으면 player별 통계가 평준화돼 "골고루 이기는지"를 측정할 수 없다.)
+  // 첫 턴 플레이어 순서 결정 (룰북: 주사위를 굴려 무작위로 결정)
+  // - 실제 게임(UI/온라인)은 randomizeStartOrder=true → 좌석은 유지하고 turn order만 무작위 셔플.
+  // - 시뮬레이션/단위 테스트는 randomizeStartOrder 미지정(false) → player-index 고정 순서 유지:
+  //   순서를 섞으면 player별 통계가 평준화돼 AI 편향("골고루 이기는지")을 측정할 수 없다.
+  // - 교대 선공권 맵(St. Lucia 등)은 기존대로 첫 두 명 스왑(2인 전용 = 전체 셔플과 동치).
   const mapRules = getMapProfile(mapId);
   const initialPlayerOrder = [...activePlayers];
-  if (mapRules.alternateTurnOrder && initialPlayerOrder.length >= 2 && Math.random() < 0.5) {
-    [initialPlayerOrder[0], initialPlayerOrder[1]] = [initialPlayerOrder[1], initialPlayerOrder[0]];
+  if (mapRules.alternateTurnOrder) {
+    if (initialPlayerOrder.length >= 2 && Math.random() < 0.5) {
+      [initialPlayerOrder[0], initialPlayerOrder[1]] = [initialPlayerOrder[1], initialPlayerOrder[0]];
+    }
+  } else if (options.randomizeStartOrder && initialPlayerOrder.length >= 2) {
+    // Fisher-Yates 셔플 (turn order만 무작위, 좌석 activePlayers는 불변 → 온라인 좌석 매핑 안전)
+    for (let i = initialPlayerOrder.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [initialPlayerOrder[i], initialPlayerOrder[j]] = [initialPlayerOrder[j], initialPlayerOrder[i]];
+    }
   }
 
   return {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
@@ -166,6 +166,22 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       setSetupTab('online');
     }
   }, [isOnline, netRoom, netRoom?.status]);
+
+  // 온라인 세션이 끝나면(승계 거절·강퇴 등 netStore.leaveRoom 직접 호출로 offline 전환) 셋업
+  // 화면으로 복귀 — 안 하면 게임 중 나갔을 때 stale 오프라인 보드에 갇힌다. UI의 handleLeaveRoom은
+  // 자체적으로 setShowSetup(true)를 하므로, 이 효과는 그 외 경로(팝업 나가기·강퇴)를 보완한다.
+  const wasOnlineRef = useRef(false);
+  useEffect(() => {
+    if (isOnline) {
+      wasOnlineRef.current = true;
+      return;
+    }
+    if (wasOnlineRef.current) {
+      wasOnlineRef.current = false;
+      setShowSetup(true);
+      setSetupTab('online');
+    }
+  }, [isOnline]);
 
   // 다른 맵의 방에 입장한 경우 그 맵 페이지로 이동 (netStore는 모듈 싱글턴이라 세션 유지)
   useEffect(() => {

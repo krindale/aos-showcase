@@ -26,6 +26,14 @@ import {
   ChevronRight,
   X,
   Undo2,
+  Truck,
+  TrainTrack,
+  HardHat,
+  Train,
+  Building2,
+  Boxes,
+  ListOrdered,
+  type LucideIcon,
 } from 'lucide-react';
 import AuctionPanel from './AuctionPanel';
 import TurnOrderOfferPanel from './TurnOrderOfferPanel';
@@ -60,6 +68,28 @@ export const ACTIONS: SpecialAction[] = [
   'production',
   'turnOrder',
 ];
+
+/** 행동 선택 버튼용 축약 설명 (좁은 2열 그리드 — 상세는 도움말/룰북 참고) */
+const ACTION_SHORT: Record<SpecialAction, string> = {
+  firstMove: '남보다 먼저 이동',
+  firstBuild: '남보다 먼저 건설',
+  engineer: '트랙 4개 건설',
+  locomotive: '엔진 +1칸',
+  urbanization: '마을에 신도시',
+  production: '큐브 2개 보충',
+  turnOrder: '다음 경매 패스',
+};
+
+/** 행동 선택 버튼 아이콘 — 특수 액션 페이지(/actions)와 동일 */
+const ACTION_ICONS: Record<SpecialAction, LucideIcon> = {
+  firstMove: Truck,
+  firstBuild: TrainTrack,
+  engineer: HardHat,
+  locomotive: Train,
+  urbanization: Building2,
+  production: Boxes,
+  turnOrder: ListOrdered,
+};
 
 export default function PhasePanel() {
   const {
@@ -286,7 +316,8 @@ export default function PhasePanel() {
                 <span className="text-accent font-medium">{currentPlayerData.name}</span>님이 행동을 선택하는 중...
               </p>
             )}
-            {/* 선택 현황 표시 — 선택되는 순간 그 항목이 플레이어 색으로 팝 (탈락자는 제외) */}
+            {/* 선택 현황 표시 — 봇 차례에만 표시(사람 차례엔 숨김). 선택 순간 플레이어 색으로 팝 */}
+            {currentPlayerData.isAI && (
             <div className="p-1.5 md:p-2 rounded-lg bg-background/30 text-[10px] md:text-xs text-foreground-secondary flex flex-wrap gap-x-3 gap-y-1">
               {activePlayers.map((pid) => {
                 const p = players[pid];
@@ -312,12 +343,14 @@ export default function PhasePanel() {
                 );
               })}
             </div>
+            )}
             {/* 내 차례(오프라인 포함)이고 AI가 아닐 때만 행동 선택 버튼 표시 */}
             {!currentPlayerData.isAI && isMyTurn && (
               <>
-                <div className="grid grid-cols-1 gap-1.5 md:gap-2">
+                <div className="grid grid-cols-2 gap-1.5">
                   {ACTIONS.map((action) => {
                     const info = ACTION_INFO[action];
+                    const Icon = ACTION_ICONS[action];
                     const taken = isActionTaken(action);
                     const isSelected = currentPlayerData.selectedAction === action;
                     // 맵 룰로 금지된 행동 (St. Lucia: production, turnOrder)
@@ -328,7 +361,7 @@ export default function PhasePanel() {
                         key={action}
                         onClick={() => handleSelectAction(action)}
                         disabled={taken || mapDisabled || currentPlayerData.selectedAction !== null}
-                        className={`p-2 md:p-3 min-h-[44px] rounded-lg text-left transition-all ${
+                        className={`p-2 min-h-[44px] rounded-lg text-left transition-all ${
                           isSelected
                             ? 'bg-accent/20 border border-accent'
                             : taken || mapDisabled
@@ -339,21 +372,28 @@ export default function PhasePanel() {
                         }`}
                         aria-label={`${info.name} 선택`}
                       >
-                        <div className="flex items-center justify-between">
-                          <span className={`font-medium text-xs md:text-sm ${mapDisabled ? 'line-through text-foreground-muted' : 'text-foreground'}`}>
-                            {info.name}
-                          </span>
-                          {mapDisabled ? (
-                            <span className="text-[10px] md:text-xs text-steam-red">이 맵에서 사용 불가</span>
-                          ) : taken && !isSelected ? (
-                            <span className="text-[10px] md:text-xs text-foreground-secondary">선택됨</span>
-                          ) : null}
+                        <div className="flex items-center gap-2">
+                          {/* 좌측: 아이템에 맞는 아이콘 */}
+                          <Icon className={`shrink-0 w-[25px] h-[25px] ${mapDisabled ? 'text-foreground-muted' : 'text-accent'}`} />
+                          {/* 우측: 타이틀 + 축약 설명 */}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1">
+                              <span className={`font-medium text-xs truncate ${mapDisabled ? 'line-through text-foreground-muted' : 'text-foreground'}`}>
+                                {info.name}
+                              </span>
+                              {mapDisabled ? (
+                                <span className="text-[9px] text-steam-red shrink-0">불가</span>
+                              ) : taken && !isSelected ? (
+                                <span className="text-[9px] text-foreground-secondary shrink-0">선택됨</span>
+                              ) : null}
+                            </div>
+                            <p className="text-[10px] text-foreground-secondary mt-0.5">
+                              {action === 'engineer' && getMapProfile(mapId).engineerHalfCost
+                                ? '트랙 1개 절반값'
+                                : ACTION_SHORT[action]}
+                            </p>
+                          </div>
                         </div>
-                        <p className="text-[10px] md:text-xs text-foreground-secondary mt-0.5 md:mt-1">
-                          {action === 'engineer' && getMapProfile(mapId).engineerHalfCost
-                            ? '이번 턴에 트랙 1개를 절반 비용으로 건설합니다. (4개 혜택 없음)'
-                            : info.description}
-                        </p>
                       </button>
                     );
                   })}

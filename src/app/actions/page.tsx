@@ -2,9 +2,9 @@
 
 import { motion } from 'framer-motion';
 import {
-  FastForward,
-  Flag,
-  Rows4,
+  Truck,
+  TrainTrack,
+  HardHat,
   Train,
   Building2,
   Boxes,
@@ -31,7 +31,7 @@ const specialActions: {
     phase: 'Move Goods 단계',
     details: ['두 라운드 모두 먼저 물품 이동', '플레이어 순서 무시', '중요한 물품 선점 가능'],
     tip: '경쟁이 치열한 물품을 먼저 운송해야 할 때 선택하세요. 다른 플레이어보다 먼저 수입을 확보할 수 있습니다.',
-    icon: FastForward,
+    icon: Truck,
   },
   {
     n: 2,
@@ -41,7 +41,7 @@ const specialActions: {
     phase: 'Build Track 단계',
     details: ['1번 플레이어보다 먼저 건설', '핵심 루트 선점', '상대 차단 전략'],
     tip: '중요한 연결 지점을 먼저 확보하거나 상대의 확장을 차단해야 할 때 유용합니다.',
-    icon: Flag,
+    icon: TrainTrack,
   },
   {
     n: 3,
@@ -51,7 +51,7 @@ const specialActions: {
     phase: 'Build Track 단계',
     details: ['트랙 타일 4개 건설 가능', '빠른 네트워크 확장', '긴 노선 한 턴에 완성'],
     tip: '긴 노선을 빠르게 완성하거나 대규모 확장이 필요할 때 선택하세요.',
-    icon: Rows4,
+    icon: HardHat,
   },
   {
     n: 4,

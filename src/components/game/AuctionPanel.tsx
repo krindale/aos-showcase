@@ -186,6 +186,17 @@ export default function AuctionPanel() {
                     포기
                   </motion.span>
                 )}
+                {/* 입찰 중 태그 — 포기 도장과 같은 absolute 방식이라 셀 높이/폭이 변하지 않는다 */}
+                {isCurrentBidder && !hasPassed && (
+                  <motion.span
+                    initial={firstRender.current ? false : { scale: 1.8, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={POP_SPRING}
+                    className="absolute right-1.5 top-3 rounded bg-accent/30 px-1.5 py-0.5 text-[10px] font-bold text-accent"
+                  >
+                    입찰 중
+                  </motion.span>
+                )}
                 <div className="flex items-center gap-2 mb-2">
                   <div
                     className="w-3 h-3 rounded-full"
@@ -194,11 +205,6 @@ export default function AuctionPanel() {
                   <span className="text-sm font-medium text-foreground">
                     {player.name}
                   </span>
-                  {isCurrentBidder && !hasPassed && (
-                    <span className="text-xs px-1.5 py-0.5 rounded bg-accent/30 text-accent">
-                      입찰 중
-                    </span>
-                  )}
                 </div>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-foreground-secondary">

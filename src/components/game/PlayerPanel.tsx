@@ -76,34 +76,22 @@ function DeltaBadge({
   );
 }
 
-/** 변화 순간 셀을 플레이어 색으로 살짝 물들이는 스타일 */
-function flashStyle(active: boolean, color: string): React.CSSProperties {
-  return active
-    ? { boxShadow: `inset 0 0 0 1.5px ${color}`, backgroundColor: `${color}14`, transition: 'all .25s' }
-    : { transition: 'all .6s' };
-}
-
-/** 스탯 그리드 셀 — 아이콘 + 라벨 + 값 + 변화 플래시/배지 (4개 스탯 공용) */
+/** 스탯 그리드 셀 — 아이콘 + 라벨 + 값 + 변화 배지 (4개 스탯 공용) */
 function StatCell({
   icon,
   label,
   delta,
   deltaPrefix,
-  flashColor,
   children,
 }: {
   icon: React.ReactNode;
   label: string;
   delta: { v: number; k: number } | null;
   deltaPrefix?: string;
-  flashColor: string;
   children: React.ReactNode;
 }) {
   return (
-    <div
-      className="relative flex items-center gap-1.5 md:gap-2 p-1.5 rounded-lg bg-background/50"
-      style={flashStyle(!!delta, flashColor)}
-    >
+    <div className="relative flex items-center gap-1.5 md:gap-2 p-1.5 rounded-lg bg-background/50">
       {icon}
       <div className="min-w-0">
         <div className="text-[10px] md:text-xs text-foreground-secondary">{label}</div>
@@ -295,18 +283,14 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
           icon={<DollarSign className="text-green-400 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
           label="현금"
           delta={cashDelta}
-          deltaPrefix="$"
-          flashColor={playerColor}
-        >
+          deltaPrefix="$"        >
           ${player.cash}
         </StatCell>
 
         <StatCell
           icon={<TrendingUp className="text-blue-400 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
           label="수입"
-          delta={incomeDelta}
-          flashColor={playerColor}
-        >
+          delta={incomeDelta}        >
           <span className="flex items-center gap-1">
             {player.income}
             {incomeReduction > 0 && (
@@ -325,9 +309,7 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
         <StatCell
           icon={<Train className="text-yellow-400 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
           label="엔진"
-          delta={engineDelta}
-          flashColor={playerColor}
-        >
+          delta={engineDelta}        >
           {player.engineLevel}
           <span className="text-[10px] md:text-xs text-foreground-secondary"> / {GAME_CONSTANTS.MAX_ENGINE}</span>
         </StatCell>
@@ -335,9 +317,7 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
         <StatCell
           icon={<FileText className="text-purple-400 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
           label="주식"
-          delta={sharesDelta}
-          flashColor={playerColor}
-        >
+          delta={sharesDelta}        >
           {player.issuedShares}
           <span className="text-[10px] md:text-xs text-foreground-secondary"> 주</span>
         </StatCell>

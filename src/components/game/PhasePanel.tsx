@@ -80,8 +80,8 @@ const ACTION_SHORT: Record<SpecialAction, string> = {
   turnOrder: '다음 경매 패스',
 };
 
-/** 행동 선택 버튼 아이콘 — 특수 액션 페이지(/actions)와 동일 */
-const ACTION_ICONS: Record<SpecialAction, LucideIcon> = {
+/** 행동 선택 버튼 아이콘 — 특수 액션 페이지(/actions)·도움말과 동일 */
+export const ACTION_ICONS: Record<SpecialAction, LucideIcon> = {
   firstMove: Truck,
   firstBuild: TrainTrack,
   engineer: HardHat,

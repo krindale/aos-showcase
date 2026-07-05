@@ -10,11 +10,13 @@ import { useEffect, useRef, useState } from 'react';
 import { isNetConfigured } from '@/net';
 import type { RoomSeat } from '@/net';
 import { useNetStore } from '@/net/netStore';
-import { PLAYER_COLOR_ORDER, PLAYER_COLORS } from '@/types/game';
+import { uniqueSeatName } from '@/net/roomLogic';
 import { getMapData } from '@/utils/mapRegistry';
 import {
-  Bot, Check, Copy, Crown, Globe, Loader2, LogOut, Play, RefreshCw, Send, User, Wifi, WifiOff, Zap,
+  ArrowLeftRight, Bot, Check, Copy, Crown, Globe, Loader2, LogOut, Play, RefreshCw, Send, Star, User, UserX, Wifi, WifiOff, Zap,
 } from 'lucide-react';
+import { CROWN_GOLD, CROWN_INK } from './uiEffects';
+import { ChatSenderIcon } from './ChatSenderIcon';
 
 function mapNameOf(mapId: string): string {
   try {
@@ -42,7 +44,7 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
   const [playerCount, setPlayerCount] = useState(supportedPlayers[0]);
   // 방 만들기 좌석 구성: seat 0 = 나(호스트), 나머지 기본 = 친구 자리(사람)
   const [aiSeats, setAiSeats] = useState<Set<number>>(new Set());
-  const [isPublic, setIsPublic] = useState(false);
+  const [isPublic, setIsPublic] = useState(true);
   const [roomTitle, setRoomTitle] = useState('');
   const [matching, setMatching] = useState(false);
   const [chatInput, setChatInput] = useState('');
@@ -81,12 +83,18 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
   };
 
   const handleCreate = () => {
-    const seats: RoomSeat[] = Array.from({ length: playerCount }, (_, i) => {
-      if (i === 0) return { seat: 0, name: myName.trim() || '호스트', kind: 'human' as const, clientId: null };
-      return aiSeats.has(i)
-        ? { seat: i, name: `컴퓨터-기차${i > 1 ? ['', '', 'II', 'III', 'IV', 'V'][i] : ''}`, kind: 'ai' as const, clientId: null }
-        : { seat: i, name: `빈자리 ${i + 1}`, kind: 'human' as const, clientId: null };
-    });
+    // 좌석을 순차로 쌓으며 빈 사람 좌석엔 겹치지 않는 기본 이름(기차-하나/둘/…)을 부여한다.
+    // 실제 참가자가 들어오면 assignSeatForClaim(uniqueSeatName)이 그 사람 이름으로 교체.
+    const seats: RoomSeat[] = [];
+    for (let i = 0; i < playerCount; i++) {
+      if (i === 0) {
+        seats.push({ seat: 0, name: myName.trim() || '호스트', kind: 'human', clientId: null });
+      } else if (aiSeats.has(i)) {
+        seats.push({ seat: i, name: `컴퓨터-기차${['', '', 'II', 'III', 'IV', 'V'][i] ?? ''}`, kind: 'ai', clientId: null });
+      } else {
+        seats.push({ seat: i, name: uniqueSeatName(undefined, seats, i), kind: 'human', clientId: null });
+      }
+    }
     void hostRoom({
       mapId,
       seats,
@@ -156,7 +164,6 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
           {room.seats.map((seat) => {
             const online = seat.clientId ? presentClientIds.includes(seat.clientId) : false;
             const isMe = seat.seat === mySeat;
-            const color = PLAYER_COLORS[PLAYER_COLOR_ORDER[seat.seat]];
             return (
               <div
                 key={seat.seat}
@@ -164,16 +171,53 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
                   isMe ? 'border-accent bg-accent/5' : 'border-foreground/10 bg-background-secondary'
                 }`}
               >
-                <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                {/* 정체성 아이콘(이름 앞): 나=왕관 / 호스트=별 / 봇 / 다른 사람=사람 */}
+                {isMe ? (
+                  <Crown size={16} fill={CROWN_GOLD} strokeWidth={1.8} style={{ color: CROWN_INK }} className="flex-shrink-0" aria-label="나" />
+                ) : seat.clientId != null && seat.clientId === room.hostClientId ? (
+                  <Star size={15} fill={CROWN_GOLD} strokeWidth={1.8} style={{ color: CROWN_INK }} className="flex-shrink-0" aria-label="호스트" />
+                ) : seat.kind === 'ai' ? (
+                  <Bot size={15} className="flex-shrink-0 text-steam-blue" aria-label="BOT" />
+                ) : (
+                  <User size={15} fill="currentColor" className="flex-shrink-0" style={{ color: CROWN_INK }} aria-label="사람" />
+                )}
                 <span className="text-sm text-foreground flex-1 truncate">
                   {seat.name}
                   {isMe && <span className="text-accent text-xs ml-1">(나)</span>}
                 </span>
-                {seat.seat === 0 && <Crown size={13} className="text-accent" aria-label="호스트" />}
-                {seat.kind === 'ai' ? (
-                  <span className="flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-blue-500/15 text-blue-500">
-                    <Bot size={11} /> BOT
+                {/* 호스트 태그: 내가 호스트여도 표시 */}
+                {seat.clientId != null && seat.clientId === room.hostClientId && (
+                  <span className="flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded-full bg-yellow-500/15 text-yellow-600" title="호스트">
+                    <Star size={12} fill={CROWN_GOLD} strokeWidth={1.8} style={{ color: CROWN_INK }} /> 호스트
                   </span>
+                )}
+                {seat.kind === 'ai' ? (
+                  <>
+                    {/* 호스트: BOT 자리를 사람 자리로 되돌림 (빈자리 = 참가 대기, 대기실 한정) */}
+                    {isHost && room.status === 'waiting' && (
+                      <button
+                        onClick={() => {
+                          void updateSeats(
+                            room.seats.map((s) =>
+                              s.seat === seat.seat
+                                ? {
+                                    ...s,
+                                    kind: 'human' as const,
+                                    clientId: null,
+                                    name: uniqueSeatName(undefined, room.seats, s.seat),
+                                  }
+                                : s
+                            )
+                          );
+                        }}
+                        className="flex items-center gap-0.5 px-1.5 py-1 rounded-full bg-background-tertiary text-foreground-secondary hover:bg-foreground/10"
+                        title="사람 자리로 전환 (참가 대기)"
+                        aria-label="사람 자리로 전환"
+                      >
+                        <ArrowLeftRight size={13} /> <User size={14} fill="currentColor" />
+                      </button>
+                    )}
+                  </>
                 ) : (
                   <>
                     {seat.clientId ? (
@@ -187,6 +231,25 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
                         대기 중…
                       </span>
                     )}
+                    {/* 호스트: 접속 중인 게스트 내보내기 (본인/방장 좌석 제외, 대기실 한정) */}
+                    {isHost && room.status === 'waiting' && online && !isMe && seat.clientId !== room.hostClientId && (
+                      <button
+                        onClick={() => {
+                          void updateSeats(
+                            room.seats.map((s) =>
+                              s.seat === seat.seat
+                                ? { ...s, clientId: null, name: uniqueSeatName(undefined, room.seats, s.seat) }
+                                : s
+                            )
+                          );
+                        }}
+                        className="p-1 rounded-full bg-red-500/10 text-red-500 hover:bg-red-500/20"
+                        title="이 게스트를 방에서 내보내기"
+                        aria-label="게스트 내보내기"
+                      >
+                        <UserX size={14} />
+                      </button>
+                    )}
                     {/* 호스트: 빈자리·나간 자리(끊김)를 봇으로 전환 (대기실 한정) */}
                     {isHost && !online && room.status === 'waiting' && (
                       <button
@@ -199,10 +262,11 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
                             )
                           );
                         }}
-                        className="px-2 py-0.5 text-xs rounded-full bg-background-tertiary text-foreground-secondary hover:bg-foreground/10"
-                        title="이 자리를 BOT으로 채우기"
+                        className="flex items-center gap-0.5 px-1.5 py-1 rounded-full bg-background-tertiary text-foreground-secondary hover:bg-foreground/10"
+                        title="BOT으로 전환"
+                        aria-label="BOT으로 전환"
                       >
-                        BOT으로
+                        <ArrowLeftRight size={13} /> <Bot size={14} />
                       </button>
                     )}
                   </>
@@ -219,8 +283,9 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
               <div className="text-xs text-foreground-muted text-center py-2">대기실 채팅</div>
             )}
             {chat.map((m, i) => (
-              <div key={`${m.at}-${i}`} className="text-xs text-foreground">
-                <span className="font-semibold text-foreground-secondary">{m.name}</span> {m.text}
+              <div key={`${m.at}-${i}`} className="text-xs text-foreground break-words leading-relaxed">
+                <ChatSenderIcon clientId={m.clientId} />
+                <span className="font-semibold text-foreground-secondary">{m.name}</span>{' '}{m.text}
               </div>
             ))}
           </div>
@@ -272,7 +337,7 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
       {/* 내 이름 */}
       <div>
         <label className="flex items-center gap-2 text-sm text-foreground-secondary mb-2">
-          <User size={16} /> 내 이름
+          <Crown size={16} fill={CROWN_GOLD} strokeWidth={1.8} style={{ color: CROWN_INK }} /> 내 이름
         </label>
         <input
           value={myName}
@@ -284,7 +349,28 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
 
       {/* 방 만들기 */}
       <div className="p-4 rounded-xl border border-foreground/10 space-y-3">
-        <div className="text-sm font-semibold text-foreground">방 만들기</div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-sm font-semibold text-foreground">방 만들기</span>
+          <button
+            onClick={() => setIsPublic((v) => !v)}
+            className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs transition-colors ${
+              isPublic
+                ? 'bg-positive/15 text-positive'
+                : 'bg-background-tertiary text-foreground-secondary hover:bg-foreground/10'
+            }`}
+            title={isPublic ? '공개방 (목록에 노출)' : '비공개 (코드로만 입장)'}
+          >
+            <Globe size={11} /> {isPublic ? '공개' : '비공개'}
+          </button>
+        </div>
+        {isPublic && (
+          <input
+            value={roomTitle}
+            onChange={(e) => setRoomTitle(e.target.value)}
+            placeholder={`방 제목 (기본: ${myName.trim() || '호스트'}의 방)`}
+            className="w-full px-3 py-2 bg-background-secondary rounded-lg border border-foreground/10 text-sm text-foreground focus:border-accent focus:outline-none"
+          />
+        )}
         {supportedPlayers.length > 1 && (
           <div className="flex gap-2">
             {supportedPlayers.map((n) => (
@@ -305,12 +391,11 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
         <div className="space-y-1.5">
           {Array.from({ length: playerCount }).map((_, i) => (
             <div key={i} className="flex items-center gap-2 text-xs">
-              <span
-                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                style={{ backgroundColor: PLAYER_COLORS[PLAYER_COLOR_ORDER[i]] }}
-              />
               {i === 0 ? (
-                <span className="text-foreground">{myName.trim() || '호스트'} <span className="text-accent">(나 · 호스트)</span></span>
+                <span className="text-foreground flex items-center gap-1">
+                  <Crown size={16} fill={CROWN_GOLD} strokeWidth={1.8} style={{ color: CROWN_INK }} aria-label="나" />
+                  {myName.trim() || '호스트'} <span className="text-accent">(나 · 호스트)</span>
+                </span>
               ) : (
                 <>
                   <span className="text-foreground-secondary flex-1">자리 {i + 1}</span>
@@ -322,34 +407,13 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
                         : 'bg-background-tertiary text-foreground-secondary hover:bg-foreground/10'
                     }`}
                   >
-                    <Bot size={11} /> {aiSeats.has(i) ? 'BOT' : '친구 자리'}
+                    {aiSeats.has(i) ? <Bot size={14} /> : <User size={14} fill="currentColor" />} {aiSeats.has(i) ? 'BOT' : '친구 자리'}
                   </button>
                 </>
               )}
             </div>
           ))}
         </div>
-        {/* 공개 여부 (Phase 4) */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setIsPublic((v) => !v)}
-            className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs transition-colors ${
-              isPublic
-                ? 'bg-positive/15 text-positive'
-                : 'bg-background-tertiary text-foreground-secondary hover:bg-foreground/10'
-            }`}
-          >
-            <Globe size={11} /> {isPublic ? '공개방 (목록에 노출)' : '비공개 (코드로만 입장)'}
-          </button>
-        </div>
-        {isPublic && (
-          <input
-            value={roomTitle}
-            onChange={(e) => setRoomTitle(e.target.value)}
-            placeholder={`방 제목 (기본: ${myName.trim() || '호스트'}의 방)`}
-            className="w-full px-3 py-2 bg-background-secondary rounded-lg border border-foreground/10 text-sm text-foreground focus:border-accent focus:outline-none"
-          />
-        )}
         <button
           onClick={handleCreate}
           disabled={busy}

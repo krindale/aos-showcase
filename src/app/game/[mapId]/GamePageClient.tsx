@@ -51,12 +51,13 @@ import ProductionPanel from '@/components/game/ProductionPanel';
 import MoveCubeOverlay from '@/components/game/MoveCubeOverlay';
 import Toaster from '@/components/game/Toaster';
 import DebugPanel from '@/components/game/DebugPanel';
-import { POP_SPRING, useIsFirstRender } from '@/components/game/uiEffects';
+import { POP_SPRING, useIsFirstRender, CROWN_GOLD, CROWN_INK } from '@/components/game/uiEffects';
 import TranscontinentalModal from '@/components/game/TranscontinentalModal';
 import BottomSheet from '@/components/game/BottomSheet';
 import HelpOverlay from '@/components/game/HelpOverlay';
+import HostTakeoverDialog from '@/components/game/HostTakeoverDialog';
 import { calculateTrackScore } from '@/utils/trackValidation';
-import { ArrowLeft, RotateCcw, Users, Zap, X, Bot, ChevronRight, ChevronLeft, HelpCircle } from 'lucide-react';
+import { ArrowLeft, RotateCcw, Users, Zap, X, Bot, Crown, ChevronRight, ChevronLeft, HelpCircle } from 'lucide-react';
 import {
   PLAYER_COLOR_ORDER,
   PLAYER_COLORS,
@@ -264,7 +265,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   if (showSetup) {
     return (
       <motion.div
-        className="min-h-screen bg-background flex items-center justify-center p-4"
+        className="min-h-screen bg-background flex items-start justify-center p-4 md:py-12"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.35, ease: 'easeOut' }}
@@ -380,10 +381,14 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                           className={`flex items-center gap-1 px-2 py-1 text-xs rounded-full transition-colors ${
                             isAI
                               ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                              : 'bg-background-tertiary text-foreground-secondary hover:bg-background-secondary'
+                              : 'bg-yellow-500/20 text-yellow-600 border border-yellow-500/30'
                           }`}
                         >
-                          <Bot size={12} />
+                          {isAI ? (
+                            <Bot size={16} />
+                          ) : (
+                            <Crown size={16} fill={CROWN_GOLD} strokeWidth={1.8} style={{ color: CROWN_INK }} />
+                          )}
                           {isAI ? 'BOT' : '사람'}
                         </button>
                       </div>
@@ -456,6 +461,9 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
             </motion.aside>
           )}
         </motion.div>
+
+        {/* 대기실: 호스트 연결 끊김 → 승계/나가기 팝업 (게스트) */}
+        <HostTakeoverDialog />
       </motion.div>
     );
   }
@@ -725,11 +733,11 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       {/* 메인 콘텐츠 */}
       <main className={`${isLandscape ? 'pt-12 pb-2 px-2 h-[calc(100vh-3.5rem)] overflow-y-auto' : 'pt-20 pb-8 px-4 md:pb-8 pb-[30vh]'}`}>
         <div className={`mx-auto ${isLandscape ? '' : 'max-w-[1800px]'}`}>
-          {/* 온라인: 호스트 연결 끊김 안내 (재접속 대기 → 6초 후 자동 승계) */}
+          {/* 온라인: 호스트 연결 끊김 안내 (재접속 대기 → 6초 후 승계 여부 팝업) */}
           {hostAbsent && (
             <div className="mb-3 px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-sm text-red-500 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              호스트 연결이 끊겼습니다 — 재접속을 기다리는 중 (잠시 후 자동 승계)
+              호스트 연결이 끊겼습니다 — 재접속을 기다리는 중 (잠시 후 이어받기 여부를 묻습니다)
             </div>
           )}
           {/* 온라인: 차례 안내 배너 */}
@@ -856,6 +864,9 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
         }}
         onCancel={dismissDisconnectPrompt}
       />
+
+      {/* 게임 중: 호스트 연결 끊김 → 승계/게임 나가기 팝업 (게스트) */}
+      <HostTakeoverDialog />
     </div>
   );
 }

@@ -7,7 +7,7 @@ import BoardTowns from './board/BoardTowns';
 import BoardCities from './board/BoardCities';
 import BoardOverlays from './board/BoardOverlays';
 import { motion } from 'framer-motion';
-import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { ZoomIn, ZoomOut, Maximize2, Building2 } from 'lucide-react';
 import { useGameStore } from '@/store/gameStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useTouchGestures } from '@/hooks/useTouchGestures';
@@ -30,6 +30,7 @@ import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { isValidConnectionPoint as isValidConnectionPointUtil } from '@/utils/trackValidation';
 import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId, TerrainType } from '@/types/game';
+import { NewCityTilesModal } from './NewCityTilesModal';
 import { shadeColor, hexVertex } from './board/boardGeometry';
 import { useNetStore } from '@/net/netStore';
 import { safeTimeout } from '@/utils/safeTimers';
@@ -38,6 +39,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   // fitOverlay: 화물 이동 애니메이션을 전체 화면에 꽉 차게(fit) 보여주는 비인터랙티브 오버레이 모드
   // 디버그: 헥스 좌표 표시 토글 (우측 상단 버튼)
   const [showCoords, setShowCoords] = useState(false);
+  const [showNewCityInfo, setShowNewCityInfo] = useState(false);
   // Zustand selector 최적화: useShallow로 불필요한 리렌더링 방지
   const {
     board,
@@ -561,7 +563,13 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     !fitOverlay && hudPlayer && !isHumanSettlementHud &&
     (hudPlayer.isAI || (myPlayerId !== null && currentPlayer !== myPlayerId));
 
+  // 신도시 버튼 — 도시화 행동과 무관하게 게임 중 항상 표시(남은 신규 도시 타일을 미리 확인하고
+  // 도시화 액션을 고를지 판단할 수 있게). 배치 모드(urbanizationMode) 중엔 숨긴다.
+  const newCityTiles = useGameStore((s) => s.newCityTiles);
+  const showNewCityBtn = !fitOverlay && !ui.urbanizationMode && !ui.selectedNewCityTile;
+
   return (
+    <>
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
@@ -654,6 +662,21 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
               </motion.button>
             </div>
           </div>
+          {/* 신도시 버튼 — 줌 아래. 도시화 행동과 무관하게 남은 신규 도시 타일을 확인(중앙 모달).
+              배치는 도시화 행동을 골랐을 때 별도 흐름(UrbanizationPanel)으로 진행한다 */}
+          {showNewCityBtn && (
+            <div className="sticky top-[116px] flex justify-end px-3 pt-2">
+              <button
+                onClick={() => setShowNewCityInfo(true)}
+                className="pointer-events-auto glass-card flex items-center gap-1.5 px-3 py-2 rounded-lg shadow-lg text-sm font-medium text-foreground hover:bg-accent/20 transition-colors"
+                title="남은 신규 도시 타일 확인"
+                aria-label="남은 신규 도시 타일 확인"
+              >
+                <Building2 className="w-4 h-4 text-accent" />
+                신도시
+              </button>
+            </div>
+          )}
           {/* 다른 사람/AI 차례 표시 — 보드 중앙, 화면 위에서 100px 지점에 호버링(스크롤 추적).
               SVG 영역(absolute 레이어) 안에서만 따라다닌다 */}
           {showTurnHud && hudPlayer && (
@@ -996,5 +1019,17 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
         </div>
       </div>
     </motion.div>
+    {/* 신도시 확인 모달(중앙) — contain:paint인 motion.div 밖에 둬야 fixed가 뷰포트 기준이 된다.
+        배경(모달 밖=보드 등) 클릭 시 onClose로 닫힌다 */}
+    {!fitOverlay && (
+      <NewCityTilesModal
+        open={showNewCityInfo}
+        tiles={newCityTiles}
+        mapId={mapId}
+        mode="view"
+        onClose={() => setShowNewCityInfo(false)}
+      />
+    )}
+    </>
   );
 }

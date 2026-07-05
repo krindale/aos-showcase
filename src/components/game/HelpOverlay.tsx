@@ -6,7 +6,7 @@ import { X } from 'lucide-react';
 import { useGameStore } from '@/store/gameStore';
 import { GamePhase, PHASE_INFO, ACTION_INFO } from '@/types/game';
 import { getMapProfile } from '@/maps/getMapProfile';
-import { PHASE_ICONS, ACTIONS } from './PhasePanel';
+import { PHASE_ICONS, ACTIONS, ACTION_ICONS } from './PhasePanel';
 
 /**
  * 인게임 규칙/도움말 오버레이 — 게임 진행 중 언제든 규칙을 확인.
@@ -143,9 +143,13 @@ export default function HelpOverlay({
               <ul className="grid sm:grid-cols-2 gap-1.5">
                 {ACTIONS.map((action) => {
                   const info = ACTION_INFO[action];
+                  const Icon = ACTION_ICONS[action];
                   return (
                     <li key={action} className="rounded-lg bg-background-tertiary/60 p-2.5">
-                      <div className="text-sm font-semibold text-foreground">{info.name}</div>
+                      <div className="flex items-center gap-2">
+                        <Icon className="w-4 h-4 text-accent shrink-0" />
+                        <div className="text-sm font-semibold text-foreground">{info.name}</div>
+                      </div>
                       <div className="text-xs text-foreground-secondary leading-relaxed mt-0.5">
                         {info.description}
                       </div>

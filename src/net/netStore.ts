@@ -51,6 +51,13 @@ export interface NetStore {
   publicRoomsLoading: boolean;
   /** 호스트 전용: 게임 중 이탈이 확인된 게스트 좌석 (10초 유예 후) — AI 전환 확인 다이얼로그용 */
   disconnectedSeat: { seat: number; name: string } | null;
+  /**
+   * 게스트 전용: 호스트 연결이 끊겨 승계 여부를 물어야 하는 상태 (6초 유예 후 표시).
+   * - status: 대기실('waiting') / 게임 중('playing') — 문구·동작 분기
+   * - canTakeover: 내가 결정론적 후계자면 true(이어받기 버튼), 아니면 대기 안내
+   * 호스트 복귀·승계 완료 시 자동으로 null (팝업 닫힘 → 계속 진행).
+   */
+  hostTakeoverPrompt: { status: 'waiting' | 'playing'; canTakeover: boolean } | null;
 
   /** 방 생성 (호스트). seats의 seat 0이 호스트 좌석 — clientId는 자동 주입 */
   hostRoom: (opts: {
@@ -77,6 +84,10 @@ export interface NetStore {
   convertSeatToAI: (seat: number) => Promise<void>;
   /** 호스트 전용: 이탈 좌석 AI 전환 다이얼로그 닫기 (그 좌석은 이번 게임에 다시 묻지 않음) */
   dismissDisconnectPrompt: () => void;
+  /** 게스트: 호스트 승계 팝업에서 "이어받기" 선택 (후계자만 유효) */
+  acceptHostTakeover: () => Promise<void>;
+  /** 게스트: 호스트 승계 팝업에서 "나가기/게임 종료" 선택 → 방을 떠나 온라인 초기 화면으로 */
+  declineHostTakeover: () => Promise<void>;
 }
 
 // ---- 모듈 레벨 연결/루프 상태 (직렬화 불가 객체는 store 밖에) ----
@@ -381,7 +392,17 @@ export const useNetStore = create<NetStore>()((set, get) => {
         installGuardWithResend();
         set({ mode: 'guest' });
       }
-      set({ room, mySeat: seatOf(room, getClientId()) });
+      // 게스트가 착석 상태였는데 좌석에서 사라짐 = 방장이 내보냄 → 방을 나가고 안내
+      const prevSeat = get().mySeat;
+      const newSeat = seatOf(room, getClientId());
+      if (get().mode === 'guest' && prevSeat !== null && newSeat === null) {
+        console.log('[net] 방장이 좌석에서 내보냄 — 방을 나갑니다');
+        void get()
+          .leaveRoom()
+          .then(() => set({ error: '방장이 방에서 내보냈습니다.' }));
+        return;
+      }
+      set({ room, mySeat: newSeat });
       checkHostTakeover(); // 승계 완료/호스트 교체 통지 반영
       checkGuestDisconnect();
     },
@@ -469,17 +490,46 @@ export const useNetStore = create<NetStore>()((set, get) => {
     }
   };
 
-  /** 게스트: 호스트 이탈 감지 → 결정론적 후계자(접속 중 가장 빠른 좌석)가 6초 후 승계 */
+  /** 승계 유예 타이머 + 표시 중이던 팝업을 함께 정리 (호스트 복귀·비게스트화 시) */
+  const clearTakeoverPrompt = (): void => {
+    cancelTakeover();
+    if (get().hostTakeoverPrompt) set({ hostTakeoverPrompt: null });
+  };
+
+  /**
+   * 게스트: 호스트 이탈 감지 → 6초 유예(짧은 끊김 플랩 오탐 방지) 후 승계 여부를 **묻는다**.
+   * 자동 승계하지 않고 사용자에게 "이어받기 / 나가기"를 물어보는 팝업(hostTakeoverPrompt)을 띄운다.
+   * 대기실(waiting)·게임 중(playing) 공통. 유예 중이든 팝업 표시 후든 호스트가 복귀하면
+   * 팝업/타이머를 취소하고 그대로 계속 진행한다. 결정론적 후계자만 canTakeover=true.
+   */
   const checkHostTakeover = (): void => {
-    const { mode, room, presentClientIds } = get();
-    if (mode !== 'guest' || !room || room.status !== 'playing') return cancelTakeover();
-    if (!isHostAbsent(room.hostClientId, presentClientIds)) return cancelTakeover();
-    if (pickHostSuccessor(room.seats, presentClientIds) !== getClientId()) return cancelTakeover();
-    if (takeoverTimer !== null) return; // 이미 대기 중
-    console.log(`[net] 호스트 이탈 감지 — ${HOST_TAKEOVER_DELAY / 1000}초 후 승계 시도`);
+    const { mode, room, presentClientIds, hostTakeoverPrompt } = get();
+    if (mode !== 'guest' || !room || (room.status !== 'playing' && room.status !== 'waiting')) {
+      return clearTakeoverPrompt();
+    }
+    if (!isHostAbsent(room.hostClientId, presentClientIds)) return clearTakeoverPrompt(); // 호스트 복귀
+
+    const status = room.status; // 'waiting' | 'playing'
+    const canTakeover = pickHostSuccessor(room.seats, presentClientIds) === getClientId();
+    if (hostTakeoverPrompt) {
+      // 이미 표시 중 — 후계자 자격/상태 변화만 갱신 (예: 앞 후계자가 나가 내가 후계자가 됨)
+      if (hostTakeoverPrompt.canTakeover !== canTakeover || hostTakeoverPrompt.status !== status) {
+        set({ hostTakeoverPrompt: { status, canTakeover } });
+      }
+      return;
+    }
+    if (takeoverTimer !== null) return; // 유예 대기 중
+    console.log(`[net] 호스트 이탈 감지 — ${HOST_TAKEOVER_DELAY / 1000}초 후 승계 여부를 묻습니다`);
     takeoverTimer = safeTimeout(() => {
       takeoverTimer = null;
-      void promoteToHost();
+      const s = get();
+      const r = s.room;
+      if (s.mode !== 'guest' || !r) return;
+      const st = r.status;
+      if (st !== 'playing' && st !== 'waiting') return;
+      if (!isHostAbsent(r.hostClientId, s.presentClientIds)) return; // 그새 복귀
+      const can = pickHostSuccessor(r.seats, s.presentClientIds) === getClientId();
+      set({ hostTakeoverPrompt: { status: st, canTakeover: can } });
     }, HOST_TAKEOVER_DELAY);
   };
 
@@ -488,7 +538,13 @@ export const useNetStore = create<NetStore>()((set, get) => {
     const { mode, room, presentClientIds } = get();
     if (!conn || mode !== 'guest' || !room) return;
     if (!isHostAbsent(room.hostClientId, presentClientIds)) return; // 호스트 복귀 — 승계 취소
-    console.log('[net] 호스트 승계 실행 — 이 클라이언트가 게임 엔진을 이어받음');
+    const wasPlaying = room.status === 'playing';
+    const oldHostClientId = room.hostClientId;
+    const oldHostSeat =
+      oldHostClientId != null
+        ? room.seats.find((s) => s.clientId === oldHostClientId)?.seat ?? null
+        : null;
+    console.log('[net] 호스트 승계 실행 — 이 클라이언트가 방/게임 엔진을 이어받음');
     removeGuestGuard();
     // 실행 취소 스택(undoSnapshots)은 옛 호스트 메모리에만 있었으므로 승계한 클라이언트엔 없다.
     // 물려받은 undoCount를 그대로 두면 "버튼은 뜨는데 눌러도 안 되돌아가는" 팬텀 취소가 된다
@@ -496,17 +552,55 @@ export const useNetStore = create<NetStore>()((set, get) => {
     clearUndo();
     useGameStore.setState({ undoCount: 0 } as never);
     rev = lastAppliedRev; // 스냅샷 리비전 연속성 (게스트들의 역순 가드 통과)
-    set({ mode: 'host' });
+    set({ mode: 'host', hostTakeoverPrompt: null });
     startHostLoop();
+
+    // 게임 중 승계: 끊긴 옛 호스트를 곧바로 봇으로 전환해 그 자리를 기다리지 않고 게임을 잇는다.
+    // (게임 상태 isAI는 스냅샷으로, 좌석 kind는 아래 updateRoom으로 전원에 전파. startHostLoop
+    //  이후에 바꿔야 구독이 이 변경을 잡아 스냅샷을 내보낸다.)
+    if (wasPlaying && oldHostSeat !== null) {
+      const playerId = useGameStore.getState().activePlayers[oldHostSeat];
+      if (playerId) {
+        useGameStore.setState((s) => ({
+          players: { ...s.players, [playerId]: { ...s.players[playerId], isAI: true } },
+          logs: [
+            ...s.logs,
+            {
+              turn: s.currentTurn,
+              phase: s.currentPhase,
+              player: playerId,
+              action: `[시스템] ${s.players[playerId]?.name} 호스트 연결 끊김 — BOT으로 전환`,
+              timestamp: Date.now(),
+            },
+          ],
+        }) as never);
+      }
+    }
+
     try {
-      await conn.updateRoom({ hostClientId: conn.clientId });
+      // 좌석 갱신: 대기실=옛 호스트 좌석 비움(참가 대기) / 게임 중=옛 호스트 좌석을 봇으로 전환.
+      const newSeats = oldHostClientId
+        ? room.seats.map((s) =>
+            s.clientId === oldHostClientId
+              ? wasPlaying
+                ? { ...s, kind: 'ai' as const, clientId: null }
+                : { ...s, clientId: null }
+              : s
+          )
+        : null;
+      await conn.updateRoom(
+        newSeats
+          ? { hostClientId: conn.clientId, seats: newSeats }
+          : { hostClientId: conn.clientId }
+      );
       await conn.broadcastRoom();
       set({ room: conn.room });
     } catch (e) {
       console.warn('[net] 승계 중 방 갱신 실패:', e);
     }
-    // 이어받은 시점이 AI 차례면 즉시 재가동 (AI 인스턴스는 getAIDecision이 지연 등록)
-    scheduleAICheck(useGameStore.getState);
+    if (conn.room.status === 'waiting') startWaitingHeartbeat(); // 대기실 승계 — 생존 신호 재개
+    // 게임 중이면 이어받은 시점이 AI 차례일 때 즉시 재가동 (AI 인스턴스는 getAIDecision이 지연 등록)
+    if (wasPlaying) scheduleAICheck(useGameStore.getState);
   };
 
   return {
@@ -522,6 +616,21 @@ export const useNetStore = create<NetStore>()((set, get) => {
     publicRooms: [],
     publicRoomsLoading: false,
     disconnectedSeat: null,
+    hostTakeoverPrompt: null,
+
+    acceptHostTakeover: async () => {
+      const prompt = get().hostTakeoverPrompt;
+      if (!prompt?.canTakeover) return; // 후계자만 이어받을 수 있음 (다중 호스트 방지)
+      cancelTakeover();
+      set({ hostTakeoverPrompt: null });
+      await promoteToHost();
+    },
+
+    declineHostTakeover: async () => {
+      cancelTakeover();
+      set({ hostTakeoverPrompt: null });
+      await get().leaveRoom(); // 온라인 초기 화면으로 (게임 중이면 이 게임에서 빠짐)
+    },
 
     convertSeatToAI: async (seat) => {
       const conn = connection;
@@ -748,6 +857,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
         connected: false,
         error: null,
         disconnectedSeat: null,
+        hostTakeoverPrompt: null,
       });
       try {
         await conn?.leave();

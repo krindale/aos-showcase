@@ -149,6 +149,8 @@ export class SupabaseTransport implements NetTransport {
 
   /** 채널 구독 완료까지 대기 후 연결 객체 반환 */
   private connect(room: RoomInfo, clientId: string, events: RoomEvents): Promise<RoomConnection> {
+    // room 브로드캐스트 핸들러에서 참조할 연결 객체 (구독 완료 시 할당)
+    let conn: SupabaseRoomConnection | null = null;
     const channel = this.client.channel(`room:${room.code}`, {
       config: {
         presence: { key: clientId },
@@ -166,9 +168,11 @@ export class SupabaseTransport implements NetTransport {
       .on('broadcast', { event: 'chat' }, ({ payload }) =>
         events.onChat?.(payload as ChatMessage)
       )
-      .on('broadcast', { event: 'room' }, ({ payload }) =>
-        events.onRoom?.(payload as RoomInfo)
-      )
+      .on('broadcast', { event: 'room' }, ({ payload }) => {
+        const r = payload as RoomInfo;
+        conn?.syncRoom(r); // 연결 캐시도 최신 방 메타로 (승계 시 stale status 방지)
+        events.onRoom?.(r);
+      })
       .on('presence', { event: 'sync' }, () =>
         events.onPresence?.(Object.keys(channel.presenceState()))
       );
@@ -191,7 +195,8 @@ export class SupabaseTransport implements NetTransport {
           if (!resolved) {
             resolved = true;
             clearTimeout(timeout);
-            resolve(new SupabaseRoomConnection(this.client, channel, room, clientId));
+            conn = new SupabaseRoomConnection(this.client, channel, room, clientId);
+            resolve(conn);
           }
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           if (!resolved) {
@@ -225,6 +230,16 @@ class SupabaseRoomConnection implements RoomConnection {
 
   get room(): RoomInfo {
     return this._room;
+  }
+
+  /**
+   * 수신한 방 메타를 연결 캐시에 반영 (updateRoom을 거치지 않은 외부 갱신 동기화).
+   * 안 하면 conn.room이 입장 시점 값에 박제돼, 대기실에서 입장→게임 시작 후 호스트 승계 시
+   * 오래된 status('waiting')로 브로드캐스트돼 게임 중에도 대기실로 튕긴다.
+   * broadcastRoom은 snapshot을 null로 보내므로 기존 캐시 snapshot은 유지한다.
+   */
+  syncRoom(room: RoomInfo): void {
+    this._room = { ...room, snapshot: room.snapshot ?? this._room.snapshot };
   }
 
   async sendIntent(intent: Omit<IntentMessage, 'clientId' | 'id'> & { id?: string }): Promise<void> {

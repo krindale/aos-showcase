@@ -211,26 +211,29 @@ src/
 │       ├── MoveCubeOverlay.tsx # 화물 이동·AI 건설 중 보드 미니맵 (모든 맵, 우측 하단 fit). 이동 중엔 헤더에 "출발→도착 (N링크)" 경로 표시
 │       ├── Toaster.tsx         # 화면 상단 토스트 렌더러 (toastStore 구독, safeTimeout 자동 사라짐)
 │       ├── PhaseTransition.tsx # 단계 전환 안내 팝업 (마지막 플레이어 행동 확인용, pointer-events-none 순수 안내)
-│       ├── OnlineLobby.tsx     # 온라인 로비/대기실 (방 만들기·코드 입장·좌석·공개방·빠른매칭)
+│       ├── OnlineLobby.tsx     # 온라인 로비/대기실 (방 만들기·코드 입장·좌석·공개방·빠른매칭). 기본 공개방, 좌석 정체성 아이콘(나=왕관/호스트=별/봇/사람), 호스트가 좌석 bot↔사람 전환·게스트 강퇴, 빈 좌석 기본 이름 기차-N
 │       ├── GameChat.tsx        # 게임 중 플로팅 채팅 (보드 우측 하단 sticky, 닫힘 시 알림음)
+│       ├── ChatSenderIcon.tsx  # 채팅 발신자 아이콘 (나=왕관/호스트=별/그외=사람) — clientId·room.hostClientId로 판정, 대기실·인게임 채팅 공용
+│       ├── HostTakeoverDialog.tsx  # 호스트 연결 끊김 → 승계 여부 팝업 (게스트, 대기실/게임 중 공통). 후계자만 이어받기, 유예/응답 대기 중 호스트 복귀 시 자동 닫힘
 │       ├── BottomSheet.tsx     # 모바일용 드래그 바텀 시트 (반응형)
 │       ├── HelpOverlay.tsx     # 인게임 규칙/도움말 오버레이 (헤더 ? 버튼 → 현재 단계 강조 + 10단계 흐름·특수행동 7종·맵 특수룰·승점 공식). 콘텐츠는 PHASE_INFO/ACTION_INFO/MapProfile.specialRules 재활용, ConfirmDialog 패턴+ESC 닫기. 순수 로컬 UI(스토어 읽기 전용) — 스냅샷/intents 무관
 │       └── CollapsiblePanel.tsx    # 태블릿용 접이식 사이드 패널 (반응형)
 │
 ├── net/                        # 온라인 멀티 (Supabase Realtime + 호스트 권위) — gameStore와 단방향(net→store)
 │   ├── types.ts                # 전송 계층 인터페이스 (RoomInfo·IntentMessage·SnapshotMessage·NetTransport)
-│   ├── supabaseTransport.ts    # Supabase 구현 (채널·rooms 테이블·presence·하트비트·방 폐쇄)
+│   ├── supabaseTransport.ts    # Supabase 구현 (채널·rooms 테이블·presence·하트비트·방 폐쇄). room 브로드캐스트 수신 시 conn.room 캐시를 syncRoom으로 갱신(안 하면 입장 시점 status에 박제 → 승계 오작동)
 │   ├── snapshotCodec.ts        # 게임 상태 gzip+base64 인코딩 (ui/aiExecution 제외, movingCube 승격)
 │   ├── intents.ts              # 커밋 액션 카탈로그(INTENT_SPECS)+게스트 몽키패치 가드+호스트 검증
 │   ├── netStore.ts             # 세션 오케스트레이션 (호스트 루프·스냅샷 적용·재연결·승계·좌석)
 │   ├── roomLogic.ts            # 좌석 배정·호스트 승계 순수 규칙 (단위 테스트 대상)
 │   ├── index.ts                # 엔트리 (getTransport·getClientId·isNetConfigured)
-│   └── __tests__/              # 코덱/가드/검증/좌석·승계 규칙 27개
+│   └── __tests__/              # 코덱/가드/검증/좌석·승계 규칙 30개
 │
 ├── hooks/                      # 반응형 UI 커스텀 훅
 │   ├── useMediaQuery.ts        # 미디어 쿼리 브레이크포인트 감지
 │   ├── useOrientation.ts       # 가로/세로 방향 감지
-│   └── useTouchGestures.ts     # 터치 제스처 (핀치 줌, 팬)
+│   ├── useTouchGestures.ts     # 터치 제스처 (핀치 줌, 팬)
+│   └── useMyPlayerId.ts        # 내 좌석 플레이어 판정 (offline=null, online=activePlayers[mySeat]) + isMyPlayer 헬퍼 — 왕관 표시용, PhasePanel 좌석 매핑과 동일
 │
 ├── store/                      # 상태 관리 (2026-07-03 slice 분리 — 전부 "코드 그대로 이동", 로직 무변경)
 │   ├── gameStore.ts            # 오케스트레이션 허브 (1,480줄): GameStore 인터페이스(계약)·initGame/resetGame·
@@ -344,7 +347,7 @@ Next가 압축을 안 하므로 원본 대용량 PNG를 그대로 받으면 갤�
 
 Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조정 내역은
 [`docs/online-multiplayer-plan.md`](docs/online-multiplayer-plan.md) 참조. Phase 0~5 완료:
-방 코드 초대·재접속(F5 자동 재입장/호스트 승계)·게임 중 채팅·공개방 목록·빠른 매칭.
+방 코드 초대·재접속(F5 자동 재입장/호스트 승계 팝업)·게임 중 채팅·공개방 목록·빠른 매칭.
 
 - **구조**: 방장 클라이언트만 gameStore를 진짜로 실행(랜덤·AI 포함). 게스트는 intent만 보내고
   호스트가 기존 액션으로 검증·실행 후 압축 스냅샷(persist 포맷, logs 30개·ui 제외, gzip+base64)을
@@ -353,7 +356,22 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
 - **파일**: `types.ts`(인터페이스) `supabaseTransport.ts`(채널·rooms·presence)
   `snapshotCodec.ts` `intents.ts`(커밋 액션 카탈로그+게스트 몽키패치 가드+호스트 검증)
   `netStore.ts`(세션 오케스트레이션) `roomLogic.ts`(좌석 배정·승계 순수 규칙).
-  UI: `OnlineLobby.tsx`(로비/대기실) `GameChat.tsx`(플로팅 채팅), GamePageClient 통합.
+  UI: `OnlineLobby.tsx`(로비/대기실) `GameChat.tsx`·`ChatSenderIcon.tsx`(채팅) `HostTakeoverDialog.tsx`(승계 팝업), GamePageClient 통합.
+- **호스트 승계(팝업 방식)**: 호스트가 presence에서 사라지면 6초 유예(플랩 오탐 방지) 후, 게스트에게
+  `netStore.hostTakeoverPrompt`로 승계 여부를 **물어본다**(자동 승계 아님). 결정론적 후계자
+  (`pickHostSuccessor`, 접속 중 최소 좌석)만 "이어받기" 버튼, 비후계자는 대기 안내 + 나가기.
+  유예 중이든 팝업 표시 후든 **호스트 복귀 시 팝업 자동 닫힘(계속 진행)**. 대기실/게임 중 공통.
+  - **게임 중 승계**(`promoteToHost`, wasPlaying): 끊긴 옛 호스트를 곧바로 봇으로 전환(게임 상태
+    `isAI`=true + 좌석 `kind:'ai'`)해 그 자리를 기다리지 않고 게임을 잇는다. `startHostLoop` 뒤에
+    `isAI`를 바꿔야 구독이 스냅샷을 내보낸다.
+  - **대기실 승계**: 옛 호스트 좌석을 비워(clientId=null, 기차-N) 새 참가 대기로 둔다.
+  - **거절/강퇴 → 셋업 복귀**: `declineHostTakeover`·강퇴 감지는 `leaveRoom`을 직접 호출하므로
+    (UI `handleLeaveRoom`과 달리 showSetup 리셋 없음), GamePageClient가 `isOnline` false 전환을
+    감지해 셋업(온라인 탭)으로 되돌린다(`wasOnlineRef`). 안 하면 stale 오프라인 보드에 갇힘.
+  - **강퇴**: 호스트가 대기실에서 게스트 좌석을 비우면(updateSeats), 게스트는 `onRoom`에서
+    "착석→해제"를 감지해 방을 나가고 "방장이 내보냈습니다" 안내.
+  - **⚠️ 스테일 방지**: 승계가 `conn.room.status`를 브로드캐스트하므로, 전송 계층은 room 수신 시
+    `syncRoom`으로 캐시를 갱신해야 한다(대기실 입장→게임 시작 후 승계가 대기실로 튕기던 버그 수정).
 - **낙관적 반영(optimistic)**: 게스트 자기 액션은 즉시 로컬 실행(체감 지연 0) + intent 전송,
   호스트 스냅샷이 도착하면 통째로 덮어 확정/교정(거부 시 호스트가 정본 강제 재전송). 로컬 검증이
   false면 전송 생략. `INTENT_SPECS`의 `optimistic` 플래그 — 이동 애니메이션이 얽힌 커밋은 제외.
@@ -433,7 +451,7 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
   고정) + pg_cron 스케줄을 등록 — `updated_at`(스냅샷 저장·하트비트마다 갱신 = 마지막 활동)이
   6시간 지난 waiting/playing/finished 방을 하루 2회(UTC 05:00·17:00 = KST 14:00·02:00) 자동 삭제.
   활성 게임은 최신이라 대상 아님. 접속자 없어도 서버에서 돎(수동 SQL 정리 불필요).
-- **검증**: `npx vitest run src/net/__tests__/` (코덱/가드/검증/좌석·승계 규칙 27개) +
+- **검증**: `npx vitest run src/net/__tests__/` (코덱/가드/검증/좌석·승계 규칙 30개) +
   두 브라우저 탭 E2E(방 생성→입장→시작→건설/수송/경매/도시화 왕복→F5 재접속→호스트 승계).
 - **종합 설계·비용·Phase 체크리스트**: [`docs/online-multiplayer-plan.md`](docs/online-multiplayer-plan.md),
   **과거 이슈 수정 이력**: [`docs/issue-log.md`](docs/issue-log.md).

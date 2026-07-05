@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useNetStore } from '@/net/netStore';
 import { MessageCircle, Send, X } from 'lucide-react';
+import { ChatSenderIcon } from './ChatSenderIcon';
 
 export default function GameChat() {
   const mode = useNetStore((s) => s.mode);
@@ -106,7 +107,8 @@ export default function GameChat() {
                 </div>
               )}
               {chat.map((m, i) => (
-                <div key={`${m.at}-${i}`} className="text-xs text-foreground break-words">
+                <div key={`${m.at}-${i}`} className="text-xs text-foreground break-words leading-relaxed">
+                  <ChatSenderIcon clientId={m.clientId} />
                   <span className="font-semibold text-foreground-secondary">{m.name}</span>{' '}
                   {m.text}
                 </div>

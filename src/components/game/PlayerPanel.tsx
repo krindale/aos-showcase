@@ -14,8 +14,11 @@ import {
   Minus,
   Skull,
   Bot,
+  User,
+  Crown,
 } from 'lucide-react';
-import { POP_SPRING, isRecentUndoLog } from './uiEffects';
+import { POP_SPRING, isRecentUndoLog, CROWN_GOLD, CROWN_INK } from './uiEffects';
+import { useMyPlayerId, isMyPlayer } from '@/hooks/useMyPlayerId';
 
 interface PlayerPanelProps {
   playerId: PlayerId;
@@ -123,10 +126,12 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
   const issueShare = useGameStore((state) => state.issueShare);
   // 직전 수입 감소량 (수입이 갑자기 줄어든 이유 표시용)
   const incomeReduction = useGameStore((state) => state.incomeReductions?.[playerId] ?? 0);
+  const myPlayerId = useMyPlayerId();
   const player = players[playerId];
   const isActive = currentPlayer === playerId;
   const playerColor = PLAYER_COLORS[player.color];
   const isAI = player.isAI;
+  const isMe = isMyPlayer(playerId, isAI, myPlayerId);
   const isAICurrentlyThinking = isAI && isActive && aiExecution.pending;
 
   // 다중 주식 발행을 위한 상태
@@ -184,7 +189,13 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
           <span className={`font-semibold text-xs truncate ${isEliminated ? 'text-red-400 line-through' : 'text-foreground'}`}>
             {player.name}
           </span>
-          {isAI && <Bot className="w-2.5 h-2.5 text-blue-400 flex-shrink-0" />}
+          {isMe ? (
+            <Crown className="w-[15px] h-[15px] flex-shrink-0" fill={CROWN_GOLD} strokeWidth={1.8} style={{ color: CROWN_INK }} aria-label="내 플레이어" />
+          ) : isAI ? (
+            <Bot className="w-[15px] h-[15px] text-steam-blue flex-shrink-0" aria-label="봇" />
+          ) : (
+            <User fill="currentColor" className="w-[15px] h-[15px] flex-shrink-0" style={{ color: CROWN_INK }} aria-label="사람" />
+          )}
           {isEliminated && <Skull className="w-2.5 h-2.5 text-red-400 flex-shrink-0" />}
         </div>
         <div className="flex items-center gap-2 text-[11px] font-medium flex-shrink-0">
@@ -248,10 +259,20 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
           <span className={`font-semibold text-xs md:text-sm ${isEliminated ? 'text-red-400 line-through' : 'text-foreground'}`}>
             {player.name}
           </span>
-          {isAI && (
-            <span className="text-[10px] md:text-xs px-1 md:px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400 flex items-center gap-0.5 md:gap-1">
-              <Bot className="w-2 h-2 md:w-2.5 md:h-2.5" />
+          {isMe ? (
+            <span className="text-[10px] md:text-xs px-1 md:px-1.5 py-0.5 rounded-full bg-yellow-500/20 text-yellow-600 flex items-center gap-0.5 md:gap-1">
+              <Crown className="w-3 h-3 md:w-[15px] md:h-[15px]" fill={CROWN_GOLD} strokeWidth={1.8} style={{ color: CROWN_INK }} />
+              나
+            </span>
+          ) : isAI ? (
+            <span className="text-[10px] md:text-xs px-1 md:px-1.5 py-0.5 rounded-full bg-steam-blue/15 text-steam-blue flex items-center gap-0.5 md:gap-1">
+              <Bot className="w-3 h-3 md:w-[15px] md:h-[15px]" />
               BOT
+            </span>
+          ) : (
+            <span className="text-[10px] md:text-xs px-1 md:px-1.5 py-0.5 rounded-full bg-yellow-500/10 flex items-center gap-0.5 md:gap-1" style={{ color: CROWN_INK }}>
+              <User fill="currentColor" className="w-3 h-3 md:w-[15px] md:h-[15px]" />
+              사람
             </span>
           )}
           {isEliminated && (

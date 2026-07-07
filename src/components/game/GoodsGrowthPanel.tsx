@@ -13,6 +13,7 @@ export default function GoodsGrowthPanel() {
   const {
     mapId,
     players,
+    currentPlayer,
     goodsDisplay,
     board,
     phaseState,
@@ -27,6 +28,10 @@ export default function GoodsGrowthPanel() {
   // (아무나 주사위를 굴러 호스트가 거부·되돌리던 혼란 방지)
   const netMode = useNetStore((s) => s.mode);
   const amIHost = netMode === 'offline' || netMode === 'host';
+  // 봇이 순서 1등이면 봇이 주사위를 자동으로 굴린다. 이때 사람용 주사위 UI 대신 결과 뷰를
+  // 보여줘야 성장 결과(주사위/도시별 추가 큐브)를 잠시 확인할 수 있다("그냥 넘어감" 방지).
+  const currentIsBot = players[currentPlayer]?.isAI ?? false;
+  const showSpectatorView = !amIHost || currentIsBot;
 
   const [diceResults, setDiceResults] = useState<number[]>([]);
   const [growthApplied, setGrowthApplied] = useState(false);
@@ -117,8 +122,13 @@ export default function GoodsGrowthPanel() {
 
   const growthResults = calculateGrowthResults();
 
-  // 게스트: 방장이 진행하는 물품 성장을 스냅샷으로 관전 — 주사위 결과와 도시별 추가 큐브를 표시
-  if (!amIHost) {
+  // 관전 뷰: (게스트) 방장이 진행하는 성장을 스냅샷으로 보거나, (오프라인) 봇이 자동으로 굴린
+  // 성장 결과를 잠시 본다 — 주사위 결과와 도시별 추가 큐브를 표시.
+  if (showSpectatorView) {
+    const waitingText = currentIsBot
+      ? `${players[currentPlayer]?.name ?? '봇'}이 주사위를 굴리는 중입니다...`
+      : '방장이 주사위를 굴리는 중입니다...';
+    const diceLabel = currentIsBot ? '봇 주사위:' : '방장 주사위:';
     return (
       <div className="p-4 rounded-lg bg-background/50 border border-foreground/10">
         <div className="flex items-center gap-2 mb-2 text-accent">
@@ -128,7 +138,7 @@ export default function GoodsGrowthPanel() {
         {goodsGrowthEvent ? (
           <>
             <p className="text-xs md:text-sm text-foreground-secondary">
-              방장 주사위:{' '}
+              {diceLabel}{' '}
               <span className="font-semibold text-foreground">{goodsGrowthEvent.dice.join(', ')}</span>
             </p>
             {goodsGrowthEvent.results.length > 0 ? (
@@ -156,7 +166,7 @@ export default function GoodsGrowthPanel() {
           </>
         ) : (
           <p className="text-xs md:text-sm text-foreground-secondary">
-            방장이 주사위를 굴리는 중입니다...
+            {waitingText}
           </p>
         )}
       </div>

@@ -1287,6 +1287,21 @@ export const useGameStore = create<GameStore>()(
       );
       console.log(`[AI 물품성장] ${player.name} 주사위 자동: [${diceResults.join(', ')}]`);
       state.growGoods(diceResults);
+
+      // 봇은 주사위→성장→다음 단계를 즉시 처리해 성장 결과(주사위/도시별 추가 큐브)를 볼 틈이
+      // 없었다("그냥 넘어감" 피드백, 2026-07-07). growGoods가 남긴 goodsGrowthEvent를
+      // GoodsGrowthPanel이 잠시 보여준 뒤 넘어가도록 nextPhase만 지연한다(성장은 이미 적용됨).
+      // VITEST에선 AI_ACTION_VIEW_DELAY=0이라 동기 진행 → 기존 테스트 영향 없음.
+      if (AI_ACTION_VIEW_DELAY > 0) {
+        safeTimeout(() => {
+          // 컨텍스트 검증: 여전히 이 봇의 goodsGrowth일 때만 진행 (그 사이 상태가 바뀌었으면 무시)
+          const s = get();
+          if (s.currentPhase === 'goodsGrowth' && s.players[s.currentPlayer]?.isAI) {
+            get().nextPhase();
+          }
+        }, AI_ACTION_VIEW_DELAY);
+        return;
+      }
     }
 
     // 정산(collectIncome/payExpenses/incomeReduction/advanceTurn)은 nextPhase가 내부에서

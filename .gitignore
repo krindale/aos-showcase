@@ -48,3 +48,5 @@ playwright-report
 .security-key
 # 개발 런타임 로그 (:3999 log-server의 game-mirror.log, security-review 로그 등)
 logs/
+# 로컬 MCP 서버 설정 (Supabase 등 — 개인 프로젝트 참조 포함, 커밋 안 함)
+.mcp.json

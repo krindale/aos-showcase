@@ -26,6 +26,15 @@ export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
   return {
     growGoods: (diceResults) => {
       set((state) => {
+        // 멱등 가드: 이번 goodsGrowth에서 이미 주사위를 굴렸으면(goodsGrowthEvent 존재) 재실행 차단.
+        // 봇 자동 진행이 결과 표시용으로 nextPhase를 1.2초 지연하는데, 그 창 동안 어떤 경로로든
+        // growGoods가 다시 호출되면 슬롯 큐브를 또 도시로 옮겨 중복 성장한다. 진입 시 null 리셋되므로
+        // (nextPhase의 goodsGrowth 진입) 정상 첫 호출은 통과, 재호출만 막힌다. 사람 경로도 함께 보호.
+        if (state.goodsGrowthEvent) {
+          console.warn('[growGoods] 이미 이번 턴 물품 성장을 굴림 — 중복 성장 차단');
+          return state;
+        }
+
         // 방어: 배치 가능한 사람 생산 홀더가 아직 배치를 안 했으면 주사위 진행을 막는다(룰북: 생산→주사위).
         // UI(GoodsGrowthPanel)가 이미 잠그지만, 어떤 경로로든 미완료 상태 주사위가 오면 no-op로 차단.
         // (배치 불가한 홀더는 goodsGrowth 진입 시 productionUsed 자동 완료되므로 여기서 안 걸린다.)

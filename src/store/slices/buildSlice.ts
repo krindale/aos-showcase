@@ -22,6 +22,7 @@ import { hexCoordsEqual, getNeighborHex } from '@/utils/hexGrid';
 import { debugLog, logAction } from '@/utils/debugConfig';
 import { captureUndo, undoSnapshots } from '../helpers/undo';
 import { crossesBlockedEdge, findMissingTownSpurs } from '../helpers/boardRules';
+import { applyEngineerDiscount, hasEngineerDiscount } from '../helpers/engineerDiscount';
 import { computeTranscontinental } from '../helpers/transcontinental';
 
 type Set = StoreApi<GameStore>['setState'];
@@ -190,13 +191,15 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
           if (terrain === 'mountain') cost = GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
         }
       }
-      // Germany: Engineer 절반 비용 — 이번 턴 1회, 타일 비용에만 (마을 가닥 제외).
-      // 평지($2)에 낭비하지 않고 비용이 더 비싼 헥스(강/산/고정비용)에 우선 적용한다.
-      let engineerDiscountApplied = false;
-      if (mapProfile.engineerHalfCost && player.selectedAction === 'engineer'
-          && !state.phaseState.engineerHalfUsed && cost > GAME_CONSTANTS.PLAIN_TRACK_COST) {
-        cost = Math.ceil(cost / 2);
-        engineerDiscountApplied = true;
+      // Germany: Engineer 절반 할인 — 이번 빌더 턴 최고가 타일 1개가 절반(올림)이 되도록 차액 정산.
+      // 타일 비용에만 적용 (마을 가닥 제외). 계산은 helpers/engineerDiscount.ts 한 곳.
+      let engineerMaxTileCost = state.phaseState.engineerMaxTileCost;
+      let engineerDiscountGiven = state.phaseState.engineerDiscountGiven;
+      if (hasEngineerDiscount(mapProfile.engineerHalfCost, player.selectedAction)) {
+        const d = applyEngineerDiscount(cost, state.phaseState);
+        cost = d.charge;
+        engineerMaxTileCost = d.engineerMaxTileCost;
+        engineerDiscountGiven = d.engineerDiscountGiven;
       }
       // 마을 안 가닥 비용 (가닥당 $1)
       cost += newSpurs.length * TOWN_SPUR_COST;
@@ -272,7 +275,8 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
           ...state.phaseState,
           builtTracksThisTurn: newBuiltCount,
           lastBuiltCoords: [...state.phaseState.lastBuiltCoords, coord],
-          engineerHalfUsed: state.phaseState.engineerHalfUsed || engineerDiscountApplied,
+          engineerMaxTileCost,
+          engineerDiscountGiven,
         },
         logs: [
           ...state.logs,

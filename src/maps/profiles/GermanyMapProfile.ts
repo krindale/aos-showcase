@@ -47,8 +47,13 @@ export class GermanyMapProfile extends StandardMapProfile {
 
   override actionDescription(action: SpecialAction): string | undefined {
     return action === 'engineer'
-      ? '트랙을 4개가 아닌 표준과 같은 3개까지 건설합니다. 대신 이번 턴 처음 짓는 평지 아닌 타일 1개(강·산·고정비용 헥스)의 비용이 절반(올림)으로 자동 할인됩니다.'
+      ? '트랙을 4개가 아닌 표준과 같은 3개까지 건설합니다. 대신 이번 턴 처음 짓는 $2 초과 타일 1개(강·산·숫자 헥스)의 비용이 절반(올림)으로 자동 할인됩니다.'
       : undefined;
+  }
+
+  // 지형 기본비용은 표준과 같고, FIXED_COST가 지정된 헥스만 그 숫자로 대체된다(germanyMap.ts).
+  override get buildCostHint(): string {
+    return '평지: $2 / 강: $3 / 산: $4 · 숫자 표시 헥스는 그 숫자(€6~€12)';
   }
 
   override get specialRules(): MapRuleSummary[] {
@@ -58,7 +63,7 @@ export class GermanyMapProfile extends StandardMapProfile {
       { title: '헥스 고정 비용', detail: '사각형 숫자(€6~€12)가 그 헥스의 트랙 건설 비용입니다 (지형 기본비용 대신).' },
       {
         title: 'Engineer 효과 변경',
-        detail: 'Engineer를 골라도 트랙은 4개가 아니라 표준과 같은 3개까지만 건설합니다. 대신 이번 턴 처음 짓는 평지 아닌 타일 1개(강·산·고정비용 헥스)가 절반 비용(올림)으로 자동 할인됩니다 — 평지($2)에는 적용되지 않습니다.',
+        detail: 'Engineer를 골라도 트랙은 4개가 아니라 표준과 같은 3개까지만 건설합니다. 대신 이번 턴 처음 짓는 $2 초과 타일 1개(강·산·숫자 헥스)가 절반 비용(올림)으로 자동 할인됩니다 — $2짜리 평지에는 적용되지 않습니다.',
       },
       { title: '완성 링크만 건설', detail: '미완성 트랙 구간은 둘 수 없습니다 — 모든 건설은 링크를 완성해야 합니다.' },
       { title: 'Berlin 보너스', detail: '매 턴 Berlin에 주머니에서 무작위 큐브 1개가 추가됩니다.' },

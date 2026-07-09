@@ -51,6 +51,7 @@ export class WesternUsMapProfile extends StandardMapProfile {
   }
 
   // 지형 비용(늪/강 $4, 산 $5)은 헥스 fixedCost로 주입됨 (westernUsMap.generateWesternUsHexTiles).
+  override get buildCostHint(): string { return '평지: $2 / 늪·강: $4 / 산: $5'; }
 
   // income 원천: 도시 큐브 + 마을 큐브
   override get incomeSources(): IncomeSource[] { return ['cityCubes', 'townCubes']; }

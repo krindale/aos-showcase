@@ -442,7 +442,7 @@ export default function PhasePanel() {
                 3. 나갈 방향 클릭 (곡선/직선 선택)
               </p>
               <p className="text-[10px] md:text-xs text-foreground-secondary mt-1 md:mt-2">
-                • 평지: $2 / 강: $3 / 산: $4
+                • {getMapProfile(mapId).buildCostHint}
               </p>
               <p className="text-[10px] md:text-xs text-foreground-secondary">
                 • 현금: ${currentPlayerData.cash}
@@ -450,7 +450,7 @@ export default function PhasePanel() {
               {currentPlayerData.selectedAction === 'engineer' && (
                 <p className="text-[10px] md:text-xs text-accent mt-1">
                   {getMapProfile(mapId).engineerHalfCost
-                    ? '• Engineer: 3개까지 건설 + 평지 아닌 첫 타일은 절반 비용!'
+                    ? '• Engineer: 3개까지 건설 + $2 넘는 첫 타일은 절반 비용!'
                     : '• Engineer: 4개까지 건설 가능!'}
                 </p>
               )}

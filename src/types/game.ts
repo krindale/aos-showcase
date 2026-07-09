@@ -252,8 +252,11 @@ export interface PhaseState {
   // Urbanization으로 이번 턴 신규 도시를 배치했는지 (AI 중복 배치 방지)
   urbanizationUsed: boolean;
   locomotiveUsed: boolean;
-  /** Germany: Engineer 절반 비용 할인을 이번 턴에 이미 1회 사용했는지 (Engineer는 트랙 1개만 절반) */
-  engineerHalfUsed?: boolean;
+  /** Germany: Engineer 절반 할인(룰북 "트랙 1개를 절반 비용, 올림") — 이번 빌더 턴에 지은 타일 중
+   *  최고 정가. 항상 "가장 비싼 타일 1개가 절반"이 되도록 매 건설마다 차액을 정산한다. */
+  engineerMaxTileCost?: number;
+  /** Germany: 위 정산으로 지금까지 깎아준 누적 할인액 (= floor(engineerMaxTileCost / 2)) */
+  engineerDiscountGiven?: number;
 }
 
 // === AI 실행 동기화 ===

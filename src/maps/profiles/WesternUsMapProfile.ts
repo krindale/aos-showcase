@@ -51,6 +51,7 @@ export class WesternUsMapProfile extends StandardMapProfile {
   }
 
   // 지형 비용(늪/강 $4, 산 $5)은 헥스 fixedCost로 주입됨 (westernUsMap.generateWesternUsHexTiles).
+  override get buildCostHint(): string { return '평지: $2 / 늪·강: $4 / 산: $5'; }
 
   // income 원천: 도시 큐브 + 마을 큐브
   override get incomeSources(): IncomeSource[] { return ['cityCubes', 'townCubes']; }
@@ -97,6 +98,10 @@ export class WesternUsMapProfile extends StandardMapProfile {
       { title: '연속 건설 강제', detail: '대륙횡단 달성 전까지 모든 새 트랙은 내 철도망과 이어져야 합니다.' },
       { title: '🌉 대륙횡단 보너스', detail: '서부↔동부 시작 도시를 최초로 연결하면 즉시 수입 보너스(+$4 또는 각 +$2). 이후 연속 건설 규칙 해제.' },
       { title: '동↔서 배달 +$1', detail: '동부 도시→서부 도시(또는 반대) 배달 시 수입 +1 보너스.' },
+      {
+        title: '도시화 시 지역 편입',
+        detail: '캔자스시티를 도시화하면 동부 도시, 샌디에이고·포틀랜드를 도시화하면 서부 도시로 취급합니다 (동↔서 배달 보너스 판정 대상). 그 외 마을은 도시화해도 어느 지역에도 속하지 않으며, 대륙횡단 판정의 시작 도시도 아닙니다.',
+      },
       { title: '지형 비용', detail: '늪·강 $4, 산 $5로 건설 비용이 높습니다.' },
     ];
   }

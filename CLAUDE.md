@@ -216,7 +216,7 @@ src/
 │       ├── ChatSenderIcon.tsx  # 채팅 발신자 아이콘 (나=왕관/호스트=별/그외=사람) — clientId·room.hostClientId로 판정, 대기실·인게임 채팅 공용
 │       ├── HostTakeoverDialog.tsx  # 호스트 연결 끊김 → 승계 여부 팝업 (게스트, 대기실/게임 중 공통). 후계자만 이어받기, 유예/응답 대기 중 호스트 복귀 시 자동 닫힘
 │       ├── BottomSheet.tsx     # 모바일용 드래그 바텀 시트 (반응형)
-│       ├── HelpOverlay.tsx     # 인게임 규칙/도움말 오버레이 (헤더 ? 버튼 → 현재 단계 강조 + 10단계 흐름·특수행동 7종·맵 특수룰·승점 공식). 콘텐츠는 PHASE_INFO/ACTION_INFO/MapProfile.specialRules 재활용, ConfirmDialog 패턴+ESC 닫기. 순수 로컬 UI(스토어 읽기 전용) — 스냅샷/intents 무관
+│       ├── HelpOverlay.tsx     # 인게임 규칙/도움말 오버레이 (헤더 ? 버튼 → 현재 단계 강조 + 10단계 흐름·특수행동 7종·맵 특수룰·승점 공식). 콘텐츠는 PHASE_INFO/ACTION_INFO/MapProfile.specialRules 재활용, ConfirmDialog 패턴+ESC 닫기. 특수행동은 맵별 보정 — `MapProfile.actionDescription`이 있으면 그 설명으로 대체("이 맵 변경" 배지), `disabledActions`면 취소선+"사용 불가"(예: 독일 Engineer, St.Lucia Production/Turn Order). 순수 로컬 UI(스토어 읽기 전용) — 스냅샷/intents 무관
 │       └── CollapsiblePanel.tsx    # 태블릿용 접이식 사이드 패널 (반응형)
 │
 ├── net/                        # 온라인 멀티 (Supabase Realtime + 호스트 권위) — gameStore와 단방향(net→store)
@@ -614,6 +614,8 @@ AI는 객체 지향 아키텍처(`AIPlayer`/`AIPlayerManager`/`AIDebugger`) + **
 **게임 엔진 메커니즘 (현재 동작)**:
 - **마을 가닥(스퍼) 모델**: 마을 헥스엔 타일 배치 불가 — 원→변 가닥(`buildTownSpur`)으로 연결. 타일 1개=1카운트, 가닥은 그 마을을 이번 턴 처음 변경할 때만 1카운트(가닥 개수 무관). 이동/완성/배달 판정은 가닥 있는 변으로만.
 - **건설 제한**: 턴당 3개(Engineer 4). 모든 건설 경로(buildTrack/복합/방향전환/마을가닥)가 `builtTracksThisTurn` 카운트 검사.
+- **독일 Engineer 절반 할인(`engineerHalfCost`)**: 룰북은 "트랙 1개를 절반 비용(올림)"이고 **지형·비용 하한 조건이 없다**(평지 $2도 $1). 타일을 하나씩 커밋하는 구조라 플레이어 선택 대신 **이번 빌더 턴 최고가 타일 1개**가 절반이 되도록 매 건설마다 차액을 정산한다 — `helpers/engineerDiscount.ts`의 `applyEngineerDiscount`(청구 `buildSlice` + 토스트 추정 `buildReason` 공유, 미러 금지). 총액은 건설 순서와 무관하게 `정가합 − floor(최고가/2)`. 상태는 `PhaseState.engineerMaxTileCost`/`engineerDiscountGiven`(빌더마다 리셋). 독일은 트랙 상한이 **3개**(Engineer라도 4개 아님).
+- **건설 비용 안내(`MapProfile.buildCostHint`)**: 지형 비용을 바꾸는 맵(fixedCost 주입)은 반드시 override — 안 하면 `PhasePanel`이 표준값($2/$3/$4)을 띄워 실제 청구액과 어긋난다 (서부 늪·강 $4·산 $5, 한국 산 $3, 독일 숫자 헥스 $6~$12).
 - **독일 미완성 링크 금지 UI 가드**: 독일(`requireCompleteLinks`)은 완성 링크만 건설 가능 — 이번 턴 미완성 신설 트랙은 단계 전환 시 `removeIncompleteNewTracks`가 삭제·환불한다. 모르고 넘어가 트랙이 사라지는 걸 막으려 `PhasePanel`이 사람 차례 buildTrack에서 미완성 트랙이 있으면(`hasIncompleteNewTracks`) '다음 단계로'를 **비활성 + 경고**한다. 이번 턴 트랙만 대상이라 undo로 해소 가능(교착 없음).
 - **실행/선택 취소**: `undoLastAction`(확정 행동 스냅샷 복원, `nextPhase`마다 초기화·사람 전용) / `cancelSelection`(커밋 전 UI 선택만). 새 커밋 액션 추가 시 검증 통과 직후 `captureUndo(state, label)` + set에 `undoCount` 포함.
 - **건설 실패 사유 토스트**: 조용히 실패하던 건설(현금 부족·제한 도달 등)을 상단 토스트로 안내. `helpers/buildReason.getBuildBlockReason`가 `canBuildTrack` 검사 순서를 미러해 첫 실패 사유를 돌려주고(현금은 canBuildTrack이 안 보므로 마지막에 추정), `toastStore`(gameStore와 분리 = 스냅샷 미동기화)로 띄운다. **트리거는 사람 클릭 UI 경로에만**(`uiSlice.selectExitDirection` 커밋 실패 + `selectSourceHex` 제한 도달) — AI/게스트-거부엔 안 뜬다. ⚠️ `canBuildTrack` 규칙 바꾸면 `getBuildBlockReason` 순서·조건도 함께 맞출 것.

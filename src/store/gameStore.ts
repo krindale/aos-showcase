@@ -954,7 +954,8 @@ export const useGameStore = create<GameStore>()(
               ...state.phaseState,
               builtTracksThisTurn: 0,
               lastBuiltCoords: [],
-              engineerHalfUsed: false, // Germany: 빌더마다 Engineer 절반 할인 재설정
+              engineerMaxTileCost: 0, // Germany: 빌더마다 Engineer 절반 할인 재설정
+              engineerDiscountGiven: 0,
               // 첫 번째로 건설할 플레이어의 Engineer 효과 확인 (Germany는 4타일 혜택 없음 — 절반 비용만)
               maxTracksThisTurn: state.players[firstBuilder].selectedAction === 'engineer' && !getMapProfile(state.mapId).engineerHalfCost
                 ? GAME_CONSTANTS.ENGINEER_TRACK_LIMIT
@@ -1074,7 +1075,8 @@ export const useGameStore = create<GameStore>()(
             ...state.phaseState,
             builtTracksThisTurn: 0,
             lastBuiltCoords: [],
-            engineerHalfUsed: false, // Germany: 빌더마다 Engineer 절반 할인 재설정
+            engineerMaxTileCost: 0, // Germany: 빌더마다 Engineer 절반 할인 재설정
+            engineerDiscountGiven: 0,
             maxTracksThisTurn: state.players[nextBuilder].selectedAction === 'engineer' && !getMapProfile(state.mapId).engineerHalfCost
               ? GAME_CONSTANTS.ENGINEER_TRACK_LIMIT
               : GAME_CONSTANTS.NORMAL_TRACK_LIMIT,

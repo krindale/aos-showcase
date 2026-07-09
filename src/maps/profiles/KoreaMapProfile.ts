@@ -42,6 +42,9 @@ export class KoreaMapProfile extends StandardMapProfile {
   // 평양·수원은 물품 성장 안 받음
   override get noGrowthCityIds(): string[] { return ['pyongyang', 'suwon']; }
 
+  // 한국 보드는 강이 없고 산은 $3 고정비용 (koreaMap.MOUNTAIN_COST).
+  override get buildCostHint(): string { return '평지: $2 / 산: $3'; }
+
   override get specialRules(): MapRuleSummary[] {
     return [
       { title: '4인 8턴', detail: '한국 맵 — 4명, 8턴으로 진행합니다.' },

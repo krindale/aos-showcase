@@ -12,6 +12,7 @@ import {
 } from '@/utils/trackValidation';
 import { hexCoordsEqual } from '@/utils/hexGrid';
 import { crossesBlockedEdge } from './boardRules';
+import { applyEngineerDiscount, hasEngineerDiscount } from './engineerDiscount';
 
 /** 신규 타일 건설 예상 비용 (buildTrack의 비용 계산 미러 — 지형/고정비용/Engineer 절반). */
 function estimateBuildCost(state: GameState, coord: HexCoord, existingTrack?: TrackTile): number {
@@ -28,13 +29,8 @@ function estimateBuildCost(state: GameState, coord: HexCoord, existingTrack?: Tr
   }
   const profile = getMapProfile(state.mapId);
   const player = state.players[state.currentPlayer];
-  if (
-    profile.engineerHalfCost &&
-    player?.selectedAction === 'engineer' &&
-    !state.phaseState.engineerHalfUsed &&
-    cost > GAME_CONSTANTS.PLAIN_TRACK_COST
-  ) {
-    cost = Math.ceil(cost / 2);
+  if (hasEngineerDiscount(profile.engineerHalfCost, player?.selectedAction)) {
+    cost = applyEngineerDiscount(cost, state.phaseState).charge;
   }
   return cost;
 }

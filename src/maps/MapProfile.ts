@@ -113,9 +113,15 @@ export abstract class MapProfile {
   /** VIII. 수입 감소 배수 (턴별). Southern US: 4턴(남북전쟁) 2배. */
   incomeReductionMultiplier(turn: number): number { void turn; return 1; }
 
-  // ── UI: 게임 시작 화면 특수룰 안내 (기본 = 표준 맵, 특수룰 없음) ──
+  // ── UI: 규칙 안내 문구 (기본 = 표준 맵, 특수룰 없음) ──
   /** 게임 시작(플레이어 설정) 화면 우측에 표시할 이 맵만의 특수룰 목록. 빈 배열이면 패널 미표시. */
   get specialRules(): MapRuleSummary[] { return []; }
+  /** 이 맵에서 효과가 다른 특수 행동의 설명문 (도움말/행동 선택 UI가 ACTION_INFO 대신 사용).
+   *  undefined면 ACTION_INFO의 표준 설명을 그대로 쓴다. Germany: Engineer가 4개 건설이 아님. */
+  actionDescription(action: SpecialAction): string | undefined { void action; return undefined; }
+  /** 건설 단계 패널에 띄우는 지형별 비용 한 줄. 지형 비용을 바꾸는 맵(fixedCost 주입)은 반드시 override
+   *  — 안 하면 표준값($2/$3/$4)을 그대로 보여줘 실제 청구액과 어긋난다. */
+  get buildCostHint(): string { return '평지: $2 / 강: $3 / 산: $4'; }
 
   // ── AI 설정 (기본 = 룰북 기본값; 맵 규모/특성에 따라 override) ──
   /** AI가 올릴 엔진 레벨 전략 상한 */

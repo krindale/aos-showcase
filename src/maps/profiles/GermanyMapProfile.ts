@@ -10,6 +10,7 @@
 import { StandardMapProfile } from './StandardMapProfile';
 import { MapRuleSummary } from '../MapProfile';
 import { MapId } from '../MapId';
+import { SpecialAction } from '@/types/game';
 import { GERMANY_MAP, createGermanyBoardState } from '@/utils/germanyMap';
 
 export class GermanyMapProfile extends StandardMapProfile {
@@ -44,12 +45,21 @@ export class GermanyMapProfile extends StandardMapProfile {
     return !GermanyMapProfile.WHITE_BOX_IDS.has(cityId);
   }
 
+  override actionDescription(action: SpecialAction): string | undefined {
+    return action === 'engineer'
+      ? '트랙을 4개가 아닌 표준과 같은 3개까지 건설하되, 그중 1개를 절반 비용(올림)으로 짓습니다.'
+      : undefined;
+  }
+
   override get specialRules(): MapRuleSummary[] {
     return [
       { title: '4인 8턴', detail: '독일 맵 — 4명, 8턴으로 진행합니다.' },
       { title: '외국 터미널 (녹색)', detail: '국경의 녹색 도시는 한 종류 화물만 받습니다. 생산하지 않고 통과도 불가.' },
       { title: '헥스 고정 비용', detail: '사각형 숫자(€6~€12)가 그 헥스의 트랙 건설 비용입니다 (지형 기본비용 대신).' },
-      { title: 'Engineer 절반 비용', detail: 'Engineer 행동 시 트랙 1개를 절반 비용(올림)으로 건설합니다.' },
+      {
+        title: 'Engineer 효과 변경',
+        detail: 'Engineer를 골라도 트랙은 4개가 아니라 표준과 같은 3개까지만 건설합니다. 대신 그중 1개를 절반 비용(올림)으로 짓습니다.',
+      },
       { title: '완성 링크만 건설', detail: '미완성 트랙 구간은 둘 수 없습니다 — 모든 건설은 링크를 완성해야 합니다.' },
       { title: 'Berlin 보너스', detail: '매 턴 Berlin에 주머니에서 무작위 큐브 1개가 추가됩니다.' },
       { title: '도시 직결 링크', detail: '맞붙은 두 도시(예: Essen↔Düsseldorf)는 $2 직결 링크로 이을 수 있습니다.' },

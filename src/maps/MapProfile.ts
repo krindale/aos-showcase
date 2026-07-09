@@ -116,6 +116,9 @@ export abstract class MapProfile {
   // ── UI: 게임 시작 화면 특수룰 안내 (기본 = 표준 맵, 특수룰 없음) ──
   /** 게임 시작(플레이어 설정) 화면 우측에 표시할 이 맵만의 특수룰 목록. 빈 배열이면 패널 미표시. */
   get specialRules(): MapRuleSummary[] { return []; }
+  /** 이 맵에서 효과가 다른 특수 행동의 설명문 (도움말/행동 선택 UI가 ACTION_INFO 대신 사용).
+   *  undefined면 ACTION_INFO의 표준 설명을 그대로 쓴다. Germany: Engineer가 4개 건설이 아님. */
+  actionDescription(action: SpecialAction): string | undefined { void action; return undefined; }
 
   // ── AI 설정 (기본 = 룰북 기본값; 맵 규모/특성에 따라 override) ──
   /** AI가 올릴 엔진 레벨 전략 상한 */

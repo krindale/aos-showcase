@@ -216,7 +216,7 @@ src/
 │       ├── ChatSenderIcon.tsx  # 채팅 발신자 아이콘 (나=왕관/호스트=별/그외=사람) — clientId·room.hostClientId로 판정, 대기실·인게임 채팅 공용
 │       ├── HostTakeoverDialog.tsx  # 호스트 연결 끊김 → 승계 여부 팝업 (게스트, 대기실/게임 중 공통). 후계자만 이어받기, 유예/응답 대기 중 호스트 복귀 시 자동 닫힘
 │       ├── BottomSheet.tsx     # 모바일용 드래그 바텀 시트 (반응형)
-│       ├── HelpOverlay.tsx     # 인게임 규칙/도움말 오버레이 (헤더 ? 버튼 → 현재 단계 강조 + 10단계 흐름·특수행동 7종·맵 특수룰·승점 공식). 콘텐츠는 PHASE_INFO/ACTION_INFO/MapProfile.specialRules 재활용, ConfirmDialog 패턴+ESC 닫기. 순수 로컬 UI(스토어 읽기 전용) — 스냅샷/intents 무관
+│       ├── HelpOverlay.tsx     # 인게임 규칙/도움말 오버레이 (헤더 ? 버튼 → 현재 단계 강조 + 10단계 흐름·특수행동 7종·맵 특수룰·승점 공식). 콘텐츠는 PHASE_INFO/ACTION_INFO/MapProfile.specialRules 재활용, ConfirmDialog 패턴+ESC 닫기. 특수행동은 맵별 보정 — `MapProfile.actionDescription`이 있으면 그 설명으로 대체("이 맵 변경" 배지), `disabledActions`면 취소선+"사용 불가"(예: 독일 Engineer, St.Lucia Production/Turn Order). 순수 로컬 UI(스토어 읽기 전용) — 스냅샷/intents 무관
 │       └── CollapsiblePanel.tsx    # 태블릿용 접이식 사이드 패널 (반응형)
 │
 ├── net/                        # 온라인 멀티 (Supabase Realtime + 호스트 권위) — gameStore와 단방향(net→store)

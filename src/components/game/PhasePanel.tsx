@@ -389,7 +389,7 @@ export default function PhasePanel() {
                             </div>
                             <p className="text-[10px] text-foreground-secondary mt-0.5">
                               {action === 'engineer' && getMapProfile(mapId).engineerHalfCost
-                                ? '트랙 1개 절반값'
+                                ? '3개 + 1개 절반값'
                                 : ACTION_SHORT[action]}
                             </p>
                           </div>
@@ -450,7 +450,7 @@ export default function PhasePanel() {
               {currentPlayerData.selectedAction === 'engineer' && (
                 <p className="text-[10px] md:text-xs text-accent mt-1">
                   {getMapProfile(mapId).engineerHalfCost
-                    ? '• Engineer: 트랙 1개를 절반 비용으로!'
+                    ? '• Engineer: 3개까지 건설 + 그중 1개는 절반 비용!'
                     : '• Engineer: 4개까지 건설 가능!'}
                 </p>
               )}

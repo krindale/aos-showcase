@@ -28,7 +28,8 @@ export default function HelpOverlay({
   mapId: string;
 }) {
   const currentPhase = useGameStore((s) => s.currentPhase);
-  const specialRules = getMapProfile(mapId).specialRules;
+  const profile = getMapProfile(mapId);
+  const specialRules = profile.specialRules;
 
   // 오버레이가 떠 있는 동안 배경 스크롤 잠금 + ESC로 닫기
   useEffect(() => {
@@ -144,14 +145,23 @@ export default function HelpOverlay({
                 {ACTIONS.map((action) => {
                   const info = ACTION_INFO[action];
                   const Icon = ACTION_ICONS[action];
+                  const disabled = profile.disabledActions.includes(action);
+                  const mapDescription = profile.actionDescription(action);
                   return (
                     <li key={action} className="rounded-lg bg-background-tertiary/60 p-2.5">
                       <div className="flex items-center gap-2">
-                        <Icon className="w-4 h-4 text-accent shrink-0" />
-                        <div className="text-sm font-semibold text-foreground">{info.name}</div>
+                        <Icon className={`w-4 h-4 shrink-0 ${disabled ? 'text-foreground-muted' : 'text-accent'}`} />
+                        <div className={`text-sm font-semibold ${disabled ? 'text-foreground-muted line-through' : 'text-foreground'}`}>
+                          {info.name}
+                        </div>
+                        {disabled ? (
+                          <span className="text-[10px] text-steam-red shrink-0">이 맵에서 사용 불가</span>
+                        ) : mapDescription ? (
+                          <span className="text-[10px] text-accent shrink-0">이 맵 변경</span>
+                        ) : null}
                       </div>
                       <div className="text-xs text-foreground-secondary leading-relaxed mt-0.5">
-                        {info.description}
+                        {mapDescription ?? info.description}
                       </div>
                     </li>
                   );

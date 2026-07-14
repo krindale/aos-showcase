@@ -56,6 +56,8 @@ export class MoonMapProfile extends StandardMapProfile {
   override get cityDiceGrowth(): boolean { return true; }
   override get growthDicePerPlayer(): number { return 2; }
   override get cityGrowthDice(): Record<string, number[]> { return MOON_CITY_DICE; }
+  /** 신규 도시 C·D·G·H 제거 (룰북 셋업) */
+  override get availableNewCityTiles(): string[] | null { return ['A', 'B', 'E', 'F']; }
 
   override actionDescription(action: SpecialAction): string | undefined {
     if (action === 'production') {

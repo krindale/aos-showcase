@@ -238,7 +238,11 @@ export function createInitialGameState(
   }
 
   // Montréal: 신규 도시 타일마다 주머니에서 큐브 1개 (도시화 시 함께 보드에 올라감)
-  const newCityTiles = NEW_CITY_TILES.map(tile => ({ ...tile }));
+  // 맵별 신규 도시 타일 구성 (Moon: C·D·G·H 제거 — A·B·E·F만)
+  const availableTiles = mapRules.availableNewCityTiles;
+  const newCityTiles = NEW_CITY_TILES
+    .filter(tile => !availableTiles || availableTiles.includes(tile.id))
+    .map(tile => ({ ...tile }));
   if (mapRules.newCitySetupCube) {
     for (const tile of newCityTiles) {
       const [cube] = drawBalancedCubes(bag, 1, colorUsage);

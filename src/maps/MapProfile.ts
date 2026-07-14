@@ -145,6 +145,8 @@ export abstract class MapProfile {
   get growthDicePerPlayer(): number { return 1; }
   /** cityDiceGrowth 맵의 도시별 인쇄 주사위 번호 (도시 id → 번호들) */
   get cityGrowthDice(): Record<string, number[]> { return {}; }
+  /** 셋업에 사용하는 신규 도시 타일 id 목록 (null = 전부 A~H). Moon: C·D·G·H 제거 → A·B·E·F. */
+  get availableNewCityTiles(): string[] | null { return null; }
 
   // ── UI: 규칙 안내 문구 (기본 = 표준 맵, 특수룰 없음) ──
   /** 게임 시작(플레이어 설정) 화면 우측에 표시할 이 맵만의 특수룰 목록. 빈 배열이면 패널 미표시. */

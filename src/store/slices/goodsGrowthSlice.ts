@@ -7,12 +7,39 @@
 
 import type { StoreApi } from 'zustand';
 import type { GameStore } from '../gameStore';
-import { CubeColor, GAME_CONSTANTS } from '@/types/game';
+import { BoardState, CubeColor, HexCoord, GAME_CONSTANTS } from '@/types/game';
 import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
+import { findCompletedLinks, isNightCity } from '@/utils/hexGrid';
 
 type Set = StoreApi<GameStore>['setState'];
 type Get = StoreApi<GameStore>['getState'];
+
+/**
+ * 달(Moon): 시드 도시(Moon Base)와 완성 링크 체인으로 이어진 도시 id 집합.
+ * "선로로 연결된 도시만 성장" 판정용 — 링크 양끝(도시/마을)을 노드로 BFS (마을 경유 포함, 소유 무관).
+ */
+function citiesConnectedToSeed(board: BoardState, seedCityId: string): globalThis.Set<string> {
+  const seed = board.cities.find((c) => c.id === seedCityId);
+  if (!seed) return new Set();
+  const key = (c: HexCoord) => `${c.col},${c.row}`;
+  const adj = new Map<string, string[]>();
+  for (const link of findCompletedLinks(board)) {
+    const a = key(link.startCity);
+    const b = key(link.endCity);
+    adj.set(a, [...(adj.get(a) ?? []), b]);
+    adj.set(b, [...(adj.get(b) ?? []), a]);
+  }
+  const visited = new Set<string>([key(seed.coord)]);
+  const queue = [key(seed.coord)];
+  while (queue.length) {
+    const cur = queue.shift()!;
+    for (const nb of adj.get(cur) ?? []) {
+      if (!visited.has(nb)) { visited.add(nb); queue.push(nb); }
+    }
+  }
+  return new Set(board.cities.filter((c) => visited.has(key(c.coord))).map((c) => c.id));
+}
 
 /** goodsGrowthSlice가 제공하는 액션 — 인터페이스 정의는 gameStore(GameStore)에 그대로, Pick으로 참조 */
 export type GoodsGrowthSlice = Pick<
@@ -96,6 +123,54 @@ export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
         if (pendingHolder && !state.phaseState.productionUsed) {
           console.warn('[growGoods] 생산 미완료 — 주사위 차단 (홀더 물품 배치 대기)');
           return state;
+        }
+
+        // === 달(Moon): 디스플레이 대신 "주사위 = 도시 인쇄 번호" 직접 성장 ===
+        // 낮쪽 + Moon Base와 선로로 연결된 도시만 주머니에서 큐브 1개씩 받는다.
+        // 조건 미달 도시 배정분은 버려진다 — 주머니에서 뽑지 않는 것으로 구현(무작위 뽑기라 통계 동일).
+        const moonProfile = getMapProfile(state.mapId);
+        if (moonProfile.cityDiceGrowth) {
+          const newBag = [...state.goodsDisplay.bag];
+          const newCities = state.board.cities.map(city => ({ ...city, cubes: [...city.cubes] }));
+          const newLogs = [...state.logs];
+          const growthDice = moonProfile.cityGrowthDice;
+          const seedId = moonProfile.masterNetworkSeedCityId;
+          const connected = seedId ? citiesConnectedToSeed(state.board, seedId) : null;
+          const gained = new Map<string, CubeColor[]>(); // cityId → 추가된 큐브들
+
+          for (const die of diceResults) {
+            for (const [cityId, dice] of Object.entries(growthDice)) {
+              if (!dice.includes(die)) continue;
+              const city = newCities.find(c => c.id === cityId);
+              if (!city) continue;
+              if (isNightCity(city, state.board)) continue;          // 밤쪽 도시는 성장 없음
+              if (connected && !connected.has(cityId)) continue;      // Moon Base 미연결 — 버려짐
+              const cube = newBag.pop();                               // 셔플된 주머니 → pop = 무작위
+              if (!cube) break;
+              city.cubes.push(cube);
+              gained.set(cityId, [...(gained.get(cityId) ?? []), cube]);
+            }
+          }
+
+          const eventResults = Array.from(gained.entries()).map(([cityId, cubes]) => {
+            const city = newCities.find(c => c.id === cityId)!;
+            newLogs.push({
+              turn: state.currentTurn,
+              phase: state.currentPhase,
+              player: state.currentPlayer,
+              action: `물품 성장: ${city.name}에 ${cubes.length}개 추가`,
+              timestamp: Date.now(),
+            });
+            return { cityName: city.name, cubes };
+          });
+
+          return {
+            goodsDisplay: { slots: [...state.goodsDisplay.slots], bag: newBag },
+            board: { ...state.board, cities: newCities },
+            phaseState: { ...state.phaseState, productionUsed: true },
+            goodsGrowthEvent: { dice: [...diceResults], results: eventResults },
+            logs: newLogs,
+          };
         }
 
         // Production은 이제 수동으로 처리됨 (startProduction/confirmProduction)

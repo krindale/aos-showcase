@@ -6,6 +6,7 @@ import { useGameStore } from '@/store/gameStore';
 import { useNetStore } from '@/net/netStore';
 import { CUBE_COLORS, CubeColor } from '@/types/game';
 import { getMapData } from '@/utils/mapRegistry';
+import { getMapProfile } from '@/maps/getMapProfile';
 import DiceRoller from './DiceRoller';
 import { Sparkles, Package, Check, ArrowRight } from 'lucide-react';
 
@@ -50,9 +51,9 @@ export default function GoodsGrowthPanel() {
   const productionPending =
     !!productionPlayer && !productionPlayer.isAI && !phaseState.productionUsed;
 
-  // 주사위 수 (플레이어 수) - 탈락하지 않은 활성 플레이어 수
+  // 주사위 수 = 탈락하지 않은 활성 플레이어 수 × 맵별 배수 (표준 1, 달 2)
   const activePlayers = Object.values(players).filter(p => !p.eliminated);
-  const diceCount = activePlayers.length;
+  const diceCount = activePlayers.length * getMapProfile(mapId).growthDicePerPlayer;
 
   // 열의 시작 인덱스 (앞 열들의 rowCount 누적)
   const startIndexOf = (columnIndex: number): number =>

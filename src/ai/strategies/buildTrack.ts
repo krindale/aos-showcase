@@ -127,11 +127,13 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   for (const r of getTopPriorityRoutes(state, playerId, 5)) {
     pushUnique(r);
   }
-  pushUnique(findNetworkExpansionTarget(state, playerId, targetRoute ? [targetRoute.to] : []));
 
   // Montréal 마스터 네트워크: 첫 건설은 "네트워크에 닿은 정거장"에서만 시작할 수 있다.
   // 위 후보가 전부 네트워크 밖 경로면(예: Snowdon 주변) 봇이 한 타일도 못 깔고 스킵하므로,
   // 네트워크 앵커(닿은 정거장)가 끝점인 배달 기회를 후보에 보충한다.
+  // ⚠️ 반드시 findNetworkExpansionTarget(일반 확장 폴백)보다 먼저 — 뒤에 두면 폴백의 저가치
+  // 인접 도시쌍(coteVertu↔henri 1링크 4타일)이 ΔVP 상위 보충(berri→atwater 21.0)을 가로챈다
+  // (2026-07-14 실전 관찰 2건 모두 이 순서 문제).
   {
     const mnProfile = getMapProfile(state.mapId);
     const hasOwnTracks = state.board.trackTiles.some(
@@ -143,17 +145,21 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
         const stop = findStopById(state.board, cityId);
         return !!stop && stationInMasterNetwork(state.board, stop.coord);
       };
-      let added = 0;
-      for (const o of analyzeDeliveryOpportunities(state)) {
-        if (added >= 5) break;
-        if (inNet(o.sourceCityId) || inNet(o.targetCityId)) {
-          const before = candidateRoutes.length;
-          pushUnique({ from: o.sourceCityId, to: o.targetCityId, priority: 3 });
-          if (candidateRoutes.length > before) added++;
-        }
+      // ΔVP순 정렬 후 상위 5개만 보충 — 기회 목록(도시 배열) 순서 그대로 넣으면 저가치
+      // 장거리(예: henriBourassa→berriUqam)가 고가치 직행(berriUqam→atwater 21.0)보다 먼저
+      // 시도돼 봇이 다턴 괴물 경로를 착공한다 (2026-07-14 실전 버그).
+      const anchored = analyzeDeliveryOpportunities(state)
+        .filter(o => inNet(o.sourceCityId) || inNet(o.targetCityId))
+        .map(o => ({ o, vp: estimateRouteVP(state, playerId, o).deltaVP }))
+        .filter(x => x.vp > -Infinity)
+        .sort((a, b) => b.vp - a.vp);
+      for (const { o } of anchored.slice(0, 5)) {
+        pushUnique({ from: o.sourceCityId, to: o.targetCityId, priority: 3 });
       }
     }
   }
+
+  pushUnique(findNetworkExpansionTarget(state, playerId, targetRoute ? [targetRoute.to] : []));
 
   // ===== 3. 순서대로 결정론적 경로 추적 건설 (A* 경로를 따라 frontier 다음 칸에 건설) =====
   // 산발 방지(사용자 지침): 내 기존 네트워크와 분리된 새 도시에서 시작하는 경로는 깔지 않는다 —
@@ -363,6 +369,16 @@ function resolveTurnRoute(state: GameState, playerId: PlayerId): DeliveryRoute |
       const config = getMapAIConfig(state);
       const interactive = state.activePlayers.length >= 3 && !config.incomeSources.includes('trackCubes');
       if (!interactive) return previousRoute;
+      // ★ 남의 트랙으로 이미 완성된 연결이면 중복 부설 — 커밋 유지 대상이 아니다.
+      //   턴 시작 계획은 앞 순번의 건설을 모르므로, 앞 사람이 방금 같은 경로를 완성했는데
+      //   그대로 따라 지으면 한정된 매칭 화물을 나눠 먹는 $10+ 중복 투자가 된다 (2026-07-14
+      //   실전: green이 snowdon↔atwater 완성 직후 blue가 VEN 경유로 같은 연결 재부설).
+      //   재평가로 떨어지면 ρ 할인(같은 경로 ×0.4·완성 경로 ×0.4)이 반영돼 다른 경로를 고른다.
+      if (isRouteComplete(state, previousRoute)) {
+        debugLog.trackBuilding(
+          `[Phase IV: 트랙 건설] ${player?.name}: 이전 경로 ${previousRoute.from}→${previousRoute.to}는 이미 타인 트랙으로 완성(중복 부설 방지) → 재평가`
+        );
+      } else {
       const opp = analyzeDeliveryOpportunities(state).find(
         o => o.sourceCityId === previousRoute.from && o.targetCityId === previousRoute.to
       );
@@ -377,6 +393,7 @@ function resolveTurnRoute(state: GameState, playerId: PlayerId): DeliveryRoute |
         return previousRoute;
       }
       debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player?.name}: 이전 경로 ${previousRoute.from}→${previousRoute.to}가 더 이상 완성 불가(막힘) → 재평가`);
+      }
     }
   }
 

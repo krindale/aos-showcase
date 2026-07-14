@@ -359,6 +359,10 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       // 기존 트랙이 단순 트랙이어야 함 (이미 복합 트랙이면 불가)
       if (existingTrack.trackType !== 'simple') return false;
 
+      // Montréal 정부 트랙(isGovernment) 위 교차/공존: 허용 — 원본 룰은 정부 링크를 "unused
+      // colour의 중립 링크"로만 규정하고, 표준 룰의 "다른 플레이어 단순 트랙을 유지하며 복합
+      // 교체 가능"이 그대로 적용된다(정부 원 트랙 보존). 방향전환만 금지(canRedirectTrack).
+
       // 새 경로가 기존 경로와 겹치지 않아야 함 (엣지가 같으면 안 됨)
       const existingEdges = existingTrack.edges;
       if (

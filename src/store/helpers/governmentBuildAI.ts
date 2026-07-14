@@ -216,10 +216,22 @@ export function runGovernmentBuildAI(get: () => GameStore): void {
     return;
   }
 
-  // 점수: 양 끝 화물 합(배달 기회) ↑, 경로 길이 ↓. 첫 링크는 Berri-UQAM 포함 강한 가산(원본 권장).
+  // 점수: ① 색 매칭(이 링크로 실제 배달 가능한 화물 수 — 게임마다 다른 무작위 색을 반영) ×4
+  //       ② 양 끝 화물 합(잠재 물동량) ×1  ③ 경로 길이 ↓
+  // 몬트리올은 도시별 화물 "개수"가 고정(맵 인쇄)이라 개수만 보면 첫 링크가 매판 동일해진다
+  // (사용자 관찰: 10판 연속 Berri↔Longueuil). Berri 가산은 원본 룰이 "권장(필수 아님)"이므로
+  // 절대 보너스(+100) 대신 약한 가산(+3)으로 — 화물 색이 좋은 다른 링크가 이길 수 있게.
+  const cityOf = (st: Station) => st.isTown ? null : (board.cities.find(c => c.id === st.id) ?? null);
   for (const c of candidates) {
-    c.score = (c.from.cubes + c.to.cubes) * 2 - c.path.length;
-    if (firstLink && (c.from.id === 'berriUqam' || c.to.id === 'berriUqam')) c.score += 100;
+    const fromCity = cityOf(c.from);
+    const toCity = cityOf(c.to);
+    let matches = 0;
+    if (fromCity && toCity) {
+      matches += fromCity.cubes.filter(cb => cityAcceptsCube(toCity, cb, board)).length;
+      matches += toCity.cubes.filter(cb => cityAcceptsCube(fromCity, cb, board)).length;
+    }
+    c.score = matches * 4 + (c.from.cubes + c.to.cubes) - c.path.length;
+    if (firstLink && (c.from.id === 'berriUqam' || c.to.id === 'berriUqam')) c.score += 3;
     // 네트워크 밖 정거장을 새로 잇는 확장 우선 (+1)
     if (!firstLink && !stationInNetwork(board, c.to)) c.score += 1;
   }

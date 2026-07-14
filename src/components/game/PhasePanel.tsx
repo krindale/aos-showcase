@@ -12,7 +12,6 @@ import {
   GAME_CONSTANTS,
   PLAYER_COLORS,
   CUBE_COLORS,
-  CubeColor,
 } from '@/types/game';
 import {
   FileText,
@@ -120,7 +119,7 @@ export default function PhasePanel() {
 
   // AI 실행 중 여부 (버튼 비활성화에 사용)
   const isAIExecuting = aiExecution.pending;
-  const { nextPhase, selectAction, upgradeEngine, cancelSelection, undoLastAction, placeRepopulationCube } = useGameStore();
+  const { nextPhase, selectAction, upgradeEngine, cancelSelection, undoLastAction } = useGameStore();
 
   // Montréal Repopulation 배치 UI 상태 — 큐브 선택은 스토어 ui(보드 도시 클릭으로 배치)
   const repopCubes = phaseState.repopulationCubes ?? [];

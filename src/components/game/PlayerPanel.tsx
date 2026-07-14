@@ -192,11 +192,11 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
           {isEliminated && <Skull className="w-2.5 h-2.5 text-red-400 flex-shrink-0" />}
         </div>
         <div className="flex items-center gap-2 text-[11px] font-medium flex-shrink-0">
-          <span className="relative flex items-center gap-0.5 text-green-400" title="현금">
+          <span className="relative flex items-center gap-0.5 text-positive" title="현금">
             <DollarSign className="w-3 h-3" />{player.cash}
             <DeltaBadge delta={cashDelta} prefix="$" />
           </span>
-          <span className="relative flex items-center gap-0.5 text-blue-400" title="수입">
+          <span className="relative flex items-center gap-0.5 text-blue-700" title="수입">
             <TrendingUp className="w-3 h-3" />{player.income}
             {incomeReduction > 0 && (
               <span className="text-[9px] font-semibold text-red-400" title="수입 감소(시장 위축)">−{incomeReduction}</span>
@@ -204,7 +204,7 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
             <DeltaBadge delta={incomeDelta} />
           </span>
           <span
-            className="relative flex items-center gap-0.5 text-yellow-400"
+            className="relative flex items-center gap-0.5 text-amber-600"
             title={isDgelMap ? `엔진 ${player.engineLevel} + 정부 엔진(DGEL) ${dgel}` : '엔진'}
           >
             <Train className="w-3 h-3" />{player.engineLevel}
@@ -212,7 +212,7 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
             {isDgelMap && <span className="text-foreground font-semibold">+{dgel}</span>}
             <DeltaBadge delta={engineDelta} />
           </span>
-          <span className="relative flex items-center gap-0.5 text-purple-400" title="발행 주식">
+          <span className="relative flex items-center gap-0.5 text-purple-700" title="발행 주식">
             <FileText className="w-3 h-3" />{player.issuedShares}
             <DeltaBadge delta={sharesDelta} />
           </span>
@@ -290,7 +290,7 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
       {/* 스탯 그리드 - 반응형 패딩 및 간격. 값이 바뀌면 그 셀이 플레이어 색으로 물들고 증감 배지가 뜬다 */}
       <div className="p-1.5 md:p-2 grid grid-cols-2 gap-1.5 md:gap-2">
         <StatCell
-          icon={<DollarSign className="text-green-400 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
+          icon={<DollarSign className="text-positive flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
           label="현금"
           delta={cashDelta}
           deltaPrefix="$"        >
@@ -298,7 +298,7 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
         </StatCell>
 
         <StatCell
-          icon={<TrendingUp className="text-blue-400 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
+          icon={<TrendingUp className="text-blue-700 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
           label="수입"
           delta={incomeDelta}        >
           <span className="flex items-center gap-1">
@@ -317,7 +317,7 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
         </StatCell>
 
         <StatCell
-          icon={<Train className="text-yellow-400 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
+          icon={<Train className="text-amber-600 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
           label="엔진"
           delta={engineDelta}        >
           <span className="flex items-baseline w-full">
@@ -337,7 +337,7 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
         </StatCell>
 
         <StatCell
-          icon={<FileText className="text-purple-400 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
+          icon={<FileText className="text-purple-700 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
           label="주식"
           delta={sharesDelta}        >
           {player.issuedShares}
@@ -385,7 +385,7 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
           {/* 예상 결과 - 반응형 텍스트 */}
           <div className="flex items-center justify-between px-2 text-[10px] md:text-xs text-foreground-secondary">
             <span>받는 금액</span>
-            <span className="text-green-400 font-medium">+${shareAmount * GAME_CONSTANTS.SHARE_VALUE}</span>
+            <span className="text-positive font-medium">+${shareAmount * GAME_CONSTANTS.SHARE_VALUE}</span>
           </div>
           <div className="flex items-center justify-between px-2 text-[10px] md:text-xs text-foreground-secondary">
             <span>발행 후 총 주식</span>

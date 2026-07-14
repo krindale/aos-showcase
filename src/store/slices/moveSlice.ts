@@ -12,6 +12,7 @@ import { getMapProfile } from '@/maps/getMapProfile';
 import { hexCoordsEqual, findTrackCubeDeliveries } from '@/utils/hexGrid';
 import { logAction } from '@/utils/debugConfig';
 import { releaseAILock } from '../helpers/aiScheduler';
+import { captureUndo } from '../helpers/undo';
 
 type Set = StoreApi<GameStore>['setState'];
 type Get = StoreApi<GameStore>['getState'];
@@ -158,7 +159,13 @@ export function createMoveSlice(set: Set, get: Get): MoveSlice {
         console.log(`[upgradeEngine] ${player.name}: 엔진 업그레이드 ${oldLevel} → ${newLevel}`);
         console.log(`[PLAY] T${state.currentTurn} ${playerId} 엔진업 ${oldLevel}→${newLevel}`);
 
+        // 실행 취소 지원: 수송 기회를 엔진업에 잘못 쓴 경우 되돌려 화물 이동으로 바꿀 수 있게.
+        // captureUndo가 AI 차례엔 no-op이므로 카운트 증가도 동일 조건 — 안 맞추면 팬텀 취소.
+        const undoable = !state.players[state.currentPlayer]?.isAI;
+        if (undoable) captureUndo(state, '엔진 업그레이드');
+
         return {
+          undoCount: state.undoCount + (undoable ? 1 : 0),
           players: {
             ...state.players,
             [playerId]: {

@@ -761,6 +761,7 @@ export default function PhasePanel() {
                   })()}
                   <ChevronRight className="w-4 h-4" />
                 </button>
+                {undoButton}
               </>
             ) : (
               otherTurnNote

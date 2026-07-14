@@ -286,6 +286,9 @@ export const useNetStore = create<NetStore>()((set, get) => {
       // 로컬 전용 필드는 항상 안전값으로 (persist merge와 같은 원칙).
       // undoCount는 스냅샷 값 유지 — 게스트 취소 버튼 표시용 (되돌리기는 인텐트로 호스트가 실행)
       aiExecution: { pending: false, executionId: 0 },
+      // undefined 값 필드는 JSON 직렬화에서 키가 드롭돼 얕은 병합으로 못 지운다 — 명시 동기화.
+      // (게스트가 직전에 몬트리올을 플레이했으면 스테일 3인 배열이 비몬트리올 방에 잔존)
+      governmentControllers: (gameState as { governmentControllers?: unknown }).governmentControllers,
     } as never);
   };
 

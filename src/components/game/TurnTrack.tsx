@@ -2,6 +2,7 @@
 
 import { Crown } from 'lucide-react';
 import { useGameStore } from '@/store/gameStore';
+import { getMapProfile } from '@/maps/getMapProfile';
 import { GamePhase, PHASE_INFO, PLAYER_COLORS } from '@/types/game';
 import { useMyPlayerId, isMyPlayer } from '@/hooks/useMyPlayerId';
 import { CROWN_GOLD, CROWN_INK } from './uiEffects';
@@ -22,12 +23,17 @@ export default function TurnTrack({
   const myPlayerId = useMyPlayerId();
 
   // Montréal: 이번/다음 라운드 정부 링크 관리자 (셋업 순번 로테이션, 탈락자는 건너뜀)
+  // 맵 룰 게이트 — 스테일 저장본(비몬트리올 맵에 governmentControllers 잔존)에서도 배지 미표시
+  const mapId = useGameStore((s) => s.mapId);
+  const hasGovernmentLinks = getMapProfile(mapId).governmentLinks;
   const govControllers = useGameStore((s) => s.governmentControllers);
   const controllerForTurn = (turn: number) => {
-    if (!govControllers || govControllers.length === 0) return null;
+    if (!hasGovernmentLinks || !govControllers || govControllers.length === 0) return null;
     for (let k = 0; k < govControllers.length; k++) {
       const cand = govControllers[(turn - 1 + k) % govControllers.length];
-      if (!players[cand]?.eliminated) return cand;
+      // 플레이어 존재 검사 필수 — 스테일 저장본(타 맵에 남은 3인 배열)이면 cand가 없는 플레이어일 수 있다
+      const p = players[cand];
+      if (p && !p.eliminated) return cand;
     }
     return null;
   };

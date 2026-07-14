@@ -1,8 +1,21 @@
 // 보드 룰 순수 헬퍼 — 경계 변·마을 가닥·미완성 트랙 처리 (gameStore 스텝 3a 분리)
 
-import { BoardState, HexCoord, PlayerId, TrackTile, GAME_CONSTANTS } from '@/types/game';
+import { BoardState, HexCoord, PlayerId, TrackTile, GameState, GAME_CONSTANTS } from '@/types/game';
 import { hexCoordsEqual, getNeighborHex, getOppositeEdge, isBlockedEdge } from '@/utils/hexGrid';
 import { isTrackPartOfCompletedLink } from '@/utils/trackValidation';
+import { getMapProfile } from '@/maps/getMapProfile';
+
+/**
+ * 이 플레이어의 빌더 턴 트랙 건설 상한.
+ * 기본은 맵의 buildsPerTurn(표준 3, 달 2). Engineer 선택 시 +1 —
+ * 단 Germany(engineerHalfCost)는 타일 수 혜택이 아니라 절반 할인이므로 +1 없음.
+ */
+export function maxTracksForBuilder(state: Pick<GameState, 'mapId' | 'players'>, playerId: PlayerId): number {
+  const profile = getMapProfile(state.mapId);
+  const base = profile.buildsPerTurn;
+  const isEngineer = state.players[playerId]?.selectedAction === 'engineer';
+  return isEngineer && !profile.engineerHalfCost ? base + 1 : base;
+}
 
 /**
  * 철도 건설 불가 경계 변을 넘는 트랙인지 판정.
@@ -11,7 +24,7 @@ import { isTrackPartOfCompletedLink } from '@/utils/trackValidation';
  */
 export function crossesBlockedEdge(board: BoardState, coord: HexCoord, edges: number[]): boolean {
   if (!board.blockedEdges || board.blockedEdges.length === 0) return false;
-  return edges.some(e => isBlockedEdge(board, coord, getNeighborHex(coord, e)));
+  return edges.some(e => isBlockedEdge(board, coord, getNeighborHex(coord, e, board)));
 }
 
 /**
@@ -36,7 +49,7 @@ export function findMissingTownSpurs(
     if (hasSpur) continue;
 
     // 이 변 너머 이웃 타일에 내 트랙이 마을 쪽 엣지로 닿아 있는지
-    const nb = getNeighborHex(townCoord, edge);
+    const nb = getNeighborHex(townCoord, edge, board);
     const facingEdge = getOppositeEdge(edge);
     const tile = board.trackTiles.find(t => hexCoordsEqual(t.coord, nb));
     if (!tile) continue;
@@ -84,7 +97,7 @@ export function releaseUnextendedTrack(
       const t = stack.pop()!;
       group.push(t);
       for (const e of [...t.edges, ...(t.secondaryEdges ?? [])]) {
-        const nb = getNeighborHex(t.coord, e);
+        const nb = getNeighborHex(t.coord, e, board);
         const nbT = incByKey.get(k(nb));
         if (!nbT || visited.has(k(nb)) || nbT.owner !== t.owner) continue;
         const back = (e + 3) % 6; // 인접 헥스에서 마주보는 변
@@ -166,19 +179,26 @@ export function removeIncompleteGovernmentTracks(
 export function touchesMasterNetwork(
   board: BoardState,
   coord: HexCoord,
-  edges: number[]
+  edges: number[],
+  /** 달(Moon): 네트워크의 시드 도시 id — 이 도시는 트랙이 닿아 있지 않아도 항상 네트워크의
+   *  허브다(모든 트랙이 Moon Base에서 뻗어야 함). 빈 보드에서도 시드 인접만 건설 가능.
+   *  null/미지정 = 몬트리올식(첫 링크가 네트워크를 세움). */
+  seedCityId?: string | null
 ): boolean {
+  const seedCity = seedCityId ? board.cities.find(c => c.id === seedCityId) : undefined;
   const anyTrack = board.trackTiles.length > 0 || (board.townSpurs ?? []).length > 0;
-  if (!anyTrack) return true; // 첫 정부 링크 — 네트워크 시작점
+  if (!anyTrack && !seedCity) return true; // 첫 정부 링크 — 네트워크 시작점 (Montréal)
 
   for (const e of edges) {
-    const nb = getNeighborHex(coord, e);
+    const nb = getNeighborHex(coord, e, board);
     const back = getOppositeEdge(e);
     // ① 이웃 타일이 마주보는 변으로 트랙을 갖고 있으면 연결 (소유자 무관)
     const nbTile = board.trackTiles.find(t => hexCoordsEqual(t.coord, nb));
     if (nbTile && [...nbTile.edges, ...(nbTile.secondaryEdges ?? [])].includes(back)) return true;
-    // ② 이웃 도시: 그 도시에 트랙이 하나라도 닿아 있으면 (도시는 모든 변을 잇는 허브)
+    // ② 이웃 도시: 그 도시에 트랙이 하나라도 닿아 있으면 (도시는 모든 변을 잇는 허브).
+    //    시드 도시(Moon Base)는 트랙이 없어도 항상 네트워크다.
     if (board.cities.some(c => hexCoordsEqual(c.coord, nb))) {
+      if (seedCity && hexCoordsEqual(nb, seedCity.coord)) return true;
       if (stationHasAnyTrack(board, nb)) return true;
       continue;
     }
@@ -192,7 +212,7 @@ export function touchesMasterNetwork(
 /** 정거장(도시)에 트랙이 하나라도 닿아 있는지 (변을 마주보는 타일 트랙 존재 여부) */
 function stationHasAnyTrack(board: BoardState, cityCoord: HexCoord): boolean {
   for (let e = 0; e < 6; e++) {
-    const nb = getNeighborHex(cityCoord, e);
+    const nb = getNeighborHex(cityCoord, e, board);
     const back = getOppositeEdge(e);
     const tile = board.trackTiles.find(t => hexCoordsEqual(t.coord, nb));
     if (tile && [...tile.edges, ...(tile.secondaryEdges ?? [])].includes(back)) return true;

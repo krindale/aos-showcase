@@ -41,6 +41,7 @@ import {
   releaseUnextendedTrack,
   removeIncompleteNewTracks,
   removeIncompleteGovernmentTracks,
+  maxTracksForBuilder,
 } from './helpers/boardRules';
 import { AIPlayerConfig, TUTORIAL_GAME_CONFIG, createInitialGameState } from './helpers/setup';
 import { runGovernmentBuildAI, pickRepopulationPlacement } from './helpers/governmentBuildAI';
@@ -820,13 +821,11 @@ export const useGameStore = create<GameStore>()(
         console.log(`[Repopulation] ${player.name}: 주머니에서 [${drawn.join(', ')}] 뽑음 — 1개 배치 대기`);
       }
 
-      // Engineer 효과
+      // Engineer 효과 (맵 buildsPerTurn 기반 — Germany는 절반 할인만, 달은 2→3)
       if (action === 'engineer') {
-        // Germany: Engineer는 '트랙 1개를 절반 비용으로'(룰북)이며 4타일 혜택은 없다 → 표준 타일 수 유지
-        const engineerHalfCost = getMapProfile(state.mapId).engineerHalfCost;
         newState.phaseState = {
           ...state.phaseState,
-          maxTracksThisTurn: engineerHalfCost ? GAME_CONSTANTS.NORMAL_TRACK_LIMIT : GAME_CONSTANTS.ENGINEER_TRACK_LIMIT,
+          maxTracksThisTurn: maxTracksForBuilder({ ...state, players: newState.players ?? state.players }, playerId),
         };
       }
 
@@ -1061,10 +1060,8 @@ export const useGameStore = create<GameStore>()(
               lastBuiltCoords: [],
               engineerMaxTileCost: 0, // Germany: 빌더마다 Engineer 절반 할인 재설정
               engineerDiscountGiven: 0,
-              // 첫 번째로 건설할 플레이어의 Engineer 효과 확인 (Germany는 4타일 혜택 없음 — 절반 비용만)
-              maxTracksThisTurn: state.players[firstBuilder].selectedAction === 'engineer' && !getMapProfile(state.mapId).engineerHalfCost
-                ? GAME_CONSTANTS.ENGINEER_TRACK_LIMIT
-                : GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
+              // 첫 번째로 건설할 플레이어의 트랙 상한 (맵 buildsPerTurn + Engineer 보정)
+              maxTracksThisTurn: maxTracksForBuilder(state, firstBuilder),
               // 모든 플레이어의 건설 완료 상태 초기화
               playerMoves: initialPlayerMoves,
             },
@@ -1188,9 +1185,7 @@ export const useGameStore = create<GameStore>()(
             lastBuiltCoords: [],
             engineerMaxTileCost: 0, // Germany: 빌더마다 Engineer 절반 할인 재설정
             engineerDiscountGiven: 0,
-            maxTracksThisTurn: state.players[nextBuilder].selectedAction === 'engineer' && !getMapProfile(state.mapId).engineerHalfCost
-              ? GAME_CONSTANTS.ENGINEER_TRACK_LIMIT
-              : GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
+            maxTracksThisTurn: maxTracksForBuilder(state, nextBuilder),
             playerMoves: updatedPlayerMoves,
           },
           // 이전 플레이어의 건설 선택 UI 잔재 제거
@@ -1309,7 +1304,7 @@ export const useGameStore = create<GameStore>()(
           board: cleanedBoard,
           phaseState: {
             builtTracksThisTurn: 0,
-            maxTracksThisTurn: GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
+            maxTracksThisTurn: getMapProfile(state.mapId).buildsPerTurn,
             lastBuiltCoords: [] as HexCoord[],
             moveGoodsRound: 1 as const,
             playerMoves: createPlayerMoves(activePlayers),
@@ -1461,7 +1456,7 @@ export const useGameStore = create<GameStore>()(
       currentPlayer: prevState.playerOrder[0] ?? prevState.activePlayers[0],
       phaseState: {
         builtTracksThisTurn: 0,
-        maxTracksThisTurn: GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
+        maxTracksThisTurn: getMapProfile(state.mapId).buildsPerTurn,
         lastBuiltCoords: [],
         moveGoodsRound: 1,
         playerMoves: createPlayerMoves(prevState.activePlayers),

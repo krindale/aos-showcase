@@ -188,6 +188,9 @@ export interface BoardState {
    *  건설/이동/경로탐색의 이웃 계산이 이 테이블로 반대편 헥스에 닿는다 (hexGrid getNeighborHex).
    *  비-달 맵은 미설정. */
   wrapEdges?: WrapEdge[];
+  /** 달(Moon): 현재 밤인 반쪽 ('west'=화면 왼쪽). 밤쪽 도시는 검은 도시 취급.
+   *  1턴 west 시작, 물품 성장 후 교대 (nightDayCycle 맵만 설정 — 비-달 맵은 미설정). */
+  nightSide?: 'west' | 'east';
 }
 
 /** 달(Moon): 외곽 랩 연결 한 쌍 — 변 a와 변 b가 이어진다 (시트 인쇄 번호 1~37, 렌더에도 사용) */

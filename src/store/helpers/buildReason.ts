@@ -72,7 +72,7 @@ export function getBuildBlockReason(
     if (!validateGovernmentTrackConnection(coord, edges, board)) {
       return '정부 트랙은 도시나 정부 트랙에 이어서 지어야 해요';
     }
-    if (!touchesMasterNetwork(board, coord, edges)) {
+    if (!touchesMasterNetwork(board, coord, edges, getMapProfile(state.mapId).masterNetworkSeedCityId)) {
       return '모든 트랙은 하나의 네트워크로 이어져야 해요';
     }
     return '지금은 여기에 건설할 수 없어요';
@@ -100,8 +100,10 @@ export function getBuildBlockReason(
   }
 
   // Montréal 마스터 네트워크 — canBuildTrack 미러
-  if (profile.masterNetwork && !touchesMasterNetwork(board, coord, edges)) {
-    return '모든 트랙은 하나의 네트워크로 이어져야 해요 (정부 링크와 연결)';
+  if (profile.masterNetwork && !touchesMasterNetwork(board, coord, edges, profile.masterNetworkSeedCityId)) {
+    return profile.masterNetworkSeedCityId
+      ? '모든 트랙은 Moon Base와 이어진 네트워크에 연결되어야 해요'
+      : '모든 트랙은 하나의 네트워크로 이어져야 해요 (정부 링크와 연결)';
   }
 
   // 여기까지 통과 = canBuildTrack OK → 남은 실패 원인은 현금.

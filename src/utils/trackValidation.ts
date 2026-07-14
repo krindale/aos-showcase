@@ -91,7 +91,7 @@ export function stationInMasterNetwork(board: BoardState, stationCoord: HexCoord
     return (board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, stationCoord));
   }
   for (let e = 0; e < 6; e++) {
-    const nb = getNeighborHex(stationCoord, e);
+    const nb = getNeighborHex(stationCoord, e, board);
     const back = getOppositeEdge(e);
     const tile = board.trackTiles.find(t => hexCoordsEqual(t.coord, nb));
     if (tile && [...tile.edges, ...(tile.secondaryEdges ?? [])].includes(back)) return true;
@@ -110,7 +110,7 @@ export function validateGovernmentTrackConnection(
   board: BoardState
 ): boolean {
   for (const edge of edges) {
-    const neighbor = getNeighborHex(targetCoord, edge);
+    const neighbor = getNeighborHex(targetCoord, edge, board);
     if (board.cities.some(c => hexCoordsEqual(c.coord, neighbor))) return true;
 
     const isTown = board.towns.some(t => hexCoordsEqual(t.coord, neighbor) && t.newCityColor === null);
@@ -140,7 +140,7 @@ export function validateFirstTrackRule(
   // 타겟 헥스의 각 엣지에서 이웃 확인 — 첫 트랙은 도시에 인접해야 함
   // (St. Lucia: 시작 도시 0개 → 1턴엔 도시화로 만든 도시 인접에만 건설 가능)
   for (const edge of edges) {
-    const neighbor = getNeighborHex(targetCoord, edge);
+    const neighbor = getNeighborHex(targetCoord, edge, board);
     const city = board.cities.find(c => hexCoordsEqual(c.coord, neighbor));
     if (city && (!allowedCityIds || allowedCityIds.has(city.id))) return true;
   }
@@ -157,7 +157,7 @@ export function playerNetworkTouchesCity(
   playerId: PlayerId
 ): boolean {
   for (let edge = 0; edge < 6; edge++) {
-    const neighbor = getNeighborHex(cityCoord, edge);
+    const neighbor = getNeighborHex(cityCoord, edge, board);
     const oppositeEdge = getOppositeEdge(edge);
     const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor));
     if (track) {
@@ -183,7 +183,7 @@ export function validateTrackConnection(
   requireNetwork = false
 ): boolean {
   for (const edge of edges) {
-    const neighbor = getNeighborHex(targetCoord, edge);
+    const neighbor = getNeighborHex(targetCoord, edge, board);
 
     // 도시에 연결되는 경우
     const city = board.cities.find(c => hexCoordsEqual(c.coord, neighbor));
@@ -310,7 +310,7 @@ export function isCompletedLink(
 
   while (true) {
     // 다음 헥스로 이동
-    const nextCoord = getNeighborHex(currentCoord, currentEdge);
+    const nextCoord = getNeighborHex(currentCoord, currentEdge, board);
     const coordKey = `${nextCoord.col},${nextCoord.row}`;
 
     // 이미 방문한 헥스면 루프 (불완전)
@@ -376,7 +376,7 @@ export function findAllCompletedLinks(
   for (const startCoord of startPoints) {
     // 모든 엣지 방향으로 탐색
     for (let edge = 0; edge < 6; edge++) {
-      const neighborCoord = getNeighborHex(startCoord, edge);
+      const neighborCoord = getNeighborHex(startCoord, edge, board);
 
       // 이웃이 플레이어의 트랙인 경우만 탐색
       const track = board.trackTiles.find(
@@ -447,7 +447,7 @@ export function validateGoodsPath(
     // 현재와 다음이 인접한지 확인
     let foundEdge = -1;
     for (let edge = 0; edge < 6; edge++) {
-      const neighbor = getNeighborHex(current, edge);
+      const neighbor = getNeighborHex(current, edge, board);
       if (hexCoordsEqual(neighbor, next)) {
         foundEdge = edge;
         break;
@@ -529,7 +529,7 @@ export function isEndpointOfIncompleteSection(
   let openEdge: number | null = null;
 
   for (const edge of track.edges) {
-    const neighborCoord = getNeighborHex(trackCoord, edge);
+    const neighborCoord = getNeighborHex(trackCoord, edge, board);
     const oppositeEdge = getOppositeEdge(edge);
 
     // 이웃이 도시/마을인지 확인
@@ -612,7 +612,7 @@ export function getRedirectableEdges(
     if (edge === connectedEdge) continue;
 
     // 현재 열린 엣지도 선택지에 포함 (같은 방향 유지 가능)
-    const neighborCoord = getNeighborHex(trackCoord, edge);
+    const neighborCoord = getNeighborHex(trackCoord, edge, board);
 
     // 이웃이 유효한지 확인 (호수, 맵 밖 제외)
     const hexTile = board.hexTiles.find(h => hexCoordsEqual(h.coord, neighborCoord));

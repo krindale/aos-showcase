@@ -273,6 +273,8 @@ export function createInitialGameState(
       cities: citiesWithCubes,
       towns: townsWithCubes,
       hexTiles: hexTilesWithCubes,
+      // 달(Moon): 1턴 밤 = 서쪽(왼쪽) — 물품 성장 후 교대 (rules/AosExpMoon.md)
+      ...(setupRules.nightDayCycle ? { nightSide: 'west' as const } : {}),
     },
     goodsDisplay: {
       slots: displaySlots,
@@ -291,7 +293,7 @@ export function createInitialGameState(
     // 단계 상태
     phaseState: {
       builtTracksThisTurn: 0,
-      maxTracksThisTurn: GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
+      maxTracksThisTurn: setupRules.buildsPerTurn, // 맵별 상한 (표준 3, 달 2)
       lastBuiltCoords: [],
       moveGoodsRound: 1,
       playerMoves: playerMoves as Record<PlayerId, boolean>,

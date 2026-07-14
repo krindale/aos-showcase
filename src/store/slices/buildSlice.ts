@@ -86,7 +86,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         // 연결성: 도시(Station) 인접 / 정부 트랙 / 정부 가닥 마을에만 이어 짓기
         if (!validateGovernmentTrackConnection(coord, edges, board)) return false;
         // 마스터 네트워크: 첫 정부 링크(트랙 0개)만 예외 — 이후엔 전체 네트워크에 닿아야 함
-        if (!touchesMasterNetwork(board, coord, edges)) return false;
+        if (!touchesMasterNetwork(board, coord, edges, profileForGov.masterNetworkSeedCityId)) return false;
         return true;
       }
 
@@ -120,7 +120,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
 
       // Montréal 마스터 네트워크: 보드 위 모든 트랙의 총합이 연속이어야 함 —
       // 새 타일은 기존 네트워크(아무 트랙, 트랙이 닿은 정거장)에 닿아야 한다
-      if (profile.masterNetwork && !touchesMasterNetwork(board, coord, edges)) {
+      if (profile.masterNetwork && !touchesMasterNetwork(board, coord, edges, profile.masterNetworkSeedCityId)) {
         return false;
       }
 

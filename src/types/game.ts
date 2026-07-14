@@ -98,6 +98,9 @@ export interface City {
   /** 두 색 화물을 모두 받는 겸용 도시의 보조 수요색 (Montréal Atwater: 빨강+파랑).
    *  배달 판정은 cityAcceptsCube 한 곳에서 color/extraColor를 함께 본다. 렌더는 반반 분할. */
   extraColor?: CityColor;
+  /** 색·수요 없는 도시 (Moon: Moon Base) — 어떤 큐브도 여기서 배달이 끝나지 않고 출발/통과만
+   *  가능하다 (cityAcceptsCube가 항상 false). color 필드는 타입 충족용일 뿐 수요에 쓰이지 않는다. */
+  noDemand?: boolean;
 }
 
 // 마을
@@ -181,6 +184,17 @@ export interface BoardState {
   /** 남부 미국(Southern US): 면화(흰 큐브)의 배달 종착 항구 도시 id 목록.
    *  흰 큐브는 이 도시들에서만 배달이 끝난다 (cityAcceptsCube 헬퍼 참조). 비-남부 맵은 미설정. */
   cottonPorts?: string[];
+  /** 달(Moon): 보드 외곽 랩 어라운드 — 같은 번호가 인쇄된 두 외곽 변이 서로 이어진다.
+   *  건설/이동/경로탐색의 이웃 계산이 이 테이블로 반대편 헥스에 닿는다 (hexGrid getNeighborHex).
+   *  비-달 맵은 미설정. */
+  wrapEdges?: WrapEdge[];
+}
+
+/** 달(Moon): 외곽 랩 연결 한 쌍 — 변 a와 변 b가 이어진다 (시트 인쇄 번호 1~37, 렌더에도 사용) */
+export interface WrapEdge {
+  number: number;
+  a: { coord: HexCoord; edge: number };
+  b: { coord: HexCoord; edge: number };
 }
 
 /** 도시-도시 직접 링크 (사이 헥스 없이 인접한 두 도시를 잇는 특수 트랙) */

@@ -11,6 +11,7 @@ export function generateStaticParams() {
     { mapId: 'southern-us' },
     { mapId: 'korea' },
     { mapId: 'montreal' },
+    { mapId: 'moon' },
   ];
 }
 

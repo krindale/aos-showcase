@@ -128,6 +128,24 @@ export abstract class MapProfile {
   /** 셋업: 신규 도시 타일마다 주머니에서 큐브 1개를 올려두고, 도시화 시 함께 보드에 올라감. */
   get newCitySetupCube(): boolean { return false; }
 
+  // ── 달(Moon) 특수룰 (기본값 = 영향 없음) ──
+  /** masterNetwork의 시드 도시 id — 네트워크가 항상 이 도시를 포함해야 한다 (Moon: 'moonBase').
+   *  null이면 몬트리올식(첫 링크가 시드). masterNetwork=false면 무의미. */
+  get masterNetworkSeedCityId(): string | null { return null; }
+  /** 밤/낮 교대: 매 턴 보드 절반이 밤 — 밤쪽 도시는 검은 도시 취급(검은 큐브만 배달,
+   *  다른 색 큐브는 통과도 불가). 물품 성장 후 밤쪽이 교대된다 (GameState.nightSide). */
+  get nightDayCycle(): boolean { return false; }
+  /** Production 행동이 Low Gravitation으로 대체: 물품 이동 때 상대 링크 1개를
+   *  자기 링크처럼(수입 포함) 사용. 수송 2회에 각각 다른 링크 지정 가능. */
+  get productionAsLowGravitation(): boolean { return false; }
+  /** 물품 성장: 디스플레이 대신 주사위가 도시 인쇄 번호와 일치하면 주머니에서 도시로 직접 배치.
+   *  (Moon: 낮쪽 + Moon Base 연결 도시만 — 조건 미달 배정분은 버려짐) */
+  get cityDiceGrowth(): boolean { return false; }
+  /** cityDiceGrowth 맵의 물품 성장 주사위 수 (플레이어당). 표준 맵(디스플레이 성장)은 1. Moon: 2. */
+  get growthDicePerPlayer(): number { return 1; }
+  /** cityDiceGrowth 맵의 도시별 인쇄 주사위 번호 (도시 id → 번호들) */
+  get cityGrowthDice(): Record<string, number[]> { return {}; }
+
   // ── UI: 규칙 안내 문구 (기본 = 표준 맵, 특수룰 없음) ──
   /** 게임 시작(플레이어 설정) 화면 우측에 표시할 이 맵만의 특수룰 목록. 빈 배열이면 패널 미표시. */
   get specialRules(): MapRuleSummary[] { return []; }

@@ -107,6 +107,15 @@ const maps: MapEntry[] = [
     playable: true,
   },
   {
+    slug: 'montreal',
+    name: 'Montréal Métro',
+    nameKo: '몬트리올 메트로',
+    diff: '고급',
+    image: '/maps/montreal.webp',
+    description: '몬트리올 지하철망을 놓는 3인 전용전. 매 라운드 정부가 중립 링크를 무료 건설하고, 보드 위 모든 트랙이 하나의 네트워크로 이어져야 합니다.',
+    playable: true,
+  },
+  {
     slug: 'st-lucia',
     name: 'St. Lucia',
     nameKo: '세인트루시아',

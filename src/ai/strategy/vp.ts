@@ -176,6 +176,7 @@ export function deliveryDeltaVP(
   playerId: PlayerId,
   ownLinks: number,
   oppLinks: number,
+  startDelay: number = 0,
 ): number {
   const config = getMapAIConfig(state);
   const lambda = cashToVPRate(state, playerId);
@@ -183,9 +184,11 @@ export function deliveryDeltaVP(
   // 영구 income VP (수입 감소 구간 반영)
   const incomeVP = incomeMarginalVP(state, playerId, ownLinks);
 
-  // 잔여 턴 현금흐름: income +1은 이번 턴 Collect Income부터 매턴 $1
+  // 잔여 턴 현금흐름: income +1은 이번 턴 Collect Income부터 매턴 $1.
+  // startDelay = 배달이 시작되기까지의 지연 턴 수(건설 다턴·엔진 준비) — 그만큼 현금을 못 번다.
+  // 즉시 배달(moveGoods 실행 시점) 평가는 delay 0.
   const remainingIncomeTurns = Math.max(0, config.totalTurns - state.currentTurn + 1);
-  const cashflowVP = ownLinks * remainingIncomeTurns * lambda;
+  const cashflowVP = ownLinks * Math.max(0, remainingIncomeTurns - startDelay) * lambda;
 
   // 상대 income 증가 = 상대 VP +3 → 내 상대적 손해 (N인 정규화)
   const opponentVP = oppLinks * VP_PER_INCOME * opponentWeight(state);
@@ -385,6 +388,10 @@ export function estimateRouteVP(
         fullPath.some(pc => hexCoordsEqual(pc, t.coord))
       ).length
     : 0;
+  //   ※ 기각(2026-07-14, Montréal 100시드): ④ 왕복(역방향) 배달 큐브를 expectedDeliveries에
+  //      추가하는 실험 — 전액 인정 VP -2.96→-5.11, 절반 가중 -9.05로 모두 악화(파산 1.22→1.4~1.6).
+  //      왕복 낙관이 비싼 도시쌍 과잉 투자·조기 파산을 유발. 왕복 가치는 배달 시점의
+  //      moveGoods 후보 평가가 이미 자연 반영하므로 착공 평가엔 넣지 않는다.
   const matchingCubes = cityCubes + trackCubesOnPath + townCubesOnPath;
   const expectedDeliveries = Math.max(0, Math.min(deliverableTurns, matchingCubes));
 
@@ -420,7 +427,11 @@ export function estimateRouteVP(
   // Southern US: 면화(흰 큐브) 배달 +$1 보너스도 동일하게 반영
   const regionBonus = profile.regionDeliveryBonus(sourceCity?.region, targetCity.region)
     + profile.cubeDeliveryBonus(opp.cubeColor);
-  const perDeliveryVP = deliveryDeltaVP(state, playerId, links, 0) + regionBonus * VP_PER_INCOME;
+  // 배달 시작 지연(건설 다턴 + 엔진 준비 중 늦은 쪽) — 그 턴 수만큼 현금 흐름을 못 벌므로
+  // 배달당 가치에서 차감 (엔진업은 매턴 수송 기회 1회 소모 가정, engineDelay와 동일).
+  const deliveryStartDelay = Math.max(completionTurns - 1, engineDelay);
+  const perDeliveryVP = deliveryDeltaVP(state, playerId, links, 0, deliveryStartDelay)
+    + regionBonus * VP_PER_INCOME;
   const fundShares = Math.ceil(Math.max(0, buildCost - player.cash) / GAME_CONSTANTS.SHARE_VALUE);
   // ★ 완성 트랙 목표 (맵별, MapProfile.targetCompletedTracks — 현재 Western US만 7): 완성트랙이
   //   목표 미만이면 트랙 VP를 기회비용 없이 정상(1.0) 인정해 경로 완성을 적극 추구한다(완성트랙
@@ -458,12 +469,18 @@ export function estimateRouteVP(
   // 우선한다. 완성이 늦을수록 페널티 (1턴=0, 2턴=-4VP). cityCubes 다인만 적용.
   const lateCompletionPenalty = config.incomeSources.includes('trackCubes')
     ? 0
-    : Math.max(0, completionTurns - 1) * 4;
+    : Math.max(0, completionTurns - 1) * getMapProfile(state.mapId).lateCompletionPenaltyPerTurn;
+  // 경로가 요구하는 엔진 증분 유지비: 엔진 +1레벨 = 매턴 $1 지출. k번째 레벨은 (현재+k)턴부터
+  // 게임 끝까지 부담 → Σ_{k=1..d}(남은턴 − k + 1). 링크 수가 많은 경로일수록 숨은 고정비가 크다.
+  const engineUpkeepVP = engineDelay > 0
+    ? (engineDelay * remainingTurnsIncl - (engineDelay * (engineDelay - 1)) / 2) * lambda
+    : 0;
   const deltaVP =
     rho * (expectedDeliveries * perDeliveryVP + netTrackVP)
     + transcontinentalVP
     - buildCost * lambda
     - fundShares * -VP_PER_SHARE
+    - engineUpkeepVP
     - lateCompletionPenalty;
 
   return { deltaVP, tracksToBuild, buildCost, completable, expectedDeliveries, fullPath };

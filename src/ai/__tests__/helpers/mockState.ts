@@ -206,6 +206,7 @@ export function createMockGameState(
       productionMode: false,
       productionCubes: [],
       selectedProductionSlots: [],
+    repopulationCube: null,
       movingCube: null,
       reachableDestinations: [],
     },

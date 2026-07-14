@@ -41,8 +41,9 @@ export type SpecialAction =
   | 'production'     // 생산
   | 'turnOrder';     // 턴 순서 패스
 
-// 10단계 + 게임 종료
+// 10단계 + 게임 종료 (+ Montréal 전용 정부 링크 단계)
 export type GamePhase =
+  | 'governmentLink'        // 0. 정부 링크 건설 (Montréal — 주식 발행 전)
   | 'issueShares'           // I. 주식 발행
   | 'determinePlayerOrder'  // II. 플레이어 순서 결정
   | 'selectActions'         // III. 행동 선택
@@ -77,6 +78,8 @@ export interface TrackTile {
   cube?: CubeColor | null;
   /** 건설된 턴 (이번 턴에 지은 트랙 시각 표시용) */
   builtTurn?: number;
+  /** 정부 트랙 (Montréal): owner=null 중립 — 누구나 이동 가능하나 수입 없음, 수정/방향전환 불가 */
+  isGovernment?: boolean;
 }
 
 // 도시
@@ -92,6 +95,9 @@ export interface City {
   /** Western US: 동/서 지역 분류 — 동↔서 배달 보너스 + 대륙횡단 연결 판정.
    *  'west'/'east'는 서부/동부 시작 도시, 미지정은 중앙 도시(Denver/SLC, 트랙 시작 불가). */
   region?: 'east' | 'west';
+  /** 두 색 화물을 모두 받는 겸용 도시의 보조 수요색 (Montréal Atwater: 빨강+파랑).
+   *  배달 판정은 cityAcceptsCube 한 곳에서 color/extraColor를 함께 본다. 렌더는 반반 분할. */
+  extraColor?: CityColor;
 }
 
 // 마을
@@ -102,8 +108,9 @@ export interface Town {
   cubes: CubeColor[];              // 마을 위 물품 (도시화 전)
 }
 
-// 지형 타입
-export type TerrainType = 'plain' | 'river' | 'mountain' | 'swamp' | 'lake';
+// 지형 타입 — sea(바다)는 헥스 전체를 물색으로 채우는 건설 가능 지형 (Montréal $6).
+// river(강)는 평지색 + 강줄기 곡선 오버레이로 그려진다는 점이 다르다. lake는 건설 불가.
+export type TerrainType = 'plain' | 'river' | 'mountain' | 'swamp' | 'lake' | 'sea';
 
 // 헥스 타일
 export interface HexTile {
@@ -114,6 +121,12 @@ export interface HexTile {
   /** 헥스별 고정 건설 비용(Germany €6~€12). 지정되면 지형별 기본 비용을 무시하고 이 값을 쓴다.
    *  (도시-도시 직결 링크는 별도 BoardState.directLinks로 표현 — fixedCost와 무관) */
   fixedCost?: number;
+  /** hexCostMode 'legend' 맵에서도 이 헥스만 비용 숫자를 표시 (Montréal — 원본 시트에
+   *  숫자가 인쇄된 물 헥스 3곳: "6"×2·"5"×1. perHex 맵에선 불필요 — 모든 fixedCost가 표시됨). */
+  showCostMarker?: boolean;
+  /** 시각 전용(Montréal $5 헥스): 바다 헥스를 원본 시트처럼 "서쪽 초록 쐐기 + 사선 분할"로 그린다.
+   *  게임 로직엔 영향 없음 — 지형/비용은 terrain·fixedCost 그대로. */
+  landWedgeWest?: boolean;
   /** 강줄기가 지나는 두 변(면) 번호 [시작면, 끝면] (0=E,1=SE,2=SW,3=W,4=NW,5=NE).
    *  지정되면 강을 이 두 면 사이로 그린다 — 강이 옆 도시 쪽 면을 향하게 해 도시를 관통/연결시킬 때 쓴다.
    *  미지정이면 인접한 강 타일끼리 자동 연결(기본). 맵 데이터로 강 방향을 적는 칸이라 맵별 코드 분기가 없다. */
@@ -137,6 +150,11 @@ export interface PlayerState {
   turnOrderPassUsed: boolean;  // 이번 경매에서 패스를 이미 썼는지 (롤오버 시 리셋)
   eliminated: boolean;         // 파산으로 탈락 여부
   isAI: boolean;               // AI 플레이어 여부
+  /** Montréal: 정부 전용 엔진 레벨(DGEL) — Locomotive로만 +1. 정부 링크 위 추가 이동 전용,
+   *  비용 지불에 합산. 다른 맵은 undefined(=0). */
+  dgel?: number;
+  /** Montréal 경매 트윅: 무입찰 패스 2인 이상 → 이번 턴 특수 행동 선택 불가. 턴 롤오버 시 리셋. */
+  actionBanned?: boolean;
   /** Western US: 이 플레이어의 철도가 대륙횡단(서부 시작도시↔동부 시작도시)을 달성했는지.
    *  달성 시 연속성 강제(분리 구간 금지) 해제. 다른 맵에서는 undefined. */
   transcontinental?: boolean;
@@ -174,12 +192,13 @@ export interface DirectLink {
   builtTurn?: number;
 }
 
-/** 마을 안 철길 가닥: 마을 원에서 특정 변까지. 실제 건설물 (비용/카운트 발생) */
+/** 마을 안 철길 가닥: 마을 원에서 특정 변까지. 실제 건설물 (비용/카운트 발생)
+ *  owner null = 정부 가닥 (Montréal governmentLink — 중립, 수입 없음) */
 export interface TownSpur {
   id: string;
   townCoord: HexCoord;
   edge: number;            // 가닥이 닿는 마을 헥스의 변 (0~5)
-  owner: PlayerId;
+  owner: PlayerId | null;
   builtTurn?: number;      // 이번 턴 건설 표시용
 }
 
@@ -257,6 +276,11 @@ export interface PhaseState {
   engineerMaxTileCost?: number;
   /** Germany: 위 정산으로 지금까지 깎아준 누적 할인액 (= floor(engineerMaxTileCost / 2)) */
   engineerDiscountGiven?: number;
+  /** Montréal Repopulation: production 선택 즉시 주머니에서 뽑은 큐브 3개 (배치 대기).
+   *  1개를 도시에 배치(placeRepopulationCube)하면 나머지는 주머니로 반환 후 비워진다. */
+  repopulationCubes?: CubeColor[];
+  /** Montréal Repopulation: 배치할 플레이어 (repopulationCubes와 함께 설정/해제) */
+  repopulationPlayer?: PlayerId | null;
 }
 
 // === AI 실행 동기화 ===
@@ -345,6 +369,8 @@ export interface UIState {
   productionMode: boolean;            // 생산 모드 활성화 여부
   productionCubes: CubeColor[];       // 주머니에서 뽑은 큐브들
   selectedProductionSlots: number[];  // 선택된 빈 칸 인덱스
+  /** Montréal Repopulation: 배치하려고 고른 큐브 (보드 도시 클릭으로 배치) — 로컬 UI 선택 */
+  repopulationCube: CubeColor | null;
 
   // 물품 이동 애니메이션 상태
   movingCube: {
@@ -431,6 +457,13 @@ export interface GameState {
   incomeReductions?: Partial<Record<PlayerId, number>> | null;
 
   /**
+   * Montréal: 정부 링크 관리 순번 (셋업 시 첫 턴 순서 스냅샷 — 라운드 N의 관리자는
+   * governmentControllers[(N-1) % 인원수]. 원본 룰: 셋업 때 순번 스톤을 고정 배치).
+   * 다른 맵은 undefined.
+   */
+  governmentControllers?: PlayerId[];
+
+  /**
    * 직전 물품 성장(Phase IX)에서 굴린 주사위와 도시별 추가된 화물 큐브.
    * 방장이 굴린 결과(어느 도시에 어떤 큐브가 늘었는지)를 게스트에게도 스냅샷으로 보여주기
    * 위한 1회성 표시 상태. goodsGrowth 진입 시 null로 초기화된다(다음 턴 stale 방지).
@@ -504,6 +537,8 @@ export interface NewCityTile {
   id: NewCityTileId;
   color: CityColor;
   used: boolean;  // 사용 여부
+  /** 셋업 때 타일 위에 놓인 화물 (Montréal: 신규 도시 타일마다 1개 — 도시화 시 함께 보드에 올라감) */
+  setupCube?: CubeColor;
 }
 
 // 신규 도시 타일 초기 데이터
@@ -545,6 +580,9 @@ export const GAME_CONSTANTS = {
   // 턴당 트랙
   NORMAL_TRACK_LIMIT: 3,
   ENGINEER_TRACK_LIMIT: 4,
+
+  // Montréal: 정부 전용 엔진(DGEL) 상한 (원본 보드의 Dedicated Government Links 트랙 = 1~4)
+  MAX_DGEL: 4,
 
   // 물품 이동 라운드
   MOVE_GOODS_ROUNDS: 2,
@@ -590,6 +628,10 @@ export const TRACK_REPLACE_COSTS = {
 
 // === 게임 단계 정보 ===
 export const PHASE_INFO: Record<GamePhase, { name: string; description: string }> = {
+  governmentLink: {
+    name: '0. 정부 링크 건설',
+    description: '정부 관리 플레이어가 중립 정부 링크 1개를 무료로 건설합니다 (몬트리올).',
+  },
   issueShares: {
     name: 'I. 주식 발행',
     description: '주식을 발행하여 현금 $5를 받습니다.',

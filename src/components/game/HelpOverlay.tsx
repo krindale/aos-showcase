@@ -16,6 +16,7 @@ import { PHASE_ICONS, ACTIONS, ACTION_ICONS } from './PhasePanel';
  */
 
 // 게임 진행 순서(I~X). gameOver는 실제 턴 단계가 아니라 제외.
+// governmentLink는 몬트리올 전용 — 그 외 맵에선 흐름에서 숨긴다 (컴포넌트에서 필터).
 const TURN_PHASES = (Object.keys(PHASE_INFO) as GamePhase[]).filter((p) => p !== 'gameOver');
 
 export default function HelpOverlay({
@@ -30,6 +31,8 @@ export default function HelpOverlay({
   const currentPhase = useGameStore((s) => s.currentPhase);
   const profile = getMapProfile(mapId);
   const specialRules = profile.specialRules;
+  // 이 맵의 턴 흐름 (정부 링크 단계는 governmentLinks 맵에서만 표시)
+  const turnPhases = TURN_PHASES.filter((p) => p !== 'governmentLink' || profile.governmentLinks);
 
   // 오버레이가 떠 있는 동안 배경 스크롤 잠금 + ESC로 닫기
   useEffect(() => {
@@ -104,10 +107,10 @@ export default function HelpOverlay({
             {/* 2. 한 턴의 흐름 (10단계) */}
             <section className="mb-6">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground-muted mb-2">
-                한 턴의 흐름 · 10단계
+                한 턴의 흐름 · {turnPhases.length}단계
               </h3>
               <ul className="space-y-1.5">
-                {TURN_PHASES.map((phase) => {
+                {turnPhases.map((phase) => {
                   const info = PHASE_INFO[phase];
                   const isCurrent = phase === currentPhase;
                   return (

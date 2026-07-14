@@ -10,6 +10,7 @@ export function generateStaticParams() {
     { mapId: 'western-us' },
     { mapId: 'southern-us' },
     { mapId: 'korea' },
+    { mapId: 'montreal' },
   ];
 }
 

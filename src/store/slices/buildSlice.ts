@@ -13,15 +13,17 @@ import { getMapProfile } from '@/maps/getMapProfile';
 import {
   validateFirstTrackRule,
   validateTrackConnection,
+  validateGovernmentTrackConnection,
   playerHasTrack,
   canRedirectTrack,
   getRedirectableEdges,
   isEndpointOfIncompleteSection,
+  isTrackPartOfCompletedLink,
 } from '@/utils/trackValidation';
 import { hexCoordsEqual, getNeighborHex } from '@/utils/hexGrid';
 import { debugLog, logAction } from '@/utils/debugConfig';
 import { captureUndo, undoSnapshots } from '../helpers/undo';
-import { crossesBlockedEdge, findMissingTownSpurs } from '../helpers/boardRules';
+import { crossesBlockedEdge, findMissingTownSpurs, touchesMasterNetwork } from '../helpers/boardRules';
 import { applyEngineerDiscount, hasEngineerDiscount } from '../helpers/engineerDiscount';
 import { computeTranscontinental } from '../helpers/transcontinental';
 
@@ -69,6 +71,25 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
 
       // 이미 트랙이 있는지 확인
       const existingTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
+
+      const profileForGov = getMapProfile(state.mapId);
+      // === Montréal 정부 링크 건설 (governmentLink 단계) ===
+      if (state.currentPhase === 'governmentLink') {
+        if (!profileForGov.governmentLinks) return false;
+        // 정부는 새 타일만 (교체/방향 전환 불가)
+        if (existingTrack) return false;
+        // 링크 1개 제한: 이번 턴 정부 타일이 이미 완성 링크를 이뤘으면 추가 건설 불가
+        const govThisTurn = board.trackTiles.filter(
+          t => t.isGovernment && t.builtTurn === state.currentTurn
+        );
+        if (govThisTurn.some(t => isTrackPartOfCompletedLink(t.coord, board))) return false;
+        // 연결성: 도시(Station) 인접 / 정부 트랙 / 정부 가닥 마을에만 이어 짓기
+        if (!validateGovernmentTrackConnection(coord, edges, board)) return false;
+        // 마스터 네트워크: 첫 정부 링크(트랙 0개)만 예외 — 이후엔 전체 네트워크에 닿아야 함
+        if (!touchesMasterNetwork(board, coord, edges)) return false;
+        return true;
+      }
+
       if (existingTrack) {
         // 리다이렉트 가능 여부 확인
         if (!canRedirectTrack(coord, board, currentPlayer)) {
@@ -78,7 +99,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
 
       // 연결성 검증 (Western US: 시작도시 제한 + 대륙횡단 전 연속성 강제)
       const hasExistingTrack = playerHasTrack(board, currentPlayer);
-      const profile = getMapProfile(state.mapId);
+      const profile = profileForGov;
       const allowedStartCityIds = profile.startingCitiesOnly
         ? new Set(board.cities.filter(c => profile.isStartingCity(c)).map(c => c.id))
         : undefined;
@@ -95,6 +116,12 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         if (!validateTrackConnection(coord, edges, board, currentPlayer, requireNetwork)) {
           return false;
         }
+      }
+
+      // Montréal 마스터 네트워크: 보드 위 모든 트랙의 총합이 연속이어야 함 —
+      // 새 타일은 기존 네트워크(아무 트랙, 트랙이 닿은 정거장)에 닿아야 한다
+      if (profile.masterNetwork && !touchesMasterNetwork(board, coord, edges)) {
+        return false;
       }
 
       return true;
@@ -172,12 +199,16 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         return false;
       }
       const mapProfile = getMapProfile(state.mapId);
+      // Montréal 정부 링크: 무료·중립(owner null·isGovernment) — 관리 플레이어가 대신 짓는다
+      const isGovBuild = state.currentPhase === 'governmentLink';
 
       // 비용 계산
       let cost = 0;
       const existingTrack = state.board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
 
-      if (existingTrack) {
+      if (isGovBuild) {
+        cost = 0;
+      } else if (existingTrack) {
         // 리다이렉트 비용 적용
         cost = TRACK_REPLACE_COSTS.redirect;
       } else {
@@ -223,9 +254,10 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         id: trackId,
         coord,
         edges,
-        owner: currentPlayer,
+        owner: isGovBuild ? null : currentPlayer,
         trackType: 'simple',
         builtTurn: state.currentTurn,
+        ...(isGovBuild ? { isGovernment: true } : {}),
         ...(carriedCube ? { cube: carriedCube } : {}),
       };
 
@@ -284,7 +316,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
             turn: state.currentTurn,
             phase: state.currentPhase,
             player: currentPlayer,
-            action: `트랙 건설 (${coord.col}, ${coord.row})${newSpurs.length > 0 ? ` + 마을 가닥 ${newSpurs.length}개` : ''}${skippedSpurCount > 0 ? ' (마을 미연결 — 다음 턴 마을 클릭으로 가닥 건설)' : ''} - $${cost} [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`,
+            action: `${isGovBuild ? '정부 링크 트랙 건설' : '트랙 건설'} (${coord.col}, ${coord.row})${newSpurs.length > 0 ? ` + 마을 가닥 ${newSpurs.length}개` : ''}${skippedSpurCount > 0 ? ' (마을 미연결 — 다음 턴 마을 클릭으로 가닥 건설)' : ''} - $${cost} [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`,
             timestamp: Date.now(),
           },
         ],
@@ -305,6 +337,9 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
     canBuildComplexTrack: (coord, newEdges, trackType) => {
       const state = get();
       const currentPlayer = state.currentPlayer;
+
+      // 정부 링크 건설(Montréal)은 단순 신설 타일만 — 복합/교체 불가
+      if (state.currentPhase === 'governmentLink') return false;
 
       // 트랙 제한 확인 — 타일 1개만 카운트 (마을 가닥은 마을 클릭으로 별도 건설)
       if (state.phaseState.builtTracksThisTurn + 1 > state.phaseState.maxTracksThisTurn) {
@@ -460,7 +495,9 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
     // === 마을 가닥(스퍼) 단독 건설 ===
     canBuildTownSpur: (townCoord, edge) => {
       const state = get();
-      if (state.currentPhase !== 'buildTrack') return false;
+      // governmentLink(Montréal): 정부 링크가 마을(Stop)을 지나도록 정부 가닥(무료·중립) 건설 허용
+      const isGovSpur = state.currentPhase === 'governmentLink';
+      if (state.currentPhase !== 'buildTrack' && !isGovSpur) return false;
       // edge 지정: 그 변 가닥(방향 직접 선택, 트랙 없이도 가능 — 유효 헥스 + 미생성).
       // 생략: 마을에 닿은 미연결 트랙 변 전부.
       let targetCount: number;
@@ -471,19 +508,21 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         if (!hex || hex.terrain === 'lake' || exists) return false;
         targetCount = 1;
       } else {
-        targetCount = findMissingTownSpurs(townCoord, state.board, state.currentPlayer).length;
+        targetCount = findMissingTownSpurs(townCoord, state.board, isGovSpur ? null : state.currentPlayer).length;
       }
       if (targetCount === 0) return false;
       // 카운트 = 이번 턴에 "내가" 그 마을을 변경한 적 있으면 0(같은 마을 추가 가닥), 처음이면 1. 지난 턴 무관.
       // ★ owner 필터 필수: 상대가 같은 턴 같은 마을에 가닥을 지어도 내 카운트는 영향 없어야 한다
       //   (필터 누락 시 중앙 마을을 둘 다 거치는 St.Lucia에서 내 가닥이 공짜가 돼 4건설 위반 발생).
+      const spurOwner = isGovSpur ? null : state.currentPlayer;
       const builtThisTurn = (state.board.townSpurs ?? []).some(
-        e => hexCoordsEqual(e.townCoord, townCoord) && e.builtTurn === state.currentTurn && e.owner === state.currentPlayer
+        e => hexCoordsEqual(e.townCoord, townCoord) && e.builtTurn === state.currentTurn && e.owner === spurOwner
       );
       const townCount = builtThisTurn ? 0 : 1;
       if (state.phaseState.builtTracksThisTurn + townCount > state.phaseState.maxTracksThisTurn) return false;
       const player = state.players[state.currentPlayer];
-      if (!player || player.cash < targetCount * TOWN_SPUR_COST) return false;
+      // 정부 가닥은 무료 (비용 무관 — 원본 룰: Cost is not relevant)
+      if (!player || (!isGovSpur && player.cash < targetCount * TOWN_SPUR_COST)) return false;
       return true;
     },
 
@@ -496,15 +535,18 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
 
       const currentPlayer = state.currentPlayer;
       const player = state.players[currentPlayer];
+      // 정부 가닥(Montréal governmentLink): 중립(owner null)·무료
+      const isGovSpur = state.currentPhase === 'governmentLink';
+      const spurOwner = isGovSpur ? null : currentPlayer;
       // edge 지정: 그 변 가닥만(방향 직접 선택). 생략: 마을에 닿은 미연결 트랙 변 전부.
       // 카운트 = 이번 턴 그 마을 첫 변경이면 1, 추가면 0. 비용은 가닥당 $1.
-      const missing = edge !== undefined ? [{ townCoord, edge }] : findMissingTownSpurs(townCoord, state.board, currentPlayer);
+      const missing = edge !== undefined ? [{ townCoord, edge }] : findMissingTownSpurs(townCoord, state.board, spurOwner);
       // owner 필터 필수 — 상대의 같은 턴 같은 마을 가닥이 내 카운트를 0으로 만들면 안 됨 (4건설 위반 방지)
       const builtThisTurn = (state.board.townSpurs ?? []).some(
-        e => hexCoordsEqual(e.townCoord, townCoord) && e.builtTurn === state.currentTurn && e.owner === currentPlayer
+        e => hexCoordsEqual(e.townCoord, townCoord) && e.builtTurn === state.currentTurn && e.owner === spurOwner
       );
       const townCount = builtThisTurn ? 0 : 1;
-      const cost = missing.length * TOWN_SPUR_COST;
+      const cost = isGovSpur ? 0 : missing.length * TOWN_SPUR_COST;
       const newBuiltCount = state.phaseState.builtTracksThisTurn + townCount;
 
       debugLog.trackBuilding(`[buildTownSpur 성공] ${player.name} (${currentPlayer}): Turn ${state.currentTurn}, ` +
@@ -520,7 +562,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
               id: `spur-solo-${Date.now()}-${i}-${sp.edge}`,
               townCoord: sp.townCoord,
               edge: sp.edge,
-              owner: currentPlayer,
+              owner: spurOwner,
               builtTurn: state.currentTurn,
             })),
           ],

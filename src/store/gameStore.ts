@@ -40,8 +40,10 @@ import { undoSnapshots, captureUndo, clearUndo } from './helpers/undo';
 import {
   releaseUnextendedTrack,
   removeIncompleteNewTracks,
+  removeIncompleteGovernmentTracks,
 } from './helpers/boardRules';
 import { AIPlayerConfig, TUTORIAL_GAME_CONFIG, createInitialGameState } from './helpers/setup';
+import { runGovernmentBuildAI, pickRepopulationPlacement } from './helpers/governmentBuildAI';
 import {
   tryAcquireAILock,
   releaseAILock,
@@ -246,6 +248,10 @@ export interface GameStore extends GameState {
   cancelProduction: () => void;
   /** 빈 슬롯 목록 반환 */
   getEmptySlots: () => number[];
+  /** Montréal Repopulation: 뽑아 둔 3개 중 1개를 지정 도시에 배치 (나머지는 주머니로 반환) */
+  placeRepopulationCube: (cubeColor: CubeColor, cityId: string) => boolean;
+  /** Montréal Repopulation: 배치할 큐브 선택 (보드 도시 클릭으로 배치 — 로컬 UI) */
+  selectRepopulationCube: (cubeColor: CubeColor | null) => void;
 
   // --- UI: 물품 이동 애니메이션 ---
   /** 목적지 도시 선택 */
@@ -492,6 +498,24 @@ export const useGameStore = create<GameStore>()(
           const cashBeforeAction = store.players[capturedContext.currentPlayer]?.cash;
           console.log(`[AI 액션선택] ${player.name}: ${decision.action} 선택, 현금 $${cashBeforeAction}, shares=${store.players[capturedContext.currentPlayer]?.issuedShares}`);
           store.selectAction(capturedContext.currentPlayer, decision.action);
+
+          // Montréal Repopulation: production 선택 즉시 봇이 큐브 1개를 도시에 배치
+          // (배치 전엔 nextPhase가 진행을 막으므로 여기서 바로 처리)
+          {
+            const s = get();
+            const drawn = s.phaseState.repopulationCubes ?? [];
+            if (drawn.length > 0 && s.phaseState.repopulationPlayer === capturedContext.currentPlayer) {
+              const pick = pickRepopulationPlacement(s, drawn);
+              if (pick) {
+                console.log(`[AI Repopulation] ${player.name}: ${pick.cube} → ${pick.cityId}`);
+                get().placeRepopulationCube(pick.cube, pick.cityId);
+              } else {
+                // 배치할 곳이 없으면 첫 큐브를 첫 도시에 (교착 방지)
+                const anyCity = s.board.cities[0];
+                if (anyCity) get().placeRepopulationCube(drawn[0], anyCity.id);
+              }
+            }
+          }
           proceedAfterView(true);
           return;
         }
@@ -720,6 +744,12 @@ export const useGameStore = create<GameStore>()(
         return state;
       }
 
+      // Montréal 경매 트윅: 무입찰 패스 페널티 — 이번 턴 행동 선택 불가
+      if (player.actionBanned) {
+        console.warn(`[WARN] selectAction: 무입찰 패스 페널티로 선택 불가 - playerId: ${playerId}`);
+        return state;
+      }
+
       // 이미 선택된 행동인지 확인
       const alreadySelected = Object.values(state.players).some(
         (p) => p.selectedAction === action
@@ -740,7 +770,20 @@ export const useGameStore = create<GameStore>()(
       };
 
       // Locomotive 즉시 적용
-      if (action === 'locomotive') {
+      // Montréal(dedicatedGovEngine): 일반 엔진 대신 정부 전용 엔진(DGEL) +1 —
+      // 정부 링크 위 추가 이동 전용, 비용 지불에 합산. DGEL을 올리는 유일한 방법.
+      if (action === 'locomotive' && getMapProfile(state.mapId).dedicatedGovEngine) {
+        const currentPlayers = newState.players ?? state.players;
+        const oldDgel = player.dgel ?? 0;
+        if (oldDgel < GAME_CONSTANTS.MAX_DGEL) {
+          console.log(`[Locomotive→DGEL] ${player.name}: 정부 엔진 ${oldDgel} → ${oldDgel + 1}`);
+          newState.players = {
+            ...currentPlayers,
+            [playerId]: { ...currentPlayers[playerId], dgel: oldDgel + 1 },
+          };
+          newState.phaseState = { ...state.phaseState, locomotiveUsed: true };
+        }
+      } else if (action === 'locomotive') {
         const currentPlayers = newState.players ?? state.players;
         if (player.engineLevel < GAME_CONSTANTS.MAX_ENGINE) {
           const oldLevel = player.engineLevel;
@@ -758,6 +801,23 @@ export const useGameStore = create<GameStore>()(
             locomotiveUsed: true,
           };
         }
+      }
+
+      // Montréal Repopulation: production 선택 즉시 주머니에서 3개 뽑아 배치 대기 상태로
+      // (사람: RepopulationPanel에서 1개 배치, AI: executeAITurn이 곧바로 placeRepopulationCube)
+      if (action === 'production' && getMapProfile(state.mapId).productionAsRepopulation) {
+        const bag = [...state.goodsDisplay.bag];
+        const drawn: CubeColor[] = [];
+        for (let i = 0; i < 3 && bag.length > 0; i++) {
+          drawn.push(bag.splice(Math.floor(Math.random() * bag.length), 1)[0]);
+        }
+        newState.goodsDisplay = { ...state.goodsDisplay, bag };
+        newState.phaseState = {
+          ...(newState.phaseState ?? state.phaseState),
+          repopulationCubes: drawn,
+          repopulationPlayer: playerId,
+        };
+        console.log(`[Repopulation] ${player.name}: 주머니에서 [${drawn.join(', ')}] 뽑음 — 1개 배치 대기`);
       }
 
       // Engineer 효과
@@ -852,6 +912,7 @@ export const useGameStore = create<GameStore>()(
       }
       const mapRules = getMapProfile(state.mapId);
       // 룰북(St. Lucia): 선공권 결정(Determine Player Order)이 Issue Shares보다 먼저
+      // Montréal: 매 라운드 주식 발행 전 정부 링크 건설 (governmentLink가 첫 단계)
       const phases: GamePhase[] = mapRules.alternateTurnOrder
         ? [
           'determinePlayerOrder',
@@ -866,6 +927,7 @@ export const useGameStore = create<GameStore>()(
           'advanceTurn',
         ]
         : [
+          ...(mapRules.governmentLinks ? (['governmentLink'] as GamePhase[]) : []),
           'issueShares',
           'determinePlayerOrder',
           'selectActions',
@@ -895,6 +957,38 @@ export const useGameStore = create<GameStore>()(
       // 현재 플레이어가 마지막 플레이어인지 확인
       const isLast = isLastPlayer(state.currentPlayer, playerOrder);
 
+      // === 0. 정부 링크 건설 (Montréal) ===
+      if (state.currentPhase === 'governmentLink') {
+        // 미완성 정부 트랙 제거 (원본 룰: 정부 링크에 미완성 구간 금지 — 무료라 환불 없음)
+        const cleaned = removeIncompleteGovernmentTracks(state.board, state.currentTurn);
+        if (cleaned.removed > 0) {
+          console.log(`[정부 링크] 미완성 정부 트랙 ${cleaned.removed}개 제거`);
+        }
+        return {
+          currentPhase: 'issueShares' as GamePhase,
+          currentPlayer: playerOrder[0],
+          board: cleaned.board,
+          // 정부 건설 카운트를 비워 플레이어 건설 단계와 섞이지 않게 한다
+          phaseState: {
+            ...state.phaseState,
+            builtTracksThisTurn: 0,
+            lastBuiltCoords: [],
+          },
+          ui: {
+            ...state.ui,
+            buildMode: 'idle' as const,
+            sourceHex: null,
+            buildableNeighbors: [],
+            highlightedHexes: [],
+            previewTrack: null,
+            selectedHex: null,
+            targetHex: null,
+            entryEdge: null,
+            exitDirections: [],
+          },
+        };
+      }
+
       // === I. 주식 발행 단계 ===
       if (state.currentPhase === 'issueShares') {
         // 마지막 플레이어까지 완료했으면 다음 단계로
@@ -920,17 +1014,28 @@ export const useGameStore = create<GameStore>()(
         const nextAfterOrder: GamePhase = mapRules.alternateTurnOrder
           ? 'issueShares'
           : 'selectActions';
-        console.log(`[nextPhase] determinePlayerOrder → ${nextAfterOrder}: playerOrder=[${playerOrder.join(', ')}], 새 currentPlayer=${playerOrder[0]} (isAI: ${state.players[playerOrder[0]]?.isAI})`);
+        // Montréal 경매 트윅: 행동 선택 불가(actionBanned) 플레이어는 건너뛰고 첫 선택자를 잡는다
+        const entryPlayer = nextAfterOrder === 'selectActions'
+          ? (playerOrder.find(p => !state.players[p]?.actionBanned) ?? playerOrder[0])
+          : playerOrder[0];
+        console.log(`[nextPhase] determinePlayerOrder → ${nextAfterOrder}: playerOrder=[${playerOrder.join(', ')}], 새 currentPlayer=${entryPlayer} (isAI: ${state.players[entryPlayer]?.isAI})`);
         return {
           currentPhase: nextAfterOrder,
-          currentPlayer: playerOrder[0],
+          currentPlayer: entryPlayer,
           turnOrderOffer: null, // 미해결 선공권 제안 정리 (안전장치)
         };
       }
 
       // === III. 행동 선택 단계 ===
       if (state.currentPhase === 'selectActions') {
-        // 모든 플레이어가 행동을 선택했는지 확인
+        // Montréal Repopulation: 선택자가 큐브 배치를 마칠 때까지 단계를 진행하지 않는다
+        // (원본 룰: 선택 즉시(IMMEDIATELY) 배치 — 온라인 차례 검증도 배치자에 고정되어야 함)
+        if ((state.phaseState.repopulationCubes?.length ?? 0) > 0) {
+          console.log('[nextPhase] Repopulation 배치 대기 중 — 단계 유지');
+          return state;
+        }
+
+        // 모든 플레이어가 행동을 선택했는지 확인 (actionBanned는 선택 완료로 간주)
         const allSelected = allPlayersSelectedAction(state.players, activePlayers);
 
         if (allSelected) {
@@ -966,11 +1071,17 @@ export const useGameStore = create<GameStore>()(
           };
         }
 
-        // 현재 플레이어가 선택했으면 다음 플레이어로 전환
-        if (state.players[state.currentPlayer].selectedAction !== null) {
-          console.log(`[nextPhase] selectActions 내 플레이어 전환: ${state.currentPlayer} → ${nextPlayer} (isAI: ${state.players[nextPlayer]?.isAI})`);
+        // 현재 플레이어가 선택했으면(또는 선택 불가면) 다음 미선택·미차단 플레이어로 전환
+        if (
+          state.players[state.currentPlayer].selectedAction !== null ||
+          state.players[state.currentPlayer].actionBanned
+        ) {
+          const nextSelector = playerOrder.find(
+            p => state.players[p]?.selectedAction === null && !state.players[p]?.actionBanned
+          ) ?? nextPlayer;
+          console.log(`[nextPhase] selectActions 내 플레이어 전환: ${state.currentPlayer} → ${nextSelector} (isAI: ${state.players[nextSelector]?.isAI})`);
           return {
-            currentPlayer: nextPlayer,
+            currentPlayer: nextSelector,
           };
         }
 
@@ -1179,10 +1290,22 @@ export const useGameStore = create<GameStore>()(
           };
         }
 
+        // Montréal: 새 턴 첫 단계(governmentLink)의 차례는 정부 관리 순번 로테이션
+        // (셋업 스냅샷 governmentControllers 기준, 탈락자는 건너뜀)
+        let newTurnFirstPlayer = playerOrder[0];
+        if (mapRules.governmentLinks && state.governmentControllers?.length) {
+          const gcs = state.governmentControllers;
+          const newTurn = state.currentTurn + 1;
+          for (let k = 0; k < gcs.length; k++) {
+            const cand = gcs[(newTurn - 1 + k) % gcs.length];
+            if (!state.players[cand]?.eliminated) { newTurnFirstPlayer = cand; break; }
+          }
+        }
+
         const newTurnBase = {
           currentPhase: nextPhaseName,
           currentTurn: state.currentTurn + 1,
-          currentPlayer: playerOrder[0],
+          currentPlayer: newTurnFirstPlayer,
           board: cleanedBoard,
           phaseState: {
             builtTracksThisTurn: 0,
@@ -1278,6 +1401,13 @@ export const useGameStore = create<GameStore>()(
     const player = state.players[state.currentPlayer];
     // 방어: 봇이 아니면 자동 진행하지 않음 (사람 차례 정산은 '진행' 버튼으로 수동 확인 유지)
     if (!player?.isAI) return;
+
+    // Montréal 정부 링크: 봇 관리자가 중립 링크를 자동 건설한 뒤 진행
+    if (state.currentPhase === 'governmentLink') {
+      runGovernmentBuildAI(get);
+      get().nextPhase();
+      return;
+    }
 
     // 물품 성장: 봇이 currentPlayer면 사람이 굴리던 주사위를 대신 굴려 성장을 적용한다.
     // 주사위 수 = 탈락하지 않은 활성 플레이어 수(각 1개), 값 1~6 (DiceRoller와 동일 규칙).
@@ -1461,6 +1591,10 @@ export const useGameStore = create<GameStore>()(
         ...updatedGoodsDisplay,
         bag: [...updatedGoodsDisplay.bag, ...town.cubes],
       };
+    }
+    // Montréal: 셋업 때 신규 도시 타일 위에 놓인 화물(setupCube)이 도시화와 함께 보드에 올라감
+    if (tile.setupCube) {
+      newCityCubes.push(tile.setupCube);
     }
     if (urbanizeCount > 0) {
       const range = getDisplaySlotRange(state.mapId, selectedTileId); // AI 수요색 예측과 동일 인덱싱 (mapRegistry 공유)

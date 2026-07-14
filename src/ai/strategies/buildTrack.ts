@@ -10,6 +10,7 @@ import {
   validateFirstTrackRule,
   validateTrackConnection,
   isTrackPartOfCompletedLink,
+  stationInMasterNetwork,
 } from '@/utils/trackValidation';
 import { hexCoordsEqual, hexDistance, getNeighborHex, getOppositeEdge, playerEdgesAtTrack, cityAcceptsCube } from '@/utils/hexGrid';
 import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, incrementInvestedTracks } from '../strategy/state';
@@ -127,6 +128,32 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     pushUnique(r);
   }
   pushUnique(findNetworkExpansionTarget(state, playerId, targetRoute ? [targetRoute.to] : []));
+
+  // Montréal 마스터 네트워크: 첫 건설은 "네트워크에 닿은 정거장"에서만 시작할 수 있다.
+  // 위 후보가 전부 네트워크 밖 경로면(예: Snowdon 주변) 봇이 한 타일도 못 깔고 스킵하므로,
+  // 네트워크 앵커(닿은 정거장)가 끝점인 배달 기회를 후보에 보충한다.
+  {
+    const mnProfile = getMapProfile(state.mapId);
+    const hasOwnTracks = state.board.trackTiles.some(
+      t => t.owner === playerId || t.secondaryOwner === playerId
+    );
+    const networkExists = state.board.trackTiles.length > 0 || (state.board.townSpurs ?? []).length > 0;
+    if (mnProfile.masterNetwork && !hasOwnTracks && networkExists) {
+      const inNet = (cityId: string) => {
+        const stop = findStopById(state.board, cityId);
+        return !!stop && stationInMasterNetwork(state.board, stop.coord);
+      };
+      let added = 0;
+      for (const o of analyzeDeliveryOpportunities(state)) {
+        if (added >= 5) break;
+        if (inNet(o.sourceCityId) || inNet(o.targetCityId)) {
+          const before = candidateRoutes.length;
+          pushUnique({ from: o.sourceCityId, to: o.targetCityId, priority: 3 });
+          if (candidateRoutes.length > before) added++;
+        }
+      }
+    }
+  }
 
   // ===== 3. 순서대로 결정론적 경로 추적 건설 (A* 경로를 따라 frontier 다음 칸에 건설) =====
   // 산발 방지(사용자 지침): 내 기존 네트워크와 분리된 새 도시에서 시작하는 경로는 깔지 않는다 —
@@ -561,6 +588,19 @@ function tryDirectPathBuild(
       const targetIsCity = board.cities.some(c => hexCoordsEqual(c.coord, targetCity!.coord));
       if (!sourceIsCity && targetIsCity) {
         [sourceCity, targetCity] = [targetCity, sourceCity];
+      }
+    }
+
+    // Montréal 마스터 네트워크: 첫 타일이 기존 네트워크(아무 트랙)에 닿아야 canBuildTrack을
+    // 통과한다 → 네트워크에 닿은 정거장 끝에서부터 짓는다. 둘 다 안 닿았으면 이 경로는 지금 불가
+    // (canBuildTrack이 전부 거부해 봇이 턴을 통째로 스킵하던 원인 — 후보 루프가 다음 경로로 넘어가게 null).
+    if (profile.masterNetwork) {
+      const networkExists = board.trackTiles.length > 0 || (board.townSpurs ?? []).length > 0;
+      if (networkExists) {
+        const sIn = stationInMasterNetwork(board, sourceCity!.coord);
+        const tIn = stationInMasterNetwork(board, targetCity!.coord);
+        if (!sIn && tIn) [sourceCity, targetCity] = [targetCity, sourceCity];
+        else if (!sIn && !tIn) return null;
       }
     }
   }

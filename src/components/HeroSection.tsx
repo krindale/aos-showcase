@@ -8,7 +8,7 @@ import { RULEBOOK_URL } from './Navigation';
 const stats = [
   { v: '1–6', l: '플레이어' },
   { v: '120분', l: '플레이 시간' },
-  { v: '7', l: '수록 맵' },
+  { v: '8', l: '수록 맵' },
   { v: '2002', l: '최초 출시' },
 ] as const;
 

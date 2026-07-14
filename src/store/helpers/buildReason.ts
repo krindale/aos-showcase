@@ -7,11 +7,13 @@ import { getMapProfile } from '@/maps/getMapProfile';
 import {
   validateFirstTrackRule,
   validateTrackConnection,
+  validateGovernmentTrackConnection,
   playerHasTrack,
   canRedirectTrack,
+  isTrackPartOfCompletedLink,
 } from '@/utils/trackValidation';
 import { hexCoordsEqual } from '@/utils/hexGrid';
-import { crossesBlockedEdge } from './boardRules';
+import { crossesBlockedEdge, touchesMasterNetwork } from './boardRules';
 import { applyEngineerDiscount, hasEngineerDiscount } from './engineerDiscount';
 
 /** 신규 타일 건설 예상 비용 (buildTrack의 비용 계산 미러 — 지형/고정비용/Engineer 절반). */
@@ -57,6 +59,25 @@ export function getBuildBlockReason(
   if (crossesBlockedEdge(board, coord, edges)) return '산맥 등 막힌 경계는 넘을 수 없어요';
 
   const existingTrack = board.trackTiles.find((t) => hexCoordsEqual(t.coord, coord));
+
+  // Montréal 정부 링크 단계 — canBuildTrack의 정부 분기 미러
+  if (state.currentPhase === 'governmentLink') {
+    if (existingTrack) return '정부 링크는 새 타일만 놓을 수 있어요';
+    const govThisTurn = board.trackTiles.filter(
+      (t) => t.isGovernment && t.builtTurn === state.currentTurn
+    );
+    if (govThisTurn.some((t) => isTrackPartOfCompletedLink(t.coord, board))) {
+      return '정부 링크는 라운드당 1개만 건설할 수 있어요';
+    }
+    if (!validateGovernmentTrackConnection(coord, edges, board)) {
+      return '정부 트랙은 도시나 정부 트랙에 이어서 지어야 해요';
+    }
+    if (!touchesMasterNetwork(board, coord, edges)) {
+      return '모든 트랙은 하나의 네트워크로 이어져야 해요';
+    }
+    return '지금은 여기에 건설할 수 없어요';
+  }
+
   if (existingTrack && !canRedirectTrack(coord, board, currentPlayer)) {
     return '이미 트랙이 있어 여기엔 지을 수 없어요';
   }
@@ -76,6 +97,11 @@ export function getBuildBlockReason(
     return requireNetwork
       ? '기존 내 노선에 이어서 지어야 해요 (분리 구간 불가)'
       : '내 트랙이나 도시에 연결되어야 해요';
+  }
+
+  // Montréal 마스터 네트워크 — canBuildTrack 미러
+  if (profile.masterNetwork && !touchesMasterNetwork(board, coord, edges)) {
+    return '모든 트랙은 하나의 네트워크로 이어져야 해요 (정부 링크와 연결)';
   }
 
   // 여기까지 통과 = canBuildTrack OK → 남은 실패 원인은 현금.

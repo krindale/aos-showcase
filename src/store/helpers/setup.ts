@@ -74,7 +74,10 @@ export function createInitialGameState(
   const mapData = getMapData(mapId);
   const boardState = mapData.createBoardState();
   // 디스플레이 칸 수는 맵의 columnMapping rowCount 합, 큐브 색 구성은 맵별(미지정 시 표준).
-  const totalGoodsSlots = mapData.columnMapping.reduce((sum, m) => sum + m.rowCount, 0) || 52;
+  // 매핑이 아예 없을 때만 표준 52칸 폴백 — rowCount 합이 0인 맵(Montréal: 디스플레이 미사용,
+  // 원본 룰 "Do not fill goods display")은 0칸이어야 주머니가 고갈되지 않는다(Repopulation·타일 큐브).
+  const slotSum = mapData.columnMapping.reduce((sum, m) => sum + m.rowCount, 0);
+  const totalGoodsSlots = mapData.columnMapping.length > 0 ? slotSum : 52;
   let goodsDisplay = initializeGoodsDisplay(mapData.goodsCubeCounts, totalGoodsSlots);
 
   const setupRules = getMapProfile(mapId);
@@ -234,6 +237,15 @@ export function createInitialGameState(
     }
   }
 
+  // Montréal: 신규 도시 타일마다 주머니에서 큐브 1개 (도시화 시 함께 보드에 올라감)
+  const newCityTiles = NEW_CITY_TILES.map(tile => ({ ...tile }));
+  if (mapRules.newCitySetupCube) {
+    for (const tile of newCityTiles) {
+      const [cube] = drawBalancedCubes(bag, 1, colorUsage);
+      if (cube) tile.setupCube = cube;
+    }
+  }
+
   return {
     // 메타 정보
     gameId: `game-${Date.now()}`,
@@ -244,10 +256,13 @@ export function createInitialGameState(
 
     // 턴 진행
     // 룰북(St. Lucia): 첫 턴 1번은 무작위 결정 (선공권 제안 없음), 이후 턴부터 교대 제안
+    // Montréal: 매 라운드 주식 발행 전 정부 링크 건설 — 첫 단계가 governmentLink
     currentTurn: 1,
-    currentPhase: 'issueShares',
+    currentPhase: mapRules.governmentLinks ? 'governmentLink' : 'issueShares',
     currentPlayer: initialPlayerOrder[0],
     playerOrder: initialPlayerOrder,
+    // Montréal: 정부 관리 순번 스냅샷 (라운드 N 관리자 = [(N-1) % 인원]) — 셋업 때 고정 (원본 룰)
+    ...(mapRules.governmentLinks ? { governmentControllers: [...initialPlayerOrder] } : {}),
 
     // 플레이어
     players: players as Record<PlayerId, PlayerState>,
@@ -263,7 +278,7 @@ export function createInitialGameState(
       slots: displaySlots,
       bag,
     },
-    newCityTiles: NEW_CITY_TILES.map(tile => ({ ...tile })),  // 복사본 생성
+    newCityTiles,  // 복사본 (Montréal은 타일별 setupCube 포함)
 
     // 경매
     auction: null,
@@ -311,6 +326,7 @@ export function createInitialGameState(
       productionMode: false,
       productionCubes: [],
       selectedProductionSlots: [],
+      repopulationCube: null,
       // 물품 이동 애니메이션 상태
       movingCube: null,
       reachableDestinations: [],

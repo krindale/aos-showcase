@@ -158,6 +158,7 @@ src/
 │       ├── westernUsSimulation.test.ts   # Western US 6인 AI 동기식 전체게임 러너(6턴) + 베이스라인
 │       ├── southernUsSimulation.test.ts  # Southern US 6인 AI 동기식 전체게임 러너(6턴) + 면화 불변식 + 베이스라인
 │       ├── koreaSimulation.test.ts       # Korea 4인 AI 동기식 전체게임 러너(8턴) + 베이스라인
+│       ├── montrealSimulation.test.ts    # Montréal 3인 AI 동기식 러너(9턴) + 특수룰 불변식(정부링크/마스터네트워크/DGEL)
 │       └── helpers/
 │           └── mockState.ts    # 테스트용 Mock 데이터 헬퍼
 │
@@ -172,7 +173,8 @@ src/
 │       ├── GermanyMapProfile.ts    # Germany override (Engineer 절반/미완성금지/Berlin보너스/큐브수)
 │       ├── WesternUsMapProfile.ts  # Western US override (마을큐브/$20시작/시작도시제한/연속성/동서보너스/대륙횡단)
 │       ├── SouthernUsMapProfile.ts # Southern US override (면화/항구/Atlanta 호황/남북전쟁 수입감소 2배)
-│       └── KoreaMapProfile.ts     # Korea override (동적색은 board플래그/도시화 디스플레이보충/no-growth/큐브수)
+│       ├── KoreaMapProfile.ts     # Korea override (동적색은 board플래그/도시화 디스플레이보충/no-growth/큐브수)
+│       └── MontrealMapProfile.ts  # Montréal override (정부 링크/마스터 네트워크/DGEL/경매 트윅/Repopulation/신도시 큐브)
 │
 ├── components/                 # UI 컴포넌트
 │   ├── Navigation.tsx          # 글래스모피즘 네비게이션 바
@@ -246,7 +248,8 @@ src/
 │   │   ├── buildReason.ts      # getBuildBlockReason (건설 실패 사유 한 줄 — canBuildTrack 미러, 토스트용)
 │   │   ├── setup.ts            # createInitialGameState·drawBalancedCubes·TUTORIAL_GAME_CONFIG·AIPlayerConfig
 │   │   ├── transcontinental.ts # computeTranscontinental (Western US 대륙횡단 감지)
-│   │   └── aiScheduler.ts      # AI 실행 락·컨텍스트 검증·scheduleAICheck (150ms debounce)
+│   │   ├── aiScheduler.ts      # AI 실행 락·컨텍스트 검증·scheduleAICheck (150ms debounce)
+│   │   └── governmentBuildAI.ts # Montréal 봇: 정부 링크 자동 건설 + Repopulation 배치 휴리스틱
 │   ├── slices/                 # 도메인별 액션 구현 (인터페이스 정의는 gameStore에 유지, Pick으로 참조)
 │   │   ├── uiSlice.ts          # UI 선택/건설 플로우 24액션 (selectHex·selectCube·건설 상태기계·도시화 모드·큐브 애니)
 │   │   ├── auctionSlice.ts     # 경매 5액션 (placeBid·passBid·skipBid·resolveAuction·respondTurnOrderOffer)
@@ -272,6 +275,7 @@ src/
     ├── westernUsMap.ts         # Western US 맵 데이터 정의 (6인 전용, pointy-top 네이티브, 마을큐브/지형fixedCost/동서region)
     ├── southernUsMap.ts        # Southern US 맵 데이터 정의 (6인 전용, flat-top 전치, 면화/4대 항구/애팔래치아)
     ├── koreaMap.ts             # Korea 맵 데이터 정의 (4인 전용, flat-top 전치, 동적색 플래그/산fixedCost/수원 직결)
+    ├── montrealMap.ts          # Montréal Métro 맵 데이터 정의 (3인 전용 9턴, flat-top 전치, 언덕$3/도로$4/물$6·Parc 밀봉)
     ├── mapRegistry.ts          # 맵 룰 분리 레지스트리 (MapRuleConfig·columnMapping·boardDisplayScale 등)
     ├── debugConfig.ts          # 디버그 설정 (로그 카테고리 토글 + logAction 종합 액션 로깅)
     ├── pwaUtils.ts             # Service Worker 등록/관리 유틸리티
@@ -327,19 +331,20 @@ docs/
 
 ### MapsPage
 페이퍼 카드 그리드 (3열). 카드 = 맵 이미지(16:10) + 난이도 배지(입문/표준/중급/고급) +
-설명 + 플레이 버튼(`/game/<slug>/`). 튜토리얼 포함 8개 맵, Barbados만 "준비 중".
+설명 + 플레이 버튼(`/game/<slug>/`). 튜토리얼 포함 9개 맵, Barbados만 "준비 중".
 
 **맵 이미지는 WebP** (`public/maps/*.webp`, 폭 1600·q84, 맵당 ~200KB). 새 맵 추가 시 원본을
 `cwebp -q 84`(필요 시 폭 1600 다운스케일)로 변환해 넣을 것 — `unoptimized: true`(static export)라
 Next가 압축을 안 하므로 원본 대용량 PNG를 그대로 받으면 갤러리가 무거워진다 (PNG 기준 맵당 1~5MB).
 게임 보드는 SVG 렌더라 이 이미지와 무관(갤러리 표시용일 뿐).
 
-7개 맵 갤러리:
+8개 맵 갤러리:
 - **Rust Belt** (기본) - 미국 북동부
 - **Korea** (플레이 가능) - 한반도, 동적 도시 색상, 4인 8턴 (도시 수요색=현재 큐브색·수원 직결 링크·신도시 회색)
 - **Western U.S.** (플레이 가능) - 대륙횡단 철도, 6인 6턴 (마을 큐브·동서 배달 보너스·대륙횡단 연결 보너스)
 - **Southern U.S.** (플레이 가능) - 면화 운송, 6인 6턴 (마을 면화→4대 항구 배달·Atlanta 호황·4턴 남북전쟁 수입감소 2배)
 - **Germany** (플레이 가능) - 외국 터미널·헥스 고정비용·도시 직결, 4인 8턴
+- **Montréal Métro** (플레이 가능) - 몬트리올 지하철, 3인 9턴 (정부 링크·마스터 네트워크·DGEL·Repopulation)
 - **Barbados** - 솔로 게임
 - **St. Lucia** - 2인 전용
 
@@ -618,6 +623,7 @@ AI는 객체 지향 아키텍처(`AIPlayer`/`AIPlayerManager`/`AIDebugger`) + **
 - **건설 비용 안내(`MapProfile.buildCostHint`)**: 지형 비용을 바꾸는 맵(fixedCost 주입)은 반드시 override — 안 하면 `PhasePanel`이 표준값($2/$3/$4)을 띄워 실제 청구액과 어긋난다 (서부 늪·강 $4·산 $5, 한국 산 $3, 독일 숫자 헥스 $6~$12).
 - **독일 미완성 링크 금지 UI 가드**: 독일(`requireCompleteLinks`)은 완성 링크만 건설 가능 — 이번 턴 미완성 신설 트랙은 단계 전환 시 `removeIncompleteNewTracks`가 삭제·환불한다. 모르고 넘어가 트랙이 사라지는 걸 막으려 `PhasePanel`이 사람 차례 buildTrack에서 미완성 트랙이 있으면(`hasIncompleteNewTracks`) '다음 단계로'를 **비활성 + 경고**한다. 이번 턴 트랙만 대상이라 undo로 해소 가능(교착 없음).
 - **실행/선택 취소**: `undoLastAction`(확정 행동 스냅샷 복원, `nextPhase`마다 초기화·사람 전용) / `cancelSelection`(커밋 전 UI 선택만). 새 커밋 액션 추가 시 검증 통과 직후 `captureUndo(state, label)` + set에 `undoCount` 포함.
+- **Montréal Métro 특수룰 (3인 9턴, 2026-07-13)**: ① **정부 링크** — 새 GamePhase `governmentLink`(매 라운드 주식 발행 전). 관리자는 셋업 순번 로테이션(`GameState.governmentControllers[(턴-1)%3]`), 무료 중립 링크 1개(타일≤3, 미완성은 단계 전환 시 자동 제거 — `removeIncompleteGovernmentTracks`). 정부 트랙 = `TrackTile.isGovernment + owner:null`(누구나 이동, 수입 0, 방향전환·교체 금지), 정부 마을 가닥 = `TownSpur.owner:null`. 봇 관리자는 `helpers/governmentBuildAI.runGovernmentBuildAI`(AUTO_ADVANCE 경유). ② **마스터 네트워크** — 모든 건설 타일은 기존 네트워크(아무 트랙/트랙 닿은 정거장)에 닿아야 함(`touchesMasterNetwork`, 첫 정부 링크만 예외). ③ **DGEL**(`PlayerState.dgel`) — Locomotive가 일반 엔진 대신 정부 전용 엔진 +1(상한 4). 이동 탐색(`findReachableDestinations`/`findAllPaths`)에 `govExtra` 파라미터: 총 링크 ≤ 엔진+DGEL, 비정부 링크 ≤ 엔진. 비용 지불에 합산(payExpenses·AI 생존계획 포함). ④ **경매 트윅** — 무입찰 패스 2인 이상이면 `PlayerState.actionBanned`(그 턴 행동 선택 불가, 롤오버 리셋). ⑤ **Repopulation** — production 선택 즉시 주머니에서 3개 뽑아(`phaseState.repopulationCubes`) 1개를 도시에 배치(`placeRepopulationCube`, intents 등록). 배치 전엔 selectActions가 진행되지 않음. ⑥ 신도시 타일마다 셋업 큐브 1개(`NewCityTile.setupCube` — placeNewCity 때 함께 배치), 물품 성장 생략, Atwater는 빨강+파랑 겸용(`City.extraColor` — cityAcceptsCube 한 곳에서 판정). ⚠️ 배달 경로 선택(`findLongestPath`)은 "내 링크 수 → 총 링크 수" 순 — 총 링크만 보면 수입 0인 정부 링크 우회를 선호한다. ⚠️ **AI는 마스터 네트워크를 알아야 한다**: 첫 건설은 네트워크에 닿은 정거장(`stationInMasterNetwork`, trackValidation)에서만 시작 가능 — `tryDirectPathBuild`가 그 끝점으로 스왑하고, `decideBuildTrack`이 네트워크 앵커 배달 기회를 후보에 보충한다 (이걸 빼면 봇이 한 타일도 못 깔고 턴 스킵 — 2026-07-14 실버그, 수정으로 20시드 VP -21→-2). 사람 관리자가 정부 링크를 안 짓고 넘어가면 ConfirmDialog로 확인. **시각(원본 시트 재현)**: 물=`sea` 지형(전체 파랑 채움, `TerrainType`에 추가), 도로=`GameMapData.roads` 폴리라인(검정+노란 점선, 도로 헥스는 평지와 동일 초록), 비용 숫자는 원본에 인쇄된 3곳만(`HexTile.showCostMarker` — legend 맵에서도 도로 위 레이어로 표시), $5 헥스 사선 분할(`HexTile.landWedgeWest`), 도시 숫자 박스=초기 화물 수(columnMapping.diceNumber 재사용, 성장 없어 주사위 무관), 신도시 타일 화물은 실제 도시처럼 헥스 위에 렌더(NewCityTileHex cube prop), 정부 관리 로테이션 표시(PhasePanel + TurnTrack 순서 원 아래 검은 하단 바), **정부 관련은 전부 검은색**(트랙 레일·가닥 내부 #1a1a1a·마커·배지), 물품 디스플레이 0칸(setup.ts — rowCount 합 0 허용, 52칸 폴백은 columnMapping 자체가 없을 때만).
 - **건설 실패 사유 토스트**: 조용히 실패하던 건설(현금 부족·제한 도달 등)을 상단 토스트로 안내. `helpers/buildReason.getBuildBlockReason`가 `canBuildTrack` 검사 순서를 미러해 첫 실패 사유를 돌려주고(현금은 canBuildTrack이 안 보므로 마지막에 추정), `toastStore`(gameStore와 분리 = 스냅샷 미동기화)로 띄운다. **트리거는 사람 클릭 UI 경로에만**(`uiSlice.selectExitDirection` 커밋 실패 + `selectSourceHex` 제한 도달) — AI/게스트-거부엔 안 뜬다. ⚠️ `canBuildTrack` 규칙 바꾸면 `getBuildBlockReason` 순서·조건도 함께 맞출 것.
 
 **상세 — 의사결정 알고리즘 전문·Phase별 결정·맵별 구현 및 밸런싱 이력·디버깅 시스템·기각 실험 기록**: [docs/ai-system.md](docs/ai-system.md)
@@ -1234,6 +1240,26 @@ const CITY_COLORS = {
 
 **물품 성장:** 이 단계 생략
 **게임 종료:** 8턴 완료 후
+
+#### Montréal Métro (3인 전용, Michael Webb 2007)
+
+**용어:** Station=도시, Stop=마을, Passenger=화물, 마스터 네트워크=보드 위 모든 트랙의 총합.
+
+**설정:** 도시별 표기 수만큼 화물 배치 (Berri-UQAM 6 ~ Henri-Bourassa 3), 신규 도시 타일 8개에 화물 1개씩. 물품 디스플레이 미사용. 중립색 마커 9개 = 정부 트랙용. 9라운드.
+
+**정부 링크:** 매 라운드 주식 발행 전, 정부 관리 플레이어(셋업 순번 1st→2nd→3rd 로테이션)가 중립 링크 1개를 무료 건설 (타일 최대 3, 미완성 금지, 마스터 네트워크 연속 — 첫 링크만 예외, Berri-UQAM 포함 권장). 정부 링크는 누구나 이용하나 수입 없음.
+
+**마스터 네트워크:** 보드 위 모든 트랙(정부 포함)의 총합은 항상 연속이어야 한다.
+
+**행동 변경:** Locomotive = 정부 전용 엔진(DGEL) +1 (배달 때 DGEL만큼 정부 링크 추가 이용, 비용에 합산, 올리는 유일한 방법 — 일반 엔진은 수송 기회 교환으로만). Production → Repopulation = 선택 즉시 주머니에서 3개 뽑아 1개를 맵에 배치.
+
+**경매:** 무입찰 패스 2인 이상이면 그들은 이번 라운드 특수 행동 선택 불가.
+
+**건설 비용:** 평지 $2 / 언덕 $3 / 도로 $4 / 물 $6 (Jean-Drapeau 우측 1곳만 $5). Parc Mont-Royal 3헥스(굵은 외곽선) 관통 불가.
+
+**물품 성장:** 이 단계 없음
+**비용:** 주식 + 일반 엔진 + DGEL
+**게임 종료:** 9라운드 완료 후
 
 ---
 

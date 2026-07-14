@@ -70,8 +70,9 @@ export function createSettlementSlice(set: Set, _get: Get): SettlementSlice {
             continue;
           }
 
-          const expense = player.issuedShares + player.engineLevel;
-          console.log(`[payExpenses] ${player.name}: expense=${expense} (shares=${player.issuedShares} + engine=${player.engineLevel}), cash=${player.cash}, income=${player.income}`);
+          // Montréal: 정부 전용 엔진(DGEL)도 비용에 합산 (원본 룰: 일반 엔진 + DGEL + 주식)
+          const expense = player.issuedShares + player.engineLevel + (player.dgel ?? 0);
+          console.log(`[payExpenses] ${player.name}: expense=${expense} (shares=${player.issuedShares} + engine=${player.engineLevel} + dgel=${player.dgel ?? 0}), cash=${player.cash}, income=${player.income}`);
 
           if (player.cash >= expense) {
             // 현금으로 지불 가능
@@ -140,7 +141,7 @@ export function createSettlementSlice(set: Set, _get: Get): SettlementSlice {
             return t;
           });
           const updatedTownSpurs = (newBoard.townSpurs ?? []).filter(
-            sp => !bankruptPlayers.includes(sp.owner)
+            sp => sp.owner === null || !bankruptPlayers.includes(sp.owner)
           );
           newBoard = {
             ...newBoard,

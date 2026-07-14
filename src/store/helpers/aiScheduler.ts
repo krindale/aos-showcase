@@ -90,6 +90,7 @@ export const PLAYER_ACTION_PHASES: GamePhase[] = [
  * 교착되므로 runAIAutoPhase로 대신 진행한다. (goodsGrowth는 그 안에서 주사위까지 자동 처리)
  */
 export const AI_AUTO_ADVANCE_PHASES: GamePhase[] = [
+  'governmentLink', // Montréal — 봇 관리자면 정부 링크 자동 건설 후 진행
   'collectIncome',
   'payExpenses',
   'incomeReduction',

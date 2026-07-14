@@ -122,7 +122,7 @@ function computeBudget(
   buildBudget: number,
 ): Pick<TurnPlan, 'cashNeeded' | 'auctionMaxBid'> {
   const player = state.players[playerId];
-  const expenses = player ? player.issuedShares + player.engineLevel : 0;
+  const expenses = player ? player.issuedShares + player.engineLevel + (player.dgel ?? 0) : 0;
   return {
     cashNeeded: buildBudget + expenses + DEFAULT_AUCTION_RESERVE,
     auctionMaxBid: DEFAULT_AUCTION_RESERVE,

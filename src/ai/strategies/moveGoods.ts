@@ -67,6 +67,8 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
   const { board } = state;
   const profile = getMapProfile(state.mapId);
   const incomeSources = getMapAIConfig(state).incomeSources;
+  // Montréal DGEL: 정부 링크 전용 추가 이동 (다른 맵은 0 — 탐색 동작 무변경)
+  const govExtra = profile.dedicatedGovEngine ? (player.dgel ?? 0) : 0;
   const candidates: MoveCandidate[] = [];
 
   // 한 출발지(도시/마을)의 큐브들에 대해 배달 후보를 생성해 candidates에 추가 (도시·마을 공용).
@@ -81,9 +83,9 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
   ) => {
     for (let cubeIndex = 0; cubeIndex < cubes.length; cubeIndex++) {
       const cubeColor = cubes[cubeIndex];
-      const reachable = findReachableDestinations(sourceCoord, board, playerId, player.engineLevel, cubeColor);
+      const reachable = findReachableDestinations(sourceCoord, board, playerId, player.engineLevel, cubeColor, govExtra);
       for (const destCity of reachable) {
-        const path = findLongestPath(sourceCoord, destCity.coord, board, playerId, player.engineLevel, cubeColor);
+        const path = findLongestPath(sourceCoord, destCity.coord, board, playerId, player.engineLevel, cubeColor, govExtra);
         if (!path || path.length < 2) continue;
 
         const linksCount = countPathLinks(path, board);

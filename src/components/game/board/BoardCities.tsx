@@ -38,6 +38,9 @@ interface BoardCitiesProps {
   selectedCube: { cityId: string; cubeIndex: number } | null;
   // 액션 (store·부모 콜백)
   onHexClick: (coord: HexCoord) => void;
+  /** Montréal Repopulation: 배치할 큐브가 선택된 상태 — 모든 도시를 배치 대상으로 하이라이트/클릭 */
+  repopPlacing?: boolean;
+  onRepopCityClick?: (cityId: string) => void;
   selectDestinationCity: (coord: HexCoord) => void;
   onCubeClick: (cityId: string, cubeIndex: number) => void;
   buildDirectLink: (cityA: string, cityB: string) => void;
@@ -60,6 +63,8 @@ export default function BoardCities({
   selectDestinationCity,
   onCubeClick,
   buildDirectLink,
+  repopPlacing,
+  onRepopCityClick,
 }: BoardCitiesProps) {
   return (
     <>
@@ -79,15 +84,22 @@ export default function BoardCities({
           ? DYNAMIC_CITY_GRAY
           : goodsColor; // Berlin(보너스 도시)도 데이터 색(black) 그대로 — 다른 검은 도시와 동일
         const isSourceSelected = sourceHex && hexCoordsEqual(sourceHex, city.coord);
-        const isCityClickable = currentPhase === 'buildTrack';
+        // governmentLink(Montréal 정부 링크)도 도시에서 건설을 시작한다
+        const isCityClickable = currentPhase === 'buildTrack' || currentPhase === 'governmentLink'
+          // Montréal Repopulation: 큐브 선택 후엔 모든 도시가 배치 대상
+          || !!repopPlacing;
         const isReachableDestination = reachableDestinations.some(
           d => hexCoordsEqual(d, city.coord)
-        );
+        )
+          // Repopulation 배치 중엔 모든 도시를 골드 링으로 표시
+          || !!repopPlacing;
         const isMoveGoodsPhase = currentPhase === 'moveGoods';
 
         // 도시 클릭 핸들러
         const handleCityClick = () => {
-          if (currentPhase === 'buildTrack') {
+          if (repopPlacing && onRepopCityClick) {
+            onRepopCityClick(city.id);
+          } else if (currentPhase === 'buildTrack' || currentPhase === 'governmentLink') {
             onHexClick(city.coord);
           } else if (isMoveGoodsPhase && isReachableDestination) {
             selectDestinationCity(city.coord);

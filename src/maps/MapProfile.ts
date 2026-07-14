@@ -113,6 +113,21 @@ export abstract class MapProfile {
   /** VIII. 수입 감소 배수 (턴별). Southern US: 4턴(남북전쟁) 2배. */
   incomeReductionMultiplier(turn: number): number { void turn; return 1; }
 
+  // ── Montréal Métro 특수룰 (기본값 = 영향 없음) ──
+  /** 매 라운드 주식 발행 전, 정부 관리 플레이어가 중립 정부 링크 1개를 무료 건설 (governmentLink 단계). */
+  get governmentLinks(): boolean { return false; }
+  /** 마스터 네트워크: 보드 위 모든 트랙(정부 포함)의 총합이 항상 연속(연결)이어야 함. */
+  get masterNetwork(): boolean { return false; }
+  /** Locomotive 행동이 일반 엔진 대신 정부 전용 엔진 레벨(DGEL)을 +1.
+   *  DGEL은 정부 링크 위 추가 이동 전용이며 비용 지불에 합산된다. */
+  get dedicatedGovEngine(): boolean { return false; }
+  /** 경매에서 무입찰 패스가 2인 이상이면 그 플레이어들은 이번 턴 특수 행동 선택 불가. */
+  get auctionNoBidPassPenalty(): boolean { return false; }
+  /** Production 행동이 Repopulation으로 대체: 선택 즉시 주머니에서 3개 뽑아 1개를 맵의 도시에 배치. */
+  get productionAsRepopulation(): boolean { return false; }
+  /** 셋업: 신규 도시 타일마다 주머니에서 큐브 1개를 올려두고, 도시화 시 함께 보드에 올라감. */
+  get newCitySetupCube(): boolean { return false; }
+
   // ── UI: 규칙 안내 문구 (기본 = 표준 맵, 특수룰 없음) ──
   /** 게임 시작(플레이어 설정) 화면 우측에 표시할 이 맵만의 특수룰 목록. 빈 배열이면 패널 미표시. */
   get specialRules(): MapRuleSummary[] { return []; }
@@ -139,6 +154,12 @@ export abstract class MapProfile {
   /** selectAction의 Turn Order 행동 가치 계수 (꼴찌 기준 최대 ΔVP). 기본 0.1 = vp.ts TURN_ORDER_SEAT_VP.
    *  맵별 격리해 조율 — 뒤 순번이 Turn Order로 다음 턴 순서를 탈환하는 강도. */
   get turnOrderSeatVP(): number { return 0.1; }
+  /** AI 경로 평가의 "지연 완성 페널티" (완성이 1턴 늦어질 때마다 −N VP, cityCubes 다인 맵).
+   *  타이밍 실비(배달 시작 지연의 현금 흐름 손실 + 엔진 증분 유지비, vp.ts estimateRouteVP)가
+   *  직접 계산되면서 이 값은 잔여 리스크(선점·자금 불확실성)의 프록시로 축소 — 8을 유지하면
+   *  실비와 겹쳐 다턴 경로 이중 청구(Southern −1.06 회귀, 2026-07-14 100시드).
+   *  trackCubes 맵은 vp.ts에서 0 (미적용). */
+  get lateCompletionPenaltyPerTurn(): number { return 4; }
   /** 현재 비딩 순번(rank, 0=1위)에 따른 1번 입찰 상한 보너스($). 기본 0(없음).
    *  뒤 순번일수록 입찰 상한을 올려 순서 순환을 유도하나, cityCubes 맵(Rust Belt·Germany)에선
    *  뒤 순번이 1번 사느라 건설예산을 소진해 붕괴한다(측정: Rust VP 11.7→3.5). 마을 큐브로 부작용이

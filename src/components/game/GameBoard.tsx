@@ -25,6 +25,7 @@ import {
   HEX_WIDTH,
   HEX_HEIGHT,
   findCompletedLinks,
+  isTrackPartOfCompletedLink,
 } from '@/utils/hexGrid';
 import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
@@ -58,6 +59,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   );
   const mapId = useGameStore((state) => state.mapId);
   const currentTurn = useGameStore((state) => state.currentTurn);
+  // Montréal Repopulation: 배치 대기 큐브가 있는지 (boolean 셀렉터 — 값 변화시만 리렌더)
+  const repopPending = useGameStore((s) => (s.phaseState.repopulationCubes?.length ?? 0) > 0);
   // 맵 데이터(그리드 크기/지형 색): mapRegistry에서 주입 — 튜토리얼 하드코딩 금지
   const mapData = useMemo(() => getMapData(mapId), [mapId]);
   const mapProfile = useMemo(() => getMapProfile(mapId), [mapId]);
@@ -211,8 +214,12 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   // 찍지 않고 모서리에 한 번만 표시. 비용은 보드 hexTiles에서 직접 추출(맵 하드코딩 없음).
   const costLegend = useMemo(() => {
     if (mapData.hexCostMode !== 'legend') return [];
-    const NAME: Partial<Record<TerrainType, string>> = { plain: '평지', river: '강', swamp: '늪', mountain: '산' };
-    const order: TerrainType[] = ['plain', 'river', 'swamp', 'mountain'];
+    const NAME: Partial<Record<TerrainType, string>> = {
+      plain: '평지', river: '강', sea: '바다', swamp: '늪', mountain: '산',
+      ...(mapData.terrainNames ?? {}), // 맵별 이름 오버라이드 (Montréal: swamp=도로, mountain=언덕)
+    };
+    // 순서: 평지 → 강/도로(swamp) → 언덕(mountain) → 바다 (Montréal: 평지/도로/언덕/바다, Western US: 평지/강/늪/산)
+    const order: TerrainType[] = ['plain', 'river', 'swamp', 'mountain', 'sea'];
     const costByTerrain = new Map<TerrainType, number>();
     for (const h of board.hexTiles) {
       if (h.terrain === 'lake') continue;
@@ -253,13 +260,18 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   );
 
   // 완성된 링크에 포함된 트랙인지 확인
+  // 정부 트랙(Montréal, owner null)은 completedLinks(소유자 필수 목록)에 없으므로 직접 판정
+  // — 안 하면 정부 완성 링크 마커가 영영 안 뜬다 (원본 룰: 정부 링크도 중립색 마커 표시).
   const isTrackInCompletedLink = useCallback(
     (coord: HexCoord) => {
-      return completedLinks.some(link =>
-        link.trackTiles.some(t => hexCoordsEqual(t, coord))
-      );
+      if (completedLinks.some(link => link.trackTiles.some(t => hexCoordsEqual(t, coord)))) {
+        return true;
+      }
+      const tile = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
+      if (tile?.isGovernment) return isTrackPartOfCompletedLink(coord, board);
+      return false;
     },
-    [completedLinks]
+    [completedLinks, board]
   );
 
   // 큐브 이동 애니메이션 처리 - 1초 후 완료.
@@ -371,11 +383,12 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   }, [board.trackTiles, isFlat]);
 
   // 헥스가 유효한 연결점인지 확인 (도시, 내 트랙, 내 트랙이 진입한 마을)
+  // governmentLink(Montréal) 단계는 정부 트랙/가닥을 연결점으로 취급 (정부 모드)
   const isValidConnectionPoint = useCallback(
     (coord: HexCoord) => {
-      return isValidConnectionPointUtil(coord, board, currentPlayer);
+      return isValidConnectionPointUtil(coord, board, currentPlayer, currentPhase === 'governmentLink');
     },
-    [board, currentPlayer]
+    [board, currentPlayer, currentPhase]
   );
 
   // 헥스가 하이라이트된 건설 대상인지 확인 (source_selected 모드)
@@ -395,11 +408,11 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     [ui.exitDirections]
   );
 
-  // 헥스 클릭 핸들러
+  // 헥스 클릭 핸들러 — governmentLink(Montréal 정부 링크)도 동일한 건설 플로우 사용
   const handleHexClick = useCallback(
     (coord: HexCoord) => {
       if (isMousePanning()) return; // 마우스 드래그(팬) 직후의 클릭은 무시
-      if (currentPhase === 'buildTrack') {
+      if (currentPhase === 'buildTrack' || currentPhase === 'governmentLink') {
         // 미연결 가닥 완성: 내 트랙이 변에 닿아 있으나 가닥이 없는 마을 클릭 → 가닥 건설.
         // buildMode와 무관하게 최우선 — 같은 턴에 이미 일부 연결된 마을의 추가 변도 연결 가능.
         if (canBuildTownSpur(coord)) {
@@ -485,7 +498,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   // 헥스 호버 핸들러
   const handleHexHover = useCallback(
     (coord: HexCoord) => {
-      if (currentPhase === 'buildTrack' && (ui.buildMode === 'source_selected' || ui.buildMode === 'target_selected')) {
+      if ((currentPhase === 'buildTrack' || currentPhase === 'governmentLink') && (ui.buildMode === 'source_selected' || ui.buildMode === 'target_selected')) {
         updateTrackPreview(coord);
       }
     },
@@ -505,7 +518,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
         return (
           <g key={`spur-${sp.id}`} style={{ pointerEvents: 'none' }}>
             <line x1={mid.x} y1={mid.y} x2={x} y2={y} stroke="#3A3A32" strokeWidth="12" strokeLinecap="round" />
-            <line x1={mid.x} y1={mid.y} x2={x} y2={y} stroke={terrainColors.plain} strokeWidth="6" strokeLinecap="round" />
+            {/* 정부 가닥(owner null — Montréal)은 정부 트랙과 동일하게 다크 그레이 */}
+            <line x1={mid.x} y1={mid.y} x2={x} y2={y} stroke={sp.owner === null ? '#4E4D46' : terrainColors.plain} strokeWidth="6" strokeLinecap="round" />
             <line
               x1={tx - 8 * Math.cos(ang)} y1={ty - 8 * Math.sin(ang)}
               x2={tx + 8 * Math.cos(ang)} y2={ty + 8 * Math.sin(ang)}
@@ -602,7 +616,10 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             {currentPhase === 'moveGoods' && !ui.selectedCube && !ui.movingCube && '물품 큐브를 클릭하세요'}
             {currentPhase === 'moveGoods' && ui.selectedCube && '금색 테두리의 목적지 도시를 클릭하세요'}
             {currentPhase === 'moveGoods' && ui.movingCube && '물품 이동 중...'}
-            {currentPhase !== 'buildTrack' && currentPhase !== 'moveGoods' && mapData.name}
+            {currentPhase === 'governmentLink' && ui.buildMode === 'idle' && '정부 링크: 도시를 클릭해 무료 중립 링크를 건설하세요'}
+            {currentPhase === 'governmentLink' && ui.buildMode === 'source_selected' && '노란색 헥스를 클릭하여 정부 트랙을 건설하세요'}
+            {currentPhase === 'governmentLink' && ui.buildMode === 'target_selected' && '트랙이 나갈 방향을 클릭하세요 (곡선/직선 선택)'}
+            {currentPhase !== 'buildTrack' && currentPhase !== 'moveGoods' && currentPhase !== 'governmentLink' && mapData.name}
           </span>
           <div className="flex items-center gap-2 shrink-0">
             <span className="text-xs text-accent whitespace-nowrap">
@@ -749,9 +766,16 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             const hasPlayerTrack = board.trackTiles.some(
               t => hexCoordsEqual(t.coord, coord) && (t.owner === currentPlayer || t.secondaryOwner === currentPlayer)
             );
+            // 정부 링크 단계: 정부 타일(owner null)이 "내 트랙" 역할 — 클릭해 이어 지을 수 있어야 한다
+            const hasGovTrack = board.trackTiles.some(
+              t => hexCoordsEqual(t.coord, coord) && t.isGovernment
+            );
 
-            // 클릭 가능 여부: 트랙 건설 단계에서 하이라이트되거나 플레이어 트랙이 있는 경우
-            const isClickable = !isLake && currentPhase === 'buildTrack' && (isHighlighted || hasPlayerTrack);
+            // 클릭 가능 여부: 트랙 건설 단계 = 하이라이트/내 트랙, 정부 링크 단계 = 하이라이트/정부 트랙
+            const isClickable = !isLake && (
+              (currentPhase === 'buildTrack' && (isHighlighted || hasPlayerTrack)) ||
+              (currentPhase === 'governmentLink' && (isHighlighted || hasGovTrack))
+            );
 
             return (
               <g key={`hex-${col}-${row}`}>
@@ -764,6 +788,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                       ? terrainColors.plain // 강 헥스: 평지색 + 아래 강줄기 곡선 오버레이
                       : terrain === 'mountain'
                       ? MTN_RING_COLOR // 산악: 바깥 테두리색(안쪽은 inset 폴리곤이 내부색)
+                      : hexTile?.landWedgeWest
+                      ? terrainColors.plain // 사선 분할 바다(Montréal $5): 초록 바탕 + 아래 바다 폴리곤
                       : terrainColors[terrain] ?? terrainColors.plain
                   }
                   stroke={
@@ -786,6 +812,19 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                   onClick={() => isClickable && handleHexClick(coord)}
                   onMouseEnter={() => handleHexHover(coord)}
                 />
+                {/* 사선 분할 바다(Montréal $5 헥스): 초록 바탕 위에 동쪽 바다 폴리곤 —
+                    원본 시트처럼 좌상 꼭짓점→우하 꼭짓점 사선으로 서쪽 초록 쐐기를 남긴다 (flat 전용) */}
+                {hexTile?.landWedgeWest && !isHighlighted && (() => {
+                  const hw = (Math.sqrt(3) / 2) * HEX_SIZE; // flat-top 상하 평변까지의 높이
+                  const S = HEX_SIZE;
+                  const pts = [
+                    [x - S / 2, y - hw], // 좌상 꼭짓점 (사선 시작)
+                    [x + S / 2, y - hw], // 우상 꼭짓점
+                    [x + S, y],          // 우측 꼭짓점
+                    [x + S / 2, y + hw], // 우하 꼭짓점 (사선 끝)
+                  ].map((p) => p.join(',')).join(' ');
+                  return <polygon points={pts} fill={terrainColors.sea ?? '#3E7CA7'} style={{ pointerEvents: 'none' }} />;
+                })()}
                 {/* 산악: 안쪽 내부색 폴리곤 → 바깥 테두리색이 띠로 남음. 클릭은 메인 폴리곤이 처리 */}
                 {terrain === 'mountain' && !isHighlighted && (
                   <polygon
@@ -815,8 +854,10 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                   </>
                 )}
                 {/* Germany 헥스 고정 건설비용 — 박스 안에 숫자 (그 칸에 트랙을 깔 때 드는 비용).
-                    'legend' 맵(Western US)은 지형별 비용이 균일 → 헥스 숫자 대신 좌하단 범례로 표시. */}
-                {hexTile?.fixedCost !== undefined && !isHighlighted && mapData.hexCostMode !== 'legend' && (
+                    'legend' 맵(Western US)은 지형별 비용이 균일 → 헥스 숫자 대신 좌하단 범례로 표시.
+                    showCostMarker 헥스(Montréal)는 도로에 가려지지 않게 도로 레이어 뒤에서 별도 렌더. */}
+                {hexTile?.fixedCost !== undefined && !isHighlighted
+                  && mapData.hexCostMode !== 'legend' && (
                   <g style={{ pointerEvents: 'none' }}>
                     <polygon
                       points={getHexPoints(x, y, 19, isFlat)}
@@ -854,6 +895,42 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             );
           })
         )}
+
+        {/* 도로 라인 (Montréal — 원본 시트 재현: 검정 도로 + 노란 점선 중앙선). 순수 시각 요소,
+            헥스 위·마을/도시/트랙 아래에 깔린다 (정거장이 도로를 자연스럽게 덮음). */}
+        {(mapData.roads ?? []).map((line, i) => {
+          const pts = line
+            .map((p) => {
+              const { x, y } = hexToPixel(p.coord.col, p.coord.row, undefined, undefined, undefined, isFlat);
+              return `${x + (p.dx ?? 0)},${y + (p.dy ?? 0)}`;
+            })
+            .join(' ');
+          return (
+            <g key={`road-${i}`} style={{ pointerEvents: 'none' }}>
+              <polyline points={pts} fill="none" stroke="#33312A" strokeWidth={12} strokeLinecap="round" />
+              <polyline points={pts} fill="none" stroke="#E8C25A" strokeWidth={2} strokeDasharray="8 8" strokeLinecap="round" />
+            </g>
+          );
+        })}
+
+        {/* 원본 표기 비용 마커 (Montréal showCostMarker — 물 "6"×2·"5"×1). legend 맵의 헥스 숫자는
+            보통 숨기지만 이 헥스들은 원본 시트에 인쇄돼 있어 표시 — 도로가 지나가는 헥스라 도로 위에 그린다. */}
+        {mapData.hexCostMode === 'legend' && board.hexTiles
+          .filter((h) => h.showCostMarker && h.fixedCost !== undefined)
+          .map((h) => {
+            const { x, y } = hexToPixel(h.coord.col, h.coord.row, undefined, undefined, undefined, isFlat);
+            return (
+              <g key={`costmark-${h.coord.col}-${h.coord.row}`} style={{ pointerEvents: 'none' }}>
+                <polygon
+                  points={getHexPoints(x, y, 19, isFlat)}
+                  fill={shadeColor(terrainColors.plain ?? '#7fae5e', -38)}
+                />
+                <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fill="#ffffff" fontSize="18" fontWeight="bold" fontFamily="system-ui, sans-serif">
+                  {h.fixedCost}
+                </text>
+              </g>
+            );
+          })}
 
         {/* 마을 레이어 — 흰 디스크·이름 띠·마을 트랙/가닥·도시화 하이라이트·큐브 (board/BoardTowns) */}
         <BoardTowns
@@ -898,6 +975,14 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
 
         {/* 도시 레이어 — 도시 헥스·라벨·큐브 + Germany 직결 링크 (board/BoardCities) */}
         <BoardCities
+          repopPlacing={currentPhase === 'selectActions' && repopPending && ui.repopulationCube !== null}
+          onRepopCityClick={(cityId) => {
+            const cube = useGameStore.getState().ui.repopulationCube;
+            if (!cube) return;
+            if (useGameStore.getState().placeRepopulationCube(cube, cityId)) {
+              useGameStore.getState().nextPhase();
+            }
+          }}
           cities={board.cities}
           dynamicCityColors={board.dynamicCityColors}
           cottonPorts={board.cottonPorts}
@@ -971,11 +1056,22 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                 fontFamily="system-ui, sans-serif">건설 비용</text>
               {costLegend.map((e, i) => {
                 const ry = y0 + 36 + i * rowH;
+                // 도로 이름(Montréal terrainNames로 swamp='도로')이면 실제 도로처럼:
+                // 초록 바탕 + 검정 도로 + 노란 점선 중앙선
+                const isRoad = e.name === '도로';
                 return (
                   <g key={`legend-${e.terrain}`}>
                     <rect x={x0 + pad} y={ry} width={swatch} height={swatch} rx={3}
                       fill={terrainColors[e.terrain] ?? terrainColors.plain}
                       stroke="rgba(0,0,0,0.5)" strokeWidth={1.5} />
+                    {isRoad && (
+                      <>
+                        <line x1={x0 + pad + 2} y1={ry + swatch / 2} x2={x0 + pad + swatch - 2} y2={ry + swatch / 2}
+                          stroke="#33312A" strokeWidth={9} strokeLinecap="round" />
+                        <line x1={x0 + pad + 3} y1={ry + swatch / 2} x2={x0 + pad + swatch - 3} y2={ry + swatch / 2}
+                          stroke="#E8C25A" strokeWidth={1.6} strokeDasharray="4 4" strokeLinecap="round" />
+                      </>
+                    )}
                     <text x={x0 + pad + swatch + 10} y={ry + swatch - 5} fill="#f5f5f5"
                       fontSize={17} fontWeight="600" fontFamily="system-ui, sans-serif">{e.name}</text>
                     <text x={x0 + w - pad} y={ry + swatch - 5} fill="#ffffff" fontSize={17}

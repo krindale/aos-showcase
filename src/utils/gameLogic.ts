@@ -91,7 +91,8 @@ export function allPlayersSelectedAction(
   players: Record<PlayerId, PlayerState>,
   activePlayers: PlayerId[]
 ): boolean {
-  return activePlayers.every(p => players[p]?.selectedAction !== null);
+  // Montréal 경매 트윅: actionBanned(무입찰 패스 2인 이상)는 이번 턴 선택 불가 = 선택 완료로 간주
+  return activePlayers.every(p => players[p]?.selectedAction !== null || players[p]?.actionBanned === true);
 }
 
 /**
@@ -114,6 +115,7 @@ export function resetPlayerActions(
         turnOrderPassAvailable: players[pid].selectedAction === 'turnOrder',
         turnOrderPassUsed: false,
         selectedAction: null,
+        actionBanned: false, // Montréal 경매 트윅 페널티는 한 턴 한정
       };
     }
   });
@@ -147,6 +149,8 @@ export function createInitialPlayerState(
     turnOrderPassUsed: false,
     eliminated: false,
     isAI,
+    dgel: 0,
+    actionBanned: false,
   };
 }
 

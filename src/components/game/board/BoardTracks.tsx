@@ -1,6 +1,6 @@
 'use client';
 
-import { hexToPixel, getHexPoints, HEX_SIZE, CompletedLink } from '@/utils/hexGrid';
+import { hexToPixel, getHexPoints, getNeighborHex, HEX_SIZE, CompletedLink } from '@/utils/hexGrid';
 import { PLAYER_COLORS, HexCoord, PlayerId, PlayerState, TrackTile } from '@/types/game';
 
 // 트랙 레이어 — 트랙 타일(레일+침목), 소유자 마커, 완성 링크 마커, 끊어진 연결 경고.
@@ -60,7 +60,8 @@ export default function BoardTracks({
         const cached = trackPathCache.get(tile.id);
         const pathData = cached?.pathData ?? '';
         const ties = cached?.ties ?? [];
-        const ownerColor = tile.owner ? PLAYER_COLORS[players[tile.owner].color] : '#888';
+        // 정부 트랙(Montréal)은 다크 그레이로 통일 — 중립(수입 없음)을 한눈에 구분 (순검정은 게임 톤과 부조화)
+        const ownerColor = tile.owner ? PLAYER_COLORS[players[tile.owner].color] : tile.isGovernment ? '#4E4D46' : '#888';
 
         // 복합 트랙인 경우 두 번째 경로도 렌더링
         const hasSecondary = tile.trackType !== 'simple' && tile.secondaryEdges;
@@ -131,7 +132,7 @@ export default function BoardTracks({
             <path
               d={pathData}
               fill="none"
-              stroke={plainColor}
+              stroke={tile.isGovernment ? '#4E4D46' : plainColor}
               strokeWidth="6"
               strokeLinecap="round"
               shapeRendering="geometricPrecision"
@@ -258,6 +259,57 @@ export default function BoardTracks({
           </g>
         );
       })}
+
+      {/* 정부 완성 링크 마커 (Montréal) — findCompletedLinks는 owner 있는 링크만 다루므로
+          정부 타일(isGovernment, owner null)을 변 인접으로 묶어 링크마다 중립 마커 1개를 올린다
+          (원본 룰: 정부 링크는 미사용 색 마커로 표시). */}
+      {(() => {
+        const govTiles = trackTiles.filter(
+          (t) => t.isGovernment && isTrackInCompletedLink(t.coord)
+        );
+        if (govTiles.length === 0) return null;
+        const key = (c: HexCoord) => `${c.col},${c.row}`;
+        const byKey = new Map(govTiles.map((t) => [key(t.coord), t]));
+        const seen = new Set<string>();
+        const groups: TrackTile[][] = [];
+        for (const t of govTiles) {
+          if (seen.has(key(t.coord))) continue;
+          const group: TrackTile[] = [];
+          const stack = [t];
+          seen.add(key(t.coord));
+          while (stack.length) {
+            const cur = stack.pop()!;
+            group.push(cur);
+            // 변 인접(마주보는 변) 정부 타일 = 같은 링크 (정거장을 사이에 두면 끊김 = 다른 링크)
+            for (const e of cur.edges) {
+              const nb = getNeighborHex(cur.coord, e);
+              const cand = byKey.get(key(nb));
+              if (!cand || seen.has(key(nb))) continue;
+              if (cand.edges.includes((e + 3) % 6)) {
+                seen.add(key(nb));
+                stack.push(cand);
+              }
+            }
+          }
+          groups.push(group);
+        }
+        return groups.map((group, gi) => {
+          const mid = group[Math.floor(group.length / 2)];
+          const c = hexToPixel(mid.coord.col, mid.coord.row, undefined, undefined, undefined, isFlat);
+          return (
+            <circle
+              key={`gov-link-${gi}-${key(mid.coord)}`}
+              cx={c.x}
+              cy={c.y}
+              r="8"
+              fill="#4E4D46"
+              stroke="#1a1a1a"
+              strokeWidth="2"
+              style={{ pointerEvents: 'none' }}
+            />
+          );
+        });
+      })()}
 
       {/* 완성된 링크 소유 마커 - 링크 중앙에 하나만 표시 */}
       {completedLinks.map((link) => {

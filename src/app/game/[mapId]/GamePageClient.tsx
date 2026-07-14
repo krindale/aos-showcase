@@ -99,8 +99,8 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   const [playerNames, setPlayerNames] = useState<string[]>(DEFAULT_NAMES);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  // 게임 이탈 확인 (실수 클릭 방지 — 리셋은 되돌릴 수 없고, 방 나가기는 게임 화면을 떠남)
-  const [exitConfirm, setExitConfirm] = useState<'reset' | 'leave' | null>(null);
+  // 게임 이탈 확인 (실수 클릭 방지 — 리셋은 되돌릴 수 없고, 나가기/뒤로는 게임 화면을 떠남)
+  const [exitConfirm, setExitConfirm] = useState<'reset' | 'leave' | 'back' | null>(null);
   // 리마운트 시 지난 "선택 행동" 칩 팝이 일제 재생되지 않게 첫 렌더는 애니메이션 생략
   const chipFirstRender = useIsFirstRender();
   const [isLandscape, setIsLandscape] = useState(false);
@@ -677,7 +677,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
         <div className={`max-w-[1800px] mx-auto px-2 sm:px-4 flex items-center justify-between gap-2 sm:gap-4 ${isLandscape ? 'py-1' : 'py-2 sm:py-3'}`}>
           <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             <button
-              onClick={handleBack}
+              onClick={() => setExitConfirm('back')}
               className="p-1.5 sm:p-2 hover:bg-foreground/10 rounded-lg transition-colors flex-shrink-0"
               aria-label="뒤로 가기"
             >
@@ -883,21 +883,28 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
         onCancel={dismissDisconnectPrompt}
       />
 
-      {/* 게임 이탈 확인 — 헤더의 리셋(오프라인)/방 나가기(온라인) 실수 클릭 방지 */}
+      {/* 게임 이탈 확인 — 헤더의 뒤로/리셋(오프라인)/방 나가기(온라인) 실수 클릭 방지 */}
       <ConfirmDialog
         open={exitConfirm !== null}
-        title={exitConfirm === 'leave' ? '방 나가기' : '게임 리셋'}
+        title={
+          exitConfirm === 'leave' ? '방 나가기' : exitConfirm === 'back' ? '게임 나가기' : '게임 리셋'
+        }
         message={
           exitConfirm === 'leave'
             ? '방에서 나갈까요? 게임 화면을 떠나 설정 화면으로 돌아갑니다.'
+            : exitConfirm === 'back'
+            ? isOnline
+              ? '맵 목록으로 나갈까요? 온라인 방에서도 나가게 됩니다.'
+              : '맵 목록으로 나갈까요? 진행 상황은 저장되어 다시 들어오면 이어할 수 있습니다.'
             : '게임을 리셋할까요? 진행 중인 게임이 사라지며 되돌릴 수 없습니다.'
         }
-        confirmLabel={exitConfirm === 'leave' ? '나가기' : '리셋'}
+        confirmLabel={exitConfirm === 'reset' ? '리셋' : '나가기'}
         cancelLabel="계속 플레이"
         onConfirm={() => {
           const mode = exitConfirm;
           setExitConfirm(null);
           if (mode === 'leave') handleLeaveRoom();
+          else if (mode === 'back') handleBack();
           else if (mode === 'reset') handleResetGame();
         }}
         onCancel={() => setExitConfirm(null)}

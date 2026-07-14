@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { CROWN_GOLD, CROWN_INK } from './uiEffects';
 import { ChatSenderIcon } from './ChatSenderIcon';
+import ConfirmDialog from './ConfirmDialog';
 
 function mapNameOf(mapId: string): string {
   try {
@@ -41,6 +42,8 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
 
   const [myName, setMyName] = useState('기차-하나');
   const [joinCode, setJoinCode] = useState('');
+  // 대기실 "방 나가기" 확인 (실수 클릭 방지 — 방장이 나가면 방이 닫힘)
+  const [leaveConfirm, setLeaveConfirm] = useState(false);
   const [playerCount, setPlayerCount] = useState(supportedPlayers[0]);
   // 방 만들기 좌석 구성: seat 0 = 나(호스트), 나머지 기본 = 친구 자리(사람)
   const [aiSeats, setAiSeats] = useState<Set<number>>(new Set());
@@ -322,11 +325,28 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
           </div>
         )}
         <button
-          onClick={() => void leaveRoom()}
+          onClick={() => setLeaveConfirm(true)}
           className="w-full py-2 rounded-lg text-sm text-foreground-secondary hover:bg-foreground/5 flex items-center justify-center gap-1"
         >
           <LogOut size={13} /> 방 나가기
         </button>
+
+        <ConfirmDialog
+          open={leaveConfirm}
+          title="방 나가기"
+          message={
+            isHost
+              ? '방을 나갈까요? 방장이 나가면 방이 닫혀 참가자들도 함께 나가게 됩니다.'
+              : '방을 나갈까요? 다시 들어오려면 방 코드로 재입장해야 합니다.'
+          }
+          confirmLabel="나가기"
+          cancelLabel="계속 대기"
+          onConfirm={() => {
+            setLeaveConfirm(false);
+            void leaveRoom();
+          }}
+          onCancel={() => setLeaveConfirm(false)}
+        />
       </div>
     );
   }

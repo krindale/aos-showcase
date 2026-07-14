@@ -262,7 +262,9 @@ export function createInitialGameState(
     currentPlayer: initialPlayerOrder[0],
     playerOrder: initialPlayerOrder,
     // Montréal: 정부 관리 순번 스냅샷 (라운드 N 관리자 = [(N-1) % 인원]) — 셋업 때 고정 (원본 룰)
-    ...(mapRules.governmentLinks ? { governmentControllers: [...initialPlayerOrder] } : {}),
+    // 비몬트리올 맵은 undefined를 "명시" — zustand set은 얕은 병합이라 키를 빼면 직전
+    // 몬트리올 게임의 3인 배열이 남아 2인 맵(St.Lucia 등)에서 없는 플레이어 참조로 크래시
+    governmentControllers: mapRules.governmentLinks ? [...initialPlayerOrder] : undefined,
 
     // 플레이어
     players: players as Record<PlayerId, PlayerState>,

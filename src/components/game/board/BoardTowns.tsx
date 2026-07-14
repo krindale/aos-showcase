@@ -60,7 +60,9 @@ export default function BoardTowns({
         // 도시화된 마을은 cities 배열에 추가되어 도시로 렌더링됨 — 여기서 또 그리면 중복
         if (isUrbanized) return null;
         const isSourceSelected = sourceHex && hexCoordsEqual(sourceHex, town.coord);
-        const isTownClickable = (currentPhase === 'buildTrack' && !urbanizationMode)
+        // governmentLink(Montréal): 정부 링크가 마을(Stop)을 지나도록 정부 가닥 건설 클릭 허용
+        const isBuildingPhase = currentPhase === 'buildTrack' || currentPhase === 'governmentLink';
+        const isTownClickable = (isBuildingPhase && !urbanizationMode)
           // 물품 이동 단계: 큐브가 있는(미도시화) 마을은 출발점으로 클릭 가능 (Western US)
           || (currentPhase === 'moveGoods' && !isMovingCube && town.newCityColor === null && town.cubes.length > 0);
 
@@ -69,7 +71,7 @@ export default function BoardTowns({
         const isUrbanizationClickable = canPlaceNewCity(town.coord);
 
         // 미연결 가닥 완성 가능 여부 (내 트랙이 변에 닿아 있으나 가닥 없음 → 클릭으로 건설)
-        const canCompleteSpur = currentPhase === 'buildTrack' && !urbanizationMode && canBuildTownSpur(town.coord);
+        const canCompleteSpur = isBuildingPhase && !urbanizationMode && canBuildTownSpur(town.coord);
 
         // 마을 헥스 자체에 깔린 트랙 (마을 디스크 아래 트랙 타일)
         const townTrack = trackTiles.find(t => hexCoordsEqual(t.coord, town.coord));
@@ -87,14 +89,14 @@ export default function BoardTowns({
             selectCube(`town:${town.id}`, 0);
             return;
           }
-          // 일반 트랙 건설 모드인 경우
-          if (currentPhase === 'buildTrack' && !urbanizationMode) {
+          // 일반 트랙 건설 모드(또는 정부 링크 건설)인 경우
+          if (isBuildingPhase && !urbanizationMode) {
             onHexClick(town.coord);
           }
         };
 
         // 트랙 건설 가이드: 마을 방향으로 지을 수 있을 때 노란 하이라이트 (헥스와 동일)
-        const isTownHighlighted = currentPhase === 'buildTrack'
+        const isTownHighlighted = isBuildingPhase
           && highlightedHexes.some(h => hexCoordsEqual(h, town.coord));
 
         return (

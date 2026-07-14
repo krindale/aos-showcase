@@ -266,6 +266,18 @@ function evaluateLocomotive(state: GameState, playerId: PlayerId, plan: TurnPlan
 
   const config = getMapAIConfig(state);
 
+  // Montréal(dedicatedGovEngine): Locomotive는 일반 엔진 대신 DGEL(정부 링크 전용 이동)을 올린다.
+  // DGEL은 engineLevel을 안 올리므로 아래 front-load가 매 턴 다시 발동해 무한 선택 + $1/턴 비용
+  // 스파이럴이 된다 → 유효 엔진(engine+dgel)으로 판정하고, DGEL 상한이면 선택 배제.
+  const isDgelMap = getMapProfile(state.mapId).dedicatedGovEngine;
+  const dgel = player.dgel ?? 0;
+  if (isDgelMap) {
+    if (dgel >= GAME_CONSTANTS.MAX_DGEL) return 0;
+    // 보드에 정부 링크가 없으면 DGEL은 순수 비용 (이동 보너스를 쓸 곳이 없음)
+    if (!state.board.trackTiles.some(t => t.isGovernment)) return 0;
+  }
+  const effectiveEngine = player.engineLevel + (isDgelMap ? dgel : 0);
+
   // 도시가 0개라 이번 턴 건설 자체가 불가능할 때(St. Lucia 1턴, 도시화 빼앗김) —
   // 건설 행동은 모두 0이므로, 엔진 업그레이드를 다음 턴 이후 배달을 위한 영구 자산으로 평가한다.
   if (state.board.cities.length === 0) {
@@ -298,14 +310,14 @@ function evaluateLocomotive(state: GameState, playerId: PlayerId, plan: TurnPlan
   const frontLoadTarget = Math.min(config.engineMax, engineFloor);
   let locoFrontLoad = 0;
   if ((config.incomeSources.includes('trackCubes') || multiCity)
-    && player.engineLevel < frontLoadTarget
+    && effectiveEngine < frontLoadTarget
     && config.totalTurns - state.currentTurn > 0) {
     // 뒤처짐 정도 + 마감(T6 floor 4) 임박 시 강하게 — urbanization(≤8)을 확실히 이겨 floor 보장.
-    const behind = frontLoadTarget - player.engineLevel;
+    const behind = frontLoadTarget - effectiveEngine;
     locoFrontLoad = (state.currentTurn >= 6 ? 12 : 4) + behind * 2;
   }
 
-  if (plan.routeLinks <= player.engineLevel) return locoFrontLoad; // 현재 엔진 충분 → front-load만
+  if (plan.routeLinks <= effectiveEngine) return locoFrontLoad; // 현재 엔진 충분 → front-load만
 
   // 실현 시점: 이번 턴 완성 가능하면 같은 턴 배달, 아니면 미래
   const turnsAfterThis = Math.max(0, config.totalTurns - state.currentTurn);

@@ -21,6 +21,19 @@ export default function TurnTrack({
   const { playerOrder, players, currentPlayer } = useGameStore();
   const myPlayerId = useMyPlayerId();
 
+  // Montréal: 이번/다음 라운드 정부 링크 관리자 (셋업 순번 로테이션, 탈락자는 건너뜀)
+  const govControllers = useGameStore((s) => s.governmentControllers);
+  const controllerForTurn = (turn: number) => {
+    if (!govControllers || govControllers.length === 0) return null;
+    for (let k = 0; k < govControllers.length; k++) {
+      const cand = govControllers[(turn - 1 + k) % govControllers.length];
+      if (!players[cand]?.eliminated) return cand;
+    }
+    return null;
+  };
+  const govController = controllerForTurn(currentTurn);
+  const govControllerNext = controllerForTurn(currentTurn + 1);
+
   return (
     <>
       {/* Mobile: Compact view - only show turn and phase */}
@@ -77,7 +90,7 @@ export default function TurnTrack({
         {/* 구분선 */}
         <div className="w-px h-6 bg-foreground/10" />
 
-        {/* 플레이어 순서 (내 플레이어 위엔 왕관) */}
+        {/* 플레이어 순서 (내 플레이어 위엔 왕관, Montréal은 정부 관리자에 하단 바) */}
         <div className="flex items-center gap-2">
           <span className="text-sm text-foreground-secondary">순서</span>
           <div className="flex gap-1">
@@ -112,6 +125,37 @@ export default function TurnTrack({
               );
             })}
           </div>
+          {/* Montréal: 이번/다음 라운드 정부 링크 관리자 — 글자는 위에 띄우고,
+              색 원의 세로 중앙을 순서 원과 맞춘다 (왕관과 같은 오버레이 방식) */}
+          {govController && (
+            <span
+              className="relative ml-[10px] flex items-center whitespace-nowrap"
+              title={`정부 링크 건설 — 이번 라운드: ${players[govController]?.name}${
+                govControllerNext ? `, 다음 라운드: ${players[govControllerNext]?.name}` : ''
+              }`}
+            >
+              <span className="absolute -top-[13px] left-1/2 -translate-x-1/2 text-[10px] leading-none text-foreground-muted whitespace-nowrap">
+                정부 링크 건설
+              </span>
+              <span className="flex items-center gap-1">
+                <span
+                  className="inline-block w-4 h-4 rounded-full ring-2 ring-[#4E4D46]"
+                  style={{ backgroundColor: PLAYER_COLORS[players[govController]!.color] }}
+                  aria-label={`이번 라운드 정부: ${players[govController]?.name}`}
+                />
+                {govControllerNext && (
+                  <>
+                    <span className="text-[10px] text-foreground-muted">→</span>
+                    <span
+                      className="inline-block w-3 h-3 rounded-full opacity-60 ring-1 ring-[#4E4D46]"
+                      style={{ backgroundColor: PLAYER_COLORS[players[govControllerNext]!.color] }}
+                      aria-label={`다음 라운드 정부: ${players[govControllerNext]?.name}`}
+                    />
+                  </>
+                )}
+              </span>
+            </span>
+          )}
         </div>
       </div>
     </>

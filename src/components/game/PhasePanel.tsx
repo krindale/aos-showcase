@@ -11,6 +11,8 @@ import {
   SpecialAction,
   GAME_CONSTANTS,
   PLAYER_COLORS,
+  CUBE_COLORS,
+  CubeColor,
 } from '@/types/game';
 import {
   FileText,
@@ -33,6 +35,7 @@ import {
   Building2,
   Boxes,
   ListOrdered,
+  Landmark,
   type LucideIcon,
 } from 'lucide-react';
 import AuctionPanel from './AuctionPanel';
@@ -46,6 +49,7 @@ import { useNetStore } from '@/net/netStore';
 import { safeTimeout } from '@/utils/safeTimers';
 
 export const PHASE_ICONS: Record<GamePhase, React.ReactNode> = {
+  governmentLink: <Landmark size={18} />,
   issueShares: <FileText size={18} />,
   determinePlayerOrder: <Users size={18} />,
   selectActions: <Zap size={18} />,
@@ -116,7 +120,17 @@ export default function PhasePanel() {
 
   // AI 실행 중 여부 (버튼 비활성화에 사용)
   const isAIExecuting = aiExecution.pending;
-  const { nextPhase, selectAction, upgradeEngine, cancelSelection, undoLastAction } = useGameStore();
+  const { nextPhase, selectAction, upgradeEngine, cancelSelection, undoLastAction, placeRepopulationCube } = useGameStore();
+
+  // Montréal Repopulation 배치 UI 상태 — 큐브 선택은 스토어 ui(보드 도시 클릭으로 배치)
+  const repopCubes = phaseState.repopulationCubes ?? [];
+  const repopPlayer = phaseState.repopulationPlayer ?? null;
+  const repoCube = useGameStore((s) => s.ui.repopulationCube);
+  const { selectRepopulationCube } = useGameStore();
+
+  // Montréal 정부 관리 로테이션 (셋업 순번 고정 — 라운드 N 관리자 = [(N-1) % 인원])
+  const govControllers = useGameStore((s) => s.governmentControllers);
+  const currentTurn = useGameStore((s) => s.currentTurn);
 
   // 커밋 전 선택이 있는지 (취소 버튼 표시용 — boolean 셀렉터라 값이 바뀔 때만 리렌더)
   const hasActiveSelection = useGameStore(
@@ -222,6 +236,12 @@ export default function PhasePanel() {
   // 이동 건너뛰기 확인 다이얼로그 (window.confirm 대체 — 디자인 시스템 모달)
   const [skipMoveConfirmOpen, setSkipMoveConfirmOpen] = useState(false);
 
+  // Montréal 정부 링크: 아무것도 안 짓고 넘어가려 할 때 확인 (원본 룰: 관리자는 반드시 건설)
+  const [govSkipConfirmOpen, setGovSkipConfirmOpen] = useState(false);
+  const builtGovThisTurn = useGameStore((s) =>
+    s.board.trackTiles.some((t) => t.isGovernment && t.builtTurn === s.currentTurn)
+  );
+
   // 리마운트(모바일 시트 여닫기 등) 시 지난 선택 팝이 일제 재생되지 않게 첫 렌더는 애니메이션 생략
   const firstRender = useIsFirstRender();
 
@@ -259,6 +279,102 @@ export default function PhasePanel() {
 
       {/* 단계별 UI - 반응형 패딩 */}
       <div className="p-2 md:p-4">
+        {/* 0. 정부 링크 건설 (Montréal) */}
+        {currentPhase === 'governmentLink' && (
+          <div className="space-y-2 md:space-y-3">
+            <p className="text-xs md:text-sm text-foreground-secondary">
+              정부 관리: <span className="text-accent font-medium">{currentPlayerData.name}</span>
+            </p>
+            {/* 관리 로테이션 — 셋업 순번 고정, 라운드마다 다음 사람으로 (원본 Govt. Player 트랙) */}
+            {govControllers && govControllers.length > 0 && (
+              <div className="p-1.5 md:p-2 rounded-lg bg-background/30 text-[10px] md:text-xs text-foreground-secondary flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                <span className="shrink-0">관리 순서:</span>
+                {govControllers.map((pid, i) => {
+                  const isNow = i === (currentTurn - 1) % govControllers.length;
+                  const p = players[pid];
+                  if (!p) return null;
+                  return (
+                    <span key={pid} className="inline-flex items-center gap-1">
+                      {i > 0 && <span className="text-foreground-muted">→</span>}
+                      <span
+                        className={`inline-flex items-center gap-1 rounded px-1 ${isNow ? 'bg-[#4E4D46] text-white font-semibold' : ''}`}
+                      >
+                        <span className="inline-block h-2 w-2 rounded-full ring-1 ring-black/15" style={{ background: PLAYER_COLORS[p.color] }} />
+                        {p.name}
+                      </span>
+                    </span>
+                  );
+                })}
+                <span className="w-full text-foreground-muted">라운드마다 순서대로 돌아갑니다 (이번 라운드 {currentTurn})</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between">
+              <span className="text-xs md:text-sm text-foreground-secondary">정부 트랙 (최대 3)</span>
+              <span className="text-base md:text-lg font-bold text-foreground">
+                {phaseState.builtTracksThisTurn} / {phaseState.maxTracksThisTurn}
+              </span>
+            </div>
+            <div className="p-2 md:p-3 rounded-lg bg-background/50">
+              <p className="text-[10px] md:text-xs text-foreground-secondary">
+                • 중립 정부 링크 1개를 무료로 건설합니다 (도시에서 시작해 링크를 완성하세요)
+              </p>
+              <p className="text-[10px] md:text-xs text-foreground-secondary">
+                • 누구나 이용할 수 있지만 수입은 없습니다 — 미완성 구간은 넘어갈 때 제거됩니다
+              </p>
+              <p className="text-[10px] md:text-xs text-foreground-secondary">
+                • 모든 트랙은 하나의 네트워크로 이어져야 합니다 (첫 링크가 시작점)
+              </p>
+            </div>
+            {currentPlayerData.isAI ? (
+              <div className="text-center py-4">
+                <div className="animate-pulse text-accent font-medium">
+                  {currentPlayerData.name} (BOT) 정부 링크 건설 중...
+                </div>
+              </div>
+            ) : !isMyTurn ? (
+              otherTurnNote
+            ) : (
+              <div className="flex gap-2">
+                {hasActiveSelection && (
+                  <button
+                    onClick={cancelSelection}
+                    className="flex-shrink-0 min-h-[44px] px-3 py-3 md:py-2 rounded-lg text-sm font-medium bg-steam-red/10 text-steam-red border border-steam-red/30 hover:bg-steam-red/20 transition-colors flex items-center justify-center gap-1"
+                    aria-label="선택 취소"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    // 원본 룰: 관리자는 정부 링크를 반드시 건설 — 안 짓고 넘어가면 확인을 받는다
+                    if (!builtGovThisTurn) setGovSkipConfirmOpen(true);
+                    else handleNextPhase();
+                  }}
+                  disabled={isAIExecuting}
+                  className="flex-1 min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  aria-label="정부 링크 완료"
+                >
+                  건설 완료 — 주식 발행으로
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                {undoButton}
+              </div>
+            )}
+            <ConfirmDialog
+              open={govSkipConfirmOpen}
+              title="정부 링크를 건설하지 않고 넘어갈까요?"
+              message="원본 룰에서는 정부 관리자가 매 라운드 중립 링크 1개를 반드시 건설합니다. 도시를 클릭해 무료로 건설할 수 있어요."
+              confirmLabel="그냥 넘어가기"
+              cancelLabel="건설할게요"
+              onConfirm={() => {
+                setGovSkipConfirmOpen(false);
+                handleNextPhase();
+              }}
+              onCancel={() => setGovSkipConfirmOpen(false)}
+            />
+          </div>
+        )}
+
         {/* I. 주식 발행 - 반응형 */}
         {currentPhase === 'issueShares' && (
           <div className="space-y-2 md:space-y-3">
@@ -299,7 +415,59 @@ export default function PhasePanel() {
         )}
 
         {/* III. 행동 선택 - 반응형 */}
-        {currentPhase === 'selectActions' && (
+        {currentPhase === 'selectActions' && repopCubes.length > 0 && (
+          // Montréal Repopulation: production 선택 즉시 뽑힌 3개 중 1개를 도시에 배치
+          <div className="space-y-2 md:space-y-3">
+            <p className="text-xs md:text-sm text-foreground-secondary">
+              <span className="text-accent font-medium">{repopPlayer ? players[repopPlayer]?.name : ''}</span>
+              — Repopulation: 뽑힌 화물 3개 중 1개를 도시에 배치하세요 (나머지는 주머니로)
+            </p>
+            {(myPlayerId === null || myPlayerId === repopPlayer) && repopPlayer && !players[repopPlayer]?.isAI ? (
+              <>
+                <div className="flex gap-2">
+                  {repopCubes.map((c, i) => (
+                    <button
+                      key={`${c}-${i}`}
+                      onClick={() => selectRepopulationCube(repoCube === c ? null : c)}
+                      className={`w-10 h-10 rounded-md border-2 transition-all ${
+                        repoCube === c ? 'border-accent scale-110' : 'border-glass-border'
+                      }`}
+                      style={{ background: CUBE_COLORS[c] }}
+                      aria-label={`${c} 큐브 선택`}
+                    />
+                  ))}
+                </div>
+                <p className="text-xs text-foreground-secondary">
+                  {repoCube
+                    ? '보드에서 금색 테두리의 도시를 클릭해 배치하세요'
+                    : '배치할 화물을 먼저 선택하세요'}
+                </p>
+              </>
+            ) : (
+              <div className="text-center py-3 text-xs md:text-sm text-foreground-secondary">
+                배치를 기다리는 중...
+              </div>
+            )}
+          </div>
+        )}
+        {currentPhase === 'selectActions' && repopCubes.length === 0 && currentPlayerData.actionBanned && (
+          <div className="space-y-2 md:space-y-3">
+            <p className="text-xs md:text-sm text-steam-red">
+              무입찰 패스 2인 이상 — <span className="font-medium">{currentPlayerData.name}</span>은(는) 이번 턴 특수 행동을 선택할 수 없습니다.
+            </p>
+            {(isMyTurn && !currentPlayerData.isAI) && (
+              <button
+                onClick={handleNextPhase}
+                disabled={isAIExecuting}
+                className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                다음으로
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        )}
+        {currentPhase === 'selectActions' && repopCubes.length === 0 && !currentPlayerData.actionBanned && (
           <div className="space-y-2 md:space-y-3">
             {currentPlayerData.isAI ? (
               <div className="text-center py-4">
@@ -390,6 +558,10 @@ export default function PhasePanel() {
                             <p className="text-[10px] text-foreground-secondary mt-0.5">
                               {action === 'engineer' && getMapProfile(mapId).engineerHalfCost
                                 ? '3개 + 최고가 1개 절반값'
+                                : action === 'locomotive' && getMapProfile(mapId).dedicatedGovEngine
+                                ? '정부 엔진(DGEL) +1'
+                                : action === 'production' && getMapProfile(mapId).productionAsRepopulation
+                                ? '3개 뽑아 1개 즉시 배치'
                                 : ACTION_SHORT[action]}
                             </p>
                           </div>
@@ -589,6 +761,7 @@ export default function PhasePanel() {
                   })()}
                   <ChevronRight className="w-4 h-4" />
                 </button>
+                {undoButton}
               </>
             ) : (
               otherTurnNote

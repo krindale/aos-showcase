@@ -20,10 +20,62 @@ export type GoodsGrowthSlice = Pick<
   | 'growGoods'
   | 'getEmptySlots' | 'startProduction' | 'selectProductionSlot'
   | 'confirmProduction' | 'cancelProduction'
+  | 'placeRepopulationCube'
 >;
 
 export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
   return {
+    // === Montréal Repopulation: production 선택 즉시 뽑힌 3개 중 1개를 도시에 배치 ===
+    placeRepopulationCube: (cubeColor, cityId) => {
+      const state = get();
+      const drawn = state.phaseState.repopulationCubes ?? [];
+      const holder = state.phaseState.repopulationPlayer;
+      if (drawn.length === 0 || !holder) {
+        console.warn('[placeRepopulationCube] 배치 대기 중인 Repopulation 없음');
+        return false;
+      }
+      const cubeIdx = drawn.indexOf(cubeColor);
+      if (cubeIdx === -1) {
+        console.warn(`[placeRepopulationCube] 뽑은 큐브에 없는 색: ${cubeColor} (뽑음: ${drawn.join(',')})`);
+        return false;
+      }
+      const city = state.board.cities.find(c => c.id === cityId);
+      if (!city) {
+        console.warn(`[placeRepopulationCube] 도시 없음: ${cityId}`);
+        return false;
+      }
+
+      const rest = drawn.filter((_, i) => i !== cubeIdx);
+      set({
+        board: {
+          ...state.board,
+          cities: state.board.cities.map(c =>
+            c.id === cityId ? { ...c, cubes: [...c.cubes, cubeColor] } : c
+          ),
+        },
+        // 나머지 2개는 주머니로 반환
+        goodsDisplay: { ...state.goodsDisplay, bag: [...state.goodsDisplay.bag, ...rest] },
+        phaseState: {
+          ...state.phaseState,
+          repopulationCubes: [],
+          repopulationPlayer: null,
+        },
+        // 보드 클릭 배치 선택 상태 정리 (로컬 UI)
+        ui: { ...state.ui, repopulationCube: null },
+        logs: [
+          ...state.logs,
+          {
+            turn: state.currentTurn,
+            phase: state.currentPhase,
+            player: holder,
+            action: `Repopulation: ${cubeColor} 화물을 ${city.name}에 배치 (나머지 ${rest.length}개 주머니 반환)`,
+            timestamp: Date.now(),
+          },
+        ],
+      });
+      console.log(`[Repopulation] ${holder}: ${cubeColor} → ${city.name}`);
+      return true;
+    },
     growGoods: (diceResults) => {
       set((state) => {
         // 멱등 가드: 이번 goodsGrowth에서 이미 주사위를 굴렸으면(goodsGrowthEvent 존재) 재실행 차단.

@@ -27,7 +27,7 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
   const isLastTurn = state.currentTurn >= config.totalTurns;
 
   // === 1. 생존 발행 (절대 우선): 이번 턴 비용을 못 내면 income이 깎이고 파산 위험 ===
-  const expenses = player.issuedShares + player.engineLevel;
+  const expenses = player.issuedShares + player.engineLevel + (player.dgel ?? 0);
   const survivalShortage = Math.max(0, expenses - (player.cash + Math.max(0, player.income)));
   const survivalShares = Math.min(
     Math.ceil(survivalShortage / GAME_CONSTANTS.SHARE_VALUE),

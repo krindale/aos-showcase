@@ -67,6 +67,16 @@ import {
   createKoreaBoardState,
 } from './koreaMap';
 import {
+  MONTREAL_MAP,
+  MONTREAL_CITIES,
+  MONTREAL_TOWNS,
+  MONTREAL_COLUMN_MAPPING,
+  MONTREAL_COLORS,
+  MONTREAL_TOWN_NAMES,
+  MONTREAL_ROADS,
+  createMontrealBoardState,
+} from './montrealMap';
+import {
   SOUTHERN_US_MAP,
   SOUTHERN_US_CITIES,
   SOUTHERN_US_TOWNS,
@@ -142,6 +152,11 @@ export interface GameMapData {
    *  'perHex'(기본, Germany) = 헥스마다 숫자 박스 / 'legend'(Western US) = 지도 모서리에 지형색→가격 범례.
    *  지형별로 비용이 균일한 맵('legend')은 헥스마다 숫자를 찍으면 지저분하므로 범례로 표시한다. */
   hexCostMode?: 'perHex' | 'legend';
+  /** 범례에 표시할 지형 이름 오버라이드 (Montréal: swamp 지형을 '도로'로 재사용). 미지정 시 기본 이름. */
+  terrainNames?: Partial<Record<TerrainType, string>>;
+  /** 보드 위에 그릴 도로 라인 (Montréal — 검정 도로 + 노란 점선 중앙선, 원본 시트 재현).
+   *  각 라인 = 데이터 좌표 + 화면 px 오프셋(HEX_SIZE 기준)의 폴리라인. 순수 시각 요소. */
+  roads?: { coord: { col: number; row: number }; dx?: number; dy?: number }[][];
   /** viewBox 우측 여백을 헥스 N개 폭만큼 줄임 (calculateBoardDimensions가 우측을 약 1헥스 과대 산정 — 맵별 보정). */
   trimRightHexes?: number;
   /** viewBox 좌측 빈 열을 헥스 N개 폭만큼 가림 (Korea: 좌측 row 0이 비어 있어 1). */
@@ -327,6 +342,37 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     rules: { ...DEFAULT_MAP_RULES },
     createBoardState: createSouthernUsBoardState,
     goodsCubeCounts: DEFAULT_CUBE_COUNTS, // 룰북 표준 — 면화(white)는 주머니에 넣지 않고 마을 위에만
+  },
+
+  montreal: {
+    id: MONTREAL_MAP.id,
+    name: MONTREAL_MAP.name,
+    nameKo: MONTREAL_MAP.nameKo,
+    description: MONTREAL_MAP.description,
+    supportedPlayers: MONTREAL_MAP.supportedPlayers,
+    cols: MONTREAL_MAP.cols,
+    rows: MONTREAL_MAP.rows,
+    startCol: MONTREAL_MAP.startCol,
+    maxTurns: MONTREAL_MAP.maxTurns,
+    cities: MONTREAL_CITIES,
+    towns: MONTREAL_TOWNS,
+    columnMapping: MONTREAL_COLUMN_MAPPING,
+    townNames: MONTREAL_TOWN_NAMES,
+    hideLakeHexes: true,         // 우상단 정부 패널 영역 등 맵 밖은 안 그림
+    orientation: 'flat',         // flat-top 보드 — 전치 저장 + 렌더 전치 (Germany 등과 동일)
+    hexCostMode: 'legend',       // 지형별 균일 비용 → 범례. 단 원본 시트에 숫자가 인쇄된 헥스
+                                 // 3곳(물 "6"×2·"5"×1)만 showCostMarker로 숫자 표시 (원본 재현)
+    terrainNames: { swamp: '도로', mountain: '언덕' }, // swamp 지형을 도로로 재사용 (몬트리올 용어)
+    roads: MONTREAL_ROADS,       // 원본 시트의 도로 라인 (검정 + 노란 점선) — 순수 시각 요소
+    colors: {
+      terrain: MONTREAL_COLORS.terrain,
+      background: MONTREAL_COLORS.background,
+      border: MONTREAL_COLORS.border,
+    },
+    // 특수 규칙(정부 링크/DGEL/마스터 네트워크/경매 트윅/Repopulation)은 MapProfile getter로 주입
+    rules: { ...DEFAULT_MAP_RULES, skipGoodsGrowth: true },
+    createBoardState: createMontrealBoardState,
+    goodsCubeCounts: DEFAULT_CUBE_COUNTS, // 룰북 표준 — 디스플레이 미사용, 전부 주머니에서 뽑음
   },
 
   korea: {

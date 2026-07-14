@@ -70,6 +70,8 @@ export function NewCityTilesModal({
               {mode === 'select'
                 ? '타일을 선택한 뒤, 맵에서 파란 테두리의 마을을 클릭해 배치하세요.'
                 : '아직 배치되지 않은 신규 도시 타일입니다.'}
+              {shown.some((t) => !t.used && t.setupCube) &&
+                ' 타일 위 화물은 도시화 시 신규 도시에 함께 배치됩니다.'}
             </p>
 
             {/* 타일 그리드 */}
@@ -80,7 +82,15 @@ export function NewCityTilesModal({
                   const isUsed = tile.used;
                   const inner = (
                     <>
-                      <NewCityTileHex colorKey={tile.color} id={tile.id} mapId={mapId} size={88} />
+                      {/* Montréal: 셋업 화물(setupCube)은 실제 도시 위 화물과 동일하게 헥스에 올려 렌더.
+                          크기 118 = 보드 헥스 1:1 (viewBox 폭) — 화물이 실제 크기로 보인다. */}
+                      <NewCityTileHex
+                        colorKey={tile.color}
+                        id={tile.id}
+                        mapId={mapId}
+                        size={118}
+                        cube={!isUsed ? tile.setupCube : undefined}
+                      />
                       {isUsed && (
                         <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-background/60">
                           <X size={28} className="text-foreground/50" />

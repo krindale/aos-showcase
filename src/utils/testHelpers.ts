@@ -215,6 +215,7 @@ export function createTestGameState(options: TestGameStateOptions = {}): GameSta
       productionMode: false,
       productionCubes: [],
       selectedProductionSlots: [],
+    repopulationCube: null,
       movingCube: null,
       reachableDestinations: [],
     },

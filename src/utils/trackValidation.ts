@@ -50,11 +50,21 @@ export function townSpurAt(
 export function isValidConnectionPoint(
   coord: HexCoord,
   board: BoardState,
-  currentPlayer: PlayerId
+  currentPlayer: PlayerId,
+  /** Montréal 정부 링크 건설 모드 — 정부 트랙(isGovernment)/정부 가닥(owner null)을 "내 것"으로 취급 */
+  governmentMode = false
 ): boolean {
   // 도시인 경우 - 항상 유효한 연결점
   const isCity = board.cities.some(c => hexCoordsEqual(c.coord, coord));
   if (isCity) return true;
+
+  if (governmentMode) {
+    const trackAtCoord = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
+    if (trackAtCoord?.isGovernment) return true;
+    const isTown = board.towns.some(t => hexCoordsEqual(t.coord, coord) && t.newCityColor === null);
+    if (isTown && (board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, coord) && sp.owner === null)) return true;
+    return false;
+  }
 
   // 플레이어의 기존 트랙이 있는 경우 (기본 경로 또는 보조 경로)
   const trackAtCoord = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
@@ -67,6 +77,51 @@ export function isValidConnectionPoint(
   // 내 트랙이 진입해 있는 마을 - 마을은 진입 트랙을 모두 연결하는 허브
   if (playerConnectsToTown(coord, board, currentPlayer)) return true;
 
+  return false;
+}
+
+/**
+ * 정거장(도시/마을)이 마스터 네트워크(보드 위 아무 트랙)에 닿아 있는지 (Montréal).
+ * 도시 = 어느 변이든 트랙이 마주보고 닿아 있으면 / 마을 = 가닥이 하나라도 있으면.
+ * AI가 "네트워크에서 시작 가능한 경로"를 고를 때, 건설 시작 끝점 선택에 사용.
+ */
+export function stationInMasterNetwork(board: BoardState, stationCoord: HexCoord): boolean {
+  const isTown = board.towns.some(t => hexCoordsEqual(t.coord, stationCoord) && t.newCityColor === null);
+  if (isTown) {
+    return (board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, stationCoord));
+  }
+  for (let e = 0; e < 6; e++) {
+    const nb = getNeighborHex(stationCoord, e);
+    const back = getOppositeEdge(e);
+    const tile = board.trackTiles.find(t => hexCoordsEqual(t.coord, nb));
+    if (tile && [...tile.edges, ...(tile.secondaryEdges ?? [])].includes(back)) return true;
+  }
+  return false;
+}
+
+/**
+ * Montréal 정부 링크 연결성 검증 — 정부 트랙은 도시(Station), 정부 트랙, 정부 가닥이 있는
+ * 마을(Stop)에만 이어 지을 수 있다 (원본 룰: 정부 트랙도 정부 자신의 트랙으로 Station까지
+ * 이어져야 함 — 플레이어 트랙에 잇는 건 "타인 트랙 직접 연결 금지"와 동일하게 불가).
+ */
+export function validateGovernmentTrackConnection(
+  targetCoord: HexCoord,
+  edges: [number, number],
+  board: BoardState
+): boolean {
+  for (const edge of edges) {
+    const neighbor = getNeighborHex(targetCoord, edge);
+    if (board.cities.some(c => hexCoordsEqual(c.coord, neighbor))) return true;
+
+    const isTown = board.towns.some(t => hexCoordsEqual(t.coord, neighbor) && t.newCityColor === null);
+    if (isTown && (board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, neighbor) && sp.owner === null)) {
+      return true;
+    }
+
+    const oppositeEdge = getOppositeEdge(edge);
+    const nbTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor));
+    if (nbTrack?.isGovernment && nbTrack.edges.includes(oppositeEdge)) return true;
+  }
   return false;
 }
 
@@ -514,6 +569,9 @@ export function canRedirectTrack(
 ): boolean {
   const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, trackCoord));
   if (!track) return false;
+
+  // 정부 트랙(Montréal)은 중립 — 플레이어가 방향 전환/소유권 획득 불가
+  if (track.isGovernment) return false;
 
   // 복합 트랙은 방향 전환 불가 (단순 트랙만 가능)
   if (track.trackType !== 'simple') return false;

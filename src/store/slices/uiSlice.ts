@@ -32,9 +32,17 @@ import {
 import { logAction } from '@/utils/debugConfig';
 import { useToastStore } from '../toastStore';
 import { getBuildBlockReason } from '../helpers/buildReason';
+import { getMapProfile } from '@/maps/getMapProfile';
 
 type Set = StoreApi<GameStore>['setState'];
 type Get = StoreApi<GameStore>['getState'];
+
+/** Montréal DGEL: 이동 탐색에 넘길 정부 링크 전용 추가 이동 수 (다른 맵은 0) */
+function govExtraOf(state: GameStore): number {
+  return getMapProfile(state.mapId).dedicatedGovEngine
+    ? (state.players[state.currentPlayer]?.dgel ?? 0)
+    : 0;
+}
 
 /** uiSlice가 제공하는 액션 — 인터페이스 정의는 gameStore(GameStore)에 그대로, Pick으로 참조 */
 export type UiSlice = Pick<
@@ -47,6 +55,7 @@ export type UiSlice = Pick<
   | 'canRedirect' | 'selectTrackToRedirect' | 'hideRedirectSelection'
   | 'enterUrbanizationMode' | 'exitUrbanizationMode' | 'selectNewCityTile' | 'canPlaceNewCity'
   | 'selectDestinationCity' | 'startCubeAnimation' | 'advanceCubeAnimation'
+  | 'selectRepopulationCube'
 >;
 
 // 반환 타입을 Pick으로 명시 → 액션 파라미터는 contextual typing으로 자동 추론 (원본과 동일 시그니처)
@@ -124,12 +133,12 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
         if (!cubeColor) return;
         const player = state.players[state.currentPlayer];
         const reachable = findReachableDestinations(
-          town.coord, state.board, state.currentPlayer, player.engineLevel, cubeColor
+          town.coord, state.board, state.currentPlayer, player.engineLevel, cubeColor, govExtraOf(state)
         );
         let bestPath: HexCoord[] = [];
         let bestLinks = -1;
         for (const dest of reachable) {
-          const p = findLongestPath(town.coord, dest.coord, state.board, state.currentPlayer, player.engineLevel, cubeColor);
+          const p = findLongestPath(town.coord, dest.coord, state.board, state.currentPlayer, player.engineLevel, cubeColor, govExtraOf(state));
           if (p) { const links = countPathLinks(p, state.board); if (links > bestLinks) { bestLinks = links; bestPath = p; } }
         }
         logAction('goodsMovement', 'townCubeSelect', { player: state.currentPlayer, town: townId, color: cubeColor, cities: reachable.map(c => c.id) });
@@ -148,13 +157,14 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
 
       const player = state.players[state.currentPlayer];
 
-      // 도달 가능한 목적지 계산
+      // 도달 가능한 목적지 계산 (Montréal: 정부 링크 전용 추가 이동 govExtra 포함)
       const reachable = findReachableDestinations(
         city.coord,
         state.board,
         state.currentPlayer,
         player.engineLevel,
-        cubeColor
+        cubeColor,
+        govExtraOf(state)
       );
 
       // 화물 선택 시 최적 경로(최대 링크=최대 수입)를 골라 골드 점선으로 미리보기 표시 (모든 맵 공통).
@@ -163,7 +173,7 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
       let bestLinks = -1;
       for (const dest of reachable) {
         const p = findLongestPath(
-          city.coord, dest.coord, state.board, state.currentPlayer, player.engineLevel, cubeColor
+          city.coord, dest.coord, state.board, state.currentPlayer, player.engineLevel, cubeColor, govExtraOf(state)
         );
         if (p) {
           const links = countPathLinks(p, state.board);
@@ -279,18 +289,26 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
       }));
     },
 
+    // === Montréal Repopulation: 배치할 큐브 선택 (보드 도시 클릭으로 배치) ===
+    selectRepopulationCube: (cubeColor) => {
+      set((state) => ({ ui: { ...state.ui, repopulationCube: cubeColor } }));
+    },
+
     // === 트랙 건설 UI ===
     selectSourceHex: (coord) => {
       const state = get();
       const currentPlayer = state.currentPlayer;
+      // Montréal 정부 링크 건설 단계 — 정부 트랙/가닥을 "내 것"으로 취급하는 정부 모드
+      const govMode = state.currentPhase === 'governmentLink';
 
       // 유효한 연결점인지 확인 (도시, 또는 플레이어의 트랙/진입 마을)
-      if (!isValidConnectionPoint(coord, state.board, currentPlayer)) {
+      if (!isValidConnectionPoint(coord, state.board, currentPlayer, govMode)) {
         return;
       }
 
       // 건설 가능한 이웃 헥스 계산 (교체/방향전환 포함). 건설 불가 경계 변 쪽은 제외(가이드에서 숨김).
-      const neighbors = getBuildableNeighbors(coord, state.board, currentPlayer, true)
+      // 정부 모드는 교체/방향전환 불가 → allowReplace=false
+      const neighbors = getBuildableNeighbors(coord, state.board, currentPlayer, !govMode, govMode)
         .filter(n => !isBlockedEdge(state.board, coord, n.coord));
 
       // 노란 칸이 하나도 안 뜨는 흔한 원인 = 이번 턴 건설 제한 도달. 그 경우만 토스트로 안내
@@ -658,7 +676,7 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
         const cubeColor = town.cubes[cubeIndex];
         if (!cubeColor) return;
         const player = state.players[state.currentPlayer];
-        const path = findLongestPath(town.coord, coord, state.board, state.currentPlayer, player.engineLevel, cubeColor);
+        const path = findLongestPath(town.coord, coord, state.board, state.currentPlayer, player.engineLevel, cubeColor, govExtraOf(state));
         if (!path || path.length < 2) return;
         state.startCubeAnimation(path, cubeColor);
         return;
@@ -672,14 +690,15 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
 
       const player = state.players[state.currentPlayer];
 
-      // 가장 긴 경로 찾기
+      // 가장 긴 경로 찾기 (Montréal: 정부 링크 전용 추가 이동 govExtra 포함)
       const path = findLongestPath(
         sourceCity.coord,
         coord,
         state.board,
         state.currentPlayer,
         player.engineLevel,
-        cubeColor
+        cubeColor,
+        govExtraOf(state)
       );
 
       if (!path || path.length < 2) return;

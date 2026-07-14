@@ -308,12 +308,31 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
 
         console.log(`[resolveAuction] 새 playerOrder: [${newPlayerOrder.join(', ')}], 1번: ${newPlayerOrder[0]} (isAI: ${newPlayers[newPlayerOrder[0]]?.isAI})`);
 
+        // Montréal 경매 트윅: 입찰 없이 패스한 플레이어가 2인 이상이면 그들은 이번 턴 특수 행동 선택 불가
+        const penaltyLogs: typeof state.logs = [];
+        if (getMapProfile(state.mapId).auctionNoBidPassPenalty) {
+          const noBidPassers = passedPlayers.filter(p => !((bids[p] ?? 0) > 0));
+          if (noBidPassers.length >= 2) {
+            for (const p of noBidPassers) {
+              newPlayers[p] = { ...newPlayers[p], actionBanned: true };
+              penaltyLogs.push({
+                turn: state.currentTurn,
+                phase: state.currentPhase,
+                player: p,
+                action: `${newPlayers[p].name}: 무입찰 패스 2인 이상 — 이번 턴 특수 행동 선택 불가`,
+                timestamp: Date.now(),
+              });
+            }
+          }
+        }
+
         return {
           players: newPlayers,
           playerOrder: newPlayerOrder,
           auction: null,
           logs: [
             ...state.logs,
+            ...penaltyLogs,
             {
               turn: state.currentTurn,
               phase: state.currentPhase,

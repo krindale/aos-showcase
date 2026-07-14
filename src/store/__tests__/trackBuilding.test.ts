@@ -183,6 +183,35 @@ describe('트랙 건설 메커니즘', () => {
       expect(canBuild).toBe(true);
     });
 
+    it('정부 트랙(isGovernment) 위에도 표준 룰대로 교차 건설 가능 — 정부 링크 유지 (Montréal)', () => {
+      // 바로 위 '상대 트랙 위에 교차 건설 가능'과 동일한 기하 — 대상만 정부 트랙(owner null).
+      // 원본 룰: 정부 링크 = "unused colour의 중립 링크" — 표준 룰의 복합 교체(원 트랙 보존)가
+      // 그대로 적용된다. (방향전환은 canRedirectTrack에서 금지 유지)
+      const state = useGameStore.getState();
+      useGameStore.setState({
+        board: {
+          ...state.board,
+          trackTiles: [
+            ...state.board.trackTiles,
+            {
+              id: 'gov-track-test',
+              coord: { col: 1, row: 0 },
+              edges: [3, 0] as [number, number],
+              owner: null,
+              trackType: 'simple' as const,
+              isGovernment: true,
+            },
+          ],
+        },
+      });
+      placeTrack({ col: 0, row: 1 }, [4, 5], 'player1');
+
+      const canBuild = useGameStore.getState().canBuildComplexTrack(
+        { col: 1, row: 0 }, [2, 5], 'crossing'
+      );
+      expect(canBuild).toBe(true);
+    });
+
     it('자기 트랙이 getBuildableNeighbors에 교차 후보로 포함됨', () => {
       buildCompletedLink('player1');
       const state = useGameStore.getState();

@@ -69,6 +69,10 @@ const INTENT_SPECS: Record<string, IntentSpec> = {
   upgradeEngine: { playerIdArg: 0, optimistic: true },
   // Phase IX 물품 성장/생산
   growGoods: { optimistic: true }, // 주사위 결과는 인자로 고정 전송 (굴린 사람 값을 호스트가 그대로 적용)
+  // Montréal Repopulation — 뽑힌 큐브는 phaseState(스냅샷 동기화)에 있어 captureUi 불필요.
+  // 낙관 반영 금지: 게스트의 selectAction 낙관 실행이 뽑은 큐브(랜덤)와 호스트가 뽑은 큐브가
+  // 다를 수 있어, 배치는 호스트 스냅샷 확정을 기다린다.
+  placeRepopulationCube: {},
   confirmProduction: {
     captureUi: ['productionMode', 'selectedProductionSlots', 'productionCubes'],
     optimistic: true,

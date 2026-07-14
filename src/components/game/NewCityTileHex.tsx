@@ -1,4 +1,4 @@
-import { City, CityColor, PlayerId, PlayerState } from '@/types/game';
+import { City, CityColor, CubeColor, PlayerId, PlayerState } from '@/types/game';
 import { hexToPixel, HEX_SIZE, HEX_HORIZONTAL_RADIUS } from '@/utils/hexGrid';
 import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
@@ -16,18 +16,22 @@ export function NewCityTileHex({
   id,
   mapId,
   size = 96,
+  cube,
 }: {
   colorKey: CityColor;
   id: string;
   mapId: string;
   /** 표시 폭(px) — 기본은 보드 헥스 원본 크기(1:1) */
   size?: number;
+  /** 타일 위에 놓인 셋업 화물 (Montréal) — 실제 도시 위 화물과 동일하게 렌더 */
+  cube?: CubeColor;
 }) {
   const isFlat = getMapData(mapId).orientation === 'flat';
   const mapProfile = getMapProfile(mapId);
 
-  // 실제 보드 도시 하나만 렌더 (아직 배치 전이라 큐브 없음, 상호작용 없음)
-  const mockCity: City = { id, name: 'New City', coord: { col: 0, row: 0 }, color: colorKey, cubes: [] };
+  // 실제 보드 도시 하나만 렌더 (상호작용 없음).
+  // 셋업 화물(cube)은 mockCity.cubes로 넣어 BoardCities가 보드 도시와 100% 동일하게 배치한다.
+  const mockCity: City = { id, name: 'New City', coord: { col: 0, row: 0 }, color: colorKey, cubes: cube ? [cube] : [] };
 
   // 헥스 중심 픽셀 + bounding box → viewBox
   const { x, y } = hexToPixel(0, 0, undefined, undefined, undefined, isFlat);

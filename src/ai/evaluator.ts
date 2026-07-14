@@ -80,6 +80,7 @@ export function evaluateTrackPosition(
   if (hexTile) {
     if (hexTile.terrain === 'river' || hexTile.terrain === 'swamp') score -= 1;
     if (hexTile.terrain === 'mountain') score -= 2;
+    if (hexTile.terrain === 'sea') score -= 2; // 바다(Montréal $6) — 산과 동급 이상 감점
     if (hexTile.terrain === 'lake') score -= 100; // 호수는 건설 불가
   }
 

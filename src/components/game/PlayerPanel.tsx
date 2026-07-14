@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { POP_SPRING, isRecentUndoLog, CROWN_GOLD, CROWN_INK } from './uiEffects';
 import { useMyPlayerId, isMyPlayer } from '@/hooks/useMyPlayerId';
+import { getMapProfile } from '@/maps/getMapProfile';
 
 interface PlayerPanelProps {
   playerId: PlayerId;
@@ -131,8 +132,12 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
   const engineDelta = useStatDelta(player.engineLevel);
   const sharesDelta = useStatDelta(player.issuedShares);
 
-  // 비용 계산
-  const expense = player.issuedShares + player.engineLevel;
+  // 비용 계산 (Montréal: 정부 전용 엔진 DGEL도 합산)
+  const dgel = player.dgel ?? 0;
+  const expense = player.issuedShares + player.engineLevel + dgel;
+  // Montréal(dedicatedGovEngine): 엔진 칸에 정부 엔진(DGEL) 정보를 항상 함께 표시
+  const mapIdForDgel = useGameStore((s) => s.mapId);
+  const isDgelMap = getMapProfile(mapIdForDgel).dedicatedGovEngine;
 
   // 발행 가능한 최대 주식 수
   const maxIssuable = GAME_CONSTANTS.MAX_SHARES - player.issuedShares;
@@ -187,22 +192,27 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
           {isEliminated && <Skull className="w-2.5 h-2.5 text-red-400 flex-shrink-0" />}
         </div>
         <div className="flex items-center gap-2 text-[11px] font-medium flex-shrink-0">
-          <span className="relative flex items-center gap-0.5 text-green-400" title="현금">
+          <span className="relative flex items-center gap-0.5 text-positive" title="현금">
             <DollarSign className="w-3 h-3" />{player.cash}
             <DeltaBadge delta={cashDelta} prefix="$" />
           </span>
-          <span className="relative flex items-center gap-0.5 text-blue-400" title="수입">
+          <span className="relative flex items-center gap-0.5 text-blue-700" title="수입">
             <TrendingUp className="w-3 h-3" />{player.income}
             {incomeReduction > 0 && (
               <span className="text-[9px] font-semibold text-red-400" title="수입 감소(시장 위축)">−{incomeReduction}</span>
             )}
             <DeltaBadge delta={incomeDelta} />
           </span>
-          <span className="relative flex items-center gap-0.5 text-yellow-400" title="엔진">
+          <span
+            className="relative flex items-center gap-0.5 text-amber-600"
+            title={isDgelMap ? `엔진 ${player.engineLevel} + 정부 엔진(DGEL) ${dgel}` : '엔진'}
+          >
             <Train className="w-3 h-3" />{player.engineLevel}
+            {/* Montréal: 접힌 줄에도 정부 엔진(DGEL) 상시 표시 — "일반+정부" */}
+            {isDgelMap && <span className="text-foreground font-semibold">+{dgel}</span>}
             <DeltaBadge delta={engineDelta} />
           </span>
-          <span className="relative flex items-center gap-0.5 text-purple-400" title="발행 주식">
+          <span className="relative flex items-center gap-0.5 text-purple-700" title="발행 주식">
             <FileText className="w-3 h-3" />{player.issuedShares}
             <DeltaBadge delta={sharesDelta} />
           </span>
@@ -280,7 +290,7 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
       {/* 스탯 그리드 - 반응형 패딩 및 간격. 값이 바뀌면 그 셀이 플레이어 색으로 물들고 증감 배지가 뜬다 */}
       <div className="p-1.5 md:p-2 grid grid-cols-2 gap-1.5 md:gap-2">
         <StatCell
-          icon={<DollarSign className="text-green-400 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
+          icon={<DollarSign className="text-positive flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
           label="현금"
           delta={cashDelta}
           deltaPrefix="$"        >
@@ -288,7 +298,7 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
         </StatCell>
 
         <StatCell
-          icon={<TrendingUp className="text-blue-400 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
+          icon={<TrendingUp className="text-blue-700 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
           label="수입"
           delta={incomeDelta}        >
           <span className="flex items-center gap-1">
@@ -307,15 +317,27 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
         </StatCell>
 
         <StatCell
-          icon={<Train className="text-yellow-400 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
+          icon={<Train className="text-amber-600 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
           label="엔진"
           delta={engineDelta}        >
-          {player.engineLevel}
-          <span className="text-[10px] md:text-xs text-foreground-secondary"> / {GAME_CONSTANTS.MAX_ENGINE}</span>
+          <span className="flex items-baseline w-full">
+            <span>
+              {player.engineLevel}
+              <span className="text-[10px] md:text-xs text-foreground-secondary"> / {GAME_CONSTANTS.MAX_ENGINE}</span>
+            </span>
+            {/* Montréal: 정부 전용 엔진(DGEL) — 엔진과 동일 크기, 칸 우측 정렬 */}
+            {isDgelMap && (
+              <span className="ml-auto pl-2" title="정부 전용 엔진(DGEL) — Locomotive로만 +1, 정부 링크 위 추가 이동·비용 합산">
+                <span className="text-[10px] md:text-xs text-foreground-secondary">정부 </span>
+                {dgel}
+                <span className="text-[10px] md:text-xs text-foreground-secondary"> / {GAME_CONSTANTS.MAX_DGEL}</span>
+              </span>
+            )}
+          </span>
         </StatCell>
 
         <StatCell
-          icon={<FileText className="text-purple-400 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
+          icon={<FileText className="text-purple-700 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
           label="주식"
           delta={sharesDelta}        >
           {player.issuedShares}
@@ -328,7 +350,7 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
         <div className="text-[10px] md:text-xs text-foreground-secondary flex items-center justify-between p-1.5 rounded bg-background/30">
           <span>턴 비용</span>
           <span className="text-foreground whitespace-nowrap">
-            ${expense} <span className="hidden sm:inline">(주식 {player.issuedShares} + 엔진 {player.engineLevel})</span>
+            ${expense} <span className="hidden sm:inline">(주식 {player.issuedShares} + 엔진 {player.engineLevel}{dgel > 0 ? ` + 정부 ${dgel}` : ''})</span>
           </span>
         </div>
       </div>
@@ -363,7 +385,7 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
           {/* 예상 결과 - 반응형 텍스트 */}
           <div className="flex items-center justify-between px-2 text-[10px] md:text-xs text-foreground-secondary">
             <span>받는 금액</span>
-            <span className="text-green-400 font-medium">+${shareAmount * GAME_CONSTANTS.SHARE_VALUE}</span>
+            <span className="text-positive font-medium">+${shareAmount * GAME_CONSTANTS.SHARE_VALUE}</span>
           </div>
           <div className="flex items-center justify-between px-2 text-[10px] md:text-xs text-foreground-secondary">
             <span>발행 후 총 주식</span>
@@ -371,7 +393,7 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
           </div>
           <div className="flex items-center justify-between px-2 text-[10px] md:text-xs text-foreground-secondary">
             <span>발행 후 턴 비용</span>
-            <span className="text-red-400">${player.issuedShares + shareAmount + player.engineLevel}</span>
+            <span className="text-red-400">${player.issuedShares + shareAmount + player.engineLevel + dgel}</span>
           </div>
 
           {/* 발행 버튼 - 터치 친화적인 크기 (min 44px) */}

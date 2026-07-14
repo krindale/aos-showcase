@@ -21,7 +21,8 @@ export function crossesBlockedEdge(board: BoardState, coord: HexCoord, edges: nu
 export function findMissingTownSpurs(
   townCoord: HexCoord,
   board: BoardState,
-  playerId: PlayerId
+  /** null = 정부(Montréal governmentLink) — owner null 트랙(정부 트랙)이 닿은 변을 찾는다 */
+  playerId: PlayerId | null
 ): { townCoord: HexCoord; edge: number }[] {
   const isTown = board.towns.some(t => hexCoordsEqual(t.coord, townCoord) && t.newCityColor === null);
   if (!isTown) return [];
@@ -132,6 +133,73 @@ export function hasIncompleteNewTracks(
 ): boolean {
   return getIncompleteNewTracks(board, currentTurn, playerId).length > 0;
 }
+
+/**
+ * Montréal 정부 링크: 이번 턴에 깐 정부 트랙(isGovernment) 중 완성 링크에 속하지 않는 것을
+ * 제거한다 (원본 룰: "No stubs / unfinished track" — 무료 건설이라 환불 없음).
+ * 함께 깐 정부 가닥(owner null, builtTurn 일치)도 제거.
+ */
+export function removeIncompleteGovernmentTracks(
+  board: BoardState,
+  currentTurn: number
+): { board: BoardState; removed: number } {
+  const k = (c: HexCoord) => `${c.col},${c.row}`;
+  const incomplete = board.trackTiles.filter(
+    t => t.isGovernment && t.builtTurn === currentTurn && !isTrackPartOfCompletedLink(t.coord, board)
+  );
+  if (incomplete.length === 0) return { board, removed: 0 };
+  const removeKeys = new Set(incomplete.map(t => k(t.coord)));
+  const trackTiles = board.trackTiles.filter(t => !removeKeys.has(k(t.coord)));
+  const townSpurs = (board.townSpurs ?? []).filter(
+    sp => !(sp.owner === null && sp.builtTurn === currentTurn && removeKeys.has(k(sp.townCoord)))
+  );
+  return { board: { ...board, trackTiles, townSpurs }, removed: removeKeys.size };
+}
+
+/**
+ * Montréal 마스터 네트워크: 새 타일이 기존 네트워크(보드 위 모든 트랙의 총합)에 닿는지.
+ * - 어느 변이든 이웃 타일이 마주보는 변으로 트랙을 갖고 있으면 연결 (소유자 무관 — 정부 포함)
+ * - 어느 변이든 이웃이 "트랙이 하나라도 닿아 있는" 도시/마을이면 연결 (정거장이 트랙들을 잇는 허브)
+ * - 보드에 트랙이 하나도 없으면 true (첫 정부 링크가 네트워크를 세운다)
+ * 타일 단위 귀납 검사: 이전에 놓인 모든 타일이 이 검사를 통과했다면 네트워크는 항상 연속이다.
+ */
+export function touchesMasterNetwork(
+  board: BoardState,
+  coord: HexCoord,
+  edges: number[]
+): boolean {
+  const anyTrack = board.trackTiles.length > 0 || (board.townSpurs ?? []).length > 0;
+  if (!anyTrack) return true; // 첫 정부 링크 — 네트워크 시작점
+
+  for (const e of edges) {
+    const nb = getNeighborHex(coord, e);
+    const back = getOppositeEdge(e);
+    // ① 이웃 타일이 마주보는 변으로 트랙을 갖고 있으면 연결 (소유자 무관)
+    const nbTile = board.trackTiles.find(t => hexCoordsEqual(t.coord, nb));
+    if (nbTile && [...nbTile.edges, ...(nbTile.secondaryEdges ?? [])].includes(back)) return true;
+    // ② 이웃 도시: 그 도시에 트랙이 하나라도 닿아 있으면 (도시는 모든 변을 잇는 허브)
+    if (board.cities.some(c => hexCoordsEqual(c.coord, nb))) {
+      if (stationHasAnyTrack(board, nb)) return true;
+      continue;
+    }
+    // ③ 이웃 마을: 가닥이 하나라도 있으면 (마을 원이 진입 트랙들을 잇는 허브)
+    const isTown = board.towns.some(t => hexCoordsEqual(t.coord, nb));
+    if (isTown && (board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, nb))) return true;
+  }
+  return false;
+}
+
+/** 정거장(도시)에 트랙이 하나라도 닿아 있는지 (변을 마주보는 타일 트랙 존재 여부) */
+function stationHasAnyTrack(board: BoardState, cityCoord: HexCoord): boolean {
+  for (let e = 0; e < 6; e++) {
+    const nb = getNeighborHex(cityCoord, e);
+    const back = getOppositeEdge(e);
+    const tile = board.trackTiles.find(t => hexCoordsEqual(t.coord, nb));
+    if (tile && [...tile.edges, ...(tile.secondaryEdges ?? [])].includes(back)) return true;
+  }
+  return false;
+}
+
 
 export function removeIncompleteNewTracks(
   board: BoardState,

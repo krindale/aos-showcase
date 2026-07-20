@@ -787,7 +787,10 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                 <GameChat />
               </div>
               {/* 물품 성장이 없는 맵(St. Lucia)은 물품 디스플레이가 무의미 → 숨김 */}
-              {!isLandscape && !mapConfig.rules.skipGoodsGrowth && <GoodsDisplayPanel />}
+              {/* 물품 디스플레이 — 성장 생략 맵·슬롯 0칸 맵(달: 주사위→도시 직접 성장)은 숨김 */}
+              {!isLandscape && !mapConfig.rules.skipGoodsGrowth
+                && mapConfig.columnMapping.some((c) => c.rowCount > 0)
+                && <GoodsDisplayPanel />}
               {/* 온라인: 내 차례가 아니면 보드/디스플레이 클릭 차단 (호스트 검증의 UX 보강 — 최종
                   방어는 applyGameIntent). 채팅(z-30)은 오버레이(z-20) 위라 계속 사용 가능. */}
               {isOnline && !canInteract && <div className="absolute inset-0 z-20" aria-hidden />}

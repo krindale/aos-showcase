@@ -14,6 +14,7 @@ import { useTouchGestures } from '@/hooks/useTouchGestures';
 import {
   hexToPixel,
   getHexPoints,
+  isNightCity,
   getTrackPath,
   getRailroadTies,
   getEdgeMidpoint,
@@ -28,6 +29,7 @@ import {
   isTrackPartOfCompletedLink,
 } from '@/utils/hexGrid';
 import { getMapData } from '@/utils/mapRegistry';
+import { getMoonSide } from '@/utils/moonMap';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { isValidConnectionPoint as isValidConnectionPointUtil } from '@/utils/trackValidation';
 import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId, TerrainType } from '@/types/game';
@@ -65,19 +67,25 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   const mapData = useMemo(() => getMapData(mapId), [mapId]);
   const mapProfile = useMemo(() => getMapProfile(mapId), [mapId]);
   const terrainColors = mapData.colors.terrain;
-  // 산악 헥스: 바깥 밝은 갈색 테두리 + 안쪽 진한 갈색 (모든 맵 공통, 등고선 없음)
-  const MTN_RING_COLOR = '#a97736'; // 바깥 테두리: 밝은 갈색
-  const MTN_BASE_COLOR = '#7a5622'; // 안쪽 내부: 진한 갈색
+  // 산악 헥스: 바깥 밝은 테두리 + 안쪽 진한 내부 (기본 갈색 — 달은 mountainRenderColors로 회색)
+  const MTN_RING_COLOR = mapData.mountainRenderColors?.ring ?? '#a97736';
+  const MTN_BASE_COLOR = mapData.mountainRenderColors?.base ?? '#7a5622';
   const MTN_RING_INSET = 12;        // 테두리 두께(px, HEX_SIZE 기준)
   // 도시 헥스에 표시할 물품 성장 주사위 번호 (cityId → diceNumber).
   // Rust Belt처럼 도시가 많은 맵에서 어느 도시가 어느 주사위 번호로 보충되는지 보여준다.
   const cityDiceNumber = useMemo(() => {
-    const m: Record<string, number> = {};
+    const m: Record<string, number | string> = {};
+    // 달(Moon): 도시 인쇄 주사위 번호가 범위(1/2·3/4·5/6) — cityGrowthDice로 "1/2" 라벨 생성
+    const growthDice = mapProfile.cityGrowthDice;
+    if (Object.keys(growthDice).length > 0) {
+      for (const [cityId, dice] of Object.entries(growthDice)) m[cityId] = dice.join('/');
+      return m;
+    }
     for (const col of mapData.columnMapping) {
       if (!col.isNewCity && col.diceNumber != null) m[col.cityId] = col.diceNumber;
     }
     return m;
-  }, [mapData]);
+  }, [mapData, mapProfile]);
   // flat-top 맵(St. Lucia): 모든 렌더 기하를 전치 — 데이터/게임 로직은 pointy-top 그대로 (인접 동형)
   const isFlat = mapData.orientation === 'flat';
 
@@ -134,6 +142,37 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     }
     return d;
   }, [board.blockedEdges, isFlat]);
+
+  // 달(Moon): 밤쪽 절반 헥스들의 실루엣 — 반투명 어둠 오버레이 (턴마다 서↔동 교대)
+  const nightOverlayPath = useMemo(() => {
+    const nightSide = board.nightSide;
+    if (!nightSide) return '';
+    let d = '';
+    const addHex = (col: number, row: number) => {
+      if (getMoonSide({ col, row }) !== nightSide) return;
+      const { x, y } = hexToPixel(col, row, undefined, undefined, undefined, isFlat);
+      const pts = getHexPoints(x, y, HEX_SIZE, isFlat).split(' ');
+      d += `M ${pts.join(' L ')} Z `;
+    };
+    board.hexTiles.forEach(h => { if (h.terrain !== 'lake') addHex(h.coord.col, h.coord.row); });
+    board.cities.forEach(c => addHex(c.coord.col, c.coord.row));
+    return d;
+  }, [board.nightSide, board.hexTiles, board.cities, isFlat]);
+
+  // 달(Moon): 밤쪽 상단에 표시할 "밤" 배지 위치 (밤쪽 헥스들의 x 평균, 최상단 y 위)
+  const nightBadge = useMemo(() => {
+    const nightSide = board.nightSide;
+    if (!nightSide) return null;
+    let sumX = 0, minY = Infinity, n = 0;
+    board.hexTiles.forEach(h => {
+      if (h.terrain === 'lake' || getMoonSide(h.coord) !== nightSide) return;
+      const { x, y } = hexToPixel(h.coord.col, h.coord.row, undefined, undefined, undefined, isFlat);
+      sumX += x; minY = Math.min(minY, y); n++;
+    });
+    if (n === 0) return null;
+    // 밤쪽 x 평균 + 최상단 헥스 높이 — 마름모 보드의 좌상/우상 빈 공간에 놓인다 (viewBox 안)
+    return { x: sumX / n, y: minY - HEX_SIZE * 0.2 };
+  }, [board.nightSide, board.hexTiles, isFlat]);
 
   // 강 타일이 데이터로 "지나는 두 면"을 지정한 경우 (맵 데이터에 적힌 강 방향) — generic, 맵 분기 없음
   const riverEdgeMap = useMemo(() => {
@@ -991,6 +1030,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           currentPhase={currentPhase}
           isFlat={isFlat}
           cityDiceNumber={cityDiceNumber}
+          isCityNight={(city) => isNightCity(city, board)}
           isCityNumberBoxBlack={(cityId, demandColor) => mapProfile.isCityNumberBoxBlack(cityId, demandColor)}
           sourceHex={ui.sourceHex}
           reachableDestinations={ui.reachableDestinations}
@@ -1008,6 +1048,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           isFlat={isFlat}
           mapOutlinePath={mapOutlinePath}
           blockedEdgePath={blockedEdgePath}
+          nightOverlayPath={nightOverlayPath}
+          nightBadge={nightBadge}
           borderColor={mapData.colors.border}
           previewTrack={ui.previewTrack}
           selectedCubeCityId={ui.selectedCube?.cityId ?? null}

@@ -173,6 +173,9 @@ export interface GameMapData {
   /** 게임 화면 보드 표시 배율 (1=기본=폭 100%). 세로로 긴 맵이 화면을 꽉 채워 과대해 보일 때
    *  컨테이너 폭을 줄여 보드를 축소한다 (예: St. Lucia 0.8 = 20% 축소). 미지정=1. */
   boardDisplayScale?: number;
+  /** 산악 헥스 렌더 색 오버라이드 (ring=바깥 테두리, base=안쪽). 미지정 = 공통 갈색.
+   *  달(Moon): 회색 달 표면이라 산도 진회색 (원본 시트 톤). */
+  mountainRenderColors?: { ring: string; base: string };
   /** 맵별 특수 룰 */
   rules: MapRuleConfig;
   /** 초기 보드 상태 생성 (도시 큐브는 createInitialGameState에서 배치) */
@@ -402,6 +405,7 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     orientation: 'flat',         // flat-top 보드 — 전치 저장 + 렌더 전치 (Montréal 등과 동일)
     hexCostMode: 'legend',       // 지형별 균일 비용(크레이터 $3/산 $4) → 범례
     terrainNames: { plain: '크레이터' },
+    mountainRenderColors: { ring: '#6e6a6b', base: '#575354' }, // 달 표면 진회색 산 (원본 시트 톤)
     colors: {
       terrain: MOON_COLORS.terrain,
       background: MOON_COLORS.background,

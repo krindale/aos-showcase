@@ -42,6 +42,11 @@ export class MoonMapProfile extends StandardMapProfile {
     return MOON_CITY_CUBE_COUNTS;
   }
 
+  /** 원본 시트: 동쪽 도시(Nectaris·Tranquillitatis·Serenitatis)만 검은 숫자 박스 */
+  override isCityNumberBoxBlack(cityId: string): boolean {
+    return ['nectaris', 'tranquillitatis', 'serenitatis'].includes(cityId);
+  }
+
   // ── 달 특수룰 플래그 ──
   /** 턴당 건설 2개 (Engineer 3개) — 표준 3/4에서 −1 */
   override get buildsPerTurn(): number { return 2; }

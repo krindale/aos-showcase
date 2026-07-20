@@ -23,6 +23,10 @@ interface BoardOverlaysProps {
   mapOutlinePath: string;
   /** 건설 불가 내부 경계 변 path (GameBoard useMemo) */
   blockedEdgePath: string;
+  /** 달(Moon): 현재 밤쪽 절반 헥스들의 실루엣 path — 반투명 어둠 오버레이 (GameBoard useMemo) */
+  nightOverlayPath?: string;
+  /** 달(Moon): 밤쪽 상단 "밤" 배지 위치 (GameBoard useMemo) */
+  nightBadge?: { x: number; y: number } | null;
   borderColor: string;
   // ui 상태 (필요한 필드만)
   previewTrack: { coord: HexCoord; edges: [number, number] } | null;
@@ -39,6 +43,8 @@ export default function BoardOverlays({
   isFlat,
   mapOutlinePath,
   blockedEdgePath,
+  nightOverlayPath,
+  nightBadge,
   borderColor,
   previewTrack,
   selectedCubeCityId,
@@ -177,6 +183,28 @@ export default function BoardOverlays({
         );
       })()}
 
+      {/* 달(Moon): 밤쪽 절반 어둠 — 도시/트랙 위 반투명 (밤 도시 검정 렌더와 조합, 클릭 통과) */}
+      {nightOverlayPath && (
+        <path
+          d={nightOverlayPath}
+          fill="rgba(18,18,38,0.30)"
+          stroke="none"
+          style={{ pointerEvents: 'none' }}
+        />
+      )}
+
+      {/* 달(Moon): 밤쪽 상단 "밤" 배지 — 어느 절반이 밤인지 표시 (턴마다 교대) */}
+      {nightBadge && (
+        <g style={{ pointerEvents: 'none' }}>
+          <rect x={nightBadge.x - 44} y={nightBadge.y - 17} width={88} height={34} rx={17}
+            fill="rgba(24,24,46,0.88)" stroke="#8b87a8" strokeWidth={1.2} />
+          <text x={nightBadge.x} y={nightBadge.y + 1} textAnchor="middle" dominantBaseline="central"
+            fill="#f3f2fa" fontSize={17} fontWeight="700">
+            {'\u{1F319} \uBC24'}
+          </text>
+        </g>
+      )}
+
       {/* 지도 바깥 외곽선 — 헥스 실루엣의 바깥 변(이웃 없는 변)을 두꺼운 실선으로 연결 (맵 테두리색) */}
       {mapOutlinePath && (
         <path
@@ -188,6 +216,30 @@ export default function BoardOverlays({
           strokeLinejoin="round"
           style={{ pointerEvents: 'none' }}
         />
+      )}
+
+      {/* 달(Moon): 랩 어라운드 엣지 번호 — 외곽 변 바깥에 갈색 박스 + 번호 (같은 번호끼리 연결) */}
+      {(board.wrapEdges ?? []).map((w) =>
+        [w.a, w.b].map((side, i) => {
+          const { x, y } = hexToPixel(side.coord.col, side.coord.row, undefined, undefined, undefined, isFlat);
+          // 변 중점(getEdgeMidpoint와 동일 기하: 중점 각도 = 60°×edge)을 바깥으로 1.28배 연장한 위치에 박스
+          const rad = (Math.PI / 180) * (side.edge * 60);
+          const apothem = (Math.sqrt(3) / 2) * HEX_SIZE;
+          let dx = Math.cos(rad) * apothem * 1.28;
+          let dy = Math.sin(rad) * apothem * 1.28;
+          if (isFlat) { const t = dx; dx = dy; dy = t; } // 렌더 전치 (hexToPixel과 동일)
+          const bx = x + dx, by = y + dy;
+          const box = HEX_SIZE * 0.34;
+          return (
+            <g key={`wrap-${w.number}-${i}`} style={{ pointerEvents: 'none' }}>
+              <rect x={bx - box / 2} y={by - box / 2} width={box} height={box} rx={3} fill={borderColor} />
+              <text x={bx} y={by} textAnchor="middle" dominantBaseline="central" fill="#ffffff"
+                fontSize={box * 0.62} fontWeight="700" fontFamily="Georgia, 'Times New Roman', serif">
+                {w.number}
+              </text>
+            </g>
+          );
+        })
       )}
 
       {/* 철도 건설 불가 내부 경계 변 — 외곽선 2배(8px) 굵기, 검은색 */}

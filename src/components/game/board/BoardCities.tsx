@@ -28,8 +28,10 @@ interface BoardCitiesProps {
   players: Record<PlayerId, PlayerState>;
   currentPhase: GamePhase;
   isFlat: boolean;
-  /** cityId → 물품 성장 주사위 번호 */
-  cityDiceNumber: Record<string, number>;
+  /** cityId → 물품 성장 주사위 번호 (달: "1/2" 같은 범위 문자열) */
+  cityDiceNumber: Record<string, number | string>;
+  /** 달(Moon): 이 도시가 현재 밤쪽인지 — 밤 도시는 고유색 대신 검은 도시로 렌더 (미지정 = 밤낮 없음) */
+  isCityNight?: (city: City) => boolean;
   /** MapProfile.isCityNumberBoxBlack — 숫자 박스 흑/백 결정 */
   isCityNumberBoxBlack: (cityId: string, demandColor: string) => boolean;
   // ui 상태 (필요한 필드만)
@@ -55,6 +57,7 @@ export default function BoardCities({
   currentPhase,
   isFlat,
   cityDiceNumber,
+  isCityNight,
   isCityNumberBoxBlack,
   sourceHex,
   reachableDestinations,
@@ -78,8 +81,15 @@ export default function BoardCities({
         // 한국(동적 색상): 도시는 고정색이 없으므로 회색 헥스로 그리고, 수요색은 하단 큐브로 표현.
         // (빈 도시 = 수요 없음 = 회색, 신도시도 회색)
         const DYNAMIC_CITY_GRAY = '#d2d6da'; // 공식 맵의 밝은(거의 흰) 도시 헥스 톤
+        // 달(Moon): Moon Base는 색·수요 없는 흰 헥스, 밤쪽 도시는 고유색을 잃고 검은 도시
+        const MOON_BASE_WHITE = '#f5f4ef';
+        const night = !city.noDemand && !!isCityNight?.(city);
         const cityColor = city.isTerminal
           ? TERMINAL_GREEN
+          : city.noDemand
+          ? MOON_BASE_WHITE
+          : night
+          ? CITY_COLORS.black
           : dynamicCityColors
           ? DYNAMIC_CITY_GRAY
           : goodsColor; // Berlin(보너스 도시)도 데이터 색(black) 그대로 — 다른 검은 도시와 동일
@@ -132,7 +142,7 @@ export default function BoardCities({
             <polygon
               points={getHexPoints(x, y, HEX_SIZE - 7, isFlat)}
               fill="none"
-              stroke={dynamicCityColors ? 'rgba(120,124,130,0.75)' : 'rgba(255,255,255,0.85)'}
+              stroke={dynamicCityColors || city.noDemand ? 'rgba(120,124,130,0.75)' : 'rgba(255,255,255,0.85)'}
               strokeWidth={0.15}
               style={{ pointerEvents: 'none' }}
             />
@@ -195,7 +205,7 @@ export default function BoardCities({
               // 이름 배경: 어두운 헥스는 밝은 회색 띠. 밝은 헥스(노랑·터미널)는 약간 어두운 회색.
               // 동적색(한국 회색 도시 #d2d6da)은 띠가 헥스보다 밝으면 끝이 묻혀 안 보이므로
               // 또렷이 어두운 회색으로 — Rust Belt(색 헥스+밝은 띠)와 같은 대비 확보.
-              const lightHex = dynamicCityColors || city.color === 'yellow' || city.isTerminal;
+              const lightHex = dynamicCityColors || city.noDemand || (city.color === 'yellow' && !night) || city.isTerminal;
               // 회색 헥스(한국 동적색 도시)는 또렷한 어두운 회색 띠로 대비 확보
               // (Berlin은 이제 일반 검은 도시로 렌더하므로 회색 취급 제외 — 검은 도시 기본 띠 사용)
               const grayHex = dynamicCityColors;
@@ -210,7 +220,8 @@ export default function BoardCities({
                     const lbl = dice != null ? String(dice) : isNewCityTile ? city.id : '✕';
                     const bf = isLabelBox ? boxFill : '#ffffff';
                     const nc = isLabelBox ? numColor : '#1a1a1a';
-                    const nf = isLabelBox ? numFs : numFs * 0.85;
+                    // 달 "1/2" 같은 범위 라벨은 박스 폭에 맞게 축소
+                    const nf = (isLabelBox ? numFs : numFs * 0.85) * (lbl.length > 1 ? 0.66 : 1);
                     return (
                       <>
                         <path d={numberBoxPath(x, y, bw, bh, rad, isFlat, true)} fill={bf} />

@@ -139,11 +139,13 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     const hasOwnTracks = state.board.trackTiles.some(
       t => t.owner === playerId || t.secondaryOwner === playerId
     );
-    const networkExists = state.board.trackTiles.length > 0 || (state.board.townSpurs ?? []).length > 0;
+    // 달(Moon): 시드 도시(Moon Base)가 있으면 빈 보드에도 네트워크가 존재한다 — 첫 건설부터 앵커 보충
+    const networkExists = state.board.trackTiles.length > 0 || (state.board.townSpurs ?? []).length > 0
+      || !!mnProfile.masterNetworkSeedCityId;
     if (mnProfile.masterNetwork && !hasOwnTracks && networkExists) {
       const inNet = (cityId: string) => {
         const stop = findStopById(state.board, cityId);
-        return !!stop && stationInMasterNetwork(state.board, stop.coord);
+        return !!stop && stationInMasterNetwork(state.board, stop.coord, mnProfile.masterNetworkSeedCityId);
       };
       // ΔVP순 정렬 후 상위 5개만 보충 — 기회 목록(도시 배열) 순서 그대로 넣으면 저가치
       // 장거리(예: henriBourassa→berriUqam)가 고가치 직행(berriUqam→atwater 21.0)보다 먼저
@@ -612,10 +614,12 @@ function tryDirectPathBuild(
     // 통과한다 → 네트워크에 닿은 정거장 끝에서부터 짓는다. 둘 다 안 닿았으면 이 경로는 지금 불가
     // (canBuildTrack이 전부 거부해 봇이 턴을 통째로 스킵하던 원인 — 후보 루프가 다음 경로로 넘어가게 null).
     if (profile.masterNetwork) {
-      const networkExists = board.trackTiles.length > 0 || (board.townSpurs ?? []).length > 0;
+      // 달(Moon): 시드 도시(Moon Base)가 있으면 빈 보드에도 네트워크가 존재 — 시드에서만 착공 가능
+      const seedId = profile.masterNetworkSeedCityId;
+      const networkExists = board.trackTiles.length > 0 || (board.townSpurs ?? []).length > 0 || !!seedId;
       if (networkExists) {
-        const sIn = stationInMasterNetwork(board, sourceCity!.coord);
-        const tIn = stationInMasterNetwork(board, targetCity!.coord);
+        const sIn = stationInMasterNetwork(board, sourceCity!.coord, seedId);
+        const tIn = stationInMasterNetwork(board, targetCity!.coord, seedId);
         if (!sIn && tIn) [sourceCity, targetCity] = [targetCity, sourceCity];
         else if (!sIn && !tIn) return null;
       }

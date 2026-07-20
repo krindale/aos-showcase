@@ -85,7 +85,16 @@ export function isValidConnectionPoint(
  * 도시 = 어느 변이든 트랙이 마주보고 닿아 있으면 / 마을 = 가닥이 하나라도 있으면.
  * AI가 "네트워크에서 시작 가능한 경로"를 고를 때, 건설 시작 끝점 선택에 사용.
  */
-export function stationInMasterNetwork(board: BoardState, stationCoord: HexCoord): boolean {
+export function stationInMasterNetwork(
+  board: BoardState,
+  stationCoord: HexCoord,
+  /** 달(Moon): 시드 도시(Moon Base)는 트랙이 닿지 않아도 항상 네트워크다 */
+  seedCityId?: string | null
+): boolean {
+  if (seedCityId) {
+    const seed = board.cities.find(c => c.id === seedCityId);
+    if (seed && hexCoordsEqual(seed.coord, stationCoord)) return true;
+  }
   const isTown = board.towns.some(t => hexCoordsEqual(t.coord, stationCoord) && t.newCityColor === null);
   if (isTown) {
     return (board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, stationCoord));

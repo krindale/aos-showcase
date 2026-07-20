@@ -321,6 +321,9 @@ function evaluateLocomotive(state: GameState, playerId: PlayerId, plan: TurnPlan
   const engineFloor = hasDeepCube ? 4
     : (multiCity && state.currentTurn >= 5) ? 4   // 다인 후반: 4링크 장거리 배달 (측정상 최적)
     : state.currentTurn >= 2 ? 3 : 2;
+  // ⚠️ 기각(2026-07-21, 달 100시드): 여기에도 aiEngineUpgradeCap을 적용해 Locomotive front-load를
+  //    막으면 엔진이 3.0으로 고정되며 VP −12.73→−13.55·income 6.55→6.2 악화(4링크 배달이 막힘).
+  //    단 player 편차는 크게 줄었다(player3 −21.4→−15.3) — 순번 편향 해소 축에서 재검토 여지.
   const frontLoadTarget = Math.min(config.engineMax, engineFloor);
   let locoFrontLoad = 0;
   if ((config.incomeSources.includes('trackCubes') || multiCity)

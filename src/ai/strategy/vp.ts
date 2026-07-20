@@ -243,7 +243,8 @@ export function engineUpgradeDeltaVP(
   if (!player) return -Infinity;
 
   const config = getMapAIConfig(state);
-  if (player.engineLevel >= config.engineMax) return -Infinity;
+  // 엔진업 결정 상한 (맵별, 기본 = engineMax)
+  if (player.engineLevel >= (getMapProfile(state.mapId).aiEngineUpgradeCap ?? config.engineMax)) return -Infinity;
 
   const lambda = cashToVPRate(state, playerId);
 

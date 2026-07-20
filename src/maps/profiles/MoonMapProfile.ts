@@ -93,6 +93,9 @@ export class MoonMapProfile extends StandardMapProfile {
   /** 공식 룰: 마을 $2 + 트랙 구간당 $1 — 스퍼 모델 근사로 가닥당 $2 (표준 $1) */
   override get townSpurCost(): number { return 2; }
 
+  /** 달: 배달의 97%가 3링크 이하 — 엔진 3에서 멈춰 유지비를 건설 자금으로 돌린다
+   *  (경로 평가는 engineMax=6 그대로라 4링크 경로가 배제되지 않음) */
+  override get aiEngineUpgradeCap(): number | null { return 3; }
   /** 달: income이 낮고 유지비가 커 운영비 전액 계상이 발행 자기증폭을 만든다 — income으로 상계 */
   override get aiPlanExpensesNetOfIncome(): boolean { return true; }
   /** 달: 후반 5턴(T4~8) 계획 발행 금지 — $5로 크레이터 1.67타일뿐이라 늦은 차입은 회수 불가

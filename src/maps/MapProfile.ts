@@ -191,6 +191,15 @@ export abstract class MapProfile {
    *  맵별 격리해 조율 — 뒤 순번이 Turn Order로 다음 턴 순서를 탈환하는 강도. */
   get turnOrderSeatVP(): number { return 0.1; }
   /**
+   * AI가 **엔진을 올릴 상한** (기본 null = engineMax와 동일 = 기존 동작).
+   * `engineMax`와 분리한 이유: engineMax를 낮추면 `vp.ts`가 그보다 긴 경로를 −∞로 배제해
+   * income 천장까지 함께 내려간다(2026-07-21 실측 악화). 이 훅은 **엔진업 결정만** 제한하고
+   * 경로 평가는 engineMax 그대로 두어, "긴 경로는 계속 평가하되 엔진 과투자는 막는" 절충을 만든다.
+   * Moon: 배달의 97%가 3링크 이하인데 엔진 3.7까지 올려 게임당 ~$30(=타일 10개)을 유지비로 쓴다.
+   */
+  get aiEngineUpgradeCap(): number | null { return null; }
+
+  /**
    * AI가 초반(T1~4) 수송 기회를 **배달 대신 엔진 업그레이드**에 쓰는 front-load 전략을 켤지.
    * 기본은 기존 동작 유지 — trackCubes 맵이거나 3인 이상이면 켜진다(moveGoods가 인원 조건을 함께 판정).
    * ⚠️ **기각 실험 (2026-07-21, 달 100시드)**: "달은 배달 링크가 짧으니(97%가 3링크 이하)

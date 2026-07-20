@@ -222,7 +222,9 @@ function evaluateEngineUpgradeOption(state: GameState, playerId: PlayerId): numb
   const config = getMapAIConfig(state);
 
   // 엔진 상한 도달 / 이번 턴 locomotive로 이미 업그레이드함
-  if (player.engineLevel >= config.engineMax) return -Infinity;
+  // 엔진업 결정 상한 (맵별, 기본 = engineMax). 경로 평가의 engineMax와 분리 — MapProfile 주석 참조
+  const upgradeCap = getMapProfile(state.mapId).aiEngineUpgradeCap ?? config.engineMax;
+  if (player.engineLevel >= upgradeCap) return -Infinity;
   if (player.selectedAction === 'locomotive') return -Infinity;
   // 이번 턴에 이미 move-round 엔진 업그레이드함 (2 move round 통틀어 1회 — 룰북).
   // 없으면 AI가 라운드2에 또 엔진업을 결정→store가 거부→같은 결정 반복으로 정체한다.

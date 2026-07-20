@@ -14,8 +14,8 @@ import { useGameStore } from '@/store/gameStore';
 import { getAIDecision } from '@/ai';
 import { addFailedBuildCoord } from '../strategies/buildTrack';
 import { calculateVictoryPoints } from '@/utils/gameLogic';
-import { isTrackPartOfCompletedLink, countPathLinks, countOwnPathLinks, findLongestPath } from '@/utils/hexGrid';
-import { nightSideAfter } from '@/utils/moonMap';
+import { isTrackPartOfCompletedLink, countPathLinks, countOwnPathLinks, findLongestPath, hexCoordsEqual } from '@/utils/hexGrid';
+import { nightSideAfter, getMoonSide } from '@/utils/moonMap';
 import type { PlayerId } from '@/types/game';
 
 function createSeededRng(seed: number): () => number {
@@ -51,6 +51,12 @@ interface MResult {
   moonBaseDeliveryOk: boolean; // 불변식 ③
   growthEvents: number;        // 성장으로 도시에 큐브가 추가된 횟수 (성장 실동작 확인)
   // ── 계측 지표 (Stage 0 상설화 — 튜닝 단계별 비교 기준) ──
+  // 밤낮 준수 검증 (사용자 질문: "밤낮 교대에 맞게 수송하고 있는가")
+  nightDeliveryOk: boolean;          // 밤쪽 도시로의 배달은 전부 검은 큐브인가 (룰 준수)
+  transitOk: boolean;                // 경로가 지나는 밤 도시도 검은 큐브만인가 (통과 규칙)
+  destDaySide: number;               // 색 큐브 배달 중 목적지가 낮쪽이던 횟수
+  destBlackToNight: number;          // 검은 큐브 배달 중 목적지가 밤쪽이던 횟수
+  destBlackToDay: number;            // 검은 큐브가 낮쪽 검은 도시로 간 횟수(달엔 검은 도시 없음 → 0 기대)
   moveOpps: { move: number; engine: number; skip: number };
   linkDist: Record<number, number>;   // 배달 경로 총 링크 분포
   ownLinkSum: number;                 // 배달당 내 링크 합 (÷move = 평균)
@@ -79,6 +85,8 @@ function runMoonGame(seed: number): MResult {
   let growthEvents = 0;
   let lastGrowthTurn = 0;
   // 계측 (Stage 0)
+  let nightDeliveryOk = true, transitOk = true;
+  let destDaySide = 0, destBlackToNight = 0, destBlackToDay = 0;
   const moveOpps = { move: 0, engine: 0, skip: 0 };
   const linkDist: Record<number, number> = {};
   let ownLinkSum = 0;
@@ -217,6 +225,28 @@ function runMoonGame(seed: number): MResult {
               const links = countPathLinks(path, s.board);
               linkDist[links] = (linkDist[links] ?? 0) + 1;
               ownLinkSum += countOwnPathLinks(path, s.board, cp);
+
+              // ── 밤낮 준수 검증 ──
+              const destCity = s.board.cities.find(c => hexCoordsEqual(c.coord, d.destinationCoord));
+              const nightNow = s.board.nightSide;
+              if (destCity && color && nightNow) {
+                const destSide = getMoonSide(destCity.coord);
+                const destIsNight = destSide === nightNow;
+                if (color === 'black') {
+                  if (destIsNight) destBlackToNight++; else destBlackToDay++;
+                } else {
+                  // 색 큐브가 밤 도시로 갔다면 룰 위반
+                  if (destIsNight) nightDeliveryOk = false;
+                  else destDaySide++;
+                }
+                // 통과 경로의 밤 도시 검사 (목적지 제외) — 타색은 통과도 불가
+                if (color !== 'black') {
+                  for (let i = 1; i < path.length - 1; i++) {
+                    const mid = s.board.cities.find(c => hexCoordsEqual(c.coord, path[i]));
+                    if (mid && !mid.noDemand && getMoonSide(mid.coord) === nightNow) transitOk = false;
+                  }
+                }
+              }
             }
           }
           store.selectCube(d.sourceCityId, d.cubeIndex);
@@ -271,6 +301,7 @@ function runMoonGame(seed: number): MResult {
     buildsByPlayer, deliveriesByPlayer, winner,
     nightSideOk, buildLimitOk, moonBaseDeliveryOk, growthEvents,
     moveOpps, linkDist, ownLinkSum, turnRows,
+    nightDeliveryOk, transitOk, destDaySide, destBlackToNight, destBlackToDay,
   };
 }
 
@@ -344,6 +375,11 @@ describe('Moon 4 AI 전체 게임 — 특수룰 실동작 + 베이스라인', ()
       finishedTurns: results.map(r => r.finalTurn),
       allReachedEnd: results.every(r => r.reachedEnd),
       nightSideOk: results.every(r => r.nightSideOk),
+      nightDeliveryOk: results.every(r => r.nightDeliveryOk),
+      transitOk: results.every(r => r.transitOk),
+      destDaySide: sum(r => r.destDaySide),
+      destBlackToNight: sum(r => r.destBlackToNight),
+      destBlackToDay: sum(r => r.destBlackToDay),
       buildLimitOk: results.every(r => r.buildLimitOk),
       moonBaseDeliveryOk: results.every(r => r.moonBaseDeliveryOk),
       winnerCounts, perPlayer,
@@ -368,6 +404,9 @@ describe('Moon 4 AI 전체 게임 — 특수룰 실동작 + 베이스라인', ()
     console.log('--- 수송 기회 사용 ---');
     console.log(`총 ${(m.oppTotal / m.seeds).toFixed(1)}회/게임 | 배달 ${(m.opps.move / m.oppTotal * 100).toFixed(0)}% | 엔진업 ${(m.opps.engine / m.oppTotal * 100).toFixed(0)}% | 스킵 ${(m.opps.skip / m.oppTotal * 100).toFixed(0)}%`);
     console.log(`배달 경로 총링크 분포: ${JSON.stringify(m.linkDist)} | 배달당 내 링크 ${m.ownLinkAvg.toFixed(2)}`);
+    console.log('--- 밤낮 준수 (룰 검증) ---');
+    console.log(`색 큐브 배달 ${m.destDaySide}건 — 전부 목적지가 낮쪽인가: ${m.nightDeliveryOk ? 'YES' : 'NO(위반)'} | 밤 도시 통과 위반 없음: ${m.transitOk ? 'YES' : 'NO(위반)'}`);
+    console.log(`검은 큐브 배달: 밤쪽 목적지 ${m.destBlackToNight}건 / 낮쪽 ${m.destBlackToDay}건 (달엔 검은 도시가 없어 낮쪽은 0이어야 정상)`);
     console.log('--- 턴별 (income / 주식 / 엔진 / 턴비용 / 수지) ---');
     for (let t = 1; t <= 8; t++) {
       const a = m.turnAgg[t];
@@ -379,6 +418,10 @@ describe('Moon 4 AI 전체 게임 — 특수룰 실동작 + 베이스라인', ()
     // 핵심 게이트: 정상 종료 + 달 불변식
     expect(m.allReachedEnd).toBe(true);
     expect(m.nightSideOk).toBe(true);
+    // 밤낮 룰 준수: 색 큐브는 낮 도시로만, 밤 도시 통과도 금지
+    expect(m.nightDeliveryOk).toBe(true);
+    expect(m.transitOk).toBe(true);
+    expect(m.destBlackToDay).toBe(0); // 달엔 검은 도시가 없다 — 검은 큐브는 밤 도시로만
     expect(m.buildLimitOk).toBe(true);
     expect(m.moonBaseDeliveryOk).toBe(true);
     // 4인 8턴 도달

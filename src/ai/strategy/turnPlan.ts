@@ -25,6 +25,7 @@ import {
   findStopById,
 } from './analyzer';
 import { getMapAIConfig } from './mapConfig';
+import { getMapProfile } from '@/maps/getMapProfile';
 import { hexCoordsEqual } from '@/utils/hexGrid';
 import { debugLog } from '@/utils/debugConfig';
 
@@ -122,7 +123,12 @@ function computeBudget(
   buildBudget: number,
 ): Pick<TurnPlan, 'cashNeeded' | 'auctionMaxBid'> {
   const player = state.players[playerId];
-  const expenses = player ? player.issuedShares + player.engineLevel + (player.dgel ?? 0) : 0;
+  const rawExpenses = player ? player.issuedShares + player.engineLevel + (player.dgel ?? 0) : 0;
+  // 맵별: 운영비를 income으로 상계 (기본 false = 전액 계상, 기존 동작). 달은 true —
+  // income이 이미 내주는 몫까지 예산에 넣으면 매 턴 발행 캡을 채우는 자기증폭이 생긴다.
+  const expenses = getMapProfile(state.mapId).aiPlanExpensesNetOfIncome
+    ? Math.max(0, rawExpenses - Math.max(0, player?.income ?? 0))
+    : rawExpenses;
   return {
     cashNeeded: buildBudget + expenses + DEFAULT_AUCTION_RESERVE,
     auctionMaxBid: DEFAULT_AUCTION_RESERVE,

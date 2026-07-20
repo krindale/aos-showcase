@@ -5,6 +5,8 @@ import { useGameStore, createInitialGameState } from '@/store/gameStore';
 import { cityAcceptsCube, cityBlocksTransit, cityEverAcceptsCube, findReachableDestinations, getNeighborHex } from '@/utils/hexGrid';
 import { touchesMasterNetwork } from '@/store/helpers/boardRules';
 import { applyLowGravitation } from '@/store/slices/moveSlice';
+import { getMapProfile } from '@/maps/getMapProfile';
+import { nightSideAfter } from '@/utils/moonMap';
 import { City, PlayerId, TrackTile } from '@/types/game';
 
 function setupMoon() {
@@ -193,6 +195,50 @@ describe('저중력 경로 확장 + 계획용 수요 판정', () => {
     expect(cityEverAcceptsCube(imbrium, 'red', board)).toBe(true);   // 계획 판정: 낮이 되면 가능
     expect(cityEverAcceptsCube(imbrium, 'black', board)).toBe(true); // 검은 큐브: 밤이 되는 턴 가능
     expect(cityEverAcceptsCube(cityById('moonBase'), 'red', board)).toBe(false); // 무수요는 불변
+  });
+});
+
+describe('달 AI 튜닝 훅 (2026-07-21)', () => {
+  beforeEach(() => { setupMoon(); });
+
+  it('밤낮 위상 헬퍼가 스토어의 실제 교대와 8턴 내내 일치한다', () => {
+    // 1턴 west 시작 + 매 턴 반전 — 헬퍼가 규칙의 단일 소스임을 보장
+    for (let t = 1; t <= 8; t++) {
+      expect(useGameStore.getState().board.nightSide).toBe(nightSideAfter('west', t - 1));
+      if (t < 8) {
+        useGameStore.setState({ currentPhase: 'advanceTurn' });
+        useGameStore.getState().nextPhase();
+      }
+    }
+  });
+
+  it('배달 타이밍 계수: 검은 큐브 우대, 색 큐브는 목적지가 밤이면 소폭 할인', () => {
+    const profile = getMapProfile('moon');
+    const state = useGameStore.getState(); // 1턴, 밤=west
+    const imbrium = cityById('imbrium');   // 서(밤) 빨강
+    const nectaris = cityById('nectaris'); // 동(낮) 파랑
+    // 검은 큐브는 어느 목적지든 매 턴 배달처가 있어 우대
+    expect(profile.aiDeliveryTimingFactor(imbrium, 'black', 1, state)).toBeGreaterThan(1);
+    // 색 큐브: 첫 배달 턴에 목적지가 낮이면 1.0, 밤이면 할인
+    expect(profile.aiDeliveryTimingFactor(nectaris, 'blue', 1, state)).toBe(1);
+    expect(profile.aiDeliveryTimingFactor(imbrium, 'red', 1, state)).toBeLessThan(1);
+    // Moon Base(무수요)는 판정 대상 아님
+    expect(profile.aiDeliveryTimingFactor(cityById('moonBase'), 'red', 1, state)).toBe(1);
+    // 다른 맵은 항등 (기본값)
+    expect(getMapProfile('germany').aiDeliveryTimingFactor(imbrium, 'black', 1, state)).toBe(1);
+  });
+
+  it('달만 후반 계획 발행 금지·운영비 income 상계가 켜져 있다 (타 맵 기본값 불변)', () => {
+    const moon = getMapProfile('moon');
+    expect(moon.aiNoBuildIssueLastTurns).toBe(5); // 8턴 중 T4~8 계획 발행 금지
+    expect(moon.aiPlanExpensesNetOfIncome).toBe(true);
+    for (const other of ['germany', 'korea', 'rust-belt', 'montreal', 'western-us']) {
+      expect(getMapProfile(other).aiNoBuildIssueLastTurns).toBe(0);
+      expect(getMapProfile(other).aiPlanExpensesNetOfIncome).toBe(false);
+      expect(getMapProfile(other).aiEngineFrontLoad).toBe(true);
+    }
+    // 달도 엔진 front-load는 켜둔 상태 (끄면 악화 — MapProfile 주석의 기각 실험)
+    expect(moon.aiEngineFrontLoad).toBe(true);
   });
 });
 

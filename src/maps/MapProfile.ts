@@ -190,6 +190,52 @@ export abstract class MapProfile {
   /** selectAction의 Turn Order 행동 가치 계수 (꼴찌 기준 최대 ΔVP). 기본 0.1 = vp.ts TURN_ORDER_SEAT_VP.
    *  맵별 격리해 조율 — 뒤 순번이 Turn Order로 다음 턴 순서를 탈환하는 강도. */
   get turnOrderSeatVP(): number { return 0.1; }
+  /**
+   * AI가 초반(T1~4) 수송 기회를 **배달 대신 엔진 업그레이드**에 쓰는 front-load 전략을 켤지.
+   * 기본은 기존 동작 유지 — trackCubes 맵이거나 3인 이상이면 켜진다(moveGoods가 인원 조건을 함께 판정).
+   * ⚠️ **기각 실험 (2026-07-21, 달 100시드)**: "달은 배달 링크가 짧으니(97%가 3링크 이하)
+   *   엔진 front-load가 낭비"라는 가설로 false를 줬더니 VP −13.3 → −19.6·파산 1.59 → 2.07로
+   *   크게 악화. 엔진이 3.2로 낮아지자 **배달 가능 경로 자체가 줄어** 스킵 40%→46%,
+   *   income 6.4→5.6. 짧은 링크 분포는 "엔진이 낮아서 짧은 것"이지 그 반대가 아니었다.
+   *   현재 false를 쓰는 맵은 없다 — 끄려면 income 지표를 반드시 함께 볼 것.
+   */
+  get aiEngineFrontLoad(): boolean { return true; }
+
+  /**
+   * AI 계획 발행(건설 자금 목적)을 금지하는 **마지막 N턴** (기본 0 = 마지막 턴만, 기존 동작).
+   * 생존 발행(파산 방지)은 항상 허용 — 막는 것은 "건설하려고 빌리는" 발행뿐이다.
+   * 근거: 주식 1주는 −3VP + 남은 턴수만큼의 유지비인데, 늦게 빌린 돈은 배달로 회수할 턴이
+   * 부족해 순손실이 된다. 달은 크레이터 $3·건설 2개 제한이라 $5로 링크를 못 만들어
+   * 회수 시점이 특히 늦다(2026-07-21 실측: 주식 14.7 = VP −44가 income 16.8을 압도).
+   * 선례: trackCubes 맵 마지막 2턴 건설 발행 금지 → 파산 13→11·VP 유지 (docs/ai-system.md).
+   */
+  get aiNoBuildIssueLastTurns(): number { return 0; }
+
+  /**
+   * AI 턴 예산(turnPlan.cashNeeded)에서 **운영비를 income으로 상계**할지 (기본 false = 현재 동작).
+   * 표준 맵은 운영비 전액을 예산에 넣어도 income이 커서 문제가 없지만, 달처럼 income이 낮고
+   * 유지비가 큰 맵에서는 이것이 "발행 → issuedShares↑ → expenses↑ → cashNeeded↑ → 또 발행"의
+   * 자기증폭 고리가 된다(2026-07-21 실측: 매 턴 발행 캡 소진, 주식 14.7 = VP −44).
+   * true면 `max(0, expenses - max(0, income))`만 예산에 반영 — **필요한 돈을 막는 게 아니라
+   * 이미 income으로 충당되는 몫을 이중 계상하지 않는 것**(과거 기각된 "발행 차단"과 다름).
+   */
+  get aiPlanExpensesNetOfIncome(): boolean { return false; }
+
+  /**
+   * AI 경로 평가용 **배달 타이밍 계수** — 배달당 가치에 곱하는 배수 (기본 1 = 항등).
+   * 목적지가 "언제 받아주느냐"의 유연성을 순위에 반영한다. AI 평가 전용 — 실제 규칙 무관.
+   * ⚠️ `cubeDeliveryBonus`/`regionDeliveryBonus`는 스토어가 income에 직접 더하는 **게임 규칙 훅**이라
+   *    AI 평가용으로 전용하면 안 된다 (그래서 별도 훅으로 분리).
+   * ⚠️ 반드시 **배달당 가치(perDeliveryVP)** 에 곱할 것 — `deliverableTurns`에 곱하면
+   *    `expectedDeliveries = min(deliverableTurns, matchingCubes)`의 큐브 쪽 병목에 묻혀 무효가 된다
+   *    (2026-07-21 실측: 무조건 반감을 넣어도 VP 변화 0.03).
+   * Moon: 검은 큐브는 밤쪽 도시 어디든 받아 매 턴 배달처가 있음(우대), 색 큐브는 목적지가
+   *   낮인 격턴에만 가능(첫 배달 예상 턴이 밤이면 1턴 더 대기 = 소폭 할인).
+   */
+  aiDeliveryTimingFactor(
+    _to: City, _cube: CubeColor, _startTurn: number, _state: GameState
+  ): number { return 1; }
+
   /** AI 경로 평가의 "지연 완성 페널티" (완성이 1턴 늦어질 때마다 −N VP, cityCubes 다인 맵).
    *  타이밍 실비(배달 시작 지연의 현금 흐름 손실 + 엔진 증분 유지비, vp.ts estimateRouteVP)가
    *  직접 계산되면서 이 값은 잔여 리스크(선점·자금 불확실성)의 프록시로 축소 — 8을 유지하면

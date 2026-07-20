@@ -368,9 +368,12 @@ export function estimateRouteVP(
     // 엔진 상한으로 배달 자체가 불가능한 경로
     return { deltaVP: -Infinity, tracksToBuild, buildCost, completable: false, expectedDeliveries: 0, fullPath };
   }
-  let deliverableTurns = remainingTurnsIncl - Math.max(completionTurns - 1, engineDelay);
-  // 달(Moon) 밤낮 교대: 목적지는 격턴(원래색=낮 턴 / 검은색=밤 턴)에만 수용 — 배달 가능 턴 절반
-  if (state.board.nightSide) deliverableTurns = Math.ceil(deliverableTurns / 2);
+  // 배달 시작 지연(건설 다턴 + 엔진 준비 중 늦은 쪽) — 가동률 판정과 배달당 가치가 함께 쓴다
+  const deliveryStartDelay = Math.max(completionTurns - 1, engineDelay);
+  const deliverableTurns = remainingTurnsIncl - deliveryStartDelay;
+  // ⚠️ 밤낮 같은 타이밍 요소를 여기(deliverableTurns)에 곱하면 안 된다 —
+  //    expectedDeliveries = min(deliverableTurns, matchingCubes)에서 큐브 쪽이 늘 병목이라
+  //    묻혀 무효가 된다(2026-07-21 실측 VP 변화 0.03). 타이밍은 perDeliveryVP에 곱한다.
 
   // 4. 기대 배달 횟수: 매칭 큐브 수와 배달 가능 턴 (턴당 1회 보수 가정)
   //   income 원천을 맵별로 일반화 — ① 출발 도시 안의 큐브(튜토리얼 등) +
@@ -429,11 +432,14 @@ export function estimateRouteVP(
   // Southern US: 면화(흰 큐브) 배달 +$1 보너스도 동일하게 반영
   const regionBonus = profile.regionDeliveryBonus(sourceCity?.region, targetCity.region)
     + profile.cubeDeliveryBonus(opp.cubeColor);
-  // 배달 시작 지연(건설 다턴 + 엔진 준비 중 늦은 쪽) — 그 턴 수만큼 현금 흐름을 못 벌므로
-  // 배달당 가치에서 차감 (엔진업은 매턴 수송 기회 1회 소모 가정, engineDelay와 동일).
-  const deliveryStartDelay = Math.max(completionTurns - 1, engineDelay);
-  const perDeliveryVP = deliveryDeltaVP(state, playerId, links, 0, deliveryStartDelay)
-    + regionBonus * VP_PER_INCOME;
+  // (deliveryStartDelay는 위 가동률 판정과 공유 — 그 턴 수만큼 현금 흐름을 못 버는 차감에도 사용)
+  // 맵별 배달 타이밍 계수 (기본 1 = 항등). 달: 검은 큐브는 매 턴 배달처가 있어 우대,
+  // 색 큐브는 목적지가 낮인 격턴에만 가능 — 첫 배달 턴이 밤이면 대기 손실만큼 소폭 할인.
+  const timingFactor = profile.aiDeliveryTimingFactor(
+    targetCity, opp.cubeColor, state.currentTurn + deliveryStartDelay, state
+  );
+  const perDeliveryVP = (deliveryDeltaVP(state, playerId, links, 0, deliveryStartDelay)
+    + regionBonus * VP_PER_INCOME) * timingFactor;
   const fundShares = Math.ceil(Math.max(0, buildCost - player.cash) / GAME_CONSTANTS.SHARE_VALUE);
   // ★ 완성 트랙 목표 (맵별, MapProfile.targetCompletedTracks — 현재 Western US만 7): 완성트랙이
   //   목표 미만이면 트랙 VP를 기회비용 없이 정상(1.0) 인정해 경로 완성을 적극 추구한다(완성트랙

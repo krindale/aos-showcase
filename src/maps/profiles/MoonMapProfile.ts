@@ -17,11 +17,13 @@
 import { StandardMapProfile } from './StandardMapProfile';
 import { MapRuleSummary } from '../MapProfile';
 import { MapId } from '../MapId';
-import { SpecialAction } from '@/types/game';
+import { City, CubeColor, GameState, SpecialAction } from '@/types/game';
 import {
   MOON_MAP,
   MOON_CITY_DICE,
   createMoonBoardState,
+  getMoonSide,
+  nightSideAfter,
 } from '@/utils/moonMap';
 
 export class MoonMapProfile extends StandardMapProfile {
@@ -65,6 +67,34 @@ export class MoonMapProfile extends StandardMapProfile {
   override get availableNewCityTiles(): string[] | null { return ['A', 'B', 'C', 'D']; }
   /** 공식 룰: 마을 $2 + 트랙 구간당 $1 — 스퍼 모델 근사로 가닥당 $2 (표준 $1) */
   override get townSpurCost(): number { return 2; }
+
+  /** 달: income이 낮고 유지비가 커 운영비 전액 계상이 발행 자기증폭을 만든다 — income으로 상계 */
+  override get aiPlanExpensesNetOfIncome(): boolean { return true; }
+  /** 달: 후반 5턴(T4~8) 계획 발행 금지 — $5로 크레이터 1.67타일뿐이라 늦은 차입은 회수 불가
+   *  (생존 발행은 계속 허용하므로 파산 방어는 유지) */
+  override get aiNoBuildIssueLastTurns(): number { return 5; }
+
+  /**
+   * 배달 타이밍 계수 — 밤낮 교대에서 이 목적지가 "얼마나 유연하게" 받아주는가.
+   * · 검은 큐브: 매 턴 밤쪽 도시 3곳이 열려 있어 대기 없이 배달 가능 → **1.25 우대**
+   *   (달에서 유일하게 타이밍에 안 묶이는 화물 — 봇이 검은 큐브 경로를 잡게 유도)
+   * · 색 큐브: 목적지가 낮인 격턴에만 가능. 첫 배달 예상 턴이 이미 낮이면 1.0,
+   *   밤이라 1턴 더 기다려야 하면 0.9로 소폭 할인 (기다림의 현금흐름 손실)
+   * · Moon Base(무수요·중앙 열)는 목적지가 될 수 없어 판정 불가 → 1.0
+   * ⚠️ 색 큐브를 일괄 반감하지 않는 이유: 수익만 깎이고 건설비는 그대로라 착공 자체가
+   *   억제된다(안정화 목표에 역행). 상대 우위만 조정한다.
+   */
+  override aiDeliveryTimingFactor(
+    to: City, cube: CubeColor, startTurn: number, state: GameState
+  ): number {
+    const night = state.board.nightSide;
+    if (!night) return 1;
+    if (cube === 'black') return 1.25;            // 항상 배달처가 있음
+    const toSide = getMoonSide(to.coord);
+    if (to.noDemand || toSide === null) return 1; // Moon Base(중앙 열)
+    const turnsAhead = Math.max(0, startTurn - state.currentTurn);
+    return toSide === nightSideAfter(night, turnsAhead) ? 0.9 : 1;
+  }
 
   override actionDescription(action: SpecialAction): string | undefined {
     if (action === 'engineer') {

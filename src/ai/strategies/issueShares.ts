@@ -10,6 +10,7 @@
 import { GameState, PlayerId, GAME_CONSTANTS } from '@/types/game';
 import { ensureTurnPlan } from '../strategy/turnPlan';
 import { getMapAIConfig } from '../strategy/mapConfig';
+import { getMapProfile } from '@/maps/getMapProfile';
 import { debugLog } from '@/utils/debugConfig';
 
 /** 턴당 발행 상한 (과도한 영구 부채 방지) */
@@ -44,8 +45,11 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
   //   배달로 회수할 턴이 부족해 순수 빚이 되고, 그 주식 비용이 파산을 유발한다.
   // ★ trackCubes 마지막 2턴(T7-8)은 건설 발행 절대 금지(사용자 지침) — 늦은 건설은 배달로 회수할 턴이
   //   부족해 순수 빚이 되고 그 주식 비용이 파산을 유발한다(측정: 파산 13→11, VP 유지).
+  // 맵별 "후반 N턴 계획 발행 금지" (기본 0 = 마지막 턴만). 달은 4 → T5~8 금지.
+  const noIssueLastTurns = getMapProfile(state.mapId).aiNoBuildIssueLastTurns;
   const noBuildIssue = isLastTurn
-    || (config.incomeSources.includes('trackCubes') && state.currentTurn >= config.totalTurns - 1);
+    || (config.incomeSources.includes('trackCubes') && state.currentTurn >= config.totalTurns - 1)
+    || (noIssueLastTurns > 0 && state.currentTurn > config.totalTurns - noIssueLastTurns);
   if (noBuildIssue) {
     if (survivalShares === 0) {
       debugLog.preparation(`[Phase I: 주식 발행] ${player.name}: 후반(생존 외 발행 금지) → 발행 안함`);

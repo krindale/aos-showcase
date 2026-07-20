@@ -260,7 +260,9 @@ function evaluateEngineUpgradeOption(state: GameState, playerId: PlayerId): numb
   // 수입의 핵심이기 때문(사용자 목표: income 20). 2인 tutorial(cityCubes)은 제외해 회귀 보존.
   // 사용자 지침: 엔진은 T4까지만 front-load로 3까지 올리고, T5+ 는 move-round 엔진업을
   // 금지하고 특수액션 Locomotive로만 올린다 (move-round 엔진업은 배달 1개를 포기 → income 손실).
-  const longHaul = config.incomeSources.includes('trackCubes') || state.activePlayers.length >= 3;
+  // 맵별 front-load 스위치 (기본 true = 기존 동작). 달은 false — 초반 기회를 배달에 쓴다.
+  const longHaul = getMapProfile(state.mapId).aiEngineFrontLoad
+    && (config.incomeSources.includes('trackCubes') || state.activePlayers.length >= 3);
   const frontLoadTarget = Math.min(3, state.currentTurn + 1);
   const frontLoad = (longHaul && player.engineLevel < frontLoadTarget
     && state.currentTurn <= 4 && remainingTurns >= 1)

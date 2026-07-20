@@ -12,7 +12,7 @@ import {
   PlayerId,
   PlayerState,
 } from '@/types/game';
-import { SQRT3_2, nameBandPoints, numberBoxPath, cubeRenderSize, cubeStrokeColor, cubeStrokeWidth } from './boardGeometry';
+import { SQRT3_2, nameBandPoints, numberBoxPath, cubeRenderSize, cubeStrokeColor, cubeStrokeWidth, shadeColor } from './boardGeometry';
 
 // 도시 레이어 — 도시 헥스·라벨(숫자 박스/이름 띠)·물품 큐브 + Germany 직결 링크.
 // GameBoard에서 그대로 이동한 순수 렌더 (게임 로직 없음, 판정/액션은 props로 주입).
@@ -81,7 +81,9 @@ export default function BoardCities({
         // 한국(동적 색상): 도시는 고정색이 없으므로 회색 헥스로 그리고, 수요색은 하단 큐브로 표현.
         // (빈 도시 = 수요 없음 = 회색, 신도시도 회색)
         const DYNAMIC_CITY_GRAY = '#d2d6da'; // 공식 맵의 밝은(거의 흰) 도시 헥스 톤
-        // 달(Moon): Moon Base는 색·수요 없는 흰 헥스, 밤쪽 도시는 고유색을 잃고 검은 도시
+        // 달(Moon): Moon Base는 색·수요 없는 흰 헥스. 밤쪽 도시는 검은 도시 취급이지만
+        // 순검정 대신 "원래 색에 어두운 필터"(-62%)로 렌더 — 원래 색을 식별하면서 밤 상태 표현
+        // (다음 턴 낮이 됐을 때의 수요색을 계획할 수 있게, 2026-07-21 사용자 피드백)
         const MOON_BASE_WHITE = '#f5f4ef';
         const night = !city.noDemand && !!isCityNight?.(city);
         const cityColor = city.isTerminal
@@ -89,7 +91,7 @@ export default function BoardCities({
           : city.noDemand
           ? MOON_BASE_WHITE
           : night
-          ? CITY_COLORS.black
+          ? shadeColor(goodsColor, -62)
           : dynamicCityColors
           ? DYNAMIC_CITY_GRAY
           : goodsColor; // Berlin(보너스 도시)도 데이터 색(black) 그대로 — 다른 검은 도시와 동일

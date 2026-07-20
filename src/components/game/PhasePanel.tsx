@@ -81,7 +81,7 @@ export const actionsForMap = (mapId: string): SpecialAction[] =>
 const ACTION_SHORT: Record<SpecialAction, string> = {
   firstMove: '남보다 먼저 이동',
   firstBuild: '남보다 먼저 건설',
-  engineer: '트랙 4개 건설',
+  engineer: '트랙 4개 건설', // 실제 표시는 동적(buildsPerTurn+1) — 아래 그리드 삼항 참조
   locomotive: '엔진 +1칸',
   urbanization: '마을에 신도시',
   production: '큐브 2개 보충',
@@ -564,6 +564,9 @@ export default function PhasePanel() {
                             <p className="text-[10px] text-foreground-secondary mt-0.5">
                               {action === 'engineer' && getMapProfile(mapId).engineerHalfCost
                                 ? '3개 + 최고가 1개 절반값'
+                                : action === 'engineer'
+                                // 맵별 건설 상한 반영 (표준 3+1=4, 달 2+1=3) — 하드코딩 '4개' 오표기 방지
+                                ? `트랙 ${getMapProfile(mapId).buildsPerTurn + 1}개 건설`
                                 : action === 'locomotive' && getMapProfile(mapId).dedicatedGovEngine
                                 ? '정부 엔진(DGEL) +1'
                                 : action === 'production' && getMapProfile(mapId).productionAsRepopulation

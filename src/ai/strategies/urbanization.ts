@@ -13,7 +13,7 @@
  */
 
 import { GameState, PlayerId, HexCoord, NewCityTileId, City, CubeColor, GAME_CONSTANTS } from '@/types/game';
-import { hexDistance, hexCoordsEqual, getNeighborHex, cityAcceptsCube } from '@/utils/hexGrid';
+import { hexDistance, hexCoordsEqual, getNeighborHex, cityEverAcceptsCube } from '@/utils/hexGrid';
 import { getDisplaySlotRange } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { getMapAIConfig } from '../strategy/mapConfig';
@@ -103,8 +103,8 @@ export function planUrbanization(
   if (towns.length === 0 || availableTiles.length === 0) return null;
 
   const myTracks = board.trackTiles.filter(t => t.owner === playerId);
-  // 그 도시가 해당 색 화물을 받는 수요 도시인지 — 게임 엔진과 동일 판정(cityAcceptsCube) 재사용
-  const acceptsColor = (c: City, color: string) => cityAcceptsCube(c, color as CubeColor, board);
+  // 그 도시가 해당 색 화물을 받는 수요 도시인지 — 게임 엔진과 동일 판정(cityEverAcceptsCube) 재사용
+  const acceptsColor = (c: City, color: string) => cityEverAcceptsCube(c, color as CubeColor, board);
 
   // 1) 내가 픽업 가능한 화물색별 수 = 내 철도 근처(≤3) 도시 큐브 + 내 트랙 위 큐브 (+헥스큐브: trackCubes 맵)
   const cargoByColor = new Map<string, number>();
@@ -210,7 +210,7 @@ export function planUrbanization(
     : Math.max(0, myMaxTracks - (state.phaseState.builtTracksThisTurn ?? 0));
   // 내 트랙의 변이 그 마을을 직접 향하면, 도시화 즉시 연결된다(도시는 모든 변 연결) — 슬롯 불필요.
   const instantlyConnected = (townCoord: HexCoord): boolean =>
-    myTracks.some(t => t.edges.some(e => hexCoordsEqual(getNeighborHex(t.coord, e), townCoord)));
+    myTracks.some(t => t.edges.some(e => hexCoordsEqual(getNeighborHex(t.coord, e, state.board), townCoord)));
 
   let bestTown: { coord: HexCoord } | null = null;
   let bestTownScore = -Infinity;

@@ -2,7 +2,7 @@
 // 셋업(큐브/밤낮/건설상한) · 밤 도시 수요/통과 · Moon Base 무수요 · 주사위 성장 · 밤낮 교대
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useGameStore, createInitialGameState } from '@/store/gameStore';
-import { cityAcceptsCube, cityBlocksTransit, getNeighborHex } from '@/utils/hexGrid';
+import { cityAcceptsCube, cityBlocksTransit, cityEverAcceptsCube, findReachableDestinations, getNeighborHex } from '@/utils/hexGrid';
 import { touchesMasterNetwork } from '@/store/helpers/boardRules';
 import { applyLowGravitation } from '@/store/slices/moveSlice';
 import { City, PlayerId, TrackTile } from '@/types/game';
@@ -134,6 +134,65 @@ describe('Low Gravitation (Production 대체 — 상대 링크 수입 이전)', 
     const inc2 = changes({ player1: 3 }); // 경로에 상대 링크 없음
     expect(applyLowGravitation(s2, 'player1', inc2)).toBeNull();
     expect(inc2.player1).toBe(3);
+  });
+});
+
+describe('저중력 경로 확장 + 계획용 수요 판정', () => {
+  beforeEach(() => { setupMoon(); });
+
+  it('상대 소유 링크는 opponentExtra=1일 때만 경유할 수 있다', () => {
+    const state = useGameStore.getState();
+    const moonBase = cityById('moonBase');
+    const nectaris = cityById('nectaris');
+    // moonBase → nectaris를 잇는 체인을 "상대(player2)" 소유로 부설
+    const chain: { col: number; row: number }[] = [];
+    let cur = getNeighborHex(moonBase.coord, 0, state.board);
+    let guard = 0;
+    while (!(cur.col === nectaris.coord.col && cur.row === nectaris.coord.row) && guard++ < 20) {
+      chain.push({ ...cur });
+      let best = cur; let bestD = Infinity;
+      for (let e = 0; e < 6; e++) {
+        const nb = getNeighborHex(cur, e, state.board);
+        const d = Math.abs(nb.col - nectaris.coord.col) * 2 + Math.abs(nb.row - nectaris.coord.row);
+        if (d < bestD) { bestD = d; best = nb; }
+      }
+      cur = best;
+    }
+    const nodes = [moonBase.coord, ...chain, nectaris.coord];
+    const tracks: TrackTile[] = [];
+    for (let i = 1; i < nodes.length - 1; i++) {
+      const findEdge = (from: { col: number; row: number }, to: { col: number; row: number }): number => {
+        for (let e = 0; e < 6; e++) {
+          const nb = getNeighborHex(nodes[i], e, state.board);
+          void from;
+          if (nb.col === to.col && nb.row === to.row) return e;
+        }
+        throw new Error('not adjacent');
+      };
+      tracks.push({
+        id: `opp${i}`, coord: { ...nodes[i] },
+        edges: [findEdge(nodes[i], nodes[i - 1]), findEdge(nodes[i], nodes[i + 1])] as [number, number],
+        owner: 'player2', trackType: 'simple',
+      });
+    }
+    useGameStore.setState({
+      board: { ...state.board, trackTiles: [...state.board.trackTiles, ...tracks] },
+    });
+    const board = useGameStore.getState().board;
+    // player1은 blue 큐브를 nectaris(동쪽·낮·blue)로: 상대 링크뿐 —
+    const without = findReachableDestinations(moonBase.coord, board, 'player1', 6, 'blue', 0, 0);
+    expect(without.some((c) => c.id === 'nectaris')).toBe(false); // 저중력 없음: 불가
+    const withLowGrav = findReachableDestinations(moonBase.coord, board, 'player1', 6, 'blue', 0, 1);
+    expect(withLowGrav.some((c) => c.id === 'nectaris')).toBe(true); // 저중력: 상대 링크 1개 경유
+  });
+
+  it('계획용 판정(cityEverAcceptsCube): 밤 도시도 원래 색을 인정, 검은 큐브는 어느 도시든 인정', () => {
+    const board = useGameStore.getState().board;
+    const imbrium = cityById('imbrium'); // 서쪽 빨강 — 1턴 밤 (현재는 black만 수용)
+    expect(cityAcceptsCube(imbrium, 'red', board)).toBe(false);      // 실행 판정: 지금은 불가
+    expect(cityEverAcceptsCube(imbrium, 'red', board)).toBe(true);   // 계획 판정: 낮이 되면 가능
+    expect(cityEverAcceptsCube(imbrium, 'black', board)).toBe(true); // 검은 큐브: 밤이 되는 턴 가능
+    expect(cityEverAcceptsCube(cityById('moonBase'), 'red', board)).toBe(false); // 무수요는 불변
   });
 });
 

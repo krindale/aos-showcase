@@ -44,6 +44,12 @@ function govExtraOf(state: GameStore): number {
     : 0;
 }
 
+/** 달(Moon) 저중력: 이 행동 보유자는 이동 경로에 타인 소유 링크를 1개까지 경유할 수 있다
+ *  (그 링크 수입은 completeCubeMove의 applyLowGravitation이 이전) */
+function lowGravExtraOf(state: GameStore): number {
+  return state.players[state.currentPlayer]?.selectedAction === 'lowGravitation' ? 1 : 0;
+}
+
 /** uiSlice가 제공하는 액션 — 인터페이스 정의는 gameStore(GameStore)에 그대로, Pick으로 참조 */
 export type UiSlice = Pick<
   GameStore,
@@ -133,12 +139,12 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
         if (!cubeColor) return;
         const player = state.players[state.currentPlayer];
         const reachable = findReachableDestinations(
-          town.coord, state.board, state.currentPlayer, player.engineLevel, cubeColor, govExtraOf(state)
+          town.coord, state.board, state.currentPlayer, player.engineLevel, cubeColor, govExtraOf(state), lowGravExtraOf(state)
         );
         let bestPath: HexCoord[] = [];
         let bestLinks = -1;
         for (const dest of reachable) {
-          const p = findLongestPath(town.coord, dest.coord, state.board, state.currentPlayer, player.engineLevel, cubeColor, govExtraOf(state));
+          const p = findLongestPath(town.coord, dest.coord, state.board, state.currentPlayer, player.engineLevel, cubeColor, govExtraOf(state), lowGravExtraOf(state));
           if (p) { const links = countPathLinks(p, state.board); if (links > bestLinks) { bestLinks = links; bestPath = p; } }
         }
         logAction('goodsMovement', 'townCubeSelect', { player: state.currentPlayer, town: townId, color: cubeColor, cities: reachable.map(c => c.id) });
@@ -164,7 +170,7 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
         state.currentPlayer,
         player.engineLevel,
         cubeColor,
-        govExtraOf(state)
+        govExtraOf(state), lowGravExtraOf(state)
       );
 
       // 화물 선택 시 최적 경로(최대 링크=최대 수입)를 골라 골드 점선으로 미리보기 표시 (모든 맵 공통).
@@ -173,7 +179,7 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
       let bestLinks = -1;
       for (const dest of reachable) {
         const p = findLongestPath(
-          city.coord, dest.coord, state.board, state.currentPlayer, player.engineLevel, cubeColor, govExtraOf(state)
+          city.coord, dest.coord, state.board, state.currentPlayer, player.engineLevel, cubeColor, govExtraOf(state), lowGravExtraOf(state)
         );
         if (p) {
           const links = countPathLinks(p, state.board);
@@ -676,7 +682,7 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
         const cubeColor = town.cubes[cubeIndex];
         if (!cubeColor) return;
         const player = state.players[state.currentPlayer];
-        const path = findLongestPath(town.coord, coord, state.board, state.currentPlayer, player.engineLevel, cubeColor, govExtraOf(state));
+        const path = findLongestPath(town.coord, coord, state.board, state.currentPlayer, player.engineLevel, cubeColor, govExtraOf(state), lowGravExtraOf(state));
         if (!path || path.length < 2) return;
         state.startCubeAnimation(path, cubeColor);
         return;
@@ -698,7 +704,7 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
         state.currentPlayer,
         player.engineLevel,
         cubeColor,
-        govExtraOf(state)
+        govExtraOf(state), lowGravExtraOf(state)
       );
 
       if (!path || path.length < 2) return;

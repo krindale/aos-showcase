@@ -41,6 +41,57 @@ function citiesConnectedToSeed(board: BoardState, seedCityId: string): globalThi
   return new Set(board.cities.filter((c) => visited.has(key(c.coord))).map((c) => c.id));
 }
 
+/**
+ * 봇 Production 자동 배치 (룰북 IX: 생산 → 주사위 — 주사위 처리 직전에 실행).
+ * 봇 홀더가 주머니에서 min(2, 빈칸, 주머니)개를 뽑아 디스플레이 빈 칸에 놓는다.
+ * 슬롯 우선순위: 달(cityDiceGrowth)은 "낮쪽 + Moon Base 연결 도시" 열 먼저 —
+ * 이번 성장에서 실제로 도시로 나갈 수 있는 칸을 채워 Production의 실효를 높인다.
+ * (기존 한계 "봇 생산 미구현"의 해소 — 2026-07-21. 사람 홀더는 기존 UI 배치 흐름 그대로)
+ */
+function applyBotProduction(state: GameStore): { slots: (CubeColor | null)[]; bag: CubeColor[]; holderName: string } | null {
+  const holder = Object.values(state.players).find(
+    p => p.selectedAction === 'production' && p.isAI && !p.eliminated
+  );
+  if (!holder || state.phaseState.productionUsed) return null;
+
+  const slots = [...state.goodsDisplay.slots];
+  const bag = [...state.goodsDisplay.bag];
+  let empties = slots.map((c, i) => (c === null ? i : -1)).filter(i => i >= 0);
+  const count = Math.min(2, empties.length, bag.length);
+  if (count === 0) return null; // 배치 불가 — 진입 로직의 자동 완료가 처리
+
+  const profile = getMapProfile(state.mapId);
+  if (profile.cityDiceGrowth) {
+    // 달: 슬롯 인덱스 → 도시 열 매핑 후, 낮쪽+시드 연결 열의 빈 칸을 앞으로
+    const seedId = profile.masterNetworkSeedCityId;
+    const connected = seedId ? citiesConnectedToSeed(state.board, seedId) : null;
+    const columnMapping = getMapData(state.mapId).columnMapping;
+    const slotCity = new Map<number, string>();
+    {
+      let idx = 0;
+      for (const m of columnMapping) {
+        for (let i = 0; i < m.rowCount; i++) slotCity.set(idx + i, m.isNewCity ? '' : m.cityId);
+        idx += m.rowCount;
+      }
+    }
+    const growable = (slotIdx: number) => {
+      const cityId = slotCity.get(slotIdx);
+      if (!cityId) return false;
+      const city = state.board.cities.find(c => c.id === cityId);
+      if (!city) return false;
+      if (isNightCity(city, state.board)) return false;
+      if (connected && !connected.has(cityId)) return false;
+      return true;
+    };
+    empties = [...empties.filter(growable), ...empties.filter(i => !growable(i))];
+  }
+
+  for (let i = 0; i < count; i++) {
+    slots[empties[i]] = bag.pop()!;
+  }
+  return { slots, bag, holderName: holder.name };
+}
+
 /** goodsGrowthSlice가 제공하는 액션 — 인터페이스 정의는 gameStore(GameStore)에 그대로, Pick으로 참조 */
 export type GoodsGrowthSlice = Pick<
   GameStore,
@@ -125,13 +176,22 @@ export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
           return state;
         }
 
+        // 봇 Production 자동 배치 (룰북: 생산 → 주사위. 사람 홀더는 UI 배치를 위 가드가 보장)
+        const botProd = applyBotProduction(state);
+        const workingDisplay = botProd
+          ? { slots: botProd.slots, bag: botProd.bag }
+          : state.goodsDisplay;
+        if (botProd) {
+          console.log(`[봇 Production] ${botProd.holderName}: 주머니에서 디스플레이 빈 칸 자동 보충`);
+        }
+
         // === 달(Moon): "주사위 = 도시 인쇄 번호(1/2·3/4·5/6)" — 물품 디스플레이의 도시 열에서 성장 ===
         // 공식 룰(AOSD Exp Vol V): 디스플레이를 평소처럼 채워 두고, 주사위 눈이 도시의 두 번호 중
         // 하나와 일치하면 그 도시 열 위에서부터 큐브를 가져온다. 단 "낮쪽 + Moon Base와 완성 링크로
         // 연결된" 도시만 받을 수 있다 — 조건 미달이면 큐브는 디스플레이에 남는다.
         const moonProfile = getMapProfile(state.mapId);
         if (moonProfile.cityDiceGrowth) {
-          const newSlots = [...state.goodsDisplay.slots];
+          const newSlots = [...workingDisplay.slots];
           const newCities = state.board.cities.map(city => ({ ...city, cubes: [...city.cubes] }));
           const newLogs = [...state.logs];
           const growthDice = moonProfile.cityGrowthDice;
@@ -186,7 +246,7 @@ export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
           });
 
           return {
-            goodsDisplay: { slots: newSlots, bag: [...state.goodsDisplay.bag] },
+            goodsDisplay: { slots: newSlots, bag: [...workingDisplay.bag] },
             board: { ...state.board, cities: newCities },
             phaseState: { ...state.phaseState, productionUsed: true },
             goodsGrowthEvent: { dice: [...diceResults], results: eventResults },
@@ -194,11 +254,11 @@ export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
           };
         }
 
-        // Production은 이제 수동으로 처리됨 (startProduction/confirmProduction)
+        // 사람 Production은 수동 처리(startProduction/confirmProduction), 봇은 위 자동 배치 반영
         // 여기서는 주사위 결과에 따른 물품 성장만 처리
 
-        const newSlots = [...state.goodsDisplay.slots];
-        const newBag = [...state.goodsDisplay.bag];
+        const newSlots = [...workingDisplay.slots];
+        const newBag = [...workingDisplay.bag];
         const newCities = state.board.cities.map(city => ({ ...city, cubes: [...city.cubes] }));
         const newLogs = [...state.logs];
 

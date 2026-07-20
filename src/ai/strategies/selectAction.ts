@@ -166,12 +166,14 @@ function evaluateActionDeltaVP(
     }
     case 'turnOrder': return evaluateTurnOrder(state, playerId);
     case 'lowGravitation': {
-      // 달: 이동 시 상대 링크 1개 수입을 가져옴 — 상대 소유 완성 링크가 존재해야 가치가 있다.
-      // 수입 +1(=3VP × 확률 할인) + 상대 -1의 견제 효과 — 경로에 낄 확률을 반영해 소액 고정.
-      const hasOpponentTrack = state.board.trackTiles.some(
-        t => t.owner && t.owner !== playerId
-      );
-      return hasOpponentTrack ? 1.2 : 0;
+      // 달: 이동 경로에 상대 링크 1개를 내 것처럼 경유(경로 확장) + 그 수입 획득.
+      // 가치 ≈ 상대 완성 링크가 많을수록(빌릴 후보·경로 확장 가능성↑) — 소액에서 점증, 상한 2.5.
+      // (정밀 평가는 "빌렸을 때 vs 아닐 때 최선 배달 차이"지만 비용이 커 근사 유지 — 후속 튜닝)
+      const oppCompleted = state.board.trackTiles.filter(
+        t => t.owner && t.owner !== playerId && isTrackPartOfCompletedLink(t.coord, state.board)
+      ).length;
+      if (oppCompleted === 0) return 0;
+      return Math.min(2.5, 0.8 + oppCompleted * 0.1);
     }
     default: return 0;
   }
@@ -424,7 +426,7 @@ export function hasContestedBuildHex(state: GameState, playerId: PlayerId, plan:
 
     // 미건설 헥스가 상대 트랙과 인접 → 상대가 막거나 선점할 수 있음
     for (let edge = 0; edge < 6; edge++) {
-      const neighbor = getNeighborHex(coord, edge);
+      const neighbor = getNeighborHex(coord, edge, board);
       const oppTrack = board.trackTiles.some(
         t => t.owner !== null && t.owner !== playerId && hexCoordsEqual(t.coord, neighbor)
       );

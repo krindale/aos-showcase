@@ -550,7 +550,7 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
   배치하게 하고, **그가 배치를 끝낼(`productionUsed=true`) 때까지 GoodsGrowthPanel의 주사위·건너뛰기를
   잠근다**(온라인에선 방장이 게스트 생산 전에 굴려 스킵하던 버그). 방어로 `growGoods`도 사람 홀더 미완료면
   no-op. **배치 불가**(만석/빈 주머니)면 진입 시 `productionUsed` **자동 완료**(스킵 아님 — 물리적으로 배치
-  불가, 주사위 잠금 교착 방지). 선택자가 없거나 봇이면 잠금 없이 통과(봇 생산의 실제 주머니 뽑기는 미구현).
+  불가, 주사위 잠금 교착 방지). 선택자가 없거나 봇이면 잠금 없이 통과. **봇 생산은 growGoods 초입의 applyBotProduction이 자동 배치**(주머니에서 min(2,빈칸,주머니)개 — 달은 낮쪽+Moon Base 연결 열 우선, 2026-07-21 구현. 전 맵 공통 병목 해소로 100시드 VP 전반 상승).
   ⚠️ `ProductionPanel`은 **홀더 본인 좌석에만** 렌더(방장이 게스트 생산 대신 조작 방지). `startProduction`은
   `min(2, 빈칸, 주머니)` 뽑기(빈 칸보다 많이 뽑아 확정 불가하던 스턱 방지).
 - 회귀 테스트: `src/store/__tests__/productionAndBagReturn.test.ts` (맵별 진입 currentPlayer·자동완료 분기,

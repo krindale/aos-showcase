@@ -12,7 +12,7 @@ import {
   isTrackPartOfCompletedLink,
   stationInMasterNetwork,
 } from '@/utils/trackValidation';
-import { hexCoordsEqual, hexDistance, getNeighborHex, getOppositeEdge, playerEdgesAtTrack, cityAcceptsCube } from '@/utils/hexGrid';
+import { hexCoordsEqual, hexDistance, getNeighborHex, getOppositeEdge, playerEdgesAtTrack, cityEverAcceptsCube } from '@/utils/hexGrid';
 import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, incrementInvestedTracks } from '../strategy/state';
 import { getNextTargetRoute, findNextTargetRoute, getTopPriorityRoutes } from '../strategy/selector';
 import { getMapAIConfig } from '../strategy/mapConfig';
@@ -269,7 +269,7 @@ function findDanglingTownConnection(state: GameState, playerId: PlayerId): HexCo
 
     for (const edges of myEdgeSets) {
       for (const e of edges) {
-        const nb = getNeighborHex(tile.coord, e);
+        const nb = getNeighborHex(tile.coord, e, board);
         const isTown = board.towns.some(t => hexCoordsEqual(t.coord, nb) && t.newCityColor === null);
         if (!isTown) continue;
         const spurEdge = getOppositeEdge(e);
@@ -297,7 +297,7 @@ function findPassThroughDanglingTown(state: GameState, playerId: PlayerId): HexC
     if (tile.secondaryOwner === playerId && tile.secondaryEdges) myEdgeSets.push(tile.secondaryEdges);
     for (const edges of myEdgeSets) {
       for (const e of edges) {
-        const nb = getNeighborHex(tile.coord, e);
+        const nb = getNeighborHex(tile.coord, e, board);
         const isTown = board.towns.some(t => hexCoordsEqual(t.coord, nb) && t.newCityColor === null);
         if (!isTown) continue;
         const key = `${nb.col},${nb.row}`;
@@ -351,10 +351,10 @@ function resolveTurnRoute(state: GameState, playerId: PlayerId): DeliveryRoute |
     // 세그먼트인 경우 전체 경로의 최종 목적지도 화물 확인 대상에 포함
     const finalDestId = previousRoute.overallTo || previousRoute.to;
     const finalDestCity = state.board.cities.find(c => c.id === finalDestId);
-    // 도착 도시 수요색 매칭 — 한국(동적 색상)은 도시 cubes 기반 (cityAcceptsCube), 그 외 city.color
+    // 도착 도시 수요색 매칭 — 한국(동적 색상)은 도시 cubes 기반 (cityEverAcceptsCube), 그 외 city.color
     const hasMatchingCargo = !!(sourceCity && (
-      (targetCity && sourceCity.cubes.some(cube => cityAcceptsCube(targetCity, cube, state.board))) ||
-      (finalDestCity && finalDestId !== previousRoute.to && sourceCity.cubes.some(cube => cityAcceptsCube(finalDestCity, cube, state.board)))
+      (targetCity && sourceCity.cubes.some(cube => cityEverAcceptsCube(targetCity, cube, state.board))) ||
+      (finalDestCity && finalDestId !== previousRoute.to && sourceCity.cubes.some(cube => cityEverAcceptsCube(finalDestCity, cube, state.board)))
     ));
 
     const investedCount = getCurrentRouteState(playerId)?.investedTrackCount ?? 0;
@@ -667,13 +667,13 @@ function tryDirectPathBuild(
 
         const prevTrack = playerTracks.find(t => hexCoordsEqual(t.coord, prevCoord));
         if (prevTrack) {
-          const edgeToCity = getEdgeBetweenHexes(prevCoord, pathCoord);
+          const edgeToCity = getEdgeBetweenHexes(prevCoord, pathCoord, board);
           if (edgeToCity >= 0 && prevTrack.edges.includes(edgeToCity)) {
             // ★ 사용자 지침: 경로가 마을을 지날 땐, 다음 타일을 짓기 전에 "들어온 변" 가닥을 먼저 짓는다.
             // 마을은 가닥이 있어야 실제 연결 — frontier만 넘기면 다음 타일이 미연결 마을에서 시작돼 실패/토막.
             const pathIsTown = board.towns.some(t => hexCoordsEqual(t.coord, pathCoord) && t.newCityColor === null);
             if (pathIsTown) {
-              const townEntryEdge = getEdgeBetweenHexes(pathCoord, prevCoord); // 마을에서 prev를 향한 변
+              const townEntryEdge = getEdgeBetweenHexes(pathCoord, prevCoord, board); // 마을에서 prev를 향한 변
               const hasEntrySpur = (board.townSpurs ?? []).some(
                 sp => hexCoordsEqual(sp.townCoord, pathCoord) && sp.edge === townEntryEdge
               );
@@ -693,14 +693,14 @@ function tryDirectPathBuild(
       const trackHere = playerTracks.find(t => hexCoordsEqual(t.coord, pathCoord));
       if (trackHere) {
         const prevCoord = optimalPath[i - 1];
-        const edgeToPrev = getEdgeBetweenHexes(pathCoord, prevCoord);
+        const edgeToPrev = getEdgeBetweenHexes(pathCoord, prevCoord, board);
         if (edgeToPrev >= 0 && trackHere.edges.includes(edgeToPrev)) {
           // 역방향 OK. 순방향 검증: 다음 위치로 연결되는 엣지가 있는지.
           // 다음이 도시여도 트랙이 그 도시를 향한 변(레일)을 실제로 가져야 연결된다 —
           // 그렇지 않으면(예: 코엑시스가 도시 쪽 변 없음) 미완성인데 "완성"으로 오판한다.
           if (i + 1 < optimalPath.length) {
             const nextPathCoord = optimalPath[i + 1];
-            const edgeToNext = getEdgeBetweenHexes(pathCoord, nextPathCoord);
+            const edgeToNext = getEdgeBetweenHexes(pathCoord, nextPathCoord, board);
             if (edgeToNext < 0 || !trackHere.edges.includes(edgeToNext)) {
               // 순방향 엣지 비호환 → 이 트랙을 회피해야 함
               edgeBlockedHex = pathCoord;
@@ -766,7 +766,7 @@ function tryDirectPathBuild(
       // [NEW] 자기 완성 링크이고 엣지가 경로와 호환 → 통과
       if (existingTrack.owner === playerId && isTrackPartOfCompletedLink(existingTrack.coord, board)) {
         const prevCoordLoop = optimalPath[nextIndex - 1];
-        const entryEdgeLoop = getEdgeBetweenHexes(nextCoord, prevCoordLoop);
+        const entryEdgeLoop = getEdgeBetweenHexes(nextCoord, prevCoordLoop, board);
         let canPassThrough = false;
 
         if (entryEdgeLoop >= 0 && existingTrack.edges.includes(entryEdgeLoop)) {
@@ -777,7 +777,7 @@ function tryDirectPathBuild(
             if (isNextCity) {
               canPassThrough = true; // 다음이 도시면 항상 연결
             } else {
-              const exitEdgeLoop = getEdgeBetweenHexes(nextCoord, nextNext);
+              const exitEdgeLoop = getEdgeBetweenHexes(nextCoord, nextNext, board);
               canPassThrough = exitEdgeLoop >= 0 && existingTrack.edges.includes(exitEdgeLoop);
             }
           }
@@ -797,10 +797,10 @@ function tryDirectPathBuild(
       if ((existingTrack.owner !== playerId || isOwnCompletedLink) && existingTrack.trackType === 'simple') {
         const prevCoordForComplex = optimalPath[nextIndex - 1];
         const nextNextCoordForComplex = nextIndex + 1 < optimalPath.length ? optimalPath[nextIndex + 1] : null;
-        const entryEdgeComplex = getEdgeBetweenHexes(nextCoord, prevCoordForComplex);
+        const entryEdgeComplex = getEdgeBetweenHexes(nextCoord, prevCoordForComplex, board);
         let exitEdgeComplex = -1;
         if (nextNextCoordForComplex) {
-          exitEdgeComplex = getEdgeBetweenHexes(nextCoord, nextNextCoordForComplex);
+          exitEdgeComplex = getEdgeBetweenHexes(nextCoord, nextNextCoordForComplex, board);
         }
         const existingEdges = existingTrack.edges;
 
@@ -888,12 +888,12 @@ function tryDirectPathBuild(
       ? optimalPath[nextIndex + 1]
       : null;
 
-    const entryEdge = getEdgeBetweenHexes(nextCoord, prevCoord);
+    const entryEdge = getEdgeBetweenHexes(nextCoord, prevCoord, board);
     if (entryEdge < 0) return null;
 
     let exitEdge = -1;
     if (nextNextCoord) {
-      exitEdge = getEdgeBetweenHexes(nextCoord, nextNextCoord);
+      exitEdge = getEdgeBetweenHexes(nextCoord, nextNextCoord, board);
     }
     if (exitEdge < 0) return null;
 
@@ -905,7 +905,7 @@ function tryDirectPathBuild(
     if (!frontierIsCity && frontierIndex > 0) {
       const frontierTrack = playerTracks.find(t => hexCoordsEqual(t.coord, frontierCoord));
       if (frontierTrack) {
-        const edgeFromFrontier = getEdgeBetweenHexes(frontierCoord, nextCoord);
+        const edgeFromFrontier = getEdgeBetweenHexes(frontierCoord, nextCoord, board);
         if (edgeFromFrontier >= 0 && !frontierTrack.edges.includes(edgeFromFrontier)) {
           // frontier 트랙이 건설 위치 방향 엣지 없음 → 회피 재탐색
           avoidCoords.push(frontierCoord);
@@ -951,7 +951,7 @@ function tryDirectPathBuild(
       const srcCity = board.cities.find(c => c.id === route.from);
       const dstCity = board.cities.find(c => c.id === route.to);
       const hasDeliverableCargo = !!(srcCity && dstCity &&
-        srcCity.cubes.some(cube => cityAcceptsCube(dstCity, cube, board)));
+        srcCity.cubes.some(cube => cityEverAcceptsCube(dstCity, cube, board)));
       if (missingAhead <= remainingSlots && hasDeliverableCargo) {
         // 전액 면제 (부분 완화 "생존 하한"도 실험했으나 파산이 오히려 늘었다 — 30시드:
         // Korea 17→18, Rust 22→25. 완성→배달 도박이 신중한 보류보다 기대값이 높다)

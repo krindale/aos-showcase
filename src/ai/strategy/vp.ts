@@ -25,7 +25,7 @@ import {
   getConnectedCities,
 } from './analyzer';
 import { getCurrentRoute } from './state';
-import { hexCoordsEqual, cityAcceptsCube, isTrackPartOfCompletedLink } from '@/utils/hexGrid';
+import { hexCoordsEqual, cityEverAcceptsCube, isTrackPartOfCompletedLink } from '@/utils/hexGrid';
 
 // ===== VP 환산 상수 =====
 export const VP_PER_INCOME = 3;
@@ -368,23 +368,25 @@ export function estimateRouteVP(
     // 엔진 상한으로 배달 자체가 불가능한 경로
     return { deltaVP: -Infinity, tracksToBuild, buildCost, completable: false, expectedDeliveries: 0, fullPath };
   }
-  const deliverableTurns = remainingTurnsIncl - Math.max(completionTurns - 1, engineDelay);
+  let deliverableTurns = remainingTurnsIncl - Math.max(completionTurns - 1, engineDelay);
+  // 달(Moon) 밤낮 교대: 목적지는 격턴(원래색=낮 턴 / 검은색=밤 턴)에만 수용 — 배달 가능 턴 절반
+  if (state.board.nightSide) deliverableTurns = Math.ceil(deliverableTurns / 2);
 
   // 4. 기대 배달 횟수: 매칭 큐브 수와 배달 가능 턴 (턴당 1회 보수 가정)
   //   income 원천을 맵별로 일반화 — ① 출발 도시 안의 큐브(튜토리얼 등) +
   //   ② 이 경로 위에 놓인 트랙 큐브 중 도착 도시 색(St. Lucia 헥스큐브 등).
   //   (맵 이름 하드코딩 없이, 보드에 실제로 존재하는 income 원천만 본다)
-  // 도착 도시 수요색 매칭 — 한국(동적 색상)은 targetCity.cubes 기반 (cityAcceptsCube), 그 외 city.color
-  const cityCubes = (sourceCity?.cubes ?? []).filter(cube => cityAcceptsCube(targetCity, cube, board)).length;
+  // 도착 도시 수요색 매칭 — 한국(동적 색상)은 targetCity.cubes 기반 (cityEverAcceptsCube), 그 외 city.color
+  const cityCubes = (sourceCity?.cubes ?? []).filter(cube => cityEverAcceptsCube(targetCity, cube, board)).length;
   const trackCubesOnPath = board.trackTiles.filter(t =>
-    t.cube != null && cityAcceptsCube(targetCity, t.cube, board) && fullPath.some(pc => hexCoordsEqual(pc, t.coord))
+    t.cube != null && cityEverAcceptsCube(targetCity, t.cube, board) && fullPath.some(pc => hexCoordsEqual(pc, t.coord))
   ).length;
   //   ③ 이 경로 위 마을에 놓인 큐브 중 도착 도시 색 (Western US townCubes) — 경로가 마을을
   //      지나면 그 마을 큐브도 같은 색 도시로 배달 가능 → 경로 가치 가산.
   const townCubesOnPath = config.incomeSources.includes('townCubes')
     ? board.towns.filter(t =>
         t.newCityColor === null &&
-        t.cubes.some(c => cityAcceptsCube(targetCity, c, board)) &&
+        t.cubes.some(c => cityEverAcceptsCube(targetCity, c, board)) &&
         fullPath.some(pc => hexCoordsEqual(pc, t.coord))
       ).length
     : 0;

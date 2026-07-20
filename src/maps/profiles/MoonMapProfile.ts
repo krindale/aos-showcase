@@ -17,7 +17,8 @@
 import { StandardMapProfile } from './StandardMapProfile';
 import { MapRuleSummary } from '../MapProfile';
 import { MapId } from '../MapId';
-import { City, CubeColor, GameState, SpecialAction } from '@/types/game';
+import { City, CubeColor, GameState, PlayerId, SpecialAction } from '@/types/game';
+import { findCompletedLinks } from '@/utils/hexGrid';
 import {
   MOON_MAP,
   MOON_CITY_DICE,
@@ -25,6 +26,30 @@ import {
   getMoonSide,
   nightSideAfter,
 } from '@/utils/moonMap';
+
+/**
+ * 이 플레이어의 완성 링크가 닿아 있는 반구 집합 (달 반구 포트폴리오 판정용).
+ * 링크 양끝 정거장의 반구를 모은다 — 중앙 열(Moon Base)은 어느 쪽도 아니므로 제외.
+ * 경로 평가마다 호출되므로 보드 인스턴스 단위로 캐시한다(턴 중 보드는 불변 참조).
+ */
+const coveredCache = new WeakMap<object, Map<string, Set<'west' | 'east'>>>();
+function coveredSides(state: GameState, playerId: PlayerId): Set<'west' | 'east'> {
+  let byPlayer = coveredCache.get(state.board);
+  if (!byPlayer) { byPlayer = new Map(); coveredCache.set(state.board, byPlayer); }
+  const hit = byPlayer.get(playerId);
+  if (hit) return hit;
+
+  const sides = new Set<'west' | 'east'>();
+  for (const link of findCompletedLinks(state.board)) {
+    if (link.owner !== playerId) continue;
+    for (const end of [link.startCity, link.endCity]) {
+      const side = getMoonSide(end);
+      if (side) sides.add(side);
+    }
+  }
+  byPlayer.set(playerId, sides);
+  return sides;
+}
 
 export class MoonMapProfile extends StandardMapProfile {
   constructor() {
@@ -85,7 +110,7 @@ export class MoonMapProfile extends StandardMapProfile {
    *   억제된다(안정화 목표에 역행). 상대 우위만 조정한다.
    */
   override aiDeliveryTimingFactor(
-    to: City, cube: CubeColor, startTurn: number, state: GameState
+    to: City, cube: CubeColor, startTurn: number, state: GameState, playerId?: PlayerId
   ): number {
     const night = state.board.nightSide;
     if (!night) return 1;
@@ -93,7 +118,16 @@ export class MoonMapProfile extends StandardMapProfile {
     const toSide = getMoonSide(to.coord);
     if (to.noDemand || toSide === null) return 1; // Moon Base(중앙 열)
     const turnsAhead = Math.max(0, startTurn - state.currentTurn);
-    return toSide === nightSideAfter(night, turnsAhead) ? 0.9 : 1;
+    let factor = toSide === nightSideAfter(night, turnsAhead) ? 0.9 : 1;
+
+    // ★ 반구 포트폴리오: 내 완성 링크가 이미 이 반구를 커버하고 있으면, 그 반구가 밤인 턴에는
+    //   가진 링크가 통째로 놀게 된다. 아직 안 닿은 반대 반구를 우대해 "매 턴 한쪽은 쓸 수 있는"
+    //   구성을 만든다 (실측: 수송 스킵의 41%가 "링크가 한쪽 반구에만 있어서" 발생).
+    if (playerId) {
+      const covered = coveredSides(state, playerId);
+      if (covered.size > 0) factor *= covered.has(toSide) ? 0.75 : 1.4;
+    }
+    return factor;
   }
 
   override actionDescription(action: SpecialAction): string | undefined {

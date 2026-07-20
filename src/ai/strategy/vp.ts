@@ -436,7 +436,7 @@ export function estimateRouteVP(
   // 맵별 배달 타이밍 계수 (기본 1 = 항등). 달: 검은 큐브는 매 턴 배달처가 있어 우대,
   // 색 큐브는 목적지가 낮인 격턴에만 가능 — 첫 배달 턴이 밤이면 대기 손실만큼 소폭 할인.
   const timingFactor = profile.aiDeliveryTimingFactor(
-    targetCity, opp.cubeColor, state.currentTurn + deliveryStartDelay, state
+    targetCity, opp.cubeColor, state.currentTurn + deliveryStartDelay, state, playerId
   );
   const perDeliveryVP = (deliveryDeltaVP(state, playerId, links, 0, deliveryStartDelay)
     + regionBonus * VP_PER_INCOME) * timingFactor;

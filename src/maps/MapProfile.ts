@@ -233,7 +233,7 @@ export abstract class MapProfile {
    *   낮인 격턴에만 가능(첫 배달 예상 턴이 밤이면 1턴 더 대기 = 소폭 할인).
    */
   aiDeliveryTimingFactor(
-    _to: City, _cube: CubeColor, _startTurn: number, _state: GameState
+    _to: City, _cube: CubeColor, _startTurn: number, _state: GameState, _playerId?: PlayerId
   ): number { return 1; }
 
   /** AI 경로 평가의 "지연 완성 페널티" (완성이 1턴 늦어질 때마다 −N VP, cityCubes 다인 맵).

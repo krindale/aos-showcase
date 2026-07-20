@@ -27,6 +27,8 @@ interface BoardOverlaysProps {
   nightOverlayPath?: string;
   /** 달(Moon): 밤쪽 상단 "밤" 배지 위치 (GameBoard useMemo) */
   nightBadge?: { x: number; y: number } | null;
+  /** 달(Moon): 낮쪽 상단 "낮" 배지 위치 — 태양 타일 표시 (GameBoard useMemo) */
+  dayBadge?: { x: number; y: number } | null;
   borderColor: string;
   // ui 상태 (필요한 필드만)
   previewTrack: { coord: HexCoord; edges: [number, number] } | null;
@@ -45,6 +47,7 @@ export default function BoardOverlays({
   blockedEdgePath,
   nightOverlayPath,
   nightBadge,
+  dayBadge,
   borderColor,
   previewTrack,
   selectedCubeCityId,
@@ -193,7 +196,7 @@ export default function BoardOverlays({
         />
       )}
 
-      {/* 달(Moon): 밤쪽 상단 "밤" 배지 — 어느 절반이 밤인지 표시 (턴마다 교대) */}
+      {/* 달(Moon): 밤/낮 배지 — 어느 절반이 밤·낮인지 표시 (턴마다 교대, 낮=태양 타일 자리) */}
       {nightBadge && (
         <g style={{ pointerEvents: 'none' }}>
           <rect x={nightBadge.x - 44} y={nightBadge.y - 17} width={88} height={34} rx={17}
@@ -201,6 +204,16 @@ export default function BoardOverlays({
           <text x={nightBadge.x} y={nightBadge.y + 1} textAnchor="middle" dominantBaseline="central"
             fill="#f3f2fa" fontSize={17} fontWeight="700">
             {'\u{1F319} \uBC24'}
+          </text>
+        </g>
+      )}
+      {dayBadge && (
+        <g style={{ pointerEvents: 'none' }}>
+          <rect x={dayBadge.x - 44} y={dayBadge.y - 17} width={88} height={34} rx={17}
+            fill="rgba(255,248,225,0.94)" stroke="#d9a520" strokeWidth={1.2} />
+          <text x={dayBadge.x} y={dayBadge.y + 1} textAnchor="middle" dominantBaseline="central"
+            fill="#7a5a10" fontSize={17} fontWeight="700">
+            {'\u2600\uFE0F \uB0AE'}
           </text>
         </g>
       )}

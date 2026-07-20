@@ -159,20 +159,27 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     return d;
   }, [board.nightSide, board.hexTiles, board.cities, isFlat]);
 
-  // 달(Moon): 밤쪽 상단에 표시할 "밤" 배지 위치 (밤쪽 헥스들의 x 평균, 최상단 y 위)
-  const nightBadge = useMemo(() => {
-    const nightSide = board.nightSide;
-    if (!nightSide) return null;
+  // 달(Moon): 밤/낮 배지 위치 — 각 반쪽 헥스들의 x 평균 + 최상단 y (마름모 좌상/우상 빈 공간)
+  const sideBadgePos = useCallback((side: 'west' | 'east') => {
     let sumX = 0, minY = Infinity, n = 0;
     board.hexTiles.forEach(h => {
-      if (h.terrain === 'lake' || getMoonSide(h.coord) !== nightSide) return;
+      if (h.terrain === 'lake' || getMoonSide(h.coord) !== side) return;
       const { x, y } = hexToPixel(h.coord.col, h.coord.row, undefined, undefined, undefined, isFlat);
       sumX += x; minY = Math.min(minY, y); n++;
     });
     if (n === 0) return null;
-    // 밤쪽 x 평균 + 최상단 헥스 높이 — 마름모 보드의 좌상/우상 빈 공간에 놓인다 (viewBox 안)
     return { x: sumX / n, y: minY - HEX_SIZE * 0.2 };
-  }, [board.nightSide, board.hexTiles, isFlat]);
+  }, [board.hexTiles, isFlat]);
+
+  const nightBadge = useMemo(
+    () => (board.nightSide ? sideBadgePos(board.nightSide) : null),
+    [board.nightSide, sideBadgePos]
+  );
+  // 낮 배지 — 밤의 반대쪽 (태양 타일 자리, 사용자 요청 2026-07-21)
+  const dayBadge = useMemo(
+    () => (board.nightSide ? sideBadgePos(board.nightSide === 'west' ? 'east' : 'west') : null),
+    [board.nightSide, sideBadgePos]
+  );
 
   // 강 타일이 데이터로 "지나는 두 면"을 지정한 경우 (맵 데이터에 적힌 강 방향) — generic, 맵 분기 없음
   const riverEdgeMap = useMemo(() => {
@@ -1050,6 +1057,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           blockedEdgePath={blockedEdgePath}
           nightOverlayPath={nightOverlayPath}
           nightBadge={nightBadge}
+          dayBadge={dayBadge}
           borderColor={mapData.colors.border}
           previewTrack={ui.previewTrack}
           selectedCubeCityId={ui.selectedCube?.cityId ?? null}

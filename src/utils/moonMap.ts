@@ -145,6 +145,22 @@ export function getMoonSide(coord: HexCoord): 'west' | 'east' | null {
   return null;
 }
 
+/** 밤/낮 위상 규칙의 단일 소스 — 밤쪽은 매 턴 정확히 한 번 반전된다 (setup 'west' 시작 +
+ *  gameStore 턴 롤오버 2곳). 즉 지금이 nightSide면 n턴 뒤는 n이 홀수일 때만 반대편.
+ *  AI가 "이 경로가 완성되는 턴에 목적지가 낮인가"를 예측할 때 쓴다. */
+export function nightSideAfter(currentNightSide: 'west' | 'east', turnsAhead: number): 'west' | 'east' {
+  const flipped = turnsAhead % 2 !== 0;
+  if (!flipped) return currentNightSide;
+  return currentNightSide === 'west' ? 'east' : 'west';
+}
+
+/** 그 턴에 이 좌표가 낮인가 (중앙 열은 밤낮 없음 = 항상 낮 취급 — Moon Base는 무수요라 무해) */
+export function isDayAtTurn(coord: HexCoord, currentNightSide: 'west' | 'east', turnsAhead: number): boolean {
+  const side = getMoonSide(coord);
+  if (side === null) return true;
+  return side !== nightSideAfter(currentNightSide, turnsAhead);
+}
+
 // === 랩 어라운드: 외곽 같은 번호 변 연결 (1~37, 화면 좌표+화면 변으로 기술 후 변환) ===
 // 시트 실측: 두 변은 항상 보드 180° 점대칭 위치 (몽타주 74변 전수 판독, 2026-07-14).
 // 화면 변 번호: 0=N, 1=NE, 2=SE, 3=S, 4=SW, 5=NW

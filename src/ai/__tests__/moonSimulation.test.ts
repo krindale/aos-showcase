@@ -14,7 +14,8 @@ import { useGameStore } from '@/store/gameStore';
 import { getAIDecision } from '@/ai';
 import { addFailedBuildCoord } from '../strategies/buildTrack';
 import { calculateVictoryPoints } from '@/utils/gameLogic';
-import { isTrackPartOfCompletedLink } from '@/utils/hexGrid';
+import { isTrackPartOfCompletedLink, countPathLinks, countOwnPathLinks, findLongestPath } from '@/utils/hexGrid';
+import { nightSideAfter } from '@/utils/moonMap';
 import type { PlayerId } from '@/types/game';
 
 function createSeededRng(seed: number): () => number {
@@ -49,6 +50,11 @@ interface MResult {
   buildLimitOk: boolean;       // 불변식 ②
   moonBaseDeliveryOk: boolean; // 불변식 ③
   growthEvents: number;        // 성장으로 도시에 큐브가 추가된 횟수 (성장 실동작 확인)
+  // ── 계측 지표 (Stage 0 상설화 — 튜닝 단계별 비교 기준) ──
+  moveOpps: { move: number; engine: number; skip: number };
+  linkDist: Record<number, number>;   // 배달 경로 총 링크 분포
+  ownLinkSum: number;                 // 배달당 내 링크 합 (÷move = 평균)
+  turnRows: { turn: number; income: number; shares: number; engine: number }[];
 }
 
 function runMoonGame(seed: number): MResult {
@@ -72,6 +78,12 @@ function runMoonGame(seed: number): MResult {
   let moonBaseDeliveryOk = true;
   let growthEvents = 0;
   let lastGrowthTurn = 0;
+  // 계측 (Stage 0)
+  const moveOpps = { move: 0, engine: 0, skip: 0 };
+  const linkDist: Record<number, number> = {};
+  let ownLinkSum = 0;
+  const turnRows: MResult['turnRows'] = [];
+  const seenTurn = new Set<number>();
 
   const MAX_ITER = 80000;
   let iter = 0, stale = 0, lastSig = '';
@@ -81,9 +93,18 @@ function runMoonGame(seed: number): MResult {
     const s = useGameStore.getState();
     if (s.currentPhase === 'gameOver') { reachedEnd = true; break; }
 
-    // 불변식 ①: 턴 N의 밤쪽 (1턴 west 시작, 성장 후 교대 → 홀수턴 west/짝수턴 east)
-    const expectedNight = s.currentTurn % 2 === 1 ? 'west' : 'east';
+    // 불변식 ①: 턴 N의 밤쪽 — 위상 헬퍼(단일 소스)와 대조. 1턴 west 시작 + 매 턴 반전.
+    const expectedNight = nightSideAfter('west', s.currentTurn - 1);
     if (s.board.nightSide !== expectedNight) nightSideOk = false;
+
+    // 턴별 스냅샷 (활성 플레이어)
+    if (s.currentPhase === 'issueShares' && !seenTurn.has(s.currentTurn)) {
+      seenTurn.add(s.currentTurn);
+      for (const pid of PLAYERS) {
+        const p = s.players[pid];
+        if (p && !p.eliminated) turnRows.push({ turn: s.currentTurn, income: p.income, shares: p.issuedShares, engine: p.engineLevel });
+      }
+    }
 
     // 불변식 ③: Moon Base 큐브는 셋업 8개에서 늘지 않는다 (noDemand — 배달 종착 불가,
     // 성장 대상도 아님). 배달 출발로 줄기만 한다.
@@ -182,7 +203,22 @@ function runMoonGame(seed: number): MResult {
 
       case 'moveGoods': {
         const d = decision.decision;
+        if (d.action === 'move') moveOpps.move++;
+        else if (d.action === 'upgradeEngine') moveOpps.engine++;
+        else moveOpps.skip++;
         if (d.action === 'move') {
+          // 경로 링크 계측 (내 링크 = income 기여분)
+          const srcCity = s.board.cities.find(c => c.id === d.sourceCityId);
+          if (srcCity) {
+            const color = srcCity.cubes[d.cubeIndex];
+            const path = color ? findLongestPath(srcCity.coord, d.destinationCoord, s.board, cp,
+              s.players[cp].engineLevel, color, 0, s.players[cp].selectedAction === 'lowGravitation' ? 1 : 0) : null;
+            if (path) {
+              const links = countPathLinks(path, s.board);
+              linkDist[links] = (linkDist[links] ?? 0) + 1;
+              ownLinkSum += countOwnPathLinks(path, s.board, cp);
+            }
+          }
           store.selectCube(d.sourceCityId, d.cubeIndex);
           useGameStore.getState().selectDestinationCity(d.destinationCoord);
           deliveries++; deliveriesByPlayer[cp]++;
@@ -234,6 +270,7 @@ function runMoonGame(seed: number): MResult {
     finalTurn: f.currentTurn, reachedEnd, deliveries, builds,
     buildsByPlayer, deliveriesByPlayer, winner,
     nightSideOk, buildLimitOk, moonBaseDeliveryOk, growthEvents,
+    moveOpps, linkDist, ownLinkSum, turnRows,
   };
 }
 
@@ -283,7 +320,20 @@ describe('Moon 4 AI 전체 게임 — 특수룰 실동작 + 베이스라인', ()
       x.builds /= seeds; x.deliveries /= seeds; x.tracks /= seeds;
     });
     const sum = (f: (r: MResult) => number) => results.reduce((a, r) => a + f(r), 0);
+    // ── 계측 집계 (Stage 0) ──
+    const opps = { move: sum(r => r.moveOpps.move), engine: sum(r => r.moveOpps.engine), skip: sum(r => r.moveOpps.skip) };
+    const oppTotal = opps.move + opps.engine + opps.skip;
+    const linkDist: Record<number, number> = {};
+    results.forEach(r => Object.entries(r.linkDist).forEach(([k, v]) => { linkDist[Number(k)] = (linkDist[Number(k)] ?? 0) + v; }));
+    const ownLinkAvg = sum(r => r.ownLinkSum) / Math.max(1, opps.move);
+    const turnAgg: Record<number, { n: number; income: number; shares: number; engine: number }> = {};
+    results.forEach(r => r.turnRows.forEach(row => {
+      turnAgg[row.turn] = turnAgg[row.turn] ?? { n: 0, income: 0, shares: 0, engine: 0 };
+      const a = turnAgg[row.turn];
+      a.n++; a.income += row.income; a.shares += row.shares; a.engine += row.engine;
+    }));
     return {
+      opps, oppTotal, linkDist, ownLinkAvg, turnAgg,
       results, seeds,
       avgVP: allVPs.reduce((a, b) => a + b, 0) / allVPs.length,
       minVP: Math.min(...allVPs), maxVP: Math.max(...allVPs),
@@ -313,6 +363,18 @@ describe('Moon 4 AI 전체 게임 — 특수룰 실동작 + 베이스라인', ()
       const x = m.perPlayer[p];
       console.log(`${p}: VP ${x.vp.toFixed(1)} | 건설 ${x.builds.toFixed(1)} | 수송 ${x.deliveries.toFixed(1)} | 엔진 ${x.engine.toFixed(1)} | 주식 ${x.shares.toFixed(1)} | income ${x.income.toFixed(1)} | 완성트랙 ${x.tracks.toFixed(1)}`);
     });
+
+    // ── Stage 0 계측: 튜닝 단계별 비교 기준 ──
+    console.log('--- 수송 기회 사용 ---');
+    console.log(`총 ${(m.oppTotal / m.seeds).toFixed(1)}회/게임 | 배달 ${(m.opps.move / m.oppTotal * 100).toFixed(0)}% | 엔진업 ${(m.opps.engine / m.oppTotal * 100).toFixed(0)}% | 스킵 ${(m.opps.skip / m.oppTotal * 100).toFixed(0)}%`);
+    console.log(`배달 경로 총링크 분포: ${JSON.stringify(m.linkDist)} | 배달당 내 링크 ${m.ownLinkAvg.toFixed(2)}`);
+    console.log('--- 턴별 (income / 주식 / 엔진 / 턴비용 / 수지) ---');
+    for (let t = 1; t <= 8; t++) {
+      const a = m.turnAgg[t];
+      if (!a) continue;
+      const inc = a.income / a.n, sh = a.shares / a.n, en = a.engine / a.n;
+      console.log(`T${t}: ${inc.toFixed(1).padStart(5)} | ${sh.toFixed(1).padStart(4)} | ${en.toFixed(1).padStart(4)} | ${(sh + en).toFixed(1).padStart(5)} | ${(inc - sh - en).toFixed(1).padStart(5)}`);
+    }
 
     // 핵심 게이트: 정상 종료 + 달 불변식
     expect(m.allReachedEnd).toBe(true);

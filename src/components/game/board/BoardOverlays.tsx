@@ -231,20 +231,26 @@ export default function BoardOverlays({
         />
       )}
 
-      {/* 달(Moon): 랩 어라운드 엣지 번호 — 외곽 변 바깥에 갈색 박스 + 번호 (같은 번호끼리 연결) */}
+      {/* 달(Moon): 랩 어라운드 엣지 번호 — 원본 시트처럼 외곽 변에 딱 붙은 갈색 박스,
+          변과 평행하게 회전 (하단 번호가 뒤집혀 보이는 것까지 원본 레이아웃 그대로) */}
       {(board.wrapEdges ?? []).map((w) =>
         [w.a, w.b].map((side, i) => {
           const { x, y } = hexToPixel(side.coord.col, side.coord.row, undefined, undefined, undefined, isFlat);
-          // 변 중점(getEdgeMidpoint와 동일 기하: 중점 각도 = 60°×edge)을 바깥으로 1.28배 연장한 위치에 박스
-          const rad = (Math.PI / 180) * (side.edge * 60);
+          // 변 중점 방향각(데이터 pointy-top: 60°×edge). flat 렌더는 dx/dy 전치 = 화면각 90°−θ
+          const theta = side.edge * 60;
+          const screenTheta = isFlat ? 90 - theta : theta;
+          const rad = (Math.PI / 180) * screenTheta;
           const apothem = (Math.sqrt(3) / 2) * HEX_SIZE;
-          let dx = Math.cos(rad) * apothem * 1.28;
-          let dy = Math.sin(rad) * apothem * 1.28;
-          if (isFlat) { const t = dx; dx = dy; dy = t; } // 렌더 전치 (hexToPixel과 동일)
-          const bx = x + dx, by = y + dy;
           const box = HEX_SIZE * 0.34;
+          // 박스 중심 = 변 중점에서 바깥으로 박스 반높이 + 외곽선(4px) 절반 → 변에 밀착
+          const dist = apothem + box / 2 + 2;
+          const bx = x + Math.cos(rad) * dist;
+          const by = y + Math.sin(rad) * dist;
+          // 박스/숫자를 변에 평행하게 회전 (변 접선 = 중점 방향 + 90°)
+          const tangent = screenTheta + 90;
           return (
-            <g key={`wrap-${w.number}-${i}`} style={{ pointerEvents: 'none' }}>
+            <g key={`wrap-${w.number}-${i}`} style={{ pointerEvents: 'none' }}
+              transform={`rotate(${tangent}, ${bx.toFixed(1)}, ${by.toFixed(1)})`}>
               <rect x={bx - box / 2} y={by - box / 2} width={box} height={box} rx={3} fill={borderColor} />
               <text x={bx} y={by} textAnchor="middle" dominantBaseline="central" fill="#ffffff"
                 fontSize={box * 0.62} fontWeight="700" fontFamily="Georgia, 'Times New Roman', serif">

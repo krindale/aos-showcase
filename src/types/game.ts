@@ -31,7 +31,7 @@ export const TURNS_BY_PLAYER_COUNT: Record<number, number> = {
   6: 6,
 };
 
-// 7가지 특수 행동
+// 7가지 기본 특수 행동 + 맵 전용 추가 행동 (lowGravitation — Moon 8번째, MapProfile.extraActions로만 노출)
 export type SpecialAction =
   | 'firstMove'      // 먼저 이동
   | 'firstBuild'     // 먼저 건설
@@ -39,7 +39,8 @@ export type SpecialAction =
   | 'locomotive'     // 기관차 (+1 엔진)
   | 'urbanization'   // 도시화
   | 'production'     // 생산
-  | 'turnOrder';     // 턴 순서 패스
+  | 'turnOrder'      // 턴 순서 패스
+  | 'lowGravitation'; // 저중력 (Moon 전용 신규 행동 — 이동 시 타인 링크 1개 수입 획득)
 
 // 10단계 + 게임 종료 (+ Montréal 전용 정부 링크 단계)
 export type GamePhase =
@@ -241,6 +242,9 @@ export interface GoodsColumnMapping {
   // (Rust Belt: 12도시가 6번호를 2개씩). 신규 도시 열은 주사위로 보충되지 않아 undefined.
   // (지정 안 하면 columnId를 숫자로 해석 — Tutorial '1'~'6' 하위 호환)
   diceNumber?: number;
+  /** 디스플레이 열 헤더 표시용 라벨 오버라이드 (Moon: 도시당 두 주사위 번호 "1/2" 표기 —
+   *  성장 판정은 diceNumber가 아니라 MapProfile.cityGrowthDice로 별도 처리). */
+  displayLabel?: string;
 }
 
 // 물품 디스플레이 설정
@@ -724,6 +728,10 @@ export const ACTION_INFO: Record<SpecialAction, { name: string; description: str
   turnOrder: {
     name: '턴 순서',
     description: '다음 플레이어 순서 결정 시 한 번 패스할 수 있습니다.',
+  },
+  lowGravitation: {
+    name: '저중력',
+    description: '물품 이동 단계에서 다른 플레이어의 링크 1개를 내 링크처럼 사용해 그 수입을 가져옵니다. 두 수송 라운드 모두 사용할 수 있습니다. (달 전용)',
   },
 };
 

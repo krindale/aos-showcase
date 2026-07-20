@@ -125,12 +125,13 @@ export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
           return state;
         }
 
-        // === 달(Moon): 디스플레이 대신 "주사위 = 도시 인쇄 번호" 직접 성장 ===
-        // 낮쪽 + Moon Base와 선로로 연결된 도시만 주머니에서 큐브 1개씩 받는다.
-        // 조건 미달 도시 배정분은 버려진다 — 주머니에서 뽑지 않는 것으로 구현(무작위 뽑기라 통계 동일).
+        // === 달(Moon): "주사위 = 도시 인쇄 번호(1/2·3/4·5/6)" — 물품 디스플레이의 도시 열에서 성장 ===
+        // 공식 룰(AOSD Exp Vol V): 디스플레이를 평소처럼 채워 두고, 주사위 눈이 도시의 두 번호 중
+        // 하나와 일치하면 그 도시 열 위에서부터 큐브를 가져온다. 단 "낮쪽 + Moon Base와 완성 링크로
+        // 연결된" 도시만 받을 수 있다 — 조건 미달이면 큐브는 디스플레이에 남는다.
         const moonProfile = getMapProfile(state.mapId);
         if (moonProfile.cityDiceGrowth) {
-          const newBag = [...state.goodsDisplay.bag];
+          const newSlots = [...state.goodsDisplay.slots];
           const newCities = state.board.cities.map(city => ({ ...city, cubes: [...city.cubes] }));
           const newLogs = [...state.logs];
           const growthDice = moonProfile.cityGrowthDice;
@@ -138,17 +139,37 @@ export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
           const connected = seedId ? citiesConnectedToSeed(state.board, seedId) : null;
           const gained = new Map<string, CubeColor[]>(); // cityId → 추가된 큐브들
 
+          // 디스플레이 열 시작 인덱스 (columnMapping rowCount 누적 — 표준 경로와 동일 계산)
+          const moonColumnMapping = getMapData(state.mapId).columnMapping;
+          const colByCity = new Map<string, { startIndex: number; rowCount: number }>();
+          {
+            let slotIndex = 0;
+            for (const m of moonColumnMapping) {
+              if (!m.isNewCity) colByCity.set(m.cityId, { startIndex: slotIndex, rowCount: m.rowCount });
+              slotIndex += m.rowCount;
+            }
+          }
+
           for (const die of diceResults) {
             for (const [cityId, dice] of Object.entries(growthDice)) {
               if (!dice.includes(die)) continue;
               const city = newCities.find(c => c.id === cityId);
               if (!city) continue;
               if (isNightCity(city, state.board)) continue;          // 밤쪽 도시는 성장 없음
-              if (connected && !connected.has(cityId)) continue;      // Moon Base 미연결 — 버려짐
-              const cube = newBag.pop();                               // 셔플된 주머니 → pop = 무작위
-              if (!cube) break;
-              city.cubes.push(cube);
-              gained.set(cityId, [...(gained.get(cityId) ?? []), cube]);
+              if (connected && !connected.has(cityId)) continue;      // Moon Base 미연결 — 받지 못함
+              const col = colByCity.get(cityId);
+              if (!col) continue;
+              // 그 도시 열의 위에서부터 첫 큐브를 도시로 이동 (없으면 성장 없음)
+              for (let i = 0; i < col.rowCount; i++) {
+                const idx = col.startIndex + i;
+                const cube = newSlots[idx];
+                if (cube) {
+                  city.cubes.push(cube);
+                  newSlots[idx] = null;
+                  gained.set(cityId, [...(gained.get(cityId) ?? []), cube]);
+                  break;
+                }
+              }
             }
           }
 
@@ -165,7 +186,7 @@ export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
           });
 
           return {
-            goodsDisplay: { slots: [...state.goodsDisplay.slots], bag: newBag },
+            goodsDisplay: { slots: newSlots, bag: [...state.goodsDisplay.bag] },
             board: { ...state.board, cities: newCities },
             phaseState: { ...state.phaseState, productionUsed: true },
             goodsGrowthEvent: { dice: [...diceResults], results: eventResults },

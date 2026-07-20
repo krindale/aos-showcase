@@ -39,7 +39,8 @@ function getAvailableActions(state: GameState): SpecialAction[] {
     .map(p => p.selectedAction)
     .filter((a): a is SpecialAction => a !== null);
 
-  const disabled = getMapProfile(state.mapId).disabledActions;
+  const profile = getMapProfile(state.mapId);
+  const disabled = profile.disabledActions;
 
   const allActions: SpecialAction[] = [
     'firstMove',
@@ -49,6 +50,8 @@ function getAvailableActions(state: GameState): SpecialAction[] {
     'urbanization',
     'production',
     'turnOrder',
+    // 맵 전용 추가 행동 (Moon: lowGravitation 8번째)
+    ...profile.extraActions,
   ];
 
   return allActions.filter(a => !selectedActions.includes(a) && !disabled.includes(a));
@@ -61,6 +64,7 @@ const TIE_BREAK_ORDER: SpecialAction[] = [
   'firstMove',
   'locomotive',
   'production',
+  'lowGravitation',
   'urbanization',
   'turnOrder',
 ];
@@ -161,6 +165,14 @@ function evaluateActionDeltaVP(
       return 0.2;
     }
     case 'turnOrder': return evaluateTurnOrder(state, playerId);
+    case 'lowGravitation': {
+      // 달: 이동 시 상대 링크 1개 수입을 가져옴 — 상대 소유 완성 링크가 존재해야 가치가 있다.
+      // 수입 +1(=3VP × 확률 할인) + 상대 -1의 견제 효과 — 경로에 낄 확률을 반영해 소액 고정.
+      const hasOpponentTrack = state.board.trackTiles.some(
+        t => t.owner && t.owner !== playerId
+      );
+      return hasOpponentTrack ? 1.2 : 0;
+    }
     default: return 0;
   }
 }

@@ -50,6 +50,9 @@ export abstract class MapProfile {
   /** 도시별 초기 큐브 수 오버라이드 (미지정 도시는 INITIAL_CUBES_PER_CITY=2).
    *  Rust Belt: Pittsburgh/Wheeling 3개, 그 외 2개 (룰북 셋업). */
   get cityCubeCounts(): Record<string, number> { return {}; }
+  /** 도시별 "플레이어 인원당" 초기 큐브 수 (Moon: Landing hex 인원×2).
+   *  cityCubeCounts보다 우선하며, 실제 개수 = 값 × 활성 인원. */
+  get perPlayerCityCubes(): Record<string, number> { return {}; }
   /** Germany: Engineer 행동 시 트랙 1개 건설 비용을 절반(올림)으로. 이번 턴 1회만. */
   get engineerHalfCost(): boolean { return false; }
   /** Germany: 미완성 트랙 구간 건설 금지 — 모든 건설은 완성 링크를 만들어야 함. */
@@ -135,9 +138,9 @@ export abstract class MapProfile {
   /** 밤/낮 교대: 매 턴 보드 절반이 밤 — 밤쪽 도시는 검은 도시 취급(검은 큐브만 배달,
    *  다른 색 큐브는 통과도 불가). 물품 성장 후 밤쪽이 교대된다 (GameState.nightSide). */
   get nightDayCycle(): boolean { return false; }
-  /** Production 행동이 Low Gravitation으로 대체: 물품 이동 때 상대 링크 1개를
-   *  자기 링크처럼(수입 포함) 사용. 수송 2회에 각각 다른 링크 지정 가능. */
-  get productionAsLowGravitation(): boolean { return false; }
+  /** 맵 전용 추가 특수 행동 (기본 7종 외 — Moon: lowGravitation 8번째).
+   *  행동 그리드·AI 후보·도움말이 기본 7종 + 이 목록을 함께 순회한다. */
+  get extraActions(): SpecialAction[] { return []; }
   /** 물품 성장: 디스플레이 대신 주사위가 도시 인쇄 번호와 일치하면 주머니에서 도시로 직접 배치.
    *  (Moon: 낮쪽 + Moon Base 연결 도시만 — 조건 미달 배정분은 버려짐) */
   get cityDiceGrowth(): boolean { return false; }
@@ -145,8 +148,12 @@ export abstract class MapProfile {
   get growthDicePerPlayer(): number { return 1; }
   /** cityDiceGrowth 맵의 도시별 인쇄 주사위 번호 (도시 id → 번호들) */
   get cityGrowthDice(): Record<string, number[]> { return {}; }
-  /** 셋업에 사용하는 신규 도시 타일 id 목록 (null = 전부 A~H). Moon: C·D·G·H 제거 → A·B·E·F. */
+  /** 셋업에 사용하는 신규 도시 타일 id 목록 (null = 전부 A~H).
+   *  Moon: 공식 룰 "검은 신규 도시 제거" — 이 구현의 타일 색 기준 검은 4장(E~H) 제거 → A·B·C·D. */
   get availableNewCityTiles(): string[] | null { return null; }
+  /** 마을 가닥(스퍼) 1개 건설 비용 ($). 기본 $1.
+   *  Moon: 공식 룰 "마을 $2 + 트랙 구간당 $1"의 스퍼 모델 근사 — 가닥당 $2. */
+  get townSpurCost(): number { return 1; }
 
   // ── UI: 규칙 안내 문구 (기본 = 표준 맵, 특수룰 없음) ──
   /** 단계 설명 (PHASE_INFO 기반, 맵별 수치 보정). buildTrack은 buildsPerTurn을 반영 —

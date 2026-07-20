@@ -28,13 +28,20 @@ describe('달 맵 셋업', () => {
     expect(state.board.nightSide).toBe('west');
     expect(state.phaseState.maxTracksThisTurn).toBe(2);
     expect(state.maxTurns).toBe(8);
-    // 물품 디스플레이 미사용 (슬롯 0칸)
-    expect(state.goodsDisplay.slots.length).toBe(0);
+    // 물품 디스플레이 사용 (공식 룰 "평소처럼 채운다") — 도시 6열×3 + 신도시 A~D×2 = 26칸
+    expect(state.goodsDisplay.slots.length).toBe(26);
+    expect(state.goodsDisplay.slots.every((c) => c !== null)).toBe(true);
   });
 
-  it('신규 도시 타일은 A·B·E·F만 (C·D·G·H 제거)', () => {
+  it('신규 도시 타일은 A·B·C·D만 (검은 신도시 E~H 제거 — 공식 룰)', () => {
     const ids = useGameStore.getState().newCityTiles.map((t) => t.id).sort();
-    expect(ids).toEqual(['A', 'B', 'E', 'F']);
+    expect(ids).toEqual(['A', 'B', 'C', 'D']);
+  });
+
+  it('3인 게임: Landing hex(Moon Base) 큐브 = 인원×2 = 6개', () => {
+    const s3 = createInitialGameState('moon', ['A', 'B', 'C'], []);
+    useGameStore.setState(s3);
+    expect(cityById('moonBase').cubes.length).toBe(6);
   });
 });
 
@@ -91,12 +98,12 @@ describe('Low Gravitation (Production 대체 — 상대 링크 수입 이전)', 
 
   const changes = (v: Partial<Record<PlayerId, number>>) => ({ ...v });
 
-  it('production 선택자가 이동하면 경로 최다 수입 상대의 링크 수입 1을 가져온다', () => {
+  it('저중력 선택자가 이동하면 경로 최다 수입 상대의 링크 수입 1을 가져온다', () => {
     const state = useGameStore.getState();
     useGameStore.setState({
       players: {
         ...state.players,
-        player1: { ...state.players.player1, selectedAction: 'production' },
+        player1: { ...state.players.player1, selectedAction: 'lowGravitation' },
       },
     });
     const s = useGameStore.getState();
@@ -107,14 +114,21 @@ describe('Low Gravitation (Production 대체 — 상대 링크 수입 이전)', 
     expect(inc.player1).toBe(2);    // 나 +1
   });
 
-  it('production 미선택자·상대 수입 없음이면 적용되지 않는다', () => {
-    const s = useGameStore.getState(); // 아무도 production 아님
+  it('저중력 미선택자·상대 수입 없음이면 적용되지 않는다 (production 선택도 효과 없음)', () => {
+    const s = useGameStore.getState(); // 아무도 lowGravitation 아님
     const inc1 = changes({ player1: 1, player2: 2 });
     expect(applyLowGravitation(s, 'player1', inc1)).toBeNull();
     expect(inc1.player2).toBe(2);
-
+    // production은 이제 표준 행동 — 저중력 효과 없음
     useGameStore.setState({
       players: { ...s.players, player1: { ...s.players.player1, selectedAction: 'production' } },
+    });
+    const sProd = useGameStore.getState();
+    const incProd = changes({ player1: 1, player2: 2 });
+    expect(applyLowGravitation(sProd, 'player1', incProd)).toBeNull();
+
+    useGameStore.setState({
+      players: { ...s.players, player1: { ...s.players.player1, selectedAction: 'lowGravitation' } },
     });
     const s2 = useGameStore.getState();
     const inc2 = changes({ player1: 3 }); // 경로에 상대 링크 없음
@@ -126,10 +140,12 @@ describe('Low Gravitation (Production 대체 — 상대 링크 수입 이전)', 
 describe('달 물품 성장 (주사위 → 도시 직접)', () => {
   beforeEach(() => { setupMoon(); });
 
-  it('Moon Base와 연결 안 된 도시는 주사위가 일치해도 성장하지 않는다', () => {
+  it('Moon Base와 연결 안 된 도시는 주사위가 일치해도 성장하지 않는다 (디스플레이에 잔류)', () => {
     const before = cityById('nectaris').cubes.length; // 동쪽(낮) 1/2
+    const slotsBefore = useGameStore.getState().goodsDisplay.slots.filter(Boolean).length;
     useGameStore.getState().growGoods([1, 2, 1, 2, 1, 2, 1, 2]);
-    expect(cityById('nectaris').cubes.length).toBe(before); // 연결 없음 — 버려짐
+    expect(cityById('nectaris').cubes.length).toBe(before); // 연결 없음 — 받지 못함
+    expect(useGameStore.getState().goodsDisplay.slots.filter(Boolean).length).toBe(slotsBefore); // 디스플레이 그대로
     expect(useGameStore.getState().goodsGrowthEvent?.dice.length).toBe(8);
   });
 
@@ -194,9 +210,12 @@ describe('달 물품 성장 (주사위 → 도시 직접)', () => {
     const beforeNectaris = cityById('nectaris').cubes.length;
     const beforeImbrium = cityById('imbrium').cubes.length; // 서쪽(밤) — 연결 여부 무관 성장 금지
     const bagBefore = useGameStore.getState().goodsDisplay.bag.length;
+    const slotsBefore = useGameStore.getState().goodsDisplay.slots.filter(Boolean).length;
     useGameStore.getState().growGoods([1, 2, 3]); // 1·2 = nectaris(낮·연결) 2회, imbrium(밤) 0회
     expect(cityById('nectaris').cubes.length).toBe(beforeNectaris + 2);
     expect(cityById('imbrium').cubes.length).toBe(beforeImbrium);
-    expect(useGameStore.getState().goodsDisplay.bag.length).toBe(bagBefore - 2);
+    // 공식 룰: 큐브는 물품 디스플레이(그 도시 열)에서 나온다 — 주머니 아님
+    expect(useGameStore.getState().goodsDisplay.slots.filter(Boolean).length).toBe(slotsBefore - 2);
+    expect(useGameStore.getState().goodsDisplay.bag.length).toBe(bagBefore);
   });
 });

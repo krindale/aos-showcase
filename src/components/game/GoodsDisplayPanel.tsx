@@ -122,7 +122,7 @@ export default function GoodsDisplayPanel() {
 
   // 열별 헤더 라벨: 주사위 열은 주사위 번호, 신규 도시 열은 columnId
   const columnLabel = (m: GoodsColumnMapping): string =>
-    m.isNewCity ? m.columnId : String(m.diceNumber ?? m.columnId);
+    m.displayLabel ?? (m.isNewCity ? m.columnId : String(m.diceNumber ?? m.columnId));
 
   // 열이 가리키는 도시 이름 (신규 도시 / 미사용 마을 열 처리)
   const columnCityName = (m: GoodsColumnMapping): string => {

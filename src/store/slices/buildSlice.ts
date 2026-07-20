@@ -31,8 +31,9 @@ type Set = StoreApi<GameStore>['setState'];
 type Get = StoreApi<GameStore>['getState'];
 
 // 마을 가닥(스퍼) 건설 비용 — 가닥은 타일 건설 시 자동 생성되지 않고,
-// 마을 클릭(buildTownSpur)으로만 별도 건설된다 (첫 진입 1카운트, 비용 가닥당 $1).
-const TOWN_SPUR_COST = 1;
+// 마을 클릭(buildTownSpur)으로만 별도 건설된다 (첫 진입 1카운트, 비용 가닥당 기본 $1).
+// 맵 오버라이드: MapProfile.townSpurCost (Moon $2 — 공식 "마을 \$2+트랙당\$1"의 스퍼 근사)
+const townSpurCost = (mapId: string) => getMapProfile(mapId).townSpurCost;
 
 /** buildSlice가 제공하는 액션 — 인터페이스 정의는 gameStore(GameStore)에 그대로, Pick으로 참조 */
 export type BuildSlice = Pick<
@@ -233,7 +234,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         engineerDiscountGiven = d.engineerDiscountGiven;
       }
       // 마을 안 가닥 비용 (가닥당 $1)
-      cost += newSpurs.length * TOWN_SPUR_COST;
+      cost += newSpurs.length * townSpurCost(state.mapId);
 
       if (player.cash < cost) {
         console.warn(`[WARN] buildTrack: 현금 부족 - 필요: $${cost}, 보유: $${player.cash}`);
@@ -465,7 +466,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
           ...state.players,
           [currentPlayer]: {
             ...player,
-            cash: player.cash - cost - complexSpurs.length * TOWN_SPUR_COST,
+            cash: player.cash - cost - complexSpurs.length * townSpurCost(state.mapId),
           },
         },
         undoCount: undoSnapshots.length,
@@ -526,7 +527,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       if (state.phaseState.builtTracksThisTurn + townCount > state.phaseState.maxTracksThisTurn) return false;
       const player = state.players[state.currentPlayer];
       // 정부 가닥은 무료 (비용 무관 — 원본 룰: Cost is not relevant)
-      if (!player || (!isGovSpur && player.cash < targetCount * TOWN_SPUR_COST)) return false;
+      if (!player || (!isGovSpur && player.cash < targetCount * townSpurCost(state.mapId))) return false;
       return true;
     },
 
@@ -550,7 +551,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         e => hexCoordsEqual(e.townCoord, townCoord) && e.builtTurn === state.currentTurn && e.owner === spurOwner
       );
       const townCount = builtThisTurn ? 0 : 1;
-      const cost = isGovSpur ? 0 : missing.length * TOWN_SPUR_COST;
+      const cost = isGovSpur ? 0 : missing.length * townSpurCost(state.mapId);
       const newBuiltCount = state.phaseState.builtTracksThisTurn + townCount;
 
       debugLog.trackBuilding(`[buildTownSpur 성공] ${player.name} (${currentPlayer}): Turn ${state.currentTurn}, ` +
@@ -750,7 +751,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
           ...state.players,
           [currentPlayer]: {
             ...player,
-            cash: player.cash - cost - redirectSpurs.length * TOWN_SPUR_COST,
+            cash: player.cash - cost - redirectSpurs.length * townSpurCost(state.mapId),
           },
         },
         undoCount: undoSnapshots.length,

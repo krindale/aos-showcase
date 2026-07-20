@@ -24,11 +24,11 @@ export type MoveSlice = Pick<
 >;
 
 /**
- * 달(Moon) Low Gravitation(production 행동 대체): 이동 플레이어가 이번 수송 경로에서
+ * 달(Moon) Low Gravitation(전용 8번째 행동): 이동 플레이어가 이번 수송 경로에서
  * 다른 플레이어의 링크 1개를 "내 링크처럼" 사용 — 그 링크 수입 1을 소유자 대신 내가 받는다.
  * incomeChanges(경로의 링크 소유자별 수입)를 계산한 직후 호출해 1을 이전한다.
  * 대상은 경로에서 수입을 가장 많이 얻은 상대(선두 견제 기본값) — 링크 수입은 전부 1이라 내 이득은 동일.
- * 수송(이동)마다 1회 자동 적용 = "두 번의 수송에 각각 다른 링크 지정 가능" 룰 충족.
+ * 수송(이동)마다 1회 자동 적용 = "두 수송 라운드 모두 사용 가능" 공식 룰 충족.
  */
 export function applyLowGravitation(
   state: { mapId: string; players: GameStore['players']; activePlayers: PlayerId[] },
@@ -36,8 +36,8 @@ export function applyLowGravitation(
   incomeChanges: Partial<Record<PlayerId, number>>
 ): PlayerId | null {
   const profile = getMapProfile(state.mapId);
-  if (!profile.productionAsLowGravitation) return null;
-  if (state.players[movingPlayerId]?.selectedAction !== 'production') return null;
+  if (!profile.extraActions.includes('lowGravitation')) return null;
+  if (state.players[movingPlayerId]?.selectedAction !== 'lowGravitation') return null;
   let target: PlayerId | null = null;
   for (const pid of state.activePlayers) {
     if (pid === movingPlayerId) continue;

@@ -155,7 +155,11 @@ export function createInitialGameState(
     }
     if (setupRules.hexCubeSetup) return { ...city, cubes: [] };
     // 도시별 초기 큐브 수 (Rust Belt: Pittsburgh/Wheeling 3, 나머지 2). 색 균형 배치(공용 헬퍼).
-    const targetCubes = cityCubeCounts[city.id] ?? GAME_CONSTANTS.INITIAL_CUBES_PER_CITY;
+    // 인원 비례 도시(Moon Landing hex: 인원×2)는 perPlayerCityCubes가 우선.
+    const perPlayer = setupRules.perPlayerCityCubes[city.id];
+    const targetCubes = perPlayer != null
+      ? perPlayer * playerNames.length
+      : cityCubeCounts[city.id] ?? GAME_CONSTANTS.INITIAL_CUBES_PER_CITY;
     const cubes = drawBalancedCubes(bag, targetCubes, colorUsage, setupRules.noOwnColorCubes ? city.color : undefined);
     return { ...city, cubes };
   });

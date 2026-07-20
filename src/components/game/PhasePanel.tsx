@@ -36,6 +36,7 @@ import {
   ListOrdered,
   Landmark,
   type LucideIcon,
+  Feather,
 } from 'lucide-react';
 import AuctionPanel from './AuctionPanel';
 import TurnOrderOfferPanel from './TurnOrderOfferPanel';
@@ -72,6 +73,10 @@ export const ACTIONS: SpecialAction[] = [
   'turnOrder',
 ];
 
+/** 이 맵의 행동 목록 = 기본 7종 + 맵 전용 추가 행동 (Moon: lowGravitation 8번째) */
+export const actionsForMap = (mapId: string): SpecialAction[] =>
+  [...ACTIONS, ...getMapProfile(mapId).extraActions];
+
 /** 행동 선택 버튼용 축약 설명 (좁은 2열 그리드 — 상세는 도움말/룰북 참고) */
 const ACTION_SHORT: Record<SpecialAction, string> = {
   firstMove: '남보다 먼저 이동',
@@ -81,6 +86,7 @@ const ACTION_SHORT: Record<SpecialAction, string> = {
   urbanization: '마을에 신도시',
   production: '큐브 2개 보충',
   turnOrder: '다음 경매 패스',
+  lowGravitation: '타인 링크 수입 1',
 };
 
 /** 행동 선택 버튼 아이콘 — 특수 액션 페이지(/actions)·도움말과 동일 */
@@ -92,6 +98,7 @@ export const ACTION_ICONS: Record<SpecialAction, LucideIcon> = {
   urbanization: Building2,
   production: Boxes,
   turnOrder: ListOrdered,
+  lowGravitation: Feather,
 };
 
 export default function PhasePanel() {
@@ -515,7 +522,7 @@ export default function PhasePanel() {
             {!currentPlayerData.isAI && isMyTurn && (
               <>
                 <div className="grid grid-cols-2 gap-1.5">
-                  {ACTIONS.map((action) => {
+                  {actionsForMap(mapId).map((action) => {
                     const info = ACTION_INFO[action];
                     const Icon = ACTION_ICONS[action];
                     const taken = isActionTaken(action);

@@ -745,6 +745,12 @@ export const useGameStore = create<GameStore>()(
         return state;
       }
 
+      // 맵 전용 추가 행동(lowGravitation 등)은 그 맵(extraActions)에서만 선택 가능
+      if (action === 'lowGravitation' && !getMapProfile(state.mapId).extraActions.includes(action)) {
+        console.warn(`[WARN] selectAction: 이 맵에 없는 추가 행동 - playerId: ${playerId}, action: ${action}`);
+        return state;
+      }
+
       // Montréal 경매 트윅: 무입찰 패스 페널티 — 이번 턴 행동 선택 불가
       if (player.actionBanned) {
         console.warn(`[WARN] selectAction: 무입찰 패스 페널티로 선택 불가 - playerId: ${playerId}`);

@@ -1,5 +1,5 @@
 // 달(The Moon) 맵 데이터
-// Age of Steam Expansion — The Moon (Alban Viard 2005 / James Mathias 아트 2018). 4인 전용(8턴).
+// Age of Steam Expansion — The Moon (Alban Viard / James Mathias 아트 2018). 3~4인(8턴).
 //
 // 공식 맵 시트(maps/moon-v2.pdf)를 고해상도 렌더 후 격자 피팅 + 색상 분류로 추출했다.
 //   원본은 flat-top(평평한 윗변) 헥스 보드 — Montréal과 동일하게 게임 좌표는 전치(transpose)해
@@ -45,9 +45,9 @@ export const MOON_MAP = {
   name: 'The Moon',
   nameKo: '달',
   description:
-    '달 표면에 선로를 놓는 4인 전용 맵. 매 턴 보드 절반이 밤이 되어 그쪽 도시는 검은 도시로 변하고, 맵 가장자리로 나간 선로는 반대편 같은 번호 변으로 이어진다.',
-  players: { min: 4, max: 4 },
-  supportedPlayers: [4],
+    '달 표면에 선로를 놓는 3~4인 맵. 매 턴 보드 절반이 밤이 되어 그쪽 도시는 검은 도시로 변하고, 맵 가장자리로 나간 선로는 반대편 같은 번호 변으로 이어진다.',
+  players: { min: 3, max: 4 },
+  supportedPlayers: [3, 4],
   difficulty: 5,
   cols: 10, // 유효 col: 0 ~ 9 (전치 — 화면 세로)
   rows: 16, // 유효 row: 1 ~ 15 (전치 — 화면 가로. row 0은 보드 밖 패딩)
@@ -106,11 +106,6 @@ export const MOON_CITY_DICE: Record<string, [number, number]> = {
   nectaris: [1, 2],
   tranquillitatis: [3, 4],
   serenitatis: [5, 6],
-};
-
-/** 셋업: 도시별 초기 화물 수 — 일반 도시 2(기본값), Moon Base는 플레이어당 2 × 4인 = 8 */
-export const MOON_CITY_CUBE_COUNTS: Record<string, number> = {
-  moonBase: 8,
 };
 
 // === 마을 10 (화면 좌표) ===
@@ -199,20 +194,23 @@ export const MOON_WRAP_EDGES: WrapEdge[] = WRAP_SCREEN.map(([number, [ac, ar, ae
   b: { coord: toData(bc, br), edge: SCREEN_TO_DATA_EDGE[be] },
 }));
 
-// === 물품 디스플레이 열-도시 매핑 (성장은 주사위→도시 직접 — rowCount 전부 0 = 디스플레이 미사용) ===
-// 신규 도시는 C, D, G, H 제거 → A, B, E, F만 사용 (룰북 셋업).
+// === 물품 디스플레이 열-도시 매핑 (공식 룰: "평소처럼 디스플레이를 채운다", 검은 신도시 제외) ===
+// 도시 열 6개(열당 3칸 — 표준 도시 열과 동일) + 신규 도시 A·B·C·D(열당 2칸).
+// 성장 주사위 판정은 diceNumber가 아니라 MapProfile.cityGrowthDice(도시당 두 번호 1/2·3/4·5/6)로
+// 별도 처리하고, 큐브는 이 디스플레이의 해당 도시 열 위에서부터 꺼낸다 (goodsGrowthSlice).
 export const MOON_COLUMN_MAPPING: GoodsColumnMapping[] = [
   ...CITIES_SCREEN.filter((c) => c.id !== 'moonBase').map((c) => ({
     columnId: c.id as GoodsColumnId,
     cityId: c.id,
     isNewCity: false,
-    rowCount: 0,
+    rowCount: 3,
+    displayLabel: MOON_CITY_DICE[c.id]?.join('/'),
   })),
-  ...(['A', 'B', 'E', 'F'] as const).map((id) => ({
+  ...(['A', 'B', 'C', 'D'] as const).map((id) => ({
     columnId: id as GoodsColumnId,
     cityId: id,
     isNewCity: true,
-    rowCount: 0,
+    rowCount: 2,
   })),
 ];
 

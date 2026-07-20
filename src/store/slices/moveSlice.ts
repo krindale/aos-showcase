@@ -30,7 +30,7 @@ export type MoveSlice = Pick<
  * 대상은 경로에서 수입을 가장 많이 얻은 상대(선두 견제 기본값) — 링크 수입은 전부 1이라 내 이득은 동일.
  * 수송(이동)마다 1회 자동 적용 = "두 번의 수송에 각각 다른 링크 지정 가능" 룰 충족.
  */
-function applyLowGravitation(
+export function applyLowGravitation(
   state: { mapId: string; players: GameStore['players']; activePlayers: PlayerId[] },
   movingPlayerId: PlayerId,
   incomeChanges: Partial<Record<PlayerId, number>>

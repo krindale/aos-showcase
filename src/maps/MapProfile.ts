@@ -7,7 +7,7 @@
 // 의존 방향: maps/ 는 저수준 기반 — types/game 만 의존하고 ai/ 나 store/ 를 import 하지 않는다.
 // (AI 전략·게임 엔진이 maps/ 를 의존하는 단방향. AI 액션 메서드는 의존 방향을 정리한 뒤 단계적으로 추가)
 
-import { BoardState, SpecialAction, GAME_CONSTANTS, GameState, PlayerId, City, CubeColor } from '@/types/game';
+import { BoardState, SpecialAction, GAME_CONSTANTS, GamePhase, GameState, PHASE_INFO, PlayerId, City, CubeColor } from '@/types/game';
 import { DeliveryRoute } from '@/ai/strategy/types';
 import { MapId } from './MapId';
 
@@ -149,6 +149,15 @@ export abstract class MapProfile {
   get availableNewCityTiles(): string[] | null { return null; }
 
   // ── UI: 규칙 안내 문구 (기본 = 표준 맵, 특수룰 없음) ──
+  /** 단계 설명 (PHASE_INFO 기반, 맵별 수치 보정). buildTrack은 buildsPerTurn을 반영 —
+   *  달(2개) 같은 맵에서 표준 "최대 3개" 문구가 실제 규칙과 어긋나는 것을 막는다. */
+  phaseDescription(phase: GamePhase): string {
+    const base = PHASE_INFO[phase]?.description ?? '';
+    if (phase === 'buildTrack' && this.buildsPerTurn !== GAME_CONSTANTS.NORMAL_TRACK_LIMIT) {
+      return `최대 ${this.buildsPerTurn}개의 트랙 타일을 배치합니다.`;
+    }
+    return base;
+  }
   /** 게임 시작(플레이어 설정) 화면 우측에 표시할 이 맵만의 특수룰 목록. 빈 배열이면 패널 미표시. */
   get specialRules(): MapRuleSummary[] { return []; }
   /** 이 맵에서 효과가 다른 특수 행동의 설명문 (도움말/행동 선택 UI가 ACTION_INFO 대신 사용).

@@ -66,7 +66,7 @@ export class MoonMapProfile extends StandardMapProfile {
 
   override actionDescription(action: SpecialAction): string | undefined {
     if (action === 'production') {
-      return 'Low Gravitation — 물품 이동 단계에서 다른 플레이어의 링크 1개를 내 링크처럼 사용해 수입을 가져옵니다. 두 번의 수송에 각각 다른 링크를 지정할 수 있습니다.';
+      return 'Low Gravitation — 물품 이동 단계에서 다른 플레이어의 링크 1개를 내 링크처럼 사용해 그 수입을 가져옵니다. 수송마다 1회, 경로에서 수입이 가장 큰 상대의 링크에 자동 적용됩니다.';
     }
     if (action === 'engineer') {
       return '이번 턴 트랙 타일을 2개 대신 3개까지 건설할 수 있습니다 (달 맵은 기본 2개).';
@@ -80,7 +80,7 @@ export class MoonMapProfile extends StandardMapProfile {
 
   override get specialRules(): MapRuleSummary[] {
     return [
-      { title: '4인 8턴', detail: '달 맵 — 4명 전용, 8턴으로 진행합니다.' },
+      { title: '4인 8턴', detail: '달 맵 — 4명 전용, 8턴. 셋업: 일반 도시 2개씩 + Moon Base에 인원수×2개(8개)의 화물.' },
       {
         title: '건설 2개 제한',
         detail: '한 턴에 트랙 타일을 최대 2개만 건설할 수 있습니다 (Engineer 선택 시 3개). 크레이터 $3 / 산 $4.',
@@ -95,15 +95,15 @@ export class MoonMapProfile extends StandardMapProfile {
       },
       {
         title: '밤과 낮',
-        detail: '매 턴 보드 절반이 밤이 됩니다. 밤쪽 도시는 전부 검은 도시로 취급되어 검은 화물만 배달할 수 있고, 다른 색 화물은 통과도 할 수 없습니다. 물품 성장 후 밤쪽이 반대로 바뀝니다.',
+        detail: '1턴은 서쪽(왼쪽)이 밤으로 시작하고, 물품 성장이 끝날 때마다 밤쪽이 반대로 바뀝니다. 밤쪽 도시는 전부 검은 도시로 취급되어 검은 화물만 배달할 수 있고, 다른 색 화물은 통과도 할 수 없습니다.',
       },
       {
         title: 'Production → Low Gravitation',
-        detail: '물품 이동 단계에서 다른 플레이어의 링크 1개를 내 링크처럼 사용해 그 수입을 가져옵니다. 두 번의 수송에 서로 다른 링크를 지정할 수 있습니다.',
+        detail: '물품 이동 단계에서 다른 플레이어의 링크 1개를 내 링크처럼 사용해 그 수입을 가져옵니다. 수송마다 1회 — 경로에서 수입이 가장 큰 상대의 링크에 자동 적용됩니다.',
       },
       {
         title: '물품 성장',
-        detail: '주사위를 인원수×2개 굴려, 낮쪽에 있으면서 Moon Base와 선로로 연결된 도시(인쇄 번호 일치)만 주머니에서 화물을 받습니다. 신규 도시 타일은 A·B·E·F만 사용합니다.',
+        detail: '주사위를 인원수×2개 굴려, 낮쪽에 있으면서 Moon Base와 선로로 연결된 도시(인쇄 번호 1/2·3/4·5/6 일치)만 주머니에서 화물을 받습니다. 조건 미달 도시 몫은 버려집니다. 신규 도시 타일은 A·B·E·F만 사용합니다.',
       },
     ];
   }

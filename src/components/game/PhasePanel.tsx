@@ -272,7 +272,7 @@ export default function PhasePanel() {
         <span className="text-accent flex-shrink-0">{PHASE_ICONS[currentPhase]}</span>
         <div className="flex-1 min-w-0">
           <h3 className="font-semibold text-sm md:text-base text-foreground truncate">{phaseInfo.name}</h3>
-          <p className="text-[10px] md:text-xs text-foreground-secondary truncate">{phaseInfo.description}</p>
+          <p className="text-[10px] md:text-xs text-foreground-secondary truncate">{getMapProfile(mapId).phaseDescription(currentPhase)}</p>
         </div>
       </div>
 

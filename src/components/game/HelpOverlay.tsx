@@ -97,7 +97,7 @@ export default function HelpOverlay({
                   <div>
                     <div className="text-sm font-bold text-foreground">{activePhaseInfo.name}</div>
                     <div className="text-xs text-foreground-secondary leading-relaxed mt-0.5">
-                      {activePhaseInfo.description}
+                      {profile.phaseDescription(currentPhase)}
                     </div>
                   </div>
                 </div>
@@ -130,7 +130,7 @@ export default function HelpOverlay({
                           {info.name}
                         </div>
                         <div className="text-xs text-foreground-secondary leading-relaxed">
-                          {info.description}
+                          {profile.phaseDescription(phase)}
                         </div>
                       </div>
                     </li>

@@ -4,7 +4,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { useGameStore, createInitialGameState } from '@/store/gameStore';
 import { cityAcceptsCube, cityBlocksTransit, getNeighborHex } from '@/utils/hexGrid';
 import { touchesMasterNetwork } from '@/store/helpers/boardRules';
-import { City, TrackTile } from '@/types/game';
+import { applyLowGravitation } from '@/store/slices/moveSlice';
+import { City, PlayerId, TrackTile } from '@/types/game';
 
 function setupMoon() {
   const s = createInitialGameState('moon', ['A', 'B', 'C', 'D'], []);
@@ -82,6 +83,43 @@ describe('Moon Base 네트워크 (마스터 네트워크 시드)', () => {
     // 멀리 떨어진 헥스(다른 도시 imbrium 옆) — 네트워크 밖
     const far = getNeighborHex(cityById('imbrium').coord, 0, board);
     expect(touchesMasterNetwork(board, far, [3, 0], 'moonBase')).toBe(false);
+  });
+});
+
+describe('Low Gravitation (Production 대체 — 상대 링크 수입 이전)', () => {
+  beforeEach(() => { setupMoon(); });
+
+  const changes = (v: Partial<Record<PlayerId, number>>) => ({ ...v });
+
+  it('production 선택자가 이동하면 경로 최다 수입 상대의 링크 수입 1을 가져온다', () => {
+    const state = useGameStore.getState();
+    useGameStore.setState({
+      players: {
+        ...state.players,
+        player1: { ...state.players.player1, selectedAction: 'production' },
+      },
+    });
+    const s = useGameStore.getState();
+    const inc = changes({ player1: 1, player2: 2, player3: 1 });
+    const target = applyLowGravitation(s, 'player1', inc);
+    expect(target).toBe('player2'); // 최다 수입 상대
+    expect(inc.player2).toBe(1);    // 상대 -1
+    expect(inc.player1).toBe(2);    // 나 +1
+  });
+
+  it('production 미선택자·상대 수입 없음이면 적용되지 않는다', () => {
+    const s = useGameStore.getState(); // 아무도 production 아님
+    const inc1 = changes({ player1: 1, player2: 2 });
+    expect(applyLowGravitation(s, 'player1', inc1)).toBeNull();
+    expect(inc1.player2).toBe(2);
+
+    useGameStore.setState({
+      players: { ...s.players, player1: { ...s.players.player1, selectedAction: 'production' } },
+    });
+    const s2 = useGameStore.getState();
+    const inc2 = changes({ player1: 3 }); // 경로에 상대 링크 없음
+    expect(applyLowGravitation(s2, 'player1', inc2)).toBeNull();
+    expect(inc2.player1).toBe(3);
   });
 });
 

@@ -159,6 +159,7 @@ src/
 │       ├── southernUsSimulation.test.ts  # Southern US 6인 AI 동기식 전체게임 러너(6턴) + 면화 불변식 + 베이스라인
 │       ├── koreaSimulation.test.ts       # Korea 4인 AI 동기식 전체게임 러너(8턴) + 베이스라인
 │       ├── montrealSimulation.test.ts    # Montréal 3인 AI 동기식 러너(9턴) + 특수룰 불변식(정부링크/마스터네트워크/DGEL)
+│       ├── moonSimulation.test.ts        # Moon 4인 AI 동기식 러너(8턴) + 달 불변식(밤낮 교대/건설 상한/Moon Base 무배달)
 │       └── helpers/
 │           └── mockState.ts    # 테스트용 Mock 데이터 헬퍼
 │
@@ -174,7 +175,8 @@ src/
 │       ├── WesternUsMapProfile.ts  # Western US override (마을큐브/$20시작/시작도시제한/연속성/동서보너스/대륙횡단)
 │       ├── SouthernUsMapProfile.ts # Southern US override (면화/항구/Atlanta 호황/남북전쟁 수입감소 2배)
 │       ├── KoreaMapProfile.ts     # Korea override (동적색은 board플래그/도시화 디스플레이보충/no-growth/큐브수)
-│       └── MontrealMapProfile.ts  # Montréal override (정부 링크/마스터 네트워크/DGEL/경매 트윅/Repopulation/신도시 큐브)
+│       ├── MontrealMapProfile.ts  # Montréal override (정부 링크/마스터 네트워크/DGEL/경매 트윅/Repopulation/신도시 큐브)
+│       └── MoonMapProfile.ts      # Moon override (건설2·Engineer3/Moon Base 네트워크 시드/밤낮/저중력/주사위 성장/신도시 A·B·E·F)
 │
 ├── components/                 # UI 컴포넌트
 │   ├── Navigation.tsx          # 글래스모피즘 네비게이션 바
@@ -276,6 +278,7 @@ src/
     ├── southernUsMap.ts        # Southern US 맵 데이터 정의 (6인 전용, flat-top 전치, 면화/4대 항구/애팔래치아)
     ├── koreaMap.ts             # Korea 맵 데이터 정의 (4인 전용, flat-top 전치, 동적색 플래그/산fixedCost/수원 직결)
     ├── montrealMap.ts          # Montréal Métro 맵 데이터 정의 (3인 전용 9턴, flat-top 전치, 언덕$3/도로$4/물$6·Parc 밀봉)
+    ├── moonMap.ts              # Moon(달) 맵 데이터 정의 (4인 전용 8턴, flat-top 전치, 크레이터$3/산$4, 랩 어라운드 37쌍)
     ├── mapRegistry.ts          # 맵 룰 분리 레지스트리 (MapRuleConfig·columnMapping·boardDisplayScale 등)
     ├── debugConfig.ts          # 디버그 설정 (로그 카테고리 토글 + logAction 종합 액션 로깅)
     ├── pwaUtils.ts             # Service Worker 등록/관리 유틸리티
@@ -331,20 +334,21 @@ docs/
 
 ### MapsPage
 페이퍼 카드 그리드 (3열). 카드 = 맵 이미지(16:10) + 난이도 배지(입문/표준/중급/고급) +
-설명 + 플레이 버튼(`/game/<slug>/`). 튜토리얼 포함 9개 맵, Barbados만 "준비 중".
+설명 + 플레이 버튼(`/game/<slug>/`). 튜토리얼 포함 10개 맵, Barbados만 "준비 중".
 
 **맵 이미지는 WebP** (`public/maps/*.webp`, 폭 1600·q84, 맵당 ~200KB). 새 맵 추가 시 원본을
 `cwebp -q 84`(필요 시 폭 1600 다운스케일)로 변환해 넣을 것 — `unoptimized: true`(static export)라
 Next가 압축을 안 하므로 원본 대용량 PNG를 그대로 받으면 갤러리가 무거워진다 (PNG 기준 맵당 1~5MB).
 게임 보드는 SVG 렌더라 이 이미지와 무관(갤러리 표시용일 뿐).
 
-8개 맵 갤러리:
+9개 맵 갤러리:
 - **Rust Belt** (기본) - 미국 북동부
 - **Korea** (플레이 가능) - 한반도, 동적 도시 색상, 4인 8턴 (도시 수요색=현재 큐브색·수원 직결 링크·신도시 회색)
 - **Western U.S.** (플레이 가능) - 대륙횡단 철도, 6인 6턴 (마을 큐브·동서 배달 보너스·대륙횡단 연결 보너스)
 - **Southern U.S.** (플레이 가능) - 면화 운송, 6인 6턴 (마을 면화→4대 항구 배달·Atlanta 호황·4턴 남북전쟁 수입감소 2배)
 - **Germany** (플레이 가능) - 외국 터미널·헥스 고정비용·도시 직결, 4인 8턴
 - **Montréal Métro** (플레이 가능) - 몬트리올 지하철, 3인 9턴 (정부 링크·마스터 네트워크·DGEL·Repopulation)
+- **The Moon** (플레이 가능) - 달 표면, 4인 8턴 (밤낮 교대·랩 어라운드·Moon Base 네트워크·건설 2개 제한·저중력)
 - **Barbados** - 솔로 게임
 - **St. Lucia** - 2인 전용
 
@@ -624,6 +628,7 @@ AI는 객체 지향 아키텍처(`AIPlayer`/`AIPlayerManager`/`AIDebugger`) + **
 - **독일 미완성 링크 금지 UI 가드**: 독일(`requireCompleteLinks`)은 완성 링크만 건설 가능 — 이번 턴 미완성 신설 트랙은 단계 전환 시 `removeIncompleteNewTracks`가 삭제·환불한다. 모르고 넘어가 트랙이 사라지는 걸 막으려 `PhasePanel`이 사람 차례 buildTrack에서 미완성 트랙이 있으면(`hasIncompleteNewTracks`) '다음 단계로'를 **비활성 + 경고**한다. 이번 턴 트랙만 대상이라 undo로 해소 가능(교착 없음).
 - **실행/선택 취소**: `undoLastAction`(확정 행동 스냅샷 복원, `nextPhase`마다 초기화·사람 전용) / `cancelSelection`(커밋 전 UI 선택만). 새 커밋 액션 추가 시 검증 통과 직후 `captureUndo(state, label)` + set에 `undoCount` 포함.
 - **Montréal Métro 특수룰 (3인 9턴, 2026-07-13)**: ① **정부 링크** — 새 GamePhase `governmentLink`(매 라운드 주식 발행 전). 관리자는 셋업 순번 로테이션(`GameState.governmentControllers[(턴-1)%3]`), 무료 중립 링크 1개(타일≤3, 미완성은 단계 전환 시 자동 제거 — `removeIncompleteGovernmentTracks`). 정부 트랙 = `TrackTile.isGovernment + owner:null`(누구나 이동, 수입 0, 방향전환 금지 — 단 복합 교차/공존 추가는 표준 교체 룰대로 허용, 원 정부 트랙 보존. 원본 룰에 교차 금지 조항 없음), 정부 마을 가닥 = `TownSpur.owner:null`. 봇 관리자는 `helpers/governmentBuildAI.runGovernmentBuildAI`(AUTO_ADVANCE 경유). ② **마스터 네트워크** — 모든 건설 타일은 기존 네트워크(아무 트랙/트랙 닿은 정거장)에 닿아야 함(`touchesMasterNetwork`, 첫 정부 링크만 예외). ③ **DGEL**(`PlayerState.dgel`) — Locomotive가 일반 엔진 대신 정부 전용 엔진 +1(상한 4). 이동 탐색(`findReachableDestinations`/`findAllPaths`)에 `govExtra` 파라미터: 총 링크 ≤ 엔진+DGEL, 비정부 링크 ≤ 엔진. 비용 지불에 합산(payExpenses·AI 생존계획 포함). ④ **경매 트윅** — 무입찰 패스 2인 이상이면 `PlayerState.actionBanned`(그 턴 행동 선택 불가, 롤오버 리셋). ⑤ **Repopulation** — production 선택 즉시 주머니에서 3개 뽑아(`phaseState.repopulationCubes`) 1개를 도시에 배치(`placeRepopulationCube`, intents 등록). 배치 전엔 selectActions가 진행되지 않음. ⑥ 신도시 타일마다 셋업 큐브 1개(`NewCityTile.setupCube` — placeNewCity 때 함께 배치), 물품 성장 생략, Atwater는 빨강+파랑 겸용(`City.extraColor` — cityAcceptsCube 한 곳에서 판정). ⚠️ 배달 경로 선택(`findLongestPath`)은 "내 링크 수 → 총 링크 수" 순 — 총 링크만 보면 수입 0인 정부 링크 우회를 선호한다. ⚠️ **AI는 마스터 네트워크를 알아야 한다**: 첫 건설은 네트워크에 닿은 정거장(`stationInMasterNetwork`, trackValidation)에서만 시작 가능 — `tryDirectPathBuild`가 그 끝점으로 스왑하고, `decideBuildTrack`이 네트워크 앵커 배달 기회를 **ΔVP순 상위 5개**로 후보에 보충한다(도시 배열 순서로 넣으면 저가치 장거리가 고가치 직행을 밀어내 봇이 미완성 괴물 경로를 착공 — 2026-07-14 실전 버그, 정렬+순서 수정, 이후 중복 부설 방지까지 누적해 100시드 VP −1.49→+0.55·파산 1.02) (이걸 빼면 봇이 한 타일도 못 깔고 턴 스킵 — 2026-07-14 실버그, 수정으로 20시드 VP -21→-2). 사람 관리자가 정부 링크를 안 짓고 넘어가면 ConfirmDialog로 확인. **시각(원본 시트 재현)**: 물=`sea` 지형(전체 파랑 채움, `TerrainType`에 추가), 도로=`GameMapData.roads` 폴리라인(검정+노란 점선, 도로 헥스는 평지와 동일 초록), 비용 숫자는 원본에 인쇄된 3곳만(`HexTile.showCostMarker` — legend 맵에서도 도로 위 레이어로 표시), $5 헥스 사선 분할(`HexTile.landWedgeWest`), 도시 숫자 박스=초기 화물 수(columnMapping.diceNumber 재사용, 성장 없어 주사위 무관), 신도시 타일 화물은 실제 도시처럼 헥스 위에 렌더(NewCityTileHex cube prop), 정부 관리 로테이션 표시(PhasePanel 배지 + TurnTrack 헤더 순서 우측 "정부 링크 건설" 텍스트·이번→다음 관리자 색 원), **정부 관련은 전부 다크 그레이 #4E4D46**(트랙 레일·가닥 내부·완성 링크 중립 마커·배지 — 순검정은 톤 부조화로 기각), 물품 디스플레이 0칸(setup.ts — rowCount 합 0 허용, 52칸 폴백은 columnMapping 자체가 없을 때만).
+- **Moon(달) 특수룰 (4인 8턴, 2026-07-20)**: ① **랩 어라운드** — 외곽 같은 번호(1~37) 두 변이 서로 연결. `BoardState.wrapEdges` + `getNeighborHex(coord, edge, board?)` 랩 조회(WeakMap 캐시). **랩 쌍이 보드 점대칭이라 "반대변=(e+3)%6" 불변식 유지** — 연결/트랙 로직 자동 성립(moonMap.test 검증). 경로탐색·건설검증·boardRules 이웃 계산에 board 전달(렌더 외곽선은 의도적 미전달 — 랩 변에도 외곽선·번호 박스). ② **Moon Base** — 색·수요 없는 중앙 도시(`City.noDemand`, cityAcceptsCube 항상 false, 출발/통과 전용) + **네트워크 시드**: `masterNetwork` + `masterNetworkSeedCityId('moonBase')` — touchesMasterNetwork/stationInMasterNetwork가 시드를 트랙 없이도 네트워크로 취급(빈 보드 1턴부터 Moon Base 인접만 착공, AI buildTrack 앵커 동일). ③ **밤/낮** — `BoardState.nightSide`('west' 시작·홀수턴 west), 밤쪽 도시=검은 도시(`isNightCity` — 검은 큐브만 배달, 타색은 **통과도 불가** `cityBlocksTransit`, Germany 터미널과 공용). 턴 롤오버 2곳에서 교대. 렌더: 밤쪽 반투명 어둠+🌙 배지+밤 도시 검정(BoardOverlays/BoardCities). ④ **건설 2개**(Engineer 3) — `MapProfile.buildsPerTurn` + `maxTracksForBuilder`(boardRules)가 하드코딩 6곳 대체. ⑤ **Low Gravitation**(Production 대체) — 수송마다 경로의 상대 링크 1개 수입을 이동자가 가져옴(`applyLowGravitation`, moveSlice 2곳 — 대상은 경로 최다 수입 상대 자동). ⑥ **물품 성장** — 디스플레이 미사용(슬롯 0), 주사위 인원×2(`growthDicePerPlayer`), 도시 인쇄 번호(1/2·3/4·5/6 `cityGrowthDice`) 일치 시 **낮쪽 + Moon Base 완성링크 연결**(`citiesConnectedToSeed` BFS) 도시만 주머니에서 직접 성장(조건 미달분은 버려짐=미뽑기). 신규 도시 A·B·E·F만(`availableNewCityTiles`). 산 렌더색 `GameMapData.mountainRenderColors`(달=진회색). 시뮬 게이트: `moonSimulation.test.ts` 100시드(완주/밤낮 교번/건설 상한/Moon Base 무배달) — **AI 밸런싱 미착수**(VP −11.82·파산 1.55, baseline 문서 잔존 과제 5).
 - **건설 실패 사유 토스트**: 조용히 실패하던 건설(현금 부족·제한 도달 등)을 상단 토스트로 안내. `helpers/buildReason.getBuildBlockReason`가 `canBuildTrack` 검사 순서를 미러해 첫 실패 사유를 돌려주고(현금은 canBuildTrack이 안 보므로 마지막에 추정), `toastStore`(gameStore와 분리 = 스냅샷 미동기화)로 띄운다. **트리거는 사람 클릭 UI 경로에만**(`uiSlice.selectExitDirection` 커밋 실패 + `selectSourceHex` 제한 도달) — AI/게스트-거부엔 안 뜬다. ⚠️ `canBuildTrack` 규칙 바꾸면 `getBuildBlockReason` 순서·조건도 함께 맞출 것.
 
 **상세 — 의사결정 알고리즘 전문·Phase별 결정·맵별 구현 및 밸런싱 이력·디버깅 시스템·기각 실험 기록**: [docs/ai-system.md](docs/ai-system.md)

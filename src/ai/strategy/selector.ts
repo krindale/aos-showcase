@@ -228,7 +228,11 @@ export function selectStandardRoute(
     // 단 동적색 맵(Korea)은 거점 묶기를 끈다 — 거점 가치 차이(부산 고립 우위 + 평양 고립으로
     // 인한 긴 건설→현금난)가 승부를 좌우하던 것을 무력화. 각 플레이어가 거점에 묶이지 않고
     // 가까운 좋은 경로를 자유 선택해 승률 분포가 균등해진다(부산/평양 거점 운빨 제거).
-    if (homeCity && score > -Infinity && !state.board.dynamicCityColors) {
+    // aiHomeBaseAreaBias 훅(기본 true=기존 동작)으로 맵별로 끌 수 있다 — 단 달에서 끄는 실험은
+    // 기각(2026-07-21: 파산의 92%가 나쁜 거점(nubium/nectaris) 봇이라 격차 증폭 가설로 껐으나
+    // VP −3.94→−4.78 악화 — 달에서도 areaBias의 충돌 감소 순기능이 더 컸다). 현재 끄는 맵 없음.
+    if (homeCity && score > -Infinity && !state.board.dynamicCityColors
+        && getMapProfile(state.mapId).aiHomeBaseAreaBias) {
       score -= hexDistance(opp.sourceCoord, homeCity.coord) * AREA_BIAS_WEIGHT;
     }
     // ★ 혼잡 회피: 출발 지역 근처에 있는 다른 플레이어 '명 수'만큼 그 경로 우선순위를 낮춘다

@@ -280,6 +280,16 @@ export abstract class MapProfile {
   ): number { return 0; }
 
   /**
+   * AI 경로 선택의 **거점 거리 감점(areaBias)** 사용 여부 (기본 true = 기존 동작).
+   * false면 경로 점수에서 "내 거점에서 먼 출발 도시 감점"을 끈다 — 거점 배정(혼잡 회피 참조점,
+   * 반구 균형)은 그대로 유지된다. Korea가 dynamicCityColors 조건으로 끄는 것과 같은 처방의
+   * 훅 일반화. ⚠️ **기각 이력(2026-07-21, 달 100시드)**: 파산의 92%가 나쁜 거점(nubium/nectaris)
+   * 봇이라 "areaBias가 격차를 증폭한다"는 가설로 달을 false로 했으나 VP −3.94→−4.78 악화 —
+   * 달에서도 areaBias의 충돌 감소 순기능이 격차 증폭보다 컸다. 현재 끄는 맵 없음(배관만 유지).
+   */
+  get aiHomeBaseAreaBias(): boolean { return true; }
+
+  /**
    * AI 경로 선택의 **겹침 판정 완화** — 상대 커밋 경로와 "도시 하나만 공유"하는 경로를
    * 완전 차단(-Infinity) 대신 이 값만큼 감점한다 (기본 null = 기존 동작 = 도시 하나만
    * 공유해도 완전 차단, Korea는 별도 감점). **정확히 같은 연결**(from-to 쌍, 방향 무시)은

@@ -215,6 +215,11 @@ export function selectStandardRoute(
     ? state.board.cities.find(c => c.id === getHomeBase(playerId)) ?? null
     : null;
 
+  // 맵별 경로 점수 훅 — opp 루프 밖에서 한 번만 조회(config/areaMulti hoist와 동일 패턴).
+  const profile = getMapProfile(state.mapId);
+  const useAreaBias = profile.aiHomeBaseAreaBias;
+  const sharedCityPenalty = profile.aiRouteOverlapSharedCityPenalty;
+
   const preciseTargets = [...opportunities]
     .sort((a, b) =>
       preliminaryScore(b, player.engineLevel, connectedCities, playerTracks) -
@@ -231,8 +236,7 @@ export function selectStandardRoute(
     // aiHomeBaseAreaBias 훅(기본 true=기존 동작)으로 맵별로 끌 수 있다 — 단 달에서 끄는 실험은
     // 기각(2026-07-21: 파산의 92%가 나쁜 거점(nubium/nectaris) 봇이라 격차 증폭 가설로 껐으나
     // VP −3.94→−4.78 악화 — 달에서도 areaBias의 충돌 감소 순기능이 더 컸다). 현재 끄는 맵 없음.
-    if (homeCity && score > -Infinity && !state.board.dynamicCityColors
-        && getMapProfile(state.mapId).aiHomeBaseAreaBias) {
+    if (homeCity && score > -Infinity && !state.board.dynamicCityColors && useAreaBias) {
       score -= hexDistance(opp.sourceCoord, homeCity.coord) * AREA_BIAS_WEIGHT;
     }
     // ★ 혼잡 회피: 출발 지역 근처에 있는 다른 플레이어 '명 수'만큼 그 경로 우선순위를 낮춘다
@@ -261,7 +265,6 @@ export function selectStandardRoute(
       // 완전 차단은 허브 출발 기회가 몰린 맵에서 뒷순번의 top-K 후보를 전멸시켜 fallback이
       // 겹침·평가를 무시한 경로를 커밋하게 했다(2026-07-21 달 30시드 계측). 정확히 같은
       // 연결(from-to 쌍, 방향 무시)은 훅과 무관하게 완전 차단 유지 — 중복 부설 경쟁 방지.
-      const sharedCityPenalty = getMapProfile(state.mapId).aiRouteOverlapSharedCityPenalty;
       for (const oid of state.activePlayers) {
         if (oid === playerId) continue;
         const orr = getCurrentRoute(oid);

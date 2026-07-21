@@ -93,6 +93,8 @@ export class MoonMapProfile extends StandardMapProfile {
   /** 공식 룰: 마을 $2 + 트랙 구간당 $1 — 스퍼 모델 근사로 가닥당 $2 (표준 $1) */
   override get townSpurCost(): number { return 2; }
 
+  /** 달: 예비금 면제의 배달 판정은 현재 상태로 — 밤인 목적지는 이번 턴 회수 불가 */
+  override get aiExemptionUsesCurrentDemand(): boolean { return true; }
   /** 달: 만성 적자로 "발행해도 어차피 파산"이 잦다 — 그때 발행은 VP만 깎으므로 포기 */
   override get aiSkipHopelessSurvivalIssue(): boolean { return true; }
   /** 달: 배달의 97%가 3링크 이하 — 엔진 3에서 멈춰 유지비를 건설 자금으로 돌린다

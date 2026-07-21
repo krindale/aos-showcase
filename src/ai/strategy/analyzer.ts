@@ -2,7 +2,7 @@ import { GameState, PlayerId, HexCoord, CubeColor, BoardState, GAME_CONSTANTS } 
 import { debugLog } from '@/utils/debugConfig';
 import { DeliveryOpportunity, DeliveryRoute } from './types';
 import { getMapAIConfig } from './mapConfig';
-import { getNeighborHex, hexCoordsEqual, hexDistance, getConnectedNeighbors, hexToKey, getConnectingEdge, getOppositeEdge, playerEdgesAtTrack, cityAcceptsCube, isBlockedEdge } from '@/utils/hexGrid';
+import { getNeighborHex, hexCoordsEqual, hexDistance, getConnectedNeighbors, hexToKey, getConnectingEdge, getOppositeEdge, playerEdgesAtTrack, cityEverAcceptsCube, isBlockedEdge } from '@/utils/hexGrid';
 
 // 경로 캐시 (출발지-목적지 → 경로)
 const pathCache: Map<string, HexCoord[]> = new Map();
@@ -97,7 +97,7 @@ export function findOptimalPath(
 
     // 6방향 이웃 탐색
     for (let edge = 0; edge < 6; edge++) {
-      const neighbor = getNeighborHex(current.coord, edge);
+      const neighbor = getNeighborHex(current.coord, edge, board);
       const neighborKey = coordKey(neighbor);
 
       // ★ 철도 건설 불가 경계 변(한국 산맥 등)은 AI 경로에서도 넘지 않는다 — 막힌 변을 통과하는
@@ -228,7 +228,7 @@ export function findDestinationCities(
   board: BoardState
 ): { cityId: string; coord: HexCoord }[] {
   return board.cities
-    .filter(city => cityAcceptsCube(city, cubeColor, board))
+    .filter(city => cityEverAcceptsCube(city, cubeColor, board))
     .map(city => ({ cityId: city.id, coord: city.coord }));
 }
 
@@ -510,7 +510,7 @@ export function hasMatchingCubes(
   }
 
   // 출발 도시에 목적지가 수용하는 색의 큐브가 있는지 확인 (한국: 목적지 수요색 = targetCity.cubes)
-  const hasMatch = sourceCity.cubes.some(cube => cityAcceptsCube(targetCity, cube, board));
+  const hasMatch = sourceCity.cubes.some(cube => cityEverAcceptsCube(targetCity, cube, board));
 
   return hasMatch;
 }
@@ -635,7 +635,7 @@ export function findPathToEdge(
   playerId: PlayerId
 ): HexCoord[] {
   // 목표: targetCity에 인접한 헥스 중 targetEdge 방향의 헥스에 도달
-  const entryHex = getNeighborHex(targetCity, targetEdge);
+  const entryHex = getNeighborHex(targetCity, targetEdge, board);
 
   // 맵 밖이거나 호수이면 경로 없음
   const hex = board.hexTiles.find(h => hexCoordsEqual(h.coord, entryHex));
@@ -766,7 +766,7 @@ export function findOptimalPathAvoidingOpponent(
 
     // 6방향 이웃 탐색
     for (let edge = 0; edge < 6; edge++) {
-      const neighbor = getNeighborHex(current.coord, edge);
+      const neighbor = getNeighborHex(current.coord, edge, board);
       const neighborKey = coordKey(neighbor);
 
       // ★ 철도 건설 불가 경계 변(한국 산맥 등)은 AI 경로에서도 넘지 않는다 — 막힌 변을 통과하는
@@ -863,9 +863,9 @@ export function findOptimalPathAvoidingOpponent(
  *
  * A 헥스에서 B 헥스로 가는 엣지 번호 반환 (-1: 인접하지 않음)
  */
-export function getEdgeBetweenHexes(from: HexCoord, to: HexCoord): number {
+export function getEdgeBetweenHexes(from: HexCoord, to: HexCoord, board?: Pick<BoardState, 'wrapEdges'>): number {
   for (let edge = 0; edge < 6; edge++) {
-    const neighbor = getNeighborHex(from, edge);
+    const neighbor = getNeighborHex(from, edge, board);
     if (hexCoordsEqual(neighbor, to)) {
       return edge;
     }
@@ -1515,10 +1515,10 @@ export function getMainNetworkStopIds(board: BoardState, playerId: PlayerId): Se
   const neighborsOf = (t: typeof mine[0]): typeof mine => {
     const out: typeof mine = [];
     for (const e of [...t.edges, ...(t.secondaryEdges ?? [])]) {
-      const nb = getNeighborHex(t.coord, e);
+      const nb = getNeighborHex(t.coord, e, board);
       const nbT = byKey.get(key(nb));
       if (nbT) {
-        const back = getConnectingEdge(nb, t.coord);
+        const back = getConnectingEdge(nb, t.coord, board);
         const nbEdges = [...nbT.edges, ...(nbT.secondaryEdges ?? [])];
         if (back !== null && back >= 0 && nbEdges.includes(back)) out.push(nbT);
       } else if (isStopHex(nb)) {
@@ -1551,7 +1551,7 @@ export function getMainNetworkStopIds(board: BoardState, playerId: PlayerId): Se
   ];
   for (const t of bestComp) {
     for (const e of [...t.edges, ...(t.secondaryEdges ?? [])]) {
-      const nb = getNeighborHex(t.coord, e);
+      const nb = getNeighborHex(t.coord, e, board);
       const s = allStops.find(st => hexCoordsEqual(st.coord, nb));
       if (s) result.add(s.id);
     }

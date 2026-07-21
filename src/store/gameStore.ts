@@ -41,6 +41,7 @@ import {
   releaseUnextendedTrack,
   removeIncompleteNewTracks,
   removeIncompleteGovernmentTracks,
+  maxTracksForBuilder,
 } from './helpers/boardRules';
 import { AIPlayerConfig, TUTORIAL_GAME_CONFIG, createInitialGameState } from './helpers/setup';
 import { runGovernmentBuildAI, pickRepopulationPlacement } from './helpers/governmentBuildAI';
@@ -744,6 +745,12 @@ export const useGameStore = create<GameStore>()(
         return state;
       }
 
+      // 맵 전용 추가 행동(lowGravitation 등)은 그 맵(extraActions)에서만 선택 가능
+      if (action === 'lowGravitation' && !getMapProfile(state.mapId).extraActions.includes(action)) {
+        console.warn(`[WARN] selectAction: 이 맵에 없는 추가 행동 - playerId: ${playerId}, action: ${action}`);
+        return state;
+      }
+
       // Montréal 경매 트윅: 무입찰 패스 페널티 — 이번 턴 행동 선택 불가
       if (player.actionBanned) {
         console.warn(`[WARN] selectAction: 무입찰 패스 페널티로 선택 불가 - playerId: ${playerId}`);
@@ -820,13 +827,11 @@ export const useGameStore = create<GameStore>()(
         console.log(`[Repopulation] ${player.name}: 주머니에서 [${drawn.join(', ')}] 뽑음 — 1개 배치 대기`);
       }
 
-      // Engineer 효과
+      // Engineer 효과 (맵 buildsPerTurn 기반 — Germany는 절반 할인만, 달은 2→3)
       if (action === 'engineer') {
-        // Germany: Engineer는 '트랙 1개를 절반 비용으로'(룰북)이며 4타일 혜택은 없다 → 표준 타일 수 유지
-        const engineerHalfCost = getMapProfile(state.mapId).engineerHalfCost;
         newState.phaseState = {
           ...state.phaseState,
-          maxTracksThisTurn: engineerHalfCost ? GAME_CONSTANTS.NORMAL_TRACK_LIMIT : GAME_CONSTANTS.ENGINEER_TRACK_LIMIT,
+          maxTracksThisTurn: maxTracksForBuilder({ ...state, players: newState.players ?? state.players }, playerId),
         };
       }
 
@@ -1061,10 +1066,8 @@ export const useGameStore = create<GameStore>()(
               lastBuiltCoords: [],
               engineerMaxTileCost: 0, // Germany: 빌더마다 Engineer 절반 할인 재설정
               engineerDiscountGiven: 0,
-              // 첫 번째로 건설할 플레이어의 Engineer 효과 확인 (Germany는 4타일 혜택 없음 — 절반 비용만)
-              maxTracksThisTurn: state.players[firstBuilder].selectedAction === 'engineer' && !getMapProfile(state.mapId).engineerHalfCost
-                ? GAME_CONSTANTS.ENGINEER_TRACK_LIMIT
-                : GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
+              // 첫 번째로 건설할 플레이어의 트랙 상한 (맵 buildsPerTurn + Engineer 보정)
+              maxTracksThisTurn: maxTracksForBuilder(state, firstBuilder),
               // 모든 플레이어의 건설 완료 상태 초기화
               playerMoves: initialPlayerMoves,
             },
@@ -1188,9 +1191,7 @@ export const useGameStore = create<GameStore>()(
             lastBuiltCoords: [],
             engineerMaxTileCost: 0, // Germany: 빌더마다 Engineer 절반 할인 재설정
             engineerDiscountGiven: 0,
-            maxTracksThisTurn: state.players[nextBuilder].selectedAction === 'engineer' && !getMapProfile(state.mapId).engineerHalfCost
-              ? GAME_CONSTANTS.ENGINEER_TRACK_LIMIT
-              : GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
+            maxTracksThisTurn: maxTracksForBuilder(state, nextBuilder),
             playerMoves: updatedPlayerMoves,
           },
           // 이전 플레이어의 건설 선택 UI 잔재 제거
@@ -1302,14 +1303,19 @@ export const useGameStore = create<GameStore>()(
           }
         }
 
+        // 달(Moon): 물품 성장이 끝나면(=턴 롤오버) 밤/낮 반쪽을 교대한다
+        const rolledBoard = cleanedBoard.nightSide
+          ? { ...cleanedBoard, nightSide: (cleanedBoard.nightSide === 'west' ? 'east' : 'west') as 'west' | 'east' }
+          : cleanedBoard;
+
         const newTurnBase = {
           currentPhase: nextPhaseName,
           currentTurn: state.currentTurn + 1,
           currentPlayer: newTurnFirstPlayer,
-          board: cleanedBoard,
+          board: rolledBoard,
           phaseState: {
             builtTracksThisTurn: 0,
-            maxTracksThisTurn: GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
+            maxTracksThisTurn: getMapProfile(state.mapId).buildsPerTurn,
             lastBuiltCoords: [] as HexCoord[],
             moveGoodsRound: 1 as const,
             playerMoves: createPlayerMoves(activePlayers),
@@ -1410,9 +1416,10 @@ export const useGameStore = create<GameStore>()(
     }
 
     // 물품 성장: 봇이 currentPlayer면 사람이 굴리던 주사위를 대신 굴려 성장을 적용한다.
-    // 주사위 수 = 탈락하지 않은 활성 플레이어 수(각 1개), 값 1~6 (DiceRoller와 동일 규칙).
+    // 주사위 수 = 탈락하지 않은 활성 플레이어 수 × 맵별 배수(표준 1, 달 2), 값 1~6 (DiceRoller와 동일 규칙).
     if (state.currentPhase === 'goodsGrowth') {
-      const diceCount = state.activePlayers.filter((p) => !state.players[p]?.eliminated).length;
+      const diceCount = state.activePlayers.filter((p) => !state.players[p]?.eliminated).length
+        * getMapProfile(state.mapId).growthDicePerPlayer;
       const diceResults = Array.from(
         { length: diceCount },
         () => Math.floor(Math.random() * 6) + 1
@@ -1459,9 +1466,13 @@ export const useGameStore = create<GameStore>()(
       currentTurn: prevState.currentTurn + 1,
       currentPhase: 'issueShares',
       currentPlayer: prevState.playerOrder[0] ?? prevState.activePlayers[0],
+      // 달(Moon): 턴 롤오버 시 밤/낮 교대
+      ...(prevState.board.nightSide
+        ? { board: { ...prevState.board, nightSide: (prevState.board.nightSide === 'west' ? 'east' : 'west') as 'west' | 'east' } }
+        : {}),
       phaseState: {
         builtTracksThisTurn: 0,
-        maxTracksThisTurn: GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
+        maxTracksThisTurn: getMapProfile(state.mapId).buildsPerTurn,
         lastBuiltCoords: [],
         moveGoodsRound: 1,
         playerMoves: createPlayerMoves(prevState.activePlayers),

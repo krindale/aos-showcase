@@ -23,6 +23,12 @@ interface BoardOverlaysProps {
   mapOutlinePath: string;
   /** 건설 불가 내부 경계 변 path (GameBoard useMemo) */
   blockedEdgePath: string;
+  /** 달(Moon): 현재 밤쪽 절반 헥스들의 실루엣 path — 반투명 어둠 오버레이 (GameBoard useMemo) */
+  nightOverlayPath?: string;
+  /** 달(Moon): 밤쪽 상단 "밤" 배지 위치 (GameBoard useMemo) */
+  nightBadge?: { x: number; y: number } | null;
+  /** 달(Moon): 낮쪽 상단 "낮" 배지 위치 — 태양 타일 표시 (GameBoard useMemo) */
+  dayBadge?: { x: number; y: number } | null;
   borderColor: string;
   // ui 상태 (필요한 필드만)
   previewTrack: { coord: HexCoord; edges: [number, number] } | null;
@@ -39,6 +45,9 @@ export default function BoardOverlays({
   isFlat,
   mapOutlinePath,
   blockedEdgePath,
+  nightOverlayPath,
+  nightBadge,
+  dayBadge,
   borderColor,
   previewTrack,
   selectedCubeCityId,
@@ -177,6 +186,38 @@ export default function BoardOverlays({
         );
       })()}
 
+      {/* 달(Moon): 밤쪽 절반 어둠 — 도시/트랙 위 반투명 (밤 도시 검정 렌더와 조합, 클릭 통과) */}
+      {nightOverlayPath && (
+        <path
+          d={nightOverlayPath}
+          fill="rgba(18,18,38,0.30)"
+          stroke="none"
+          style={{ pointerEvents: 'none' }}
+        />
+      )}
+
+      {/* 달(Moon): 밤/낮 배지 — 어느 절반이 밤·낮인지 표시 (턴마다 교대, 낮=태양 타일 자리) */}
+      {nightBadge && (
+        <g style={{ pointerEvents: 'none' }}>
+          <rect x={nightBadge.x - 44} y={nightBadge.y - 17} width={88} height={34} rx={17}
+            fill="rgba(24,24,46,0.88)" stroke="#8b87a8" strokeWidth={1.2} />
+          <text x={nightBadge.x} y={nightBadge.y + 1} textAnchor="middle" dominantBaseline="central"
+            fill="#f3f2fa" fontSize={17} fontWeight="700">
+            {'\u{1F319} \uBC24'}
+          </text>
+        </g>
+      )}
+      {dayBadge && (
+        <g style={{ pointerEvents: 'none' }}>
+          <rect x={dayBadge.x - 44} y={dayBadge.y - 17} width={88} height={34} rx={17}
+            fill="rgba(255,248,225,0.94)" stroke="#d9a520" strokeWidth={1.2} />
+          <text x={dayBadge.x} y={dayBadge.y + 1} textAnchor="middle" dominantBaseline="central"
+            fill="#7a5a10" fontSize={17} fontWeight="700">
+            {'\u2600\uFE0F \uB0AE'}
+          </text>
+        </g>
+      )}
+
       {/* 지도 바깥 외곽선 — 헥스 실루엣의 바깥 변(이웃 없는 변)을 두꺼운 실선으로 연결 (맵 테두리색) */}
       {mapOutlinePath && (
         <path
@@ -188,6 +229,36 @@ export default function BoardOverlays({
           strokeLinejoin="round"
           style={{ pointerEvents: 'none' }}
         />
+      )}
+
+      {/* 달(Moon): 랩 어라운드 엣지 번호 — 원본 시트처럼 외곽 변에 딱 붙은 갈색 박스,
+          변과 평행하게 회전 (하단 번호가 뒤집혀 보이는 것까지 원본 레이아웃 그대로) */}
+      {(board.wrapEdges ?? []).map((w) =>
+        [w.a, w.b].map((side, i) => {
+          const { x, y } = hexToPixel(side.coord.col, side.coord.row, undefined, undefined, undefined, isFlat);
+          // 변 중점 방향각(데이터 pointy-top: 60°×edge). flat 렌더는 dx/dy 전치 = 화면각 90°−θ
+          const theta = side.edge * 60;
+          const screenTheta = isFlat ? 90 - theta : theta;
+          const rad = (Math.PI / 180) * screenTheta;
+          const apothem = (Math.sqrt(3) / 2) * HEX_SIZE;
+          const box = HEX_SIZE * 0.34;
+          // 박스 중심 = 변 중점에서 바깥으로 박스 반높이 + 외곽선(4px) 절반 → 변에 밀착
+          const dist = apothem + box / 2 + 2;
+          const bx = x + Math.cos(rad) * dist;
+          const by = y + Math.sin(rad) * dist;
+          // 박스/숫자를 변에 평행하게 회전 (변 접선 = 중점 방향 + 90°)
+          const tangent = screenTheta + 90;
+          return (
+            <g key={`wrap-${w.number}-${i}`} style={{ pointerEvents: 'none' }}
+              transform={`rotate(${tangent}, ${bx.toFixed(1)}, ${by.toFixed(1)})`}>
+              <rect x={bx - box / 2} y={by - box / 2} width={box} height={box} rx={3} fill={borderColor} />
+              <text x={bx} y={by} textAnchor="middle" dominantBaseline="central" fill="#ffffff"
+                fontSize={box * 0.62} fontWeight="700" fontFamily="Georgia, 'Times New Roman', serif">
+                {w.number}
+              </text>
+            </g>
+          );
+        })
       )}
 
       {/* 철도 건설 불가 내부 경계 변 — 외곽선 2배(8px) 굵기, 검은색 */}

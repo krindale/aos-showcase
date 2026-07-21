@@ -3,6 +3,15 @@ import { debugLog } from '@/utils/debugConfig';
 // GameBoardPreview.tsx에서 추출
 
 import { HexCoord, BoardState, PlayerId, CubeColor, City, TrackTile } from '@/types/game';
+import { getMoonSide } from '@/utils/moonMap';
+
+/**
+ * 달(Moon): 이 도시가 현재 밤쪽에 있는가 (board.nightSide 설정 맵만).
+ * 밤쪽 도시는 고유색을 잃고 검은 도시 취급 — 검은 큐브만 배달, 타색 큐브는 통과도 불가.
+ */
+export function isNightCity(city: City, board: BoardState): boolean {
+  return !!board.nightSide && getMoonSide(city.coord) === board.nightSide;
+}
 
 /**
  * 도시가 특정 색 큐브를 "수용"하는가 (= 배달 목적지이자 통과 불가 지점).
@@ -11,14 +20,46 @@ import { HexCoord, BoardState, PlayerId, CubeColor, City, TrackTile } from '@/ty
  *   빈 도시는 cubes=[] 이라 어떤 색도 수용 안 함(= 수요 없음, 통과 가능).
  * - 남부 미국(board.cottonPorts): 면화(흰 큐브)는 4대 항구에서만 배달 종료 — 그 외 도시는 통과.
  *   비-남부 맵은 cottonPorts 미설정 + 흰 큐브 자체가 없어 기존 동작 그대로.
+ * - 달(Moon): Moon Base(noDemand)는 어떤 큐브도 수용 안 함(출발/통과 전용).
+ *   밤쪽 도시(board.nightSide)는 검은 도시 취급 — 검은 큐브만 수용.
  * 한국엔 터미널이 없고 표준 맵은 city.color 경로를 그대로 타므로, Germany 터미널(color=수용색)
- * 배달 판정도 기존과 동일하게 유지된다. 터미널의 "통과 불가"는 호출부의 isTerminal 분기가 별도 처리.
+ * 배달 판정도 기존과 동일하게 유지된다. 터미널의 "통과 불가"는 cityBlocksTransit이 별도 처리.
  */
 export function cityAcceptsCube(city: City, cubeColor: CubeColor, board: BoardState): boolean {
+  if (city.noDemand) return false; // Moon Base — 수요 없음
+  if (isNightCity(city, board)) return cubeColor === 'black'; // 밤쪽 = 검은 도시
   if (cubeColor === 'white') return !!board.cottonPorts?.includes(city.id);
   if (board.dynamicCityColors) return city.cubes.includes(cubeColor);
   // 겸용 도시(Montréal Atwater 등)는 보조 수요색(extraColor)도 받는다
   return city.color === cubeColor || city.extraColor === cubeColor;
+}
+
+/**
+ * AI "계획"용 수요 판정 — 밤낮 교대(달)를 넘어 이 도시가 **언젠가** 이 큐브를 수용하는가.
+ * 달은 매 턴 밤낮이 교대되므로: 원래 색 큐브는 그 도시가 낮이 되는 턴에, 검은 큐브는 어느
+ * 도시든 밤이 되는 턴에 배달 가능하다. 현재 상태만 보는 cityAcceptsCube로 계획을 세우면
+ * "지금 밤인 도시"로의 경로를 영구 불가로 오판한다 (건설은 몇 턴 뒤 배달을 위한 것).
+ * ⚠️ 이동 "실행"·목적지 표시는 반드시 cityAcceptsCube(현재 상태)를 쓸 것 — 이건 계획 전용.
+ * 비-달 맵은 cityAcceptsCube와 완전 동일.
+ */
+export function cityEverAcceptsCube(city: City, cubeColor: CubeColor, board: BoardState): boolean {
+  if (!board.nightSide) return cityAcceptsCube(city, cubeColor, board);
+  if (city.noDemand) return false;
+  if (cubeColor === 'black') return true;              // 어느 도시든 밤이 되는 턴에 수용
+  if (cubeColor === 'white') return !!board.cottonPorts?.includes(city.id);
+  return city.color === cubeColor || city.extraColor === cubeColor; // 낮이 되는 턴 기준 원래 색
+}
+
+/**
+ * 이 도시가 특정 색 큐브의 "통과"를 막는가 (배달 목적지 여부와 별개의 경로 차단).
+ * - Germany 외국 터미널: 모든 큐브 통과 불가.
+ * - 달(Moon) 밤쪽 도시: 검은색이 아닌 큐브는 통과조차 불가 (검은 큐브는 cityAcceptsCube로 멈춤).
+ * 경로 탐색(findAllPaths/findReachableDestinations/findTrackCubeDeliveries)이 공용으로 쓴다.
+ */
+export function cityBlocksTransit(city: City, cubeColor: CubeColor, board: BoardState): boolean {
+  if (city.isTerminal) return true;
+  if (cubeColor !== 'black' && isNightCity(city, board)) return true;
+  return false;
 }
 
 /**
@@ -252,7 +293,31 @@ export function getRailroadTies(
  *   Edge 4 (NW/UPPER-LEFT):  (col,   row-1)
  *   Edge 5 (NE/UPPER-RIGHT): (col+1, row-1)
  */
-export function getNeighborHex(coord: HexCoord, edge: number): HexCoord {
+// 달(Moon) 랩 어라운드: wrapEdges 배열 → "col,row:edge" 룩업 맵 (배열 인스턴스별 캐시)
+const wrapLookupCache = new WeakMap<object, Map<string, HexCoord>>();
+
+function getWrapLookup(wrapEdges: NonNullable<BoardState['wrapEdges']>): Map<string, HexCoord> {
+  let lookup = wrapLookupCache.get(wrapEdges);
+  if (!lookup) {
+    lookup = new Map();
+    for (const w of wrapEdges) {
+      lookup.set(`${w.a.coord.col},${w.a.coord.row}:${w.a.edge}`, w.b.coord);
+      lookup.set(`${w.b.coord.col},${w.b.coord.row}:${w.b.edge}`, w.a.coord);
+    }
+    wrapLookupCache.set(wrapEdges, lookup);
+  }
+  return lookup;
+}
+
+export function getNeighborHex(coord: HexCoord, edge: number, board?: Pick<BoardState, 'wrapEdges'>): HexCoord {
+  // 달(Moon): 외곽 랩 변이면 반대편 헥스가 이웃이다.
+  // 랩 쌍은 보드 점대칭이라 "상대 변 = (edge+3)%6" 불변식이 유지된다 (moonMap.test 검증)
+  // — getOppositeEdge/getConnectingEdge 관행이 랩 너머에서도 그대로 성립.
+  if (board?.wrapEdges?.length) {
+    const wrapped = getWrapLookup(board.wrapEdges).get(`${coord.col},${coord.row}:${edge}`);
+    if (wrapped) return wrapped;
+  }
+
   const { col, row } = coord;
   const isOddRow = row % 2 === 1;
 
@@ -297,9 +362,9 @@ export function isBlockedEdge(board: BoardState, a: HexCoord, b: HexCoord): bool
 /**
  * 두 헥스가 인접한지 확인
  */
-export function areHexesAdjacent(a: HexCoord, b: HexCoord): boolean {
+export function areHexesAdjacent(a: HexCoord, b: HexCoord, board?: Pick<BoardState, 'wrapEdges'>): boolean {
   for (let edge = 0; edge < 6; edge++) {
-    const neighbor = getNeighborHex(a, edge);
+    const neighbor = getNeighborHex(a, edge, board);
     if (neighbor.col === b.col && neighbor.row === b.row) {
       return true;
     }
@@ -334,9 +399,9 @@ export function hexDistance(a: HexCoord, b: HexCoord): number {
  * 두 헥스 사이의 연결 엣지 찾기
  * A 헥스에서 B 헥스로 연결되는 엣지 번호 반환
  */
-export function getConnectingEdge(a: HexCoord, b: HexCoord): number | null {
+export function getConnectingEdge(a: HexCoord, b: HexCoord, board?: Pick<BoardState, 'wrapEdges'>): number | null {
   for (let edge = 0; edge < 6; edge++) {
-    const neighbor = getNeighborHex(a, edge);
+    const neighbor = getNeighborHex(a, edge, board);
     if (neighbor.col === b.col && neighbor.row === b.row) {
       return edge;
     }
@@ -466,10 +531,11 @@ export function isValidBuildTargetWithReplace(
  */
 export function calculateTrackEdges(
   sourceCoord: HexCoord,
-  targetCoord: HexCoord
+  targetCoord: HexCoord,
+  board?: Pick<BoardState, 'wrapEdges'>
 ): [number, number] | null {
-  // sourceCoord에서 targetCoord로 가는 엣지 찾기
-  const sourceEdge = getConnectingEdge(sourceCoord, targetCoord);
+  // sourceCoord에서 targetCoord로 가는 엣지 찾기 (달: 랩 변 포함 — 점대칭이라 반대변 불변식 유지)
+  const sourceEdge = getConnectingEdge(sourceCoord, targetCoord, board);
   if (sourceEdge === null) return null;
 
   // 반대편 엣지 계산 (targetCoord에서 sourceCoord 방향)
@@ -542,7 +608,7 @@ export function getBuildableNeighbors(
 
   // 각 가능한 엣지에서 이웃 헥스 확인
   for (const sourceEdge of availableEdges) {
-    const neighbor = getNeighborHex(sourceCoord, sourceEdge);
+    const neighbor = getNeighborHex(sourceCoord, sourceEdge, board);
 
     // 건설 가능한 대상인지 확인
     const isValid = allowReplace
@@ -608,7 +674,7 @@ export function getExitDirections(
   for (let edge = 0; edge < 6; edge++) {
     if (edge === entryEdge) continue; // 들어온 방향은 제외
 
-    const neighbor = getNeighborHex(targetCoord, edge);
+    const neighbor = getNeighborHex(targetCoord, edge, board);
 
     // 호수인지 확인
     const isLake = board.hexTiles.some(
@@ -645,7 +711,9 @@ export function getConnectedNeighbors(
   board: BoardState,
   playerId?: PlayerId | null,
   visitedKey: Set<string> = new Set(),
-  entryEdge?: number  // 어느 방향에서 들어왔는지 (복합 트랙 처리용)
+  entryEdge?: number,  // 어느 방향에서 들어왔는지 (복합 트랙 처리용)
+  /** 달(Moon) 저중력: true면 살아있는 타인 트랙도 이웃으로 인정 (경유 링크 수 제한은 호출부 DFS가 관리) */
+  includeOpponents: boolean = false
 ): HexCoord[] {
   const neighbors: HexCoord[] = [];
 
@@ -664,7 +732,7 @@ export function getConnectedNeighbors(
       : null;
     for (let edge = 0; edge < 6; edge++) {
       if (townSpurEdges && !townSpurEdges.has(edge)) continue;
-      const neighbor = getNeighborHex(currentCoord, edge);
+      const neighbor = getNeighborHex(currentCoord, edge, board);
       const neighborKey = hexToKey(neighbor);
       if (visitedKey.has(neighborKey)) {
         continue;
@@ -672,7 +740,7 @@ export function getConnectedNeighbors(
 
       // 이웃에 트랙이 있고, 해당 트랙이 현재 도시 방향으로 연결되어 있는지 확인
       let neighborTracks = board.trackTiles.filter(t => hexCoordsEqual(t.coord, neighbor));
-      if (playerId !== undefined && playerId !== null) {
+      if (playerId !== undefined && playerId !== null && !includeOpponents) {
         // 자기 트랙 + 공용(파산, owner null) 트랙만 (살아있는 타인 제외)
         neighborTracks = neighborTracks.filter(t => t.owner === playerId || t.secondaryOwner === playerId || t.owner === null || t.secondaryOwner === null);
       }
@@ -710,7 +778,7 @@ export function getConnectedNeighbors(
     // [핵심 수정] 복합 트랙에서는 같은 경로(edges 또는 secondaryEdges) 내에서만 이동 가능
 
     let currentCoordTracks = board.trackTiles.filter(t => hexCoordsEqual(t.coord, currentCoord));
-    if (playerId) {
+    if (playerId && !includeOpponents) {
       // 자기 트랙 + 공용(파산, owner null) 트랙만 (살아있는 타인 제외)
       currentCoordTracks = currentCoordTracks.filter(t => t.owner === playerId || t.secondaryOwner === playerId || t.owner === null || t.secondaryOwner === null);
     }
@@ -731,7 +799,7 @@ export function getConnectedNeighbors(
         // entryEdge가 없거나, entryEdge가 primary 경로에 있으면 primary 출구 사용 가능
         if (entryEdge === undefined || isEntryInPrimary) {
           // primary 경로가 자기 소유이거나 공용(파산, owner null)이면 사용 가능 (살아있는 타인 제외)
-          if (!playerId || t.owner === playerId || t.owner === null) {
+          if (!playerId || includeOpponents || t.owner === playerId || t.owner === null) {
             t.edges.forEach(e => {
               // entryEdge와 다른 엣지만 출구로 사용 (들어온 방향으로 되돌아가지 않음)
               if (e !== entryEdge) {
@@ -747,7 +815,7 @@ export function getConnectedNeighbors(
         if (t.secondaryEdges) {
           if (entryEdge === undefined || isEntryInSecondary) {
             // secondary 경로가 자기 소유이거나 공용(파산)이면 사용 가능
-            if (!playerId || t.secondaryOwner === playerId || t.secondaryOwner === null) {
+            if (!playerId || includeOpponents || t.secondaryOwner === playerId || t.secondaryOwner === null) {
               t.secondaryEdges.forEach(e => {
                 if (e !== entryEdge) {
                   if (!outgoingEdgesAndOwners.has(e)) outgoingEdgesAndOwners.set(e, new Set());
@@ -763,7 +831,7 @@ export function getConnectedNeighbors(
     const outgoingEdges = Array.from(outgoingEdgesAndOwners.keys());
 
     for (const edge of outgoingEdges) {
-      const neighbor = getNeighborHex(currentCoord, edge);
+      const neighbor = getNeighborHex(currentCoord, edge, board);
       const neighborKey = hexToKey(neighbor);
       if (visitedKey.has(neighborKey)) {
         continue;
@@ -805,7 +873,7 @@ export function getConnectedNeighbors(
           && (t.secondaryOwner == null || curHasPublic || currentEdgeOwners.has(t.secondaryOwner));
 
         // 2. 자기 망 또는 공용(파산) 트랙이면 사용 가능 (살아있는 타인 제외)
-        const matchesRequest = !playerId || t.owner === playerId || t.secondaryOwner === playerId || t.owner === null || t.secondaryOwner === null;
+        const matchesRequest = !playerId || includeOpponents || t.owner === playerId || t.secondaryOwner === playerId || t.owner === null || t.secondaryOwner === null;
 
         if ((isBasicMatch || isSecondaryMatch) && matchesRequest) {
           debugLog.verbose(`  edge ${edge}: 이웃 (${neighbor.col}, ${neighbor.row}) 트랙 확인, 소유자 매칭 성공! 필요한 entryEdge: ${neighborEntryEdge}`);
@@ -867,7 +935,9 @@ function findAllPaths(
   maxLength: number,
   cubeColor: CubeColor,
   /** Montréal DGEL: 정부 링크 전용 추가 이동 수 — 총 링크 ≤ maxLength+govExtra, 비정부 링크 ≤ maxLength */
-  govExtra: number = 0
+  govExtra: number = 0,
+  /** 달(Moon) 저중력: 살아있는 타인 소유 링크를 최대 N개 경유 가능 (수입 이전은 completeCubeMove가 처리) */
+  opponentExtra: number = 0
 ): HexCoord[][] {
   const allPaths: HexCoord[][] = [];
 
@@ -878,7 +948,9 @@ function findAllPaths(
     linkCount: number,
     entryEdge?: number,  // 현재 노드에 진입한 엣지 (복합 트랙 경로 분리용)
     govLinks: number = 0,        // 지금까지 지나온 정부 링크 수 (Montréal DGEL)
-    linkIsGov?: boolean          // 현재 진행 중인 링크가 정부 트랙 구간인지 (첫 타일에서 판정)
+    linkIsGov?: boolean,         // 현재 진행 중인 링크가 정부 트랙 구간인지 (첫 타일에서 판정)
+    oppLinks: number = 0,        // 지금까지 지나온 타인 소유 링크 수 (달 저중력)
+    linkIsOpp?: boolean          // 현재 진행 중인 링크가 타인 소유 구간인지
   ) {
     // 목적지 도착
     if (hexCoordsEqual(current, end) && linkCount > 0) {
@@ -886,8 +958,8 @@ function findAllPaths(
       return;
     }
 
-    // 이동은 자기 철도 + 파산 공용(owner null) 철도만 사용 (살아있는 타인 철도 제외)
-    const neighbors = getConnectedNeighbors(current, board, playerId, visited, entryEdge);
+    // 이동은 자기 철도 + 파산 공용(owner null) 철도 (저중력이면 타인 철도도 opponentExtra 링크까지)
+    const neighbors = getConnectedNeighbors(current, board, playerId, visited, entryEdge, opponentExtra > 0);
 
     for (const neighbor of neighbors) {
       // 링크 카운트: "완성된 철도 링크" = 도시/마을 사이의 연결 (중간 트랙 수 무관)
@@ -897,20 +969,29 @@ function findAllPaths(
       const isStop = !!neighborCity || isNeighborTown;
       const newLinkCount = isStop ? linkCount + 1 : linkCount;
 
-      // 링크의 정부 여부: 링크의 첫 트랙 타일에서 판정 (한 링크의 타일은 전부 같은 소유 —
-      // 정부 링크는 완성 링크로만 지어지므로 정부/비정부가 한 링크에 섞이지 않는다)
+      // 링크의 정부/타인 소유 여부: 링크의 첫 트랙 타일에서 판정 (한 링크의 타일은 전부 같은 소유)
       let nextLinkIsGov = linkIsGov;
-      if (!isStop && nextLinkIsGov === undefined) {
+      let nextLinkIsOpp = linkIsOpp;
+      if (!isStop && (nextLinkIsGov === undefined || nextLinkIsOpp === undefined)) {
         const tileHere = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor));
-        nextLinkIsGov = tileHere?.isGovernment === true;
+        if (nextLinkIsGov === undefined) nextLinkIsGov = tileHere?.isGovernment === true;
+        if (nextLinkIsOpp === undefined) {
+          nextLinkIsOpp = !!tileHere && !tileHere.isGovernment
+            && tileHere.owner !== null && tileHere.owner !== playerId && tileHere.secondaryOwner !== playerId;
+        }
       }
       const newGovLinks = isStop ? govLinks + (nextLinkIsGov === true ? 1 : 0) : govLinks;
+      const newOppLinks = isStop ? oppLinks + (nextLinkIsOpp === true ? 1 : 0) : oppLinks;
 
       // 최대 링크 수 초과 시 건너뛰기 — 총 링크는 엔진+DGEL까지, 비정부 링크는 엔진까지
       if (newLinkCount > maxLength + govExtra) {
         continue;
       }
       if (isStop && newLinkCount - newGovLinks > maxLength) {
+        continue;
+      }
+      // 달 저중력: 타인 소유 링크는 opponentExtra개까지만 경유 가능
+      if (isStop && newOppLinks > opponentExtra) {
         continue;
       }
 
@@ -920,21 +1001,22 @@ function findAllPaths(
       if (neighborCity && cityAcceptsCube(neighborCity, cubeColor, board) && !hexCoordsEqual(neighbor, end)) {
         continue;
       }
-      // Germany: 외국 터미널은 통과 불가 — 목적지(end)가 아니면 그 경로 차단
-      if (neighborCity?.isTerminal && !hexCoordsEqual(neighbor, end)) {
+      // 통과 차단 도시(Germany 터미널 / 달 밤 도시×타색 큐브) — 목적지(end)가 아니면 그 경로 차단
+      if (neighborCity && cityBlocksTransit(neighborCity, cubeColor, board) && !hexCoordsEqual(neighbor, end)) {
         continue;
       }
 
       // 다음 노드의 entryEdge 계산
-      const edgeFromCurrent = getConnectingEdge(current, neighbor);
+      const edgeFromCurrent = getConnectingEdge(current, neighbor, board);
       const neighborEntryEdge = edgeFromCurrent !== null ? getOppositeEdge(edgeFromCurrent) : undefined;
 
       const neighborKey = hexToKey(neighbor);
       visited.add(neighborKey);
       path.push(neighbor);
 
-      // entryEdge를 전달하여 복합 트랙 경로 유지 — 정거장 도착 시 링크 정부 판정 리셋
-      dfs(neighbor, path, visited, newLinkCount, neighborEntryEdge, newGovLinks, isStop ? undefined : nextLinkIsGov);
+      // entryEdge를 전달하여 복합 트랙 경로 유지 — 정거장 도착 시 링크 소유 판정 리셋
+      dfs(neighbor, path, visited, newLinkCount, neighborEntryEdge, newGovLinks, isStop ? undefined : nextLinkIsGov,
+        newOppLinks, isStop ? undefined : nextLinkIsOpp);
 
       path.pop();
       visited.delete(neighborKey);
@@ -979,7 +1061,9 @@ export function findLongestPath(
   engineLevel: number,
   cubeColor: CubeColor,
   /** Montréal DGEL: 정부 링크 전용 추가 이동 수 */
-  govExtra: number = 0
+  govExtra: number = 0,
+  /** 달(Moon) 저중력: 타인 링크 최대 N개 경유 */
+  opponentExtra: number = 0
 ): HexCoord[] | null {
   // 목적지 도시 확인
   const targetCity = board.cities.find(c => hexCoordsEqual(c.coord, targetCityCoord));
@@ -999,7 +1083,8 @@ export function findLongestPath(
     playerId,
     engineLevel,
     cubeColor,
-    govExtra
+    govExtra,
+    opponentExtra
   );
 
   if (allPaths.length === 0) return null;
@@ -1059,7 +1144,9 @@ export function findReachableDestinations(
   engineLevel: number,
   cubeColor: CubeColor,
   /** Montréal DGEL: 정부 링크 전용 추가 이동 수 — 총 링크 ≤ 엔진+DGEL, 비정부 링크 ≤ 엔진 */
-  govExtra: number = 0
+  govExtra: number = 0,
+  /** 달(Moon) 저중력: 타인 링크 최대 N개 경유 */
+  opponentExtra: number = 0
 ): City[] {
   // 룰: 물품은 "같은 색 첫 도시"에 도착하면 멈춘다. 신규 도시도 board.cities에 있으므로 동등하게 적용.
   // DFS로 트랙을 따라가며 같은 색 도시를 처음 만나면 그 도시를 목적지로 추가하고 거기서 멈춘다
@@ -1067,10 +1154,9 @@ export function findReachableDestinations(
   const reachable: City[] = [];
   const foundKeys = new Set<string>();
 
-  function dfs(current: HexCoord, visited: Set<string>, linkCount: number, entryEdge?: number, govLinks = 0, linkIsGov?: boolean) {
-    // 이동은 자기 철도 + 파산으로 공용(owner null)이 된 철도만 사용한다 (살아있는 타인 철도 제외).
-    // playerId를 넘기면 getConnectedNeighbors가 자기/공용 트랙만 인정한다(owner===playerId || null).
-    const neighbors = getConnectedNeighbors(current, board, playerId, visited, entryEdge);
+  function dfs(current: HexCoord, visited: Set<string>, linkCount: number, entryEdge?: number, govLinks = 0, linkIsGov?: boolean, oppLinks = 0, linkIsOpp?: boolean) {
+    // 이동은 자기 철도 + 파산 공용(owner null) 철도 (저중력이면 타인 철도도 opponentExtra 링크까지)
+    const neighbors = getConnectedNeighbors(current, board, playerId, visited, entryEdge, opponentExtra > 0);
     for (const neighbor of neighbors) {
       const nbKey = hexToKey(neighbor);
       if (visited.has(nbKey)) continue;
@@ -1080,16 +1166,24 @@ export function findReachableDestinations(
       const isStop = !!cityAt || isTown;
       const newLinkCount = isStop ? linkCount + 1 : linkCount;
 
-      // 링크의 정부 여부는 링크 첫 트랙 타일에서 판정 (Montréal — 정부/플레이어 트랙은 링크 단위로 분리)
+      // 링크의 정부/타인 소유 여부는 링크 첫 트랙 타일에서 판정 (링크 단위로 소유가 분리됨)
       let nextLinkIsGov = linkIsGov;
-      if (!isStop && nextLinkIsGov === undefined) {
+      let nextLinkIsOpp = linkIsOpp;
+      if (!isStop && (nextLinkIsGov === undefined || nextLinkIsOpp === undefined)) {
         const tileHere = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor));
-        nextLinkIsGov = tileHere?.isGovernment === true;
+        if (nextLinkIsGov === undefined) nextLinkIsGov = tileHere?.isGovernment === true;
+        if (nextLinkIsOpp === undefined) {
+          nextLinkIsOpp = !!tileHere && !tileHere.isGovernment
+            && tileHere.owner !== null && tileHere.owner !== playerId && tileHere.secondaryOwner !== playerId;
+        }
       }
       const newGovLinks = isStop ? govLinks + (nextLinkIsGov === true ? 1 : 0) : govLinks;
+      const newOppLinks = isStop ? oppLinks + (nextLinkIsOpp === true ? 1 : 0) : oppLinks;
 
       if (newLinkCount > engineLevel + govExtra) continue;
       if (isStop && newLinkCount - newGovLinks > engineLevel) continue;
+      // 달 저중력: 타인 소유 링크는 opponentExtra개까지만 경유 가능
+      if (isStop && newOppLinks > opponentExtra) continue;
 
       if (cityAt) {
         if (cityAcceptsCube(cityAt, cubeColor, board)) {
@@ -1098,15 +1192,16 @@ export function findReachableDestinations(
           if (!foundKeys.has(nbKey)) { foundKeys.add(nbKey); reachable.push(cityAt); }
           continue;
         }
-        // Germany: 외국 터미널은 통과할 수 없다 (종점만 가능) — 다른 색이면 막다른 길
-        if (cityAt.isTerminal) continue;
+        // 통과 차단 도시(Germany 터미널 / 달 밤 도시×타색 큐브) — 수용색이 아니면 막다른 길
+        if (cityBlocksTransit(cityAt, cubeColor, board)) continue;
         // 다른 색 도시는 통과(멈추지 않음) — 아래에서 계속 탐색
       }
 
-      const edgeFromCurrent = getConnectingEdge(current, neighbor);
+      const edgeFromCurrent = getConnectingEdge(current, neighbor, board);
       const neighborEntryEdge = edgeFromCurrent !== null ? getOppositeEdge(edgeFromCurrent) : undefined;
       visited.add(nbKey);
-      dfs(neighbor, visited, newLinkCount, neighborEntryEdge, newGovLinks, isStop ? undefined : nextLinkIsGov);
+      dfs(neighbor, visited, newLinkCount, neighborEntryEdge, newGovLinks, isStop ? undefined : nextLinkIsGov,
+        newOppLinks, isStop ? undefined : nextLinkIsOpp);
       visited.delete(nbKey);
     }
   }
@@ -1151,7 +1246,7 @@ export function findCompletedLinks(board: BoardState): CompletedLink[] {
       if (isStartTown && !(board.townSpurs ?? []).some(
         sp => hexCoordsEqual(sp.townCoord, startPoint) && sp.edge === edge
       )) continue;
-      const neighbor = getNeighborHex(startPoint, edge);
+      const neighbor = getNeighborHex(startPoint, edge, board);
       const track = board.trackTiles.find(
         t => hexCoordsEqual(t.coord, neighbor) && t.owner !== null
       );
@@ -1205,6 +1300,32 @@ export function findCompletedLinks(board: BoardState): CompletedLink[] {
 }
 
 /**
+ * 달(Moon): 시드 도시(Moon Base)와 완성 링크 체인으로 이어진 도시 id 집합.
+ * "선로로 연결된 도시만 성장" 판정용 — 링크 양끝(도시/마을)을 노드로 BFS (마을 경유 포함, 소유 무관).
+ */
+export function citiesConnectedToSeed(board: BoardState, seedCityId: string): globalThis.Set<string> {
+  const seed = board.cities.find((c) => c.id === seedCityId);
+  if (!seed) return new Set();
+  const key = (c: HexCoord) => `${c.col},${c.row}`;
+  const adj = new Map<string, string[]>();
+  for (const link of findCompletedLinks(board)) {
+    const a = key(link.startCity);
+    const b = key(link.endCity);
+    adj.set(a, [...(adj.get(a) ?? []), b]);
+    adj.set(b, [...(adj.get(b) ?? []), a]);
+  }
+  const visited = new Set<string>([key(seed.coord)]);
+  const queue = [key(seed.coord)];
+  while (queue.length) {
+    const cur = queue.shift()!;
+    for (const nb of adj.get(cur) ?? []) {
+      if (!visited.has(nb)) { visited.add(nb); queue.push(nb); }
+    }
+  }
+  return new Set(board.cities.filter((c) => visited.has(key(c.coord))).map((c) => c.id));
+}
+
+/**
  * 트랙에서 시작해서 다른 도시/마을까지 추적
  */
 function traceLinkFromTrack(
@@ -1234,7 +1355,7 @@ function traceLinkFromTrack(
     if (exitEdge === undefined) return null;
 
     // 다음 이웃 확인
-    const nextNeighbor = getNeighborHex(currentCoord, exitEdge);
+    const nextNeighbor = getNeighborHex(currentCoord, exitEdge, board);
 
     // 다음이 도시/마을인지 확인
     const isCity = board.cities.some(c => hexCoordsEqual(c.coord, nextNeighbor));
@@ -1310,7 +1431,7 @@ function checkConnectionToCity(
 
   while (true) {
     // 1. 다음 헥스로 이동
-    const nextHex = getNeighborHex(currentHex, currentEdge);
+    const nextHex = getNeighborHex(currentHex, currentEdge, board);
     const coordKey = `${nextHex.col},${nextHex.row}`;
 
     // 2. 도시/마을인지 확인.
@@ -1687,7 +1808,7 @@ export function findTrackCubeDeliveries(
     const visited = st.visited; // 이 경로의 visited (분기 시 아래에서 복사해 push)
 
     for (let steps = 0; steps < 64; steps++) {
-      const nextCoord = getNeighborHex(current, exitEdge);
+      const nextCoord = getNeighborHex(current, exitEdge, board);
       const key = hexToKey(nextCoord);
 
       // 도시 도달
@@ -1728,8 +1849,8 @@ export function findTrackCubeDeliveries(
           }
           break;
         }
-        // Germany: 외국 터미널은 통과 불가 (수용색이 아니면 막다른 길)
-        if (city.isTerminal) break;
+        // 통과 차단 도시(Germany 터미널 / 달 밤 도시×타색 큐브) — 수용색이 아니면 막다른 길
+        if (cityBlocksTransit(city, cubeColor, board)) break;
         // 다른 색 도시 → 통과 (도시는 모든 변이 연결됨, 한 번만 방문). 너머 같은 색 도시로 계속 탐색.
         // 탐색 상한을 이미 넘었으면 더 통과해봐야 의미 없음 → 중단 (로그 모드면 엔진+여유까지)
         if (linkCount >= exploreLimit) break;
@@ -1738,7 +1859,7 @@ export function findTrackCubeDeliveries(
         const cityPath = [...pathCoords, nextCoord];
         for (let e = 0; e < 6; e++) {
           if (e === getOppositeEdge(exitEdge)) continue; // 들어온 변 제외
-          const beyond = getNeighborHex(nextCoord, e);
+          const beyond = getNeighborHex(nextCoord, e, board);
           if (visited.has(hexToKey(beyond))) continue;
           const bTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, beyond));
           const opp = getOppositeEdge(e);
@@ -1761,7 +1882,7 @@ export function findTrackCubeDeliveries(
         const townPath = [...pathCoords, nextCoord];
         for (const sp of spurs) {
           if (sp.edge === entrySpurEdge) continue;
-          const beyond = getNeighborHex(nextCoord, sp.edge);
+          const beyond = getNeighborHex(nextCoord, sp.edge, board);
           if (visited.has(hexToKey(beyond))) continue;
           const bTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, beyond));
           const opp = getOppositeEdge(sp.edge);

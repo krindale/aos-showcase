@@ -69,6 +69,8 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
   const incomeSources = getMapAIConfig(state).incomeSources;
   // Montréal DGEL: 정부 링크 전용 추가 이동 (다른 맵은 0 — 탐색 동작 무변경)
   const govExtra = profile.dedicatedGovEngine ? (player.dgel ?? 0) : 0;
+  // 달(Moon) 저중력 보유: 이동 경로에 타인 소유 링크 1개 경유 가능 (그 링크 수입도 내가 받음)
+  const oppExtra = player.selectedAction === 'lowGravitation' ? 1 : 0;
   const candidates: MoveCandidate[] = [];
 
   // 한 출발지(도시/마을)의 큐브들에 대해 배달 후보를 생성해 candidates에 추가 (도시·마을 공용).
@@ -83,9 +85,9 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
   ) => {
     for (let cubeIndex = 0; cubeIndex < cubes.length; cubeIndex++) {
       const cubeColor = cubes[cubeIndex];
-      const reachable = findReachableDestinations(sourceCoord, board, playerId, player.engineLevel, cubeColor, govExtra);
+      const reachable = findReachableDestinations(sourceCoord, board, playerId, player.engineLevel, cubeColor, govExtra, oppExtra);
       for (const destCity of reachable) {
-        const path = findLongestPath(sourceCoord, destCity.coord, board, playerId, player.engineLevel, cubeColor, govExtra);
+        const path = findLongestPath(sourceCoord, destCity.coord, board, playerId, player.engineLevel, cubeColor, govExtra, oppExtra);
         if (!path || path.length < 2) continue;
 
         const linksCount = countPathLinks(path, board);
@@ -220,7 +222,9 @@ function evaluateEngineUpgradeOption(state: GameState, playerId: PlayerId): numb
   const config = getMapAIConfig(state);
 
   // 엔진 상한 도달 / 이번 턴 locomotive로 이미 업그레이드함
-  if (player.engineLevel >= config.engineMax) return -Infinity;
+  // 엔진업 결정 상한 (맵별, 기본 = engineMax). 경로 평가의 engineMax와 분리 — MapProfile 주석 참조
+  const upgradeCap = getMapProfile(state.mapId).aiEngineUpgradeCap ?? config.engineMax;
+  if (player.engineLevel >= upgradeCap) return -Infinity;
   if (player.selectedAction === 'locomotive') return -Infinity;
   // 이번 턴에 이미 move-round 엔진 업그레이드함 (2 move round 통틀어 1회 — 룰북).
   // 없으면 AI가 라운드2에 또 엔진업을 결정→store가 거부→같은 결정 반복으로 정체한다.
@@ -258,7 +262,9 @@ function evaluateEngineUpgradeOption(state: GameState, playerId: PlayerId): numb
   // 수입의 핵심이기 때문(사용자 목표: income 20). 2인 tutorial(cityCubes)은 제외해 회귀 보존.
   // 사용자 지침: 엔진은 T4까지만 front-load로 3까지 올리고, T5+ 는 move-round 엔진업을
   // 금지하고 특수액션 Locomotive로만 올린다 (move-round 엔진업은 배달 1개를 포기 → income 손실).
-  const longHaul = config.incomeSources.includes('trackCubes') || state.activePlayers.length >= 3;
+  // 맵별 front-load 스위치 (기본 true = 기존 동작). 달은 false — 초반 기회를 배달에 쓴다.
+  const longHaul = getMapProfile(state.mapId).aiEngineFrontLoad
+    && (config.incomeSources.includes('trackCubes') || state.activePlayers.length >= 3);
   const frontLoadTarget = Math.min(3, state.currentTurn + 1);
   const frontLoad = (longHaul && player.engineLevel < frontLoadTarget
     && state.currentTurn <= 4 && remainingTurns >= 1)

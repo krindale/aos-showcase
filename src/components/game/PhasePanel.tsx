@@ -36,6 +36,7 @@ import {
   ListOrdered,
   Landmark,
   type LucideIcon,
+  Feather,
 } from 'lucide-react';
 import AuctionPanel from './AuctionPanel';
 import TurnOrderOfferPanel from './TurnOrderOfferPanel';
@@ -72,15 +73,20 @@ export const ACTIONS: SpecialAction[] = [
   'turnOrder',
 ];
 
+/** 이 맵의 행동 목록 = 기본 7종 + 맵 전용 추가 행동 (Moon: lowGravitation 8번째) */
+export const actionsForMap = (mapId: string): SpecialAction[] =>
+  [...ACTIONS, ...getMapProfile(mapId).extraActions];
+
 /** 행동 선택 버튼용 축약 설명 (좁은 2열 그리드 — 상세는 도움말/룰북 참고) */
 const ACTION_SHORT: Record<SpecialAction, string> = {
   firstMove: '남보다 먼저 이동',
   firstBuild: '남보다 먼저 건설',
-  engineer: '트랙 4개 건설',
+  engineer: '트랙 4개 건설', // 실제 표시는 동적(buildsPerTurn+1) — 아래 그리드 삼항 참조
   locomotive: '엔진 +1칸',
   urbanization: '마을에 신도시',
   production: '큐브 2개 보충',
   turnOrder: '다음 경매 패스',
+  lowGravitation: '타인 링크 수입 1',
 };
 
 /** 행동 선택 버튼 아이콘 — 특수 액션 페이지(/actions)·도움말과 동일 */
@@ -92,6 +98,7 @@ export const ACTION_ICONS: Record<SpecialAction, LucideIcon> = {
   urbanization: Building2,
   production: Boxes,
   turnOrder: ListOrdered,
+  lowGravitation: Feather,
 };
 
 export default function PhasePanel() {
@@ -272,7 +279,7 @@ export default function PhasePanel() {
         <span className="text-accent flex-shrink-0">{PHASE_ICONS[currentPhase]}</span>
         <div className="flex-1 min-w-0">
           <h3 className="font-semibold text-sm md:text-base text-foreground truncate">{phaseInfo.name}</h3>
-          <p className="text-[10px] md:text-xs text-foreground-secondary truncate">{phaseInfo.description}</p>
+          <p className="text-[10px] md:text-xs text-foreground-secondary truncate">{getMapProfile(mapId).phaseDescription(currentPhase)}</p>
         </div>
       </div>
 
@@ -515,7 +522,7 @@ export default function PhasePanel() {
             {!currentPlayerData.isAI && isMyTurn && (
               <>
                 <div className="grid grid-cols-2 gap-1.5">
-                  {ACTIONS.map((action) => {
+                  {actionsForMap(mapId).map((action) => {
                     const info = ACTION_INFO[action];
                     const Icon = ACTION_ICONS[action];
                     const taken = isActionTaken(action);
@@ -557,6 +564,9 @@ export default function PhasePanel() {
                             <p className="text-[10px] text-foreground-secondary mt-0.5">
                               {action === 'engineer' && getMapProfile(mapId).engineerHalfCost
                                 ? '3개 + 최고가 1개 절반값'
+                                : action === 'engineer'
+                                // 맵별 건설 상한 반영 (표준 3+1=4, 달 2+1=3) — 하드코딩 '4개' 오표기 방지
+                                ? `트랙 ${getMapProfile(mapId).buildsPerTurn + 1}개 건설`
                                 : action === 'locomotive' && getMapProfile(mapId).dedicatedGovEngine
                                 ? '정부 엔진(DGEL) +1'
                                 : action === 'production' && getMapProfile(mapId).productionAsRepopulation

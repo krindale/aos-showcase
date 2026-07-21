@@ -155,7 +155,11 @@ export function createInitialGameState(
     }
     if (setupRules.hexCubeSetup) return { ...city, cubes: [] };
     // 도시별 초기 큐브 수 (Rust Belt: Pittsburgh/Wheeling 3, 나머지 2). 색 균형 배치(공용 헬퍼).
-    const targetCubes = cityCubeCounts[city.id] ?? GAME_CONSTANTS.INITIAL_CUBES_PER_CITY;
+    // 인원 비례 도시(Moon Landing hex: 인원×2)는 perPlayerCityCubes가 우선.
+    const perPlayer = setupRules.perPlayerCityCubes[city.id];
+    const targetCubes = perPlayer != null
+      ? perPlayer * playerNames.length
+      : cityCubeCounts[city.id] ?? GAME_CONSTANTS.INITIAL_CUBES_PER_CITY;
     const cubes = drawBalancedCubes(bag, targetCubes, colorUsage, setupRules.noOwnColorCubes ? city.color : undefined);
     return { ...city, cubes };
   });
@@ -238,7 +242,11 @@ export function createInitialGameState(
   }
 
   // Montréal: 신규 도시 타일마다 주머니에서 큐브 1개 (도시화 시 함께 보드에 올라감)
-  const newCityTiles = NEW_CITY_TILES.map(tile => ({ ...tile }));
+  // 맵별 신규 도시 타일 구성 (Moon: C·D·G·H 제거 — A·B·E·F만)
+  const availableTiles = mapRules.availableNewCityTiles;
+  const newCityTiles = NEW_CITY_TILES
+    .filter(tile => !availableTiles || availableTiles.includes(tile.id))
+    .map(tile => ({ ...tile }));
   if (mapRules.newCitySetupCube) {
     for (const tile of newCityTiles) {
       const [cube] = drawBalancedCubes(bag, 1, colorUsage);
@@ -275,6 +283,8 @@ export function createInitialGameState(
       cities: citiesWithCubes,
       towns: townsWithCubes,
       hexTiles: hexTilesWithCubes,
+      // 달(Moon): 1턴 밤 = 서쪽(왼쪽) — 물품 성장 후 교대 (rules/AosExpMoon.md)
+      ...(setupRules.nightDayCycle ? { nightSide: 'west' as const } : {}),
     },
     goodsDisplay: {
       slots: displaySlots,
@@ -293,7 +303,7 @@ export function createInitialGameState(
     // 단계 상태
     phaseState: {
       builtTracksThisTurn: 0,
-      maxTracksThisTurn: GAME_CONSTANTS.NORMAL_TRACK_LIMIT,
+      maxTracksThisTurn: setupRules.buildsPerTurn, // 맵별 상한 (표준 3, 달 2)
       lastBuiltCoords: [],
       moveGoodsRound: 1,
       playerMoves: playerMoves as Record<PlayerId, boolean>,

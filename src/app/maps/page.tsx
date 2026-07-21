@@ -116,6 +116,15 @@ const maps: MapEntry[] = [
     playable: true,
   },
   {
+    slug: 'moon',
+    name: 'The Moon',
+    nameKo: '달',
+    diff: '고급',
+    image: '/maps/moon.webp',
+    description: '달 표면에 선로를 놓는 3~4인전. 매 턴 보드 절반이 밤이 되어 검은 도시로 변하고, 맵 가장자리로 나간 선로는 반대편으로 이어집니다.',
+    playable: true,
+  },
+  {
     slug: 'st-lucia',
     name: 'St. Lucia',
     nameKo: '세인트루시아',

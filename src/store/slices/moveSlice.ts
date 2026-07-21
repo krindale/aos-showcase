@@ -23,6 +23,33 @@ export type MoveSlice = Pick<
   'moveGoods' | 'upgradeEngine' | 'moveTrackCube' | 'completeCubeMove'
 >;
 
+/**
+ * 달(Moon) Low Gravitation(전용 8번째 행동): 이동 플레이어가 이번 수송 경로에서
+ * 다른 플레이어의 링크 1개를 "내 링크처럼" 사용 — 그 링크 수입 1을 소유자 대신 내가 받는다.
+ * incomeChanges(경로의 링크 소유자별 수입)를 계산한 직후 호출해 1을 이전한다.
+ * 대상은 경로에서 수입을 가장 많이 얻은 상대(선두 견제 기본값) — 링크 수입은 전부 1이라 내 이득은 동일.
+ * 수송(이동)마다 1회 자동 적용 = "두 수송 라운드 모두 사용 가능" 공식 룰 충족.
+ */
+export function applyLowGravitation(
+  state: { mapId: string; players: GameStore['players']; activePlayers: PlayerId[] },
+  movingPlayerId: PlayerId,
+  incomeChanges: Partial<Record<PlayerId, number>>
+): PlayerId | null {
+  const profile = getMapProfile(state.mapId);
+  if (!profile.extraActions.includes('lowGravitation')) return null;
+  if (state.players[movingPlayerId]?.selectedAction !== 'lowGravitation') return null;
+  let target: PlayerId | null = null;
+  for (const pid of state.activePlayers) {
+    if (pid === movingPlayerId) continue;
+    const gain = incomeChanges[pid] ?? 0;
+    if (gain > 0 && (target === null || gain > (incomeChanges[target] ?? 0))) target = pid;
+  }
+  if (!target) return null;
+  incomeChanges[target] = (incomeChanges[target] ?? 0) - 1;
+  incomeChanges[movingPlayerId] = (incomeChanges[movingPlayerId] ?? 0) + 1;
+  return target;
+}
+
 export function createMoveSlice(set: Set, get: Get): MoveSlice {
   return {
     moveGoods: (cubeColor, path) => {
@@ -92,6 +119,9 @@ export function createMoveSlice(set: Set, get: Get): MoveSlice {
             }
           }
         }
+
+        // 달(Moon) Low Gravitation: 상대 링크 1개의 수입을 내가 가져온다 (수송마다 1회)
+        applyLowGravitation(state, state.currentPlayer, incomeChanges);
 
         const newPlayers = { ...state.players };
         for (const playerId of state.activePlayers) {
@@ -338,6 +368,12 @@ export function createMoveSlice(set: Set, get: Get): MoveSlice {
         if (regionBonus > 0 && state.activePlayers.includes(movingPlayerId)) {
           incomeChanges[movingPlayerId] = (incomeChanges[movingPlayerId] || 0) + regionBonus;
         }
+      }
+
+      // 달(Moon) Low Gravitation: 상대 링크 1개의 수입을 내가 가져온다 (수송마다 1회)
+      const lowGravTarget = applyLowGravitation(state, movingPlayerId, incomeChanges);
+      if (lowGravTarget) {
+        console.log(`[Low Gravitation] ${state.players[movingPlayerId]?.name}이 ${state.players[lowGravTarget]?.name}의 링크 수입 1을 가져옴`);
       }
 
       const newPlayers = { ...state.players };

@@ -6,7 +6,7 @@ import { X } from 'lucide-react';
 import { useGameStore } from '@/store/gameStore';
 import { GamePhase, PHASE_INFO, ACTION_INFO } from '@/types/game';
 import { getMapProfile } from '@/maps/getMapProfile';
-import { PHASE_ICONS, ACTIONS, ACTION_ICONS } from './PhasePanel';
+import { PHASE_ICONS, actionsForMap, ACTION_ICONS } from './PhasePanel';
 
 /**
  * 인게임 규칙/도움말 오버레이 — 게임 진행 중 언제든 규칙을 확인.
@@ -97,7 +97,7 @@ export default function HelpOverlay({
                   <div>
                     <div className="text-sm font-bold text-foreground">{activePhaseInfo.name}</div>
                     <div className="text-xs text-foreground-secondary leading-relaxed mt-0.5">
-                      {activePhaseInfo.description}
+                      {profile.phaseDescription(currentPhase)}
                     </div>
                   </div>
                 </div>
@@ -130,7 +130,7 @@ export default function HelpOverlay({
                           {info.name}
                         </div>
                         <div className="text-xs text-foreground-secondary leading-relaxed">
-                          {info.description}
+                          {profile.phaseDescription(phase)}
                         </div>
                       </div>
                     </li>
@@ -142,10 +142,10 @@ export default function HelpOverlay({
             {/* 3. 특수 행동 (7) */}
             <section className="mb-6">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground-muted mb-2">
-                특수 행동 · 7가지 (턴마다 1개, 각 1명)
+                특수 행동 · {actionsForMap(mapId).length}가지 (턴마다 1개, 각 1명)
               </h3>
               <ul className="grid sm:grid-cols-2 gap-1.5">
-                {ACTIONS.map((action) => {
+                {actionsForMap(mapId).map((action) => {
                   const info = ACTION_INFO[action];
                   const Icon = ACTION_ICONS[action];
                   const disabled = profile.disabledActions.includes(action);

@@ -25,7 +25,7 @@ import {
   getConnectedCities,
 } from './analyzer';
 import { getCurrentRoute } from './state';
-import { hexCoordsEqual, cityAcceptsCube, isTrackPartOfCompletedLink } from '@/utils/hexGrid';
+import { hexCoordsEqual, cityEverAcceptsCube, isTrackPartOfCompletedLink } from '@/utils/hexGrid';
 
 // ===== VP 환산 상수 =====
 export const VP_PER_INCOME = 3;
@@ -243,7 +243,8 @@ export function engineUpgradeDeltaVP(
   if (!player) return -Infinity;
 
   const config = getMapAIConfig(state);
-  if (player.engineLevel >= config.engineMax) return -Infinity;
+  // 엔진업 결정 상한 (맵별, 기본 = engineMax)
+  if (player.engineLevel >= (getMapProfile(state.mapId).aiEngineUpgradeCap ?? config.engineMax)) return -Infinity;
 
   const lambda = cashToVPRate(state, playerId);
 
@@ -368,23 +369,28 @@ export function estimateRouteVP(
     // 엔진 상한으로 배달 자체가 불가능한 경로
     return { deltaVP: -Infinity, tracksToBuild, buildCost, completable: false, expectedDeliveries: 0, fullPath };
   }
-  const deliverableTurns = remainingTurnsIncl - Math.max(completionTurns - 1, engineDelay);
+  // 배달 시작 지연(건설 다턴 + 엔진 준비 중 늦은 쪽) — 가동률 판정과 배달당 가치가 함께 쓴다
+  const deliveryStartDelay = Math.max(completionTurns - 1, engineDelay);
+  const deliverableTurns = remainingTurnsIncl - deliveryStartDelay;
+  // ⚠️ 밤낮 같은 타이밍 요소를 여기(deliverableTurns)에 곱하면 안 된다 —
+  //    expectedDeliveries = min(deliverableTurns, matchingCubes)에서 큐브 쪽이 늘 병목이라
+  //    묻혀 무효가 된다(2026-07-21 실측 VP 변화 0.03). 타이밍은 perDeliveryVP에 곱한다.
 
   // 4. 기대 배달 횟수: 매칭 큐브 수와 배달 가능 턴 (턴당 1회 보수 가정)
   //   income 원천을 맵별로 일반화 — ① 출발 도시 안의 큐브(튜토리얼 등) +
   //   ② 이 경로 위에 놓인 트랙 큐브 중 도착 도시 색(St. Lucia 헥스큐브 등).
   //   (맵 이름 하드코딩 없이, 보드에 실제로 존재하는 income 원천만 본다)
-  // 도착 도시 수요색 매칭 — 한국(동적 색상)은 targetCity.cubes 기반 (cityAcceptsCube), 그 외 city.color
-  const cityCubes = (sourceCity?.cubes ?? []).filter(cube => cityAcceptsCube(targetCity, cube, board)).length;
+  // 도착 도시 수요색 매칭 — 한국(동적 색상)은 targetCity.cubes 기반 (cityEverAcceptsCube), 그 외 city.color
+  const cityCubes = (sourceCity?.cubes ?? []).filter(cube => cityEverAcceptsCube(targetCity, cube, board)).length;
   const trackCubesOnPath = board.trackTiles.filter(t =>
-    t.cube != null && cityAcceptsCube(targetCity, t.cube, board) && fullPath.some(pc => hexCoordsEqual(pc, t.coord))
+    t.cube != null && cityEverAcceptsCube(targetCity, t.cube, board) && fullPath.some(pc => hexCoordsEqual(pc, t.coord))
   ).length;
   //   ③ 이 경로 위 마을에 놓인 큐브 중 도착 도시 색 (Western US townCubes) — 경로가 마을을
   //      지나면 그 마을 큐브도 같은 색 도시로 배달 가능 → 경로 가치 가산.
   const townCubesOnPath = config.incomeSources.includes('townCubes')
     ? board.towns.filter(t =>
         t.newCityColor === null &&
-        t.cubes.some(c => cityAcceptsCube(targetCity, c, board)) &&
+        t.cubes.some(c => cityEverAcceptsCube(targetCity, c, board)) &&
         fullPath.some(pc => hexCoordsEqual(pc, t.coord))
       ).length
     : 0;
@@ -427,11 +433,14 @@ export function estimateRouteVP(
   // Southern US: 면화(흰 큐브) 배달 +$1 보너스도 동일하게 반영
   const regionBonus = profile.regionDeliveryBonus(sourceCity?.region, targetCity.region)
     + profile.cubeDeliveryBonus(opp.cubeColor);
-  // 배달 시작 지연(건설 다턴 + 엔진 준비 중 늦은 쪽) — 그 턴 수만큼 현금 흐름을 못 벌므로
-  // 배달당 가치에서 차감 (엔진업은 매턴 수송 기회 1회 소모 가정, engineDelay와 동일).
-  const deliveryStartDelay = Math.max(completionTurns - 1, engineDelay);
-  const perDeliveryVP = deliveryDeltaVP(state, playerId, links, 0, deliveryStartDelay)
-    + regionBonus * VP_PER_INCOME;
+  // (deliveryStartDelay는 위 가동률 판정과 공유 — 그 턴 수만큼 현금 흐름을 못 버는 차감에도 사용)
+  // 맵별 배달 타이밍 계수 (기본 1 = 항등). 달: 검은 큐브는 매 턴 배달처가 있어 우대,
+  // 색 큐브는 목적지가 낮인 격턴에만 가능 — 첫 배달 턴이 밤이면 대기 손실만큼 소폭 할인.
+  const timingFactor = profile.aiDeliveryTimingFactor(
+    targetCity, opp.cubeColor, state.currentTurn + deliveryStartDelay, state, playerId
+  );
+  const perDeliveryVP = (deliveryDeltaVP(state, playerId, links, 0, deliveryStartDelay)
+    + regionBonus * VP_PER_INCOME) * timingFactor;
   const fundShares = Math.ceil(Math.max(0, buildCost - player.cash) / GAME_CONSTANTS.SHARE_VALUE);
   // ★ 완성 트랙 목표 (맵별, MapProfile.targetCompletedTracks — 현재 Western US만 7): 완성트랙이
   //   목표 미만이면 트랙 VP를 기회비용 없이 정상(1.0) 인정해 경로 완성을 적극 추구한다(완성트랙
@@ -475,9 +484,12 @@ export function estimateRouteVP(
   const engineUpkeepVP = engineDelay > 0
     ? (engineDelay * remainingTurnsIncl - (engineDelay * (engineDelay - 1)) / 2) * lambda
     : 0;
+  // 맵별 가산 보너스 (기본 0 = 항등). Moon: 이 경로 완성이 여는 성장 연결 가치.
+  const routeExtraVP = profile.aiRouteExtraVP(state, playerId, opp, fullPath, deliveryStartDelay);
   const deltaVP =
     rho * (expectedDeliveries * perDeliveryVP + netTrackVP)
     + transcontinentalVP
+    + routeExtraVP
     - buildCost * lambda
     - fundShares * -VP_PER_SHARE
     - engineUpkeepVP

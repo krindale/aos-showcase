@@ -77,6 +77,15 @@ import {
   createMontrealBoardState,
 } from './montrealMap';
 import {
+  MOON_MAP,
+  MOON_CITIES,
+  MOON_TOWNS,
+  MOON_COLUMN_MAPPING,
+  MOON_TOWN_NAMES,
+  MOON_COLORS,
+  createMoonBoardState,
+} from './moonMap';
+import {
   SOUTHERN_US_MAP,
   SOUTHERN_US_CITIES,
   SOUTHERN_US_TOWNS,
@@ -164,6 +173,9 @@ export interface GameMapData {
   /** 게임 화면 보드 표시 배율 (1=기본=폭 100%). 세로로 긴 맵이 화면을 꽉 채워 과대해 보일 때
    *  컨테이너 폭을 줄여 보드를 축소한다 (예: St. Lucia 0.8 = 20% 축소). 미지정=1. */
   boardDisplayScale?: number;
+  /** 산악 헥스 렌더 색 오버라이드 (ring=바깥 테두리, base=안쪽). 미지정 = 공통 갈색.
+   *  달(Moon): 회색 달 표면이라 산도 진회색 (원본 시트 톤). */
+  mountainRenderColors?: { ring: string; base: string };
   /** 맵별 특수 룰 */
   rules: MapRuleConfig;
   /** 초기 보드 상태 생성 (도시 큐브는 createInitialGameState에서 배치) */
@@ -373,6 +385,37 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     rules: { ...DEFAULT_MAP_RULES, skipGoodsGrowth: true },
     createBoardState: createMontrealBoardState,
     goodsCubeCounts: DEFAULT_CUBE_COUNTS, // 룰북 표준 — 디스플레이 미사용, 전부 주머니에서 뽑음
+  },
+
+  moon: {
+    id: MOON_MAP.id,
+    name: MOON_MAP.name,
+    nameKo: MOON_MAP.nameKo,
+    description: MOON_MAP.description,
+    supportedPlayers: MOON_MAP.supportedPlayers,
+    cols: MOON_MAP.cols,
+    rows: MOON_MAP.rows,
+    startCol: MOON_MAP.startCol,
+    maxTurns: MOON_MAP.maxTurns,
+    cities: MOON_CITIES,
+    towns: MOON_TOWNS,
+    columnMapping: MOON_COLUMN_MAPPING,
+    townNames: MOON_TOWN_NAMES,
+    hideLakeHexes: true,         // 마름모 보드 밖(lake)은 안 그림
+    orientation: 'flat',         // flat-top 보드 — 전치 저장 + 렌더 전치 (Montréal 등과 동일)
+    hexCostMode: 'legend',       // 지형별 균일 비용(크레이터 $3/산 $4) → 범례
+    terrainNames: { plain: '크레이터' },
+    mountainRenderColors: { ring: '#6e6a6b', base: '#575354' }, // 달 표면 진회색 산 (원본 시트 톤)
+    colors: {
+      terrain: MOON_COLORS.terrain,
+      background: MOON_COLORS.background,
+      border: MOON_COLORS.border,
+    },
+    // 특수 규칙(건설2/Moon Base 네트워크/랩/밤낮/저중력/주사위 성장)은 MapProfile getter +
+    // board.wrapEdges·City.noDemand로 주입 — 여기선 표준 플래그 (성장 단계는 있음: cityDiceGrowth)
+    rules: { ...DEFAULT_MAP_RULES },
+    createBoardState: createMoonBoardState,
+    goodsCubeCounts: DEFAULT_CUBE_COUNTS, // 룰북 표준 — 밤 도시 수요(black) 포함 5색
   },
 
   korea: {

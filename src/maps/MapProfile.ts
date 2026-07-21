@@ -7,8 +7,8 @@
 // 의존 방향: maps/ 는 저수준 기반 — types/game 만 의존하고 ai/ 나 store/ 를 import 하지 않는다.
 // (AI 전략·게임 엔진이 maps/ 를 의존하는 단방향. AI 액션 메서드는 의존 방향을 정리한 뒤 단계적으로 추가)
 
-import { BoardState, SpecialAction, GAME_CONSTANTS, GameState, PlayerId, City, CubeColor } from '@/types/game';
-import { DeliveryRoute } from '@/ai/strategy/types';
+import { BoardState, SpecialAction, GAME_CONSTANTS, GamePhase, GameState, PHASE_INFO, PlayerId, City, CubeColor, HexCoord } from '@/types/game';
+import { DeliveryRoute, DeliveryOpportunity } from '@/ai/strategy/types';
 import { MapId } from './MapId';
 
 /** income(배달) 원천 — 맵마다 화물이 있는 곳이 다르다 (도시 안 / 트랙 위 헥스큐브 / 향후 마을·항구 등). */
@@ -50,6 +50,9 @@ export abstract class MapProfile {
   /** 도시별 초기 큐브 수 오버라이드 (미지정 도시는 INITIAL_CUBES_PER_CITY=2).
    *  Rust Belt: Pittsburgh/Wheeling 3개, 그 외 2개 (룰북 셋업). */
   get cityCubeCounts(): Record<string, number> { return {}; }
+  /** 도시별 "플레이어 인원당" 초기 큐브 수 (Moon: Landing hex 인원×2).
+   *  cityCubeCounts보다 우선하며, 실제 개수 = 값 × 활성 인원. */
+  get perPlayerCityCubes(): Record<string, number> { return {}; }
   /** Germany: Engineer 행동 시 트랙 1개 건설 비용을 절반(올림)으로. 이번 턴 1회만. */
   get engineerHalfCost(): boolean { return false; }
   /** Germany: 미완성 트랙 구간 건설 금지 — 모든 건설은 완성 링크를 만들어야 함. */
@@ -128,7 +131,40 @@ export abstract class MapProfile {
   /** 셋업: 신규 도시 타일마다 주머니에서 큐브 1개를 올려두고, 도시화 시 함께 보드에 올라감. */
   get newCitySetupCube(): boolean { return false; }
 
+  // ── 달(Moon) 특수룰 (기본값 = 영향 없음) ──
+  /** masterNetwork의 시드 도시 id — 네트워크가 항상 이 도시를 포함해야 한다 (Moon: 'moonBase').
+   *  null이면 몬트리올식(첫 링크가 시드). masterNetwork=false면 무의미. */
+  get masterNetworkSeedCityId(): string | null { return null; }
+  /** 밤/낮 교대: 매 턴 보드 절반이 밤 — 밤쪽 도시는 검은 도시 취급(검은 큐브만 배달,
+   *  다른 색 큐브는 통과도 불가). 물품 성장 후 밤쪽이 교대된다 (GameState.nightSide). */
+  get nightDayCycle(): boolean { return false; }
+  /** 맵 전용 추가 특수 행동 (기본 7종 외 — Moon: lowGravitation 8번째).
+   *  행동 그리드·AI 후보·도움말이 기본 7종 + 이 목록을 함께 순회한다. */
+  get extraActions(): SpecialAction[] { return []; }
+  /** 물품 성장: 디스플레이 대신 주사위가 도시 인쇄 번호와 일치하면 주머니에서 도시로 직접 배치.
+   *  (Moon: 낮쪽 + Moon Base 연결 도시만 — 조건 미달 배정분은 버려짐) */
+  get cityDiceGrowth(): boolean { return false; }
+  /** cityDiceGrowth 맵의 물품 성장 주사위 수 (플레이어당). 표준 맵(디스플레이 성장)은 1. Moon: 2. */
+  get growthDicePerPlayer(): number { return 1; }
+  /** cityDiceGrowth 맵의 도시별 인쇄 주사위 번호 (도시 id → 번호들) */
+  get cityGrowthDice(): Record<string, number[]> { return {}; }
+  /** 셋업에 사용하는 신규 도시 타일 id 목록 (null = 전부 A~H).
+   *  Moon: 공식 룰 "검은 신규 도시 제거" — 이 구현의 타일 색 기준 검은 4장(E~H) 제거 → A·B·C·D. */
+  get availableNewCityTiles(): string[] | null { return null; }
+  /** 마을 가닥(스퍼) 1개 건설 비용 ($). 기본 $1.
+   *  Moon: 공식 룰 "마을 $2 + 트랙 구간당 $1"의 스퍼 모델 근사 — 가닥당 $2. */
+  get townSpurCost(): number { return 1; }
+
   // ── UI: 규칙 안내 문구 (기본 = 표준 맵, 특수룰 없음) ──
+  /** 단계 설명 (PHASE_INFO 기반, 맵별 수치 보정). buildTrack은 buildsPerTurn을 반영 —
+   *  달(2개) 같은 맵에서 표준 "최대 3개" 문구가 실제 규칙과 어긋나는 것을 막는다. */
+  phaseDescription(phase: GamePhase): string {
+    const base = PHASE_INFO[phase]?.description ?? '';
+    if (phase === 'buildTrack' && this.buildsPerTurn !== GAME_CONSTANTS.NORMAL_TRACK_LIMIT) {
+      return `최대 ${this.buildsPerTurn}개의 트랙 타일을 배치합니다.`;
+    }
+    return base;
+  }
   /** 게임 시작(플레이어 설정) 화면 우측에 표시할 이 맵만의 특수룰 목록. 빈 배열이면 패널 미표시. */
   get specialRules(): MapRuleSummary[] { return []; }
   /** 이 맵에서 효과가 다른 특수 행동의 설명문 (도움말/행동 선택 UI가 ACTION_INFO 대신 사용).
@@ -154,6 +190,129 @@ export abstract class MapProfile {
   /** selectAction의 Turn Order 행동 가치 계수 (꼴찌 기준 최대 ΔVP). 기본 0.1 = vp.ts TURN_ORDER_SEAT_VP.
    *  맵별 격리해 조율 — 뒤 순번이 Turn Order로 다음 턴 순서를 탈환하는 강도. */
   get turnOrderSeatVP(): number { return 0.1; }
+  /**
+   * 건설 예비금 "이번 턴 완성+배달 가능 시 면제"의 배달 판정을 **현재 상태**(cityAcceptsCube)로
+   * 할지 (기본 false = 기존 동작 = cityEverAcceptsCube). 밤낮이 없는 맵은 두 판정이 동치라
+   * 이 훅은 달에서만 의미가 있다 — 달은 목적지가 지금 밤이면 이번 턴 배달이 불가능한데도
+   * 계획용 판정이 "배달로 회수 가능"으로 오판해 비용 지불용 현금을 건설에 헐었다
+   * (2026-07-21 파산 해부: 파산 턴 건설지출 \$4.4 → 수정 후 VP −12.23→−11.49·파산 1.56→1.50).
+   */
+  get aiExemptionUsesCurrentDemand(): boolean { return false; }
+
+  /**
+   * **막을 수 없는 파산 앞에서는 생존 발행을 포기**할지 (기본 false = 기존 동작 = 항상 발행).
+   * 주식 1주는 현금 +\$5지만 비용도 +\$1 늘어 실효 보전액이 \$4뿐이라, 부족분이 크면 최대치를
+   * 발행해도 파산을 못 막는다. 그 경우 발행은 VP −3/주만 내고 결과를 못 바꾸는 순손실이다.
+   * true면 "최대 발행으로도 파산 회피가 불가능"할 때 발행량을 0으로 만들어 VP를 보존한다.
+   * ⚠️ 회피가 **가능한** 경우의 생존 발행은 그대로 유지 — 파산 방어를 약화시키지 않는다.
+   * (2026-07-21 기각 실험: 반대로 부족분을 \$4로 나눠 "정확히" 메우게 했더니 주식이 늘어
+   *  VP −12.73→−13.83 악화 — income 몇 점을 지키려 주식을 더 발행하는 건 손해였다.)
+   */
+  get aiSkipHopelessSurvivalIssue(): boolean { return false; }
+
+  /**
+   * AI가 **엔진을 올릴 상한** (기본 null = engineMax와 동일 = 기존 동작).
+   * `engineMax`와 분리한 이유: engineMax를 낮추면 `vp.ts`가 그보다 긴 경로를 −∞로 배제해
+   * income 천장까지 함께 내려간다(2026-07-21 실측 악화). 이 훅은 **엔진업 결정만** 제한하고
+   * 경로 평가는 engineMax 그대로 두어, "긴 경로는 계속 평가하되 엔진 과투자는 막는" 절충을 만든다.
+   * Moon: 배달의 97%가 3링크 이하인데 엔진 3.7까지 올려 게임당 ~$30(=타일 10개)을 유지비로 쓴다.
+   */
+  get aiEngineUpgradeCap(): number | null { return null; }
+
+  /**
+   * AI가 초반(T1~4) 수송 기회를 **배달 대신 엔진 업그레이드**에 쓰는 front-load 전략을 켤지.
+   * 기본은 기존 동작 유지 — trackCubes 맵이거나 3인 이상이면 켜진다(moveGoods가 인원 조건을 함께 판정).
+   * ⚠️ **기각 실험 (2026-07-21, 달 100시드)**: "달은 배달 링크가 짧으니(97%가 3링크 이하)
+   *   엔진 front-load가 낭비"라는 가설로 false를 줬더니 VP −13.3 → −19.6·파산 1.59 → 2.07로
+   *   크게 악화. 엔진이 3.2로 낮아지자 **배달 가능 경로 자체가 줄어** 스킵 40%→46%,
+   *   income 6.4→5.6. 짧은 링크 분포는 "엔진이 낮아서 짧은 것"이지 그 반대가 아니었다.
+   *   현재 false를 쓰는 맵은 없다 — 끄려면 income 지표를 반드시 함께 볼 것.
+   */
+  get aiEngineFrontLoad(): boolean { return true; }
+
+  /**
+   * AI 계획 발행(건설 자금 목적)을 금지하는 **마지막 N턴** (기본 0 = 마지막 턴만, 기존 동작).
+   * 생존 발행(파산 방지)은 항상 허용 — 막는 것은 "건설하려고 빌리는" 발행뿐이다.
+   * 근거: 주식 1주는 −3VP + 남은 턴수만큼의 유지비인데, 늦게 빌린 돈은 배달로 회수할 턴이
+   * 부족해 순손실이 된다. 달은 크레이터 $3·건설 2개 제한이라 $5로 링크를 못 만들어
+   * 회수 시점이 특히 늦다(2026-07-21 실측: 주식 14.7 = VP −44가 income 16.8을 압도).
+   * 선례: trackCubes 맵 마지막 2턴 건설 발행 금지 → 파산 13→11·VP 유지 (docs/ai-system.md).
+   */
+  get aiNoBuildIssueLastTurns(): number { return 0; }
+
+  /**
+   * AI 턴 예산(turnPlan.cashNeeded)에서 **운영비를 income으로 상계**할지 (기본 false = 현재 동작).
+   * 표준 맵은 운영비 전액을 예산에 넣어도 income이 커서 문제가 없지만, 달처럼 income이 낮고
+   * 유지비가 큰 맵에서는 이것이 "발행 → issuedShares↑ → expenses↑ → cashNeeded↑ → 또 발행"의
+   * 자기증폭 고리가 된다(2026-07-21 실측: 매 턴 발행 캡 소진, 주식 14.7 = VP −44).
+   * true면 `max(0, expenses - max(0, income))`만 예산에 반영 — **필요한 돈을 막는 게 아니라
+   * 이미 income으로 충당되는 몫을 이중 계상하지 않는 것**(과거 기각된 "발행 차단"과 다름).
+   */
+  get aiPlanExpensesNetOfIncome(): boolean { return false; }
+
+  /**
+   * AI 경로 평가용 **배달 타이밍 계수** — 배달당 가치에 곱하는 배수 (기본 1 = 항등).
+   * 목적지가 "언제 받아주느냐"의 유연성을 순위에 반영한다. AI 평가 전용 — 실제 규칙 무관.
+   * ⚠️ `cubeDeliveryBonus`/`regionDeliveryBonus`는 스토어가 income에 직접 더하는 **게임 규칙 훅**이라
+   *    AI 평가용으로 전용하면 안 된다 (그래서 별도 훅으로 분리).
+   * ⚠️ 반드시 **배달당 가치(perDeliveryVP)** 에 곱할 것 — `deliverableTurns`에 곱하면
+   *    `expectedDeliveries = min(deliverableTurns, matchingCubes)`의 큐브 쪽 병목에 묻혀 무효가 된다
+   *    (2026-07-21 실측: 무조건 반감을 넣어도 VP 변화 0.03).
+   * Moon: 검은 큐브는 밤쪽 도시 어디든 받아 매 턴 배달처가 있음(우대), 색 큐브는 목적지가
+   *   낮인 격턴에만 가능(첫 배달 예상 턴이 밤이면 1턴 더 대기 = 소폭 할인).
+   */
+  aiDeliveryTimingFactor(
+    _to: City, _cube: CubeColor, _startTurn: number, _state: GameState, _playerId?: PlayerId
+  ): number { return 1; }
+
+  /**
+   * AI 경로 평가용 **가산 보너스** — 이 경로의 완성이 여는 "미모델링 VP 원천"을 더한다
+   * (기본 0 = 항등). `transcontinentalVP`(vp.ts, 대륙횡단 즉시 보너스)와 같은 계열의 가산형 훅 —
+   * `aiDeliveryTimingFactor`(곱셈, 배달당 가치 조정)와 달리 경로 전체에 한 번 가산된다.
+   * ⚠️ **기각 이력(2026-07-21, 달)**: 성장 연결(낮쪽+Moon Base 연결 도시만 성장) 가치를 여기 얹는
+   * 실험 — 최소 자극조차 VP 악화, 크기 비례 악화(estimateRouteVP가 이미 "현재 큐브"를 정확히
+   * 보는데 "미래 성장 큐브" 가치를 얹으면 이중 계상). docs/ai-auction-baseline-100seed.md 참조.
+   * 현재 아무 맵도 override하지 않음 — 배관만 유지(다른 축이 재사용 가능).
+   */
+  aiRouteExtraVP(
+    _state: GameState, _playerId: PlayerId, _opp: DeliveryOpportunity,
+    _fullPath: HexCoord[], _deliveryStartDelay: number,
+  ): number { return 0; }
+
+  /**
+   * AI 경로 선택의 **거점 거리 감점(areaBias)** 사용 여부 (기본 true = 기존 동작).
+   * false면 경로 점수에서 "내 거점에서 먼 출발 도시 감점"을 끈다 — 거점 배정(혼잡 회피 참조점,
+   * 반구 균형)은 그대로 유지된다. Korea가 dynamicCityColors 조건으로 끄는 것과 같은 처방의
+   * 훅 일반화. ⚠️ **기각 이력(2026-07-21, 달 100시드)**: 파산의 92%가 나쁜 거점(nubium/nectaris)
+   * 봇이라 "areaBias가 격차를 증폭한다"는 가설로 달을 false로 했으나 VP −3.94→−4.78 악화 —
+   * 달에서도 areaBias의 충돌 감소 순기능이 격차 증폭보다 컸다. 현재 끄는 맵 없음(배관만 유지).
+   */
+  get aiHomeBaseAreaBias(): boolean { return true; }
+
+  /**
+   * AI 경로 선택의 **겹침 판정 완화** — 상대 커밋 경로와 "도시 하나만 공유"하는 경로를
+   * 완전 차단(-Infinity) 대신 이 값만큼 감점한다 (기본 null = 기존 동작 = 도시 하나만
+   * 공유해도 완전 차단, Korea는 별도 감점). **정확히 같은 연결**(from-to 쌍, 방향 무시)은
+   * 이 훅과 무관하게 항상 완전 차단 유지 — 같은 링크 정면 충돌(중복 부설 경쟁)은 여전히 막는다.
+   * Moon: 배달 기회가 Moon Base 단일 허브에 몰려 있어, 앞 순번 1~2명이 moonBase 경로를
+   * 잡는 순간 뒷순번의 정밀 평가 후보 top-K가 전부 -Infinity로 죽고 fallback이 겹침·평가를
+   * 무시한 경로를 커밋했다(2026-07-21 30시드 계측: 스나이핑 20.2건/게임, 그중 52%가 fallback
+   * 우회 커밋 — T1에서 3·4번이 같은 moonBase→imbrium을 잡고 충돌). moonBase는 화물이
+   * 인원×2개라 출발지 공유는 정상 플레이 — 감점으로 낮춰 뒷순번도 평가된 경로를 갖게 한다.
+   */
+  get aiRouteOverlapSharedCityPenalty(): number | null { return null; }
+
+  /**
+   * 홈베이스(거점) 배정용 **구역 키** (기본 null = 구역 개념 없음, 기존 그리디 그대로).
+   * 같은 키를 가진 도시는 서로 경쟁 구역 — `assignHomeBases`(selector.ts)가 이미 배정된
+   * 인원이 목표치(⌈인원/구역수⌉)에 찬 구역을 후순위로 밀어 구역 간 인원을 고르게 분산한다.
+   * Moon: 동/서 반구(getMoonSide)가 구역 — 그리디 최원거리 배정이 반구를 무시해 4인 중
+   * 2명이 같은 반구(3개 도시)에 몰리고 나머지 반구는 1명이 독점하는 1:2 불균형이 났다
+   * (2026-07-21 실측: 독점 반구 파산율 13~17% vs 공유 반구 57~67% — 4~5배 차이가 VP
+   * 격차 −4.9/−2.2 vs −23.1/−15.8의 주 원인).
+   */
+  aiHomeBaseGroup(_city: City): string | null { return null; }
+
   /** AI 경로 평가의 "지연 완성 페널티" (완성이 1턴 늦어질 때마다 −N VP, cityCubes 다인 맵).
    *  타이밍 실비(배달 시작 지연의 현금 흐름 손실 + 엔진 증분 유지비, vp.ts estimateRouteVP)가
    *  직접 계산되면서 이 값은 잔여 리스크(선점·자금 불확실성)의 프록시로 축소 — 8을 유지하면

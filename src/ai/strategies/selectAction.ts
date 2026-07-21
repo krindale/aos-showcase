@@ -39,7 +39,8 @@ function getAvailableActions(state: GameState): SpecialAction[] {
     .map(p => p.selectedAction)
     .filter((a): a is SpecialAction => a !== null);
 
-  const disabled = getMapProfile(state.mapId).disabledActions;
+  const profile = getMapProfile(state.mapId);
+  const disabled = profile.disabledActions;
 
   const allActions: SpecialAction[] = [
     'firstMove',
@@ -49,6 +50,8 @@ function getAvailableActions(state: GameState): SpecialAction[] {
     'urbanization',
     'production',
     'turnOrder',
+    // 맵 전용 추가 행동 (Moon: lowGravitation 8번째)
+    ...profile.extraActions,
   ];
 
   return allActions.filter(a => !selectedActions.includes(a) && !disabled.includes(a));
@@ -61,6 +64,7 @@ const TIE_BREAK_ORDER: SpecialAction[] = [
   'firstMove',
   'locomotive',
   'production',
+  'lowGravitation',
   'urbanization',
   'turnOrder',
 ];
@@ -161,6 +165,18 @@ function evaluateActionDeltaVP(
       return 0.2;
     }
     case 'turnOrder': return evaluateTurnOrder(state, playerId);
+    case 'lowGravitation': {
+      // 달: 이동 경로에 상대 링크 1개를 내 것처럼 경유(경로 확장) + 그 수입 획득.
+      // 가치 ≈ 상대 완성 링크가 많을수록(빌릴 후보·경로 확장 가능성↑) — 소액에서 점증, 상한 2.5.
+      // ⚠️ 기각(2026-07-21, 100시드): "내 네트워크에 닿은 상대 링크만 집계"하는 정밀화는
+      //   VP −11.49→−11.78로 악화(30시드 실측 발동률 43%임에도). 죽은 선택을 걸러도 대체 선택
+      //   (production/firstMove)의 가치가 더 낮고, 도시 접점만 보면 마을 접점 확장을 과소집계한다.
+      const oppCompleted = state.board.trackTiles.filter(
+        t => t.owner && t.owner !== playerId && isTrackPartOfCompletedLink(t.coord, state.board)
+      ).length;
+      if (oppCompleted === 0) return 0;
+      return Math.min(2.5, 0.8 + oppCompleted * 0.1);
+    }
     default: return 0;
   }
 }
@@ -214,27 +230,33 @@ function evaluateEngineer(state: GameState, playerId: PlayerId, plan: TurnPlan):
 
   const config = getMapAIConfig(state);
   const minReserve = calculateMinCashReserve(state, playerId);
-  // 4개 건설 자금 게이트 (평균 비용으로 4번째 트랙 추정)
+  // Engineer 건설 수 = 기본 +1 (표준 4, 달 3).
+  // ⚠️ 달 실측(2026-07-21): 달의 완성 해금 문턱을 3으로 낮추면(원래 의도대로) Engineer 조기
+  //   선택이 늘며 VP −11.49→−12.09 악화 — 초반 3건설(~$9)의 현금 드레인이 완성 조기화 이득을
+  //   상회. 달만 문턱을 한 단계 높여(=4) 기존 동작을 유지하되, 코드에는 하드코딩 대신
+  //   buildsPerTurn 파생으로 남긴다(표준 맵 4 = 종전과 동일).
+  const engineerBuilds = Math.max(4, config.buildsPerTurn + 1);
+  // Engineer 슬롯 자금 게이트 (평균 비용으로 추가 트랙 추정)
   const avgCost = plan.tracksNeeded > 0 ? plan.totalBuildCost / plan.tracksNeeded : GAME_CONSTANTS.PLAIN_TRACK_COST;
   const fourTrackCost = plan.buildBudget + avgCost;
   if (player.cash < fourTrackCost + minReserve) return 0;
 
   const turnsAfterThis = Math.max(0, config.totalTurns - state.currentTurn);
 
-  if (plan.tracksNeeded >= 4) {
+  if (plan.tracksNeeded >= engineerBuilds) {
     const completableWith3 = plan.tracksNeeded <= (1 + turnsAfterThis) * config.buildsPerTurn;
-    const completableWith4 = plan.tracksNeeded <= 4 + turnsAfterThis * config.buildsPerTurn;
+    const completableWith4 = plan.tracksNeeded <= engineerBuilds + turnsAfterThis * config.buildsPerTurn;
 
     // engineer가 완성 자체를 가능하게 함 (예: 마지막 턴에 4트랙 필요)
     if (!completableWith3 && completableWith4) {
       const deliveryVP = deliveryDeltaVP(state, playerId, plan.routeLinks, 0) * SAME_TURN_DELIVERY_DISCOUNT;
       return plan.tracksNeeded * VP_PER_LINK_TRACK + deliveryVP;
     }
-    if (!completableWith4) return 0; // 어차피 완성 불가 → 4번째 트랙 무의미
+    if (!completableWith4) return 0; // 어차피 완성 불가 → 추가 트랙 무의미
 
-    // 완성 턴 조기화 여부 (이번 턴 4개 vs 3개 후 매턴 buildsPerTurn)
+    // 완성 턴 조기화 여부 (이번 턴 engineerBuilds개 vs 기본 buildsPerTurn씩)
     const turnsToComplete3 = Math.ceil(Math.max(0, plan.tracksNeeded - config.buildsPerTurn) / config.buildsPerTurn);
-    const turnsToComplete4 = Math.ceil(Math.max(0, plan.tracksNeeded - 4) / config.buildsPerTurn);
+    const turnsToComplete4 = Math.ceil(Math.max(0, plan.tracksNeeded - engineerBuilds) / config.buildsPerTurn);
     if (turnsToComplete4 < turnsToComplete3) {
       // 배달 시작 1턴 조기화 ≈ 배달 1회 조기 실현
       return deliveryDeltaVP(state, playerId, plan.routeLinks, 0) * FUTURE_DELIVERY_DISCOUNT;
@@ -307,6 +329,9 @@ function evaluateLocomotive(state: GameState, playerId: PlayerId, plan: TurnPlan
   const engineFloor = hasDeepCube ? 4
     : (multiCity && state.currentTurn >= 5) ? 4   // 다인 후반: 4링크 장거리 배달 (측정상 최적)
     : state.currentTurn >= 2 ? 3 : 2;
+  // ⚠️ 기각(2026-07-21, 달 100시드): 여기에도 aiEngineUpgradeCap을 적용해 Locomotive front-load를
+  //    막으면 엔진이 3.0으로 고정되며 VP −12.73→−13.55·income 6.55→6.2 악화(4링크 배달이 막힘).
+  //    단 player 편차는 크게 줄었다(player3 −21.4→−15.3) — 순번 편향 해소 축에서 재검토 여지.
   const frontLoadTarget = Math.min(config.engineMax, engineFloor);
   let locoFrontLoad = 0;
   if ((config.incomeSources.includes('trackCubes') || multiCity)
@@ -412,7 +437,7 @@ export function hasContestedBuildHex(state: GameState, playerId: PlayerId, plan:
 
     // 미건설 헥스가 상대 트랙과 인접 → 상대가 막거나 선점할 수 있음
     for (let edge = 0; edge < 6; edge++) {
-      const neighbor = getNeighborHex(coord, edge);
+      const neighbor = getNeighborHex(coord, edge, board);
       const oppTrack = board.trackTiles.some(
         t => t.owner !== null && t.owner !== playerId && hexCoordsEqual(t.coord, neighbor)
       );

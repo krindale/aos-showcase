@@ -10,6 +10,7 @@
 import { GameState, PlayerId, GAME_CONSTANTS } from '@/types/game';
 import { ensureTurnPlan } from '../strategy/turnPlan';
 import { getMapAIConfig } from '../strategy/mapConfig';
+import { getMapProfile } from '@/maps/getMapProfile';
 import { debugLog } from '@/utils/debugConfig';
 
 /** 턴당 발행 상한 (과도한 영구 부채 방지) */
@@ -29,10 +30,21 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
   // === 1. 생존 발행 (절대 우선): 이번 턴 비용을 못 내면 income이 깎이고 파산 위험 ===
   const expenses = player.issuedShares + player.engineLevel + (player.dgel ?? 0);
   const survivalShortage = Math.max(0, expenses - (player.cash + Math.max(0, player.income)));
-  const survivalShares = Math.min(
+  let survivalShares = Math.min(
     Math.ceil(survivalShortage / GAME_CONSTANTS.SHARE_VALUE),
     maxPossibleShares,
   );
+  // 맵별: 최대 발행으로도 파산을 못 막으면 발행을 포기해 VP(-3/주)를 보존한다.
+  // 주식 1주의 실효 보전액은 $4(현금 +5, 유지비 +1)이고, 파산은 "부족분 > income"일 때 나므로
+  // 회피에 필요한 주수 = ceil((부족분 - income) / 4). 이게 발행 가능량을 넘으면 헛돈이다.
+  if (survivalShares > 0 && getMapProfile(state.mapId).aiSkipHopelessSurvivalIssue) {
+    const RELIEF_PER_SHARE = GAME_CONSTANTS.SHARE_VALUE - 1;
+    const needed = Math.ceil((survivalShortage - Math.max(0, player.income)) / RELIEF_PER_SHARE);
+    if (needed > maxPossibleShares) {
+      debugLog.preparation(`[Phase I: 주식 발행] ${player.name}: 발행해도 파산 회피 불가(필요 ${needed}주 > 가능 ${maxPossibleShares}주) → 발행 포기`);
+      survivalShares = 0;
+    }
+  }
   if (survivalShares > 0) {
     debugLog.preparation(
       `[Phase I: 주식 발행] ${player.name}: 생존 발행 ${survivalShares}주 (cash $${player.cash} + income ${player.income} < expenses $${expenses})`
@@ -44,8 +56,11 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
   //   배달로 회수할 턴이 부족해 순수 빚이 되고, 그 주식 비용이 파산을 유발한다.
   // ★ trackCubes 마지막 2턴(T7-8)은 건설 발행 절대 금지(사용자 지침) — 늦은 건설은 배달로 회수할 턴이
   //   부족해 순수 빚이 되고 그 주식 비용이 파산을 유발한다(측정: 파산 13→11, VP 유지).
+  // 맵별 "후반 N턴 계획 발행 금지" (기본 0 = 마지막 턴만). 달은 4 → T5~8 금지.
+  const noIssueLastTurns = getMapProfile(state.mapId).aiNoBuildIssueLastTurns;
   const noBuildIssue = isLastTurn
-    || (config.incomeSources.includes('trackCubes') && state.currentTurn >= config.totalTurns - 1);
+    || (config.incomeSources.includes('trackCubes') && state.currentTurn >= config.totalTurns - 1)
+    || (noIssueLastTurns > 0 && state.currentTurn > config.totalTurns - noIssueLastTurns);
   if (noBuildIssue) {
     if (survivalShares === 0) {
       debugLog.preparation(`[Phase I: 주식 발행] ${player.name}: 후반(생존 외 발행 금지) → 발행 안함`);

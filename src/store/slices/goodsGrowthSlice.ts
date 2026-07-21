@@ -7,39 +7,13 @@
 
 import type { StoreApi } from 'zustand';
 import type { GameStore } from '../gameStore';
-import { BoardState, CubeColor, HexCoord, GAME_CONSTANTS } from '@/types/game';
+import { CubeColor, GAME_CONSTANTS } from '@/types/game';
 import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
-import { findCompletedLinks, isNightCity } from '@/utils/hexGrid';
+import { citiesConnectedToSeed, findCompletedLinks, isNightCity } from '@/utils/hexGrid';
 
 type Set = StoreApi<GameStore>['setState'];
 type Get = StoreApi<GameStore>['getState'];
-
-/**
- * 달(Moon): 시드 도시(Moon Base)와 완성 링크 체인으로 이어진 도시 id 집합.
- * "선로로 연결된 도시만 성장" 판정용 — 링크 양끝(도시/마을)을 노드로 BFS (마을 경유 포함, 소유 무관).
- */
-function citiesConnectedToSeed(board: BoardState, seedCityId: string): globalThis.Set<string> {
-  const seed = board.cities.find((c) => c.id === seedCityId);
-  if (!seed) return new Set();
-  const key = (c: HexCoord) => `${c.col},${c.row}`;
-  const adj = new Map<string, string[]>();
-  for (const link of findCompletedLinks(board)) {
-    const a = key(link.startCity);
-    const b = key(link.endCity);
-    adj.set(a, [...(adj.get(a) ?? []), b]);
-    adj.set(b, [...(adj.get(b) ?? []), a]);
-  }
-  const visited = new Set<string>([key(seed.coord)]);
-  const queue = [key(seed.coord)];
-  while (queue.length) {
-    const cur = queue.shift()!;
-    for (const nb of adj.get(cur) ?? []) {
-      if (!visited.has(nb)) { visited.add(nb); queue.push(nb); }
-    }
-  }
-  return new Set(board.cities.filter((c) => visited.has(key(c.coord))).map((c) => c.id));
-}
 
 /**
  * 봇 Production 자동 배치 (룰북 IX: 생산 → 주사위 — 주사위 처리 직전에 실행).

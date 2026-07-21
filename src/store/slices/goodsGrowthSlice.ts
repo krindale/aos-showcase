@@ -10,7 +10,7 @@ import type { GameStore } from '../gameStore';
 import { CubeColor, GAME_CONSTANTS } from '@/types/game';
 import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
-import { citiesConnectedToSeed, findCompletedLinks, isNightCity } from '@/utils/hexGrid';
+import { citiesConnectedToSeed, isNightCity } from '@/utils/hexGrid';
 
 type Set = StoreApi<GameStore>['setState'];
 type Get = StoreApi<GameStore>['getState'];

@@ -12,7 +12,7 @@ import {
   isTrackPartOfCompletedLink,
   stationInMasterNetwork,
 } from '@/utils/trackValidation';
-import { hexCoordsEqual, hexDistance, getNeighborHex, getOppositeEdge, playerEdgesAtTrack, cityEverAcceptsCube } from '@/utils/hexGrid';
+import { hexCoordsEqual, hexDistance, getNeighborHex, getOppositeEdge, playerEdgesAtTrack, cityEverAcceptsCube, cityAcceptsCube } from '@/utils/hexGrid';
 import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, incrementInvestedTracks } from '../strategy/state';
 import { getNextTargetRoute, findNextTargetRoute, getTopPriorityRoutes } from '../strategy/selector';
 import { getMapAIConfig } from '../strategy/mapConfig';
@@ -950,8 +950,12 @@ function tryDirectPathBuild(
       const remainingSlots = state.phaseState.maxTracksThisTurn - state.phaseState.builtTracksThisTurn;
       const srcCity = board.cities.find(c => c.id === route.from);
       const dstCity = board.cities.find(c => c.id === route.to);
+      // ⚠️ 이 면제의 명분은 "이번 턴 배달 income으로 회수"이므로 **현재 상태** 판정
+      //   (cityAcceptsCube)이어야 한다. cityEverAcceptsCube(계획용 — 다음 턴 수용도 인정)를 쓰면
+      //   달에서 목적지가 지금 밤이라 이번 턴 배달이 불가능한데도 예비금을 헐어 수입컷/파산으로
+      //   이어진다(2026-07-21 파산 해부: 파산 턴 건설지출 $4.4). 밤낮 없는 맵은 두 판정이 동치.
       const hasDeliverableCargo = !!(srcCity && dstCity &&
-        srcCity.cubes.some(cube => cityEverAcceptsCube(dstCity, cube, board)));
+        srcCity.cubes.some(cube => cityAcceptsCube(dstCity, cube, board)));
       if (missingAhead <= remainingSlots && hasDeliverableCargo) {
         // 전액 면제 (부분 완화 "생존 하한"도 실험했으나 파산이 오히려 늘었다 — 30시드:
         // Korea 17→18, Rust 22→25. 완성→배달 도박이 신중한 보류보다 기대값이 높다)

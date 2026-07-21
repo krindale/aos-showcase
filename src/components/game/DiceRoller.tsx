@@ -8,6 +8,10 @@ interface DiceRollerProps {
   diceCount: number;
   onRoll: (results: number[]) => void;
   disabled?: boolean;
+  /** "열 N: X개" 요약 줄 표시 여부 (기본 true). 이 요약은 "주사위 눈 = 디스플레이 열 번호"라는
+   *  표준 맵 관례를 가정한다 — 달처럼 성장 판정이 도시별 번호 쌍(cityGrowthDice)으로 이뤄지는
+   *  맵에서는 실제 성장과 무관한 숫자라 오해를 준다(GoodsGrowthPanel이 달에서 false로 끔). */
+  showColumnTally?: boolean;
 }
 
 const DICE_ICONS = {
@@ -19,7 +23,7 @@ const DICE_ICONS = {
   6: Dice6,
 };
 
-export default function DiceRoller({ diceCount, onRoll, disabled = false }: DiceRollerProps) {
+export default function DiceRoller({ diceCount, onRoll, disabled = false, showColumnTally = true }: DiceRollerProps) {
   const [results, setResults] = useState<number[]>([]);
   const [isRolling, setIsRolling] = useState(false);
 
@@ -112,13 +116,9 @@ export default function DiceRoller({ diceCount, onRoll, disabled = false }: Dice
           <p className="text-sm text-foreground-secondary">
             결과: {results.join(', ')}
           </p>
-          <p className="text-xs text-foreground-muted mt-1">
-            {results.reduce((acc, val) => {
-              const counts: Record<number, number> = acc;
-              counts[val] = (counts[val] || 0) + 1;
-              return counts;
-            }, {} as Record<number, number>) &&
-              Object.entries(
+          {showColumnTally && (
+            <p className="text-xs text-foreground-muted mt-1">
+              {Object.entries(
                 results.reduce((acc, val) => {
                   acc[val] = (acc[val] || 0) + 1;
                   return acc;
@@ -126,7 +126,8 @@ export default function DiceRoller({ diceCount, onRoll, disabled = false }: Dice
               )
                 .map(([num, count]) => `열 ${num}: ${count}개`)
                 .join(', ')}
-          </p>
+            </p>
+          )}
         </motion.div>
       )}
 

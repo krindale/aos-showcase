@@ -7,6 +7,7 @@ import { useNetStore } from '@/net/netStore';
 import { CUBE_COLORS, CubeColor } from '@/types/game';
 import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
+import { citiesConnectedToSeed, isNightCity } from '@/utils/hexGrid';
 import DiceRoller from './DiceRoller';
 import { Sparkles, Package, Check, ArrowRight } from 'lucide-react';
 
@@ -64,6 +65,48 @@ export default function GoodsGrowthPanel() {
     if (diceResults.length === 0) return [];
 
     const results: { columnId: string; cityName: string; count: number; cubes: CubeColor[] }[] = [];
+    const profile = getMapProfile(mapId);
+
+    // 달: "주사위 눈 = 열 번호"가 아니라 도시별 인쇄 번호 쌍(cityGrowthDice)으로 성장이 결정된다
+    // (신도시 A~D만 다른 맵과 같은 diceNumber 방식) — 또한 낮쪽+Moon Base 연결 조건까지 맞아야
+    // 실제로 이동한다. growGoods(goodsGrowthSlice)의 판정을 그대로 미러링해 미리보기를 정확히 맞춘다.
+    if (profile.cityDiceGrowth) {
+      const growthDice = profile.cityGrowthDice;
+      const seedId = profile.masterNetworkSeedCityId;
+      const connected = seedId ? citiesConnectedToSeed(board, seedId) : null;
+
+      const pushIfGrowable = (cityId: string, columnIndex: number, matchCount: number) => {
+        if (matchCount === 0) return;
+        const city = board.cities.find(c => c.id === cityId);
+        if (!city) return;                                      // 신도시 미배치 등
+        if (isNightCity(city, board)) return;                    // 밤쪽 — 성장 없음
+        if (connected && !connected.has(cityId)) return;         // Moon Base 미연결 — 성장 없음
+        const m = columns[columnIndex];
+        const startIndex = startIndexOf(columnIndex);
+        const columnCubes = goodsDisplay.slots
+          .slice(startIndex, startIndex + m.rowCount)
+          .filter(c => c !== null) as CubeColor[];
+        const cubesToMove = columnCubes.slice(0, matchCount);
+        if (cubesToMove.length > 0) {
+          results.push({ columnId: m.columnId, cityName: city.name, count: cubesToMove.length, cubes: cubesToMove });
+        }
+      };
+
+      columns.forEach((m, columnIndex) => {
+        if (!m.isNewCity) {
+          const pair = growthDice[m.cityId];
+          if (!pair) return;
+          const matchCount = diceResults.filter(d => pair.includes(d)).length;
+          pushIfGrowable(m.cityId, columnIndex, matchCount);
+        } else {
+          if (m.diceNumber === undefined) return;
+          const matchCount = diceResults.filter(d => d === m.diceNumber).length;
+          pushIfGrowable(m.cityId, columnIndex, matchCount);
+        }
+      });
+
+      return results;
+    }
 
     // 주사위 결과 카운트
     const diceCountMap: Record<number, number> = {};
@@ -208,6 +251,7 @@ export default function GoodsGrowthPanel() {
           diceCount={diceCount}
           onRoll={handleDiceRoll}
           disabled={growthApplied || productionPending}
+          showColumnTally={!getMapProfile(mapId).cityDiceGrowth}
         />
         {productionPending && (
           <p className="mt-2 text-center text-xs text-foreground-secondary">

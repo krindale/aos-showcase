@@ -212,8 +212,9 @@ export const MOON_WRAP_EDGES: WrapEdge[] = WRAP_SCREEN.map(([number, [ac, ar, ae
 
 // === 물품 디스플레이 열-도시 매핑 (공식 룰: "평소처럼 디스플레이를 채운다", 검은 신도시 제외) ===
 // 도시 열 6개(열당 3칸 — 표준 도시 열과 동일) + 신규 도시 A·B·C·D(열당 2칸).
-// 성장 주사위 판정은 diceNumber가 아니라 MapProfile.cityGrowthDice(도시당 두 번호 1/2·3/4·5/6)로
-// 별도 처리하고, 큐브는 이 디스플레이의 해당 도시 열 위에서부터 꺼낸다 (goodsGrowthSlice).
+// 실제 도시(원본 6개) 성장 판정은 diceNumber가 아니라 MapProfile.cityGrowthDice(도시당 두 번호
+// 1/2·3/4·5/6)로 별도 처리한다. 신규 도시는 도시화 전엔 물리 도시가 아니라 인쇄 번호가 없으므로
+// **표준 diceNumber 방식**(다른 맵의 신도시 열과 동일 — 배치되면 도시 취급)을 그대로 쓴다.
 export const MOON_COLUMN_MAPPING: GoodsColumnMapping[] = [
   ...CITIES_SCREEN.filter((c) => c.id !== 'moonBase').map((c) => ({
     columnId: c.id as GoodsColumnId,
@@ -222,11 +223,12 @@ export const MOON_COLUMN_MAPPING: GoodsColumnMapping[] = [
     rowCount: 3,
     displayLabel: MOON_CITY_DICE[c.id]?.join('/'),
   })),
-  ...(['A', 'B', 'C', 'D'] as const).map((id) => ({
+  ...(['A', 'B', 'C', 'D'] as const).map((id, i) => ({
     columnId: id as GoodsColumnId,
     cityId: id,
     isNewCity: true,
     rowCount: 2,
+    diceNumber: i + 1, // 1·2·3·4 — 표준 신도시 열 관례(예: Rust Belt A~H)와 동일하게 순환 배정
   })),
 ];
 

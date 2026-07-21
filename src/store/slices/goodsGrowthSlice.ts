@@ -44,7 +44,9 @@ function applyBotProduction(state: GameStore): { slots: (CubeColor | null)[]; ba
     {
       let idx = 0;
       for (const m of columnMapping) {
-        for (let i = 0; i < m.rowCount; i++) slotCity.set(idx + i, m.isNewCity ? '' : m.cityId);
+        // 신규 도시 열도 배치되면(state.board.cities에 그 id로 존재) 일반 도시처럼 성장 대상 —
+        // growable()이 미배치 열은 city를 못 찾아 자동으로 걸러낸다.
+        for (let i = 0; i < m.rowCount; i++) slotCity.set(idx + i, m.cityId);
         idx += m.rowCount;
       }
     }
@@ -176,10 +178,12 @@ export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
           // 디스플레이 열 시작 인덱스 (columnMapping rowCount 누적 — 표준 경로와 동일 계산)
           const moonColumnMapping = getMapData(state.mapId).columnMapping;
           const colByCity = new Map<string, { startIndex: number; rowCount: number }>();
+          const newCityCols = new Map<string, { startIndex: number; rowCount: number; diceNumber?: number }>();
           {
             let slotIndex = 0;
             for (const m of moonColumnMapping) {
               if (!m.isNewCity) colByCity.set(m.cityId, { startIndex: slotIndex, rowCount: m.rowCount });
+              else newCityCols.set(m.cityId, { startIndex: slotIndex, rowCount: m.rowCount, diceNumber: m.diceNumber });
               slotIndex += m.rowCount;
             }
           }
@@ -203,6 +207,30 @@ export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
                   gained.set(cityId, [...(gained.get(cityId) ?? []), cube]);
                   break;
                 }
+              }
+            }
+          }
+
+          // 신규 도시(A~D)는 도시 인쇄 번호가 없어(도시화 전엔 물리 도시가 아님) 표준 diceNumber
+          // 방식을 그대로 쓴다 — 다른 맵의 신도시 열과 동일 관례. 도시화로 배치되면 일반 도시처럼
+          // 낮/연결 조건이 적용된다(미배치 열은 city를 못 찾아 자동 스킵).
+          for (const [cityId, col] of Array.from(newCityCols.entries())) {
+            if (col.diceNumber === undefined) continue;
+            const matchCount = diceResults.filter(d => d === col.diceNumber).length;
+            if (matchCount === 0) continue;
+            const city = newCities.find(c => c.id === cityId);
+            if (!city) continue;
+            if (isNightCity(city, state.board)) continue;
+            if (connected && !connected.has(cityId)) continue;
+            let moved = 0;
+            for (let i = 0; i < col.rowCount && moved < matchCount; i++) {
+              const idx = col.startIndex + i;
+              const cube = newSlots[idx];
+              if (cube) {
+                city.cubes.push(cube);
+                newSlots[idx] = null;
+                gained.set(cityId, [...(gained.get(cityId) ?? []), cube]);
+                moved++;
               }
             }
           }

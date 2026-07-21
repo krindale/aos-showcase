@@ -64,3 +64,23 @@ bonus = Σ 기대큐브 × MY_SHARE × VP_PER_CUBE, cap 적용
 - src/maps/MapProfile.ts (훅 선언) / src/maps/profiles/MoonMapProfile.ts (구현 + WeakMap 캐시)
 - src/utils/hexGrid.ts (citiesConnectedToSeed 이식처) / src/store/slices/goodsGrowthSlice.ts (이동 원본 22-42)
 - src/ai/strategies/urbanization.ts (Stage 3, 마을 점수 246행 부근)
+
+
+---
+
+## 실행 결과 (2026-07-21, Sonnet 직접 실행)
+
+**Stage 0·1 채택**: citiesConnectedToSeed 이동(20bc679), aiRouteExtraVP 훅 배관(60ed621) — 전 맵 항등 확인.
+
+**Stage 2 기각**: 초기값(VP_PER_CUBE=1.0, MY_SHARE=0.4)이 VP −11.82로 베이스라인(−11.49) 대비 악화.
+최소 자극(0.5×0.25)까지 낮춰도 −11.63으로 여전히 악화 — 3개 지점 전부 마이너스, 보너스 크기와
+단조 비례해 악화. CAP은 이 크기대에서 안 바인딩(추가 스윕 무의미). **개념 자체가 역효과로 판정**:
+estimateRouteVP의 기존 matchingCubes가 이미 "현재 큐브"를 정확히 보는데, "미래 성장 큐브" 가치를
+얹으면 지금 빈약해도 언젠가 자랄 경로를 과대평가 — 그 성장은 실제 발생 시 별도 경로평가 턴이
+다시 잡아내므로(성장발생턴 5.8/8) 이중 계상에 가까움.
+
+**Stage 3 미착수**: Stage 2 통과 조건부였으므로 착수 안 함.
+
+상세 스윕 표·추정 원인: docs/ai-auction-baseline-100seed.md "Stage 2 실험 — 전 지점 기각" 절.
+훅 배관(aiRouteExtraVP)은 다른 맵 항등이라 유지 — 향후 다른 달 전용 축이 재사용 가능.
+최종 상태: VP −11.49·파산 1.50 (변화 없음, Stage 2/3 코드는 되돌림).

@@ -280,6 +280,19 @@ export abstract class MapProfile {
   ): number { return 0; }
 
   /**
+   * AI 경로 선택의 **겹침 판정 완화** — 상대 커밋 경로와 "도시 하나만 공유"하는 경로를
+   * 완전 차단(-Infinity) 대신 이 값만큼 감점한다 (기본 null = 기존 동작 = 도시 하나만
+   * 공유해도 완전 차단, Korea는 별도 감점). **정확히 같은 연결**(from-to 쌍, 방향 무시)은
+   * 이 훅과 무관하게 항상 완전 차단 유지 — 같은 링크 정면 충돌(중복 부설 경쟁)은 여전히 막는다.
+   * Moon: 배달 기회가 Moon Base 단일 허브에 몰려 있어, 앞 순번 1~2명이 moonBase 경로를
+   * 잡는 순간 뒷순번의 정밀 평가 후보 top-K가 전부 -Infinity로 죽고 fallback이 겹침·평가를
+   * 무시한 경로를 커밋했다(2026-07-21 30시드 계측: 스나이핑 20.2건/게임, 그중 52%가 fallback
+   * 우회 커밋 — T1에서 3·4번이 같은 moonBase→imbrium을 잡고 충돌). moonBase는 화물이
+   * 인원×2개라 출발지 공유는 정상 플레이 — 감점으로 낮춰 뒷순번도 평가된 경로를 갖게 한다.
+   */
+  get aiRouteOverlapSharedCityPenalty(): number | null { return null; }
+
+  /**
    * 홈베이스(거점) 배정용 **구역 키** (기본 null = 구역 개념 없음, 기존 그리디 그대로).
    * 같은 키를 가진 도시는 서로 경쟁 구역 — `assignHomeBases`(selector.ts)가 이미 배정된
    * 인원이 목표치(⌈인원/구역수⌉)에 찬 구역을 후순위로 밀어 구역 간 인원을 고르게 분산한다.

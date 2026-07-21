@@ -253,16 +253,26 @@ export function selectStandardRoute(
     //   순차 결정에서 앞 AI가 쓴 도시를 피해 각자 다른 도시에서 시작/도착하게 분산. 이번 세션 최대
     //   효과(VP −2.28→+2.95, 첫 양수). 전부 금지 시 하단 opportunities[0] fallback (빈 위험 없음).
     if (areaMulti && score > -Infinity) {
+      // 단일 허브 맵(달) 완화 훅: "도시 하나만 공유"는 차단 대신 감점 (기본 null = 기존 동작).
+      // 완전 차단은 허브 출발 기회가 몰린 맵에서 뒷순번의 top-K 후보를 전멸시켜 fallback이
+      // 겹침·평가를 무시한 경로를 커밋하게 했다(2026-07-21 달 30시드 계측). 정확히 같은
+      // 연결(from-to 쌍, 방향 무시)은 훅과 무관하게 완전 차단 유지 — 중복 부설 경쟁 방지.
+      const sharedCityPenalty = getMapProfile(state.mapId).aiRouteOverlapSharedCityPenalty;
       for (const oid of state.activePlayers) {
         if (oid === playerId) continue;
         const orr = getCurrentRoute(oid);
-        if (orr && (orr.from === opp.sourceCityId || orr.to === opp.sourceCityId ||
-                    orr.from === opp.targetCityId || orr.to === opp.targetCityId)) {
-          // 동적색 맵(Korea)은 완전 차단 대신 감점 — 중앙 거점 플레이어의 경로 고갈을 막아
-          // 승률 분포를 균등화(부산 고립 거점 독점 완화). 그 외 맵은 완전 차단 유지.
-          if (state.board.dynamicCityColors) { score -= DYNAMIC_MAP_OVERLAP_PENALTY; }
-          else { score = -Infinity; break; }
-        }
+        if (!orr) continue;
+        const sharesCity = orr.from === opp.sourceCityId || orr.to === opp.sourceCityId ||
+                           orr.from === opp.targetCityId || orr.to === opp.targetCityId;
+        if (!sharesCity) continue;
+        const sameLink = (orr.from === opp.sourceCityId && orr.to === opp.targetCityId) ||
+                         (orr.from === opp.targetCityId && orr.to === opp.sourceCityId);
+        if (sharedCityPenalty !== null && !sameLink) {
+          score -= sharedCityPenalty;
+        // 동적색 맵(Korea)은 완전 차단 대신 감점 — 중앙 거점 플레이어의 경로 고갈을 막아
+        // 승률 분포를 균등화(부산 고립 거점 독점 완화). 그 외 맵은 완전 차단 유지.
+        } else if (state.board.dynamicCityColors) { score -= DYNAMIC_MAP_OVERLAP_PENALTY; }
+        else { score = -Infinity; break; }
       }
     }
     return { opp, score };

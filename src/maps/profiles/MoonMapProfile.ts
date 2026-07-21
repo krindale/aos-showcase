@@ -105,6 +105,14 @@ export class MoonMapProfile extends StandardMapProfile {
   /** 달: 후반 5턴(T4~8) 계획 발행 금지 — $5로 크레이터 1.67타일뿐이라 늦은 차입은 회수 불가
    *  (생존 발행은 계속 허용하므로 파산 방어는 유지) */
   override get aiNoBuildIssueLastTurns(): number { return 5; }
+  /** 달: 경로 겹침 판정 완화 — "도시 하나만 공유"는 무감점(0), **같은 연결(from-to 쌍)만
+   *  완전 차단**. 도시 6개 + Moon Base 단일 허브(화물 인원×2)라 출발지 공유가 정상 플레이인데,
+   *  표준의 완전 차단은 앞 순번이 moonBase 경로를 잡는 순간 뒷순번의 평가 후보 top-K를
+   *  전멸시켜 fallback(겹침·평가 무시)이 정면 충돌 경로를 커밋하게 했다 — player3·4 열세와
+   *  경로 스나이핑(30시드 20.2건/게임)의 근본 원인 (2026-07-21 계측).
+   *  100시드 스윕: 0 → VP −3.94·파산 0.87 / 3 → −6.28 / 6 → −6.40 / 10 → −7.53 (단조 악화
+   *  — 감점조차 불필요). 같은 연결 차단까지 풀면 −4.47로 악화 → sameLink 차단은 유지. */
+  override get aiRouteOverlapSharedCityPenalty(): number | null { return 0; }
 
   /**
    * 홈베이스 구역 — 동/서 반구(getMoonSide). Moon Base(중앙)는 후보에서 이미 제외되므로

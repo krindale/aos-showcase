@@ -484,9 +484,12 @@ export function estimateRouteVP(
   const engineUpkeepVP = engineDelay > 0
     ? (engineDelay * remainingTurnsIncl - (engineDelay * (engineDelay - 1)) / 2) * lambda
     : 0;
+  // 맵별 가산 보너스 (기본 0 = 항등). Moon: 이 경로 완성이 여는 성장 연결 가치.
+  const routeExtraVP = profile.aiRouteExtraVP(state, playerId, opp, fullPath, deliveryStartDelay);
   const deltaVP =
     rho * (expectedDeliveries * perDeliveryVP + netTrackVP)
     + transcontinentalVP
+    + routeExtraVP
     - buildCost * lambda
     - fundShares * -VP_PER_SHARE
     - engineUpkeepVP

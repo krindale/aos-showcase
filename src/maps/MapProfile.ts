@@ -7,8 +7,8 @@
 // 의존 방향: maps/ 는 저수준 기반 — types/game 만 의존하고 ai/ 나 store/ 를 import 하지 않는다.
 // (AI 전략·게임 엔진이 maps/ 를 의존하는 단방향. AI 액션 메서드는 의존 방향을 정리한 뒤 단계적으로 추가)
 
-import { BoardState, SpecialAction, GAME_CONSTANTS, GamePhase, GameState, PHASE_INFO, PlayerId, City, CubeColor } from '@/types/game';
-import { DeliveryRoute } from '@/ai/strategy/types';
+import { BoardState, SpecialAction, GAME_CONSTANTS, GamePhase, GameState, PHASE_INFO, PlayerId, City, CubeColor, HexCoord } from '@/types/game';
+import { DeliveryRoute, DeliveryOpportunity } from '@/ai/strategy/types';
 import { MapId } from './MapId';
 
 /** income(배달) 원천 — 맵마다 화물이 있는 곳이 다르다 (도시 안 / 트랙 위 헥스큐브 / 향후 마을·항구 등). */
@@ -264,6 +264,20 @@ export abstract class MapProfile {
   aiDeliveryTimingFactor(
     _to: City, _cube: CubeColor, _startTurn: number, _state: GameState, _playerId?: PlayerId
   ): number { return 1; }
+
+  /**
+   * AI 경로 평가용 **가산 보너스** — 이 경로의 완성이 여는 "미모델링 VP 원천"을 더한다
+   * (기본 0 = 항등). `transcontinentalVP`(vp.ts, 대륙횡단 즉시 보너스)와 같은 계열의 가산형 훅 —
+   * `aiDeliveryTimingFactor`(곱셈, 배달당 가치 조정)와 달리 경로 전체에 한 번 가산된다.
+   * Moon: 달 성장 룰(낮쪽+Moon Base 완성링크 연결 도시만 주사위 성장)에서, 경로 완성이 미연결
+   * 도시를 시드 네트워크에 새로 이어 여는 "미래 화물 공급 해금" 가치를 반영한다
+   * (2026-07-21 계획: docs/moon-growth-link-plan.md — estimateRouteVP가 이 가치를 전혀 몰라
+   * dice 도시로의 연결이 다른 동가치 경로보다 우선되지 않던 문제).
+   */
+  aiRouteExtraVP(
+    _state: GameState, _playerId: PlayerId, _opp: DeliveryOpportunity,
+    _fullPath: HexCoord[], _deliveryStartDelay: number,
+  ): number { return 0; }
 
   /** AI 경로 평가의 "지연 완성 페널티" (완성이 1턴 늦어질 때마다 −N VP, cityCubes 다인 맵).
    *  타이밍 실비(배달 시작 지연의 현금 흐름 손실 + 엔진 증분 유지비, vp.ts estimateRouteVP)가

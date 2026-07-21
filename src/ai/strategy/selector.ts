@@ -50,18 +50,33 @@ const ROW_SPREAD_W = 3.0;
  *  승률 분포가 균등해진다. 다른 cityCubes 맵은 완전 차단 유지(Rust Belt 도시금지 핵심 보존). */
 const DYNAMIC_MAP_OVERLAP_PENALTY = 6;
 
+/** 구역(aiHomeBaseGroup)이 목표치를 채웠을 때의 페널티 — minDist/rowGap/cubes 점수를
+ *  압도해 구역 간 인원을 사실상 강제로 고르게 분산시킨다(단일 구역만 남으면 페널티 무시하고
+ *  그 구역에서 고름 — 배정 자체가 막히지는 않는다). */
+const GROUP_OVERFLOW_PENALTY = 1000;
+
 /**
  * 거점(home base) 할당 — 게임 시작 시 1회. 큐브 많은 도시를 farthest-first로 분산 배정
  * (첫 거점=큐브 최다, 이후=기존 거점들에서 최소거리 + row분산 + 큐브수가 최대인 도시).
  * 6구획 그리드 명시 분할은 빈곤 구획 거점이 생겨 악화(-7.54)였음 — 큐브 분포에 적응적인
  * farthest가 사실상 더 나은 '구획 분할'(서로 가장 먼 큐브 도시 5개)이라 최적(-2.28).
+ * ⚠️ `noDemand` 도시(달 Moon Base)는 후보에서 제외 — 배달 목적지가 될 수 없는 도시를
+ * "거점"으로 잡으면 경로 점수의 방향성 기준으로 무의미하다(달만 해당, 다른 맵엔 noDemand 도시
+ * 없음 — 2026-07-21 확인). 맵별 구역 균형(`aiHomeBaseGroup`, 기본 null=구역 없음)은 달의
+ * 동/서 반구 몰림(4인 중 2명이 같은 반구에 겹쳐 그 둘만 파산율 4~5배)을 완화한다.
  */
 export function assignHomeBases(state: GameState): void {
   const { board } = state;
+  const profile = getMapProfile(state.mapId);
   const cubeCities = board.cities
-    .filter(c => c.cubes.length > 0)
+    .filter(c => c.cubes.length > 0 && !c.noDemand)
     .sort((a, b) => b.cubes.length - a.cubes.length);
   if (cubeCities.length === 0) return;
+
+  const groupOf = (c: typeof cubeCities[0]) => profile.aiHomeBaseGroup(c);
+  const groupCount = new Map<string, number>();
+  const groups = new Set(cubeCities.map(groupOf).filter((g): g is string => g !== null));
+  const targetPerGroup = groups.size > 0 ? Math.ceil(state.activePlayers.length / groups.size) : Infinity;
 
   // 거점 픽 순서 = activePlayers(player-index 고정). 인위적 셔플 없음 — player별 성적으로
   // 편향을 측정·진단하기 위해 고정 유지(셔플하면 player별 통계가 평준화돼 측정 불가).
@@ -74,14 +89,19 @@ export function assignHomeBases(state: GameState): void {
       let bestScore = -Infinity;
       for (const c of cubeCities) {
         if (assigned.some(a => a.id === c.id)) continue;
+        const group = groupOf(c);
+        const overflowPenalty = (group !== null && (groupCount.get(group) ?? 0) >= targetPerGroup)
+          ? GROUP_OVERFLOW_PENALTY : 0;
         const minDist = Math.min(...assigned.map(a => hexDistance(a.coord, c.coord)));
         const minRowGap = Math.min(...assigned.map(a => Math.abs(a.coord.row - c.coord.row)));
-        const score = minDist + minRowGap * ROW_SPREAD_W + c.cubes.length * 0.5;
+        const score = minDist + minRowGap * ROW_SPREAD_W + c.cubes.length * 0.5 - overflowPenalty;
         if (score > bestScore) { bestScore = score; best = c; }
       }
       if (!best) best = cubeCities.find(c => !assigned.some(a => a.id === c.id)) ?? cubeCities[0];
     }
     setHomeBase(pid, best.id);
+    const g = groupOf(best);
+    if (g !== null) groupCount.set(g, (groupCount.get(g) ?? 0) + 1);
     assigned.push({ id: best.id, coord: best.coord });
   }
 }

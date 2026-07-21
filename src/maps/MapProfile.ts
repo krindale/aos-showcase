@@ -269,15 +269,26 @@ export abstract class MapProfile {
    * AI 경로 평가용 **가산 보너스** — 이 경로의 완성이 여는 "미모델링 VP 원천"을 더한다
    * (기본 0 = 항등). `transcontinentalVP`(vp.ts, 대륙횡단 즉시 보너스)와 같은 계열의 가산형 훅 —
    * `aiDeliveryTimingFactor`(곱셈, 배달당 가치 조정)와 달리 경로 전체에 한 번 가산된다.
-   * Moon: 달 성장 룰(낮쪽+Moon Base 완성링크 연결 도시만 주사위 성장)에서, 경로 완성이 미연결
-   * 도시를 시드 네트워크에 새로 이어 여는 "미래 화물 공급 해금" 가치를 반영한다
-   * (2026-07-21 계획: docs/moon-growth-link-plan.md — estimateRouteVP가 이 가치를 전혀 몰라
-   * dice 도시로의 연결이 다른 동가치 경로보다 우선되지 않던 문제).
+   * ⚠️ **기각 이력(2026-07-21, 달)**: 성장 연결(낮쪽+Moon Base 연결 도시만 성장) 가치를 여기 얹는
+   * 실험 — 최소 자극조차 VP 악화, 크기 비례 악화(estimateRouteVP가 이미 "현재 큐브"를 정확히
+   * 보는데 "미래 성장 큐브" 가치를 얹으면 이중 계상). docs/ai-auction-baseline-100seed.md 참조.
+   * 현재 아무 맵도 override하지 않음 — 배관만 유지(다른 축이 재사용 가능).
    */
   aiRouteExtraVP(
     _state: GameState, _playerId: PlayerId, _opp: DeliveryOpportunity,
     _fullPath: HexCoord[], _deliveryStartDelay: number,
   ): number { return 0; }
+
+  /**
+   * 홈베이스(거점) 배정용 **구역 키** (기본 null = 구역 개념 없음, 기존 그리디 그대로).
+   * 같은 키를 가진 도시는 서로 경쟁 구역 — `assignHomeBases`(selector.ts)가 이미 배정된
+   * 인원이 목표치(⌈인원/구역수⌉)에 찬 구역을 후순위로 밀어 구역 간 인원을 고르게 분산한다.
+   * Moon: 동/서 반구(getMoonSide)가 구역 — 그리디 최원거리 배정이 반구를 무시해 4인 중
+   * 2명이 같은 반구(3개 도시)에 몰리고 나머지 반구는 1명이 독점하는 1:2 불균형이 났다
+   * (2026-07-21 실측: 독점 반구 파산율 13~17% vs 공유 반구 57~67% — 4~5배 차이가 VP
+   * 격차 −4.9/−2.2 vs −23.1/−15.8의 주 원인).
+   */
+  aiHomeBaseGroup(_city: City): string | null { return null; }
 
   /** AI 경로 평가의 "지연 완성 페널티" (완성이 1턴 늦어질 때마다 −N VP, cityCubes 다인 맵).
    *  타이밍 실비(배달 시작 지연의 현금 흐름 손실 + 엔진 증분 유지비, vp.ts estimateRouteVP)가

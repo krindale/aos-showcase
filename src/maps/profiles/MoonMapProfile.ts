@@ -107,6 +107,16 @@ export class MoonMapProfile extends StandardMapProfile {
   override get aiNoBuildIssueLastTurns(): number { return 5; }
 
   /**
+   * 홈베이스 구역 — 동/서 반구(getMoonSide). Moon Base(중앙)는 후보에서 이미 제외되므로
+   * null 분기는 실질적으로 도달하지 않지만 안전하게 유지.
+   * (2026-07-21 실측: 반구 몰림 완화 전 파산율 west 13~17% vs east 57~67% — 한쪽 반구를
+   * 두 플레이어가 나눠 쓰면 income이 반토막나며 만성 적자가 파산으로 직결됐다.)
+   */
+  override aiHomeBaseGroup(city: City): string | null {
+    return getMoonSide(city.coord);
+  }
+
+  /**
    * 배달 타이밍 계수 — 밤낮 교대에서 이 목적지가 "얼마나 유연하게" 받아주는가.
    * · 검은 큐브: 매 턴 밤쪽 도시 3곳이 열려 있어 대기 없이 배달 가능 → **1.25 우대**
    *   (달에서 유일하게 타이밍에 안 묶이는 화물 — 봇이 검은 큐브 경로를 잡게 유도)

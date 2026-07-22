@@ -18,7 +18,7 @@ import { StandardMapProfile } from './StandardMapProfile';
 import { MapRuleSummary } from '../MapProfile';
 import { MapId } from '../MapId';
 import { City, CubeColor, GameState, PlayerId, SpecialAction } from '@/types/game';
-import { findCompletedLinks } from '@/utils/hexGrid';
+import { findCompletedLinks, isTrackPartOfCompletedLink } from '@/utils/hexGrid';
 import {
   MOON_MAP,
   MOON_CITY_DICE,
@@ -83,6 +83,26 @@ export class MoonMapProfile extends StandardMapProfile {
   override get nightDayCycle(): boolean { return true; }
   /** 저중력 — 달 전용 8번째 행동 (공식 룰: "new action". Production은 표준 기능 유지) */
   override get extraActions(): SpecialAction[] { return ['lowGravitation']; }
+
+  /**
+   * 저중력(lowGravitation) AI 선호 ΔVP — 2026-07-22 타인 철도 전 맵 개방 후 효과는
+   * "빌린 링크 1개 수입 이전"만 잔존. 가치 ≈ 상대 완성 링크가 많을수록(빌릴 후보↑) —
+   * 소액에서 점증, 상한 2.5.
+   * ⚠️ 기각(2026-07-21, 100시드): "내 네트워크에 닿은 상대 링크만 집계"하는 정밀화는
+   *   VP −11.49→−11.78로 악화(30시드 실측 발동률 43%임에도). 죽은 선택을 걸러도 대체 선택
+   *   (production/firstMove)의 가치가 더 낮고, 도시 접점만 보면 마을 접점 확장을 과소집계한다.
+   * 최적값(2026-07-22 달 100시드 스윕): base 2.0·계수 0.12·상한 2.5 — 응답면이 결정론적이라
+   *   plateau 직접 확인(base 1.8~2.4·cap 2.4~2.8 모두 동일, 중앙값 채택). coef 0=−3.91,
+   *   cap 3.0+/coef 0.2는 미세 하락. 원본(0.8/0.1/2.5)=−4.60 → 이 값=−2.15 (+2.45).
+   */
+  override aiExtraActionVP(action: SpecialAction, state: GameState, playerId: PlayerId): number {
+    if (action !== 'lowGravitation') return 0;
+    const oppCompleted = state.board.trackTiles.filter(
+      t => t.owner && t.owner !== playerId && isTrackPartOfCompletedLink(t.coord, state.board)
+    ).length;
+    if (oppCompleted === 0) return 0;
+    return Math.min(2.5, 2.0 + oppCompleted * 0.12);
+  }
   /** 물품 성장: 주사위 → 도시 직접 (디스플레이 미사용) */
   override get cityDiceGrowth(): boolean { return true; }
   override get growthDicePerPlayer(): number { return 2; }

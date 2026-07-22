@@ -165,24 +165,15 @@ function evaluateActionDeltaVP(
       return 0.2;
     }
     case 'turnOrder': return evaluateTurnOrder(state, playerId);
-    case 'lowGravitation': {
-      // 달: 이동 경로에 상대 링크 1개를 내 것처럼 경유(경로 확장) + 그 수입 획득.
-      // 가치 ≈ 상대 완성 링크가 많을수록(빌릴 후보·경로 확장 가능성↑) — 소액에서 점증, 상한 2.5.
-      // ⚠️ 기각(2026-07-21, 100시드): "내 네트워크에 닿은 상대 링크만 집계"하는 정밀화는
-      //   VP −11.49→−11.78로 악화(30시드 실측 발동률 43%임에도). 죽은 선택을 걸러도 대체 선택
-      //   (production/firstMove)의 가치가 더 낮고, 도시 접점만 보면 마을 접점 확장을 과소집계한다.
-      const oppCompleted = state.board.trackTiles.filter(
-        t => t.owner && t.owner !== playerId && isTrackPartOfCompletedLink(t.coord, state.board)
-      ).length;
-      if (oppCompleted === 0) return 0;
-      // 저중력 선호 최적값 (2026-07-22 달 100시드 스윕): base 2.0·계수 0.12·상한 2.5.
-      // 응답면이 결정론적이라(달 시뮬은 셋업만 시드 고정·게임은 그래도 재현) plateau를 직접 확인 —
-      // base 1.8~2.4 · cap 2.4~2.8이 모두 VP −2.15·파산 0.88(넓고 안정, 중앙값 채택). cap 3.0+는
-      // −2.27로 미세 하락, coef 0(스케일 없음)은 −3.91, coef 0.2·base 2.3+는 과선호로 하락.
-      // 원본(0.8/0.1/2.5)=−4.60 → 이 값=−2.15 (+2.45). Moon 전용이라 타 맵 무영향.
-      return Math.min(2.5, 2.0 + oppCompleted * 0.12);
+    default: {
+      // 맵 전용 추가 행동(extraActions) — 평가식은 프로파일이 소유 (MapProfile.aiExtraActionVP DI 지점,
+      // 예: Moon lowGravitation). 기본 7종 밖 + extraActions 미등록이면 0.
+      const profile = getMapProfile(state.mapId);
+      if (profile.extraActions.includes(action)) {
+        return profile.aiExtraActionVP(action, state, playerId);
+      }
+      return 0;
     }
-    default: return 0;
   }
 }
 

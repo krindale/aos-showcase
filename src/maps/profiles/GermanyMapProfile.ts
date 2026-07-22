@@ -8,7 +8,7 @@
 //    되므로 프로파일 getter가 아니라 germanyMap.ts + 엔진 훅에서 처리한다.
 
 import { StandardMapProfile } from './StandardMapProfile';
-import { MapRuleSummary } from '../MapProfile';
+import { AiRouteBuildGateContext, MapRuleSummary } from '../MapProfile';
 import { MapId } from '../MapId';
 import { SpecialAction } from '@/types/game';
 import { GERMANY_MAP, createGermanyBoardState } from '@/utils/germanyMap';
@@ -34,6 +34,20 @@ export class GermanyMapProfile extends StandardMapProfile {
 
   override get engineerHalfCost(): boolean { return true; }
   override get requireCompleteLinks(): boolean { return true; }
+
+  /**
+   * AI 건설 게이트 (미완성 링크 금지 대응): 이번 턴 잔여 슬롯·현금으로 경로 전체를
+   * 완성할 수 있을 때만 착공/계속한다. 독일은 미완성 신설 트랙이 단계 전환 시
+   * 삭제·환불되므로(removeIncompleteNewTracks) 완성 못 할 부분 건설은 "짓다 사라짐"의
+   * 무한 반복일 뿐이다 — 슬롯이 남아도 현금(숫자 헥스 $6~12)이 모자라면 착공 금지.
+   * (Engineer 절반 할인은 비용 추정에 미반영 = 약간 보수적 — 할인으로만 가능한 경계
+   * 케이스는 스킵되지만, 스킵은 환불 반복보다 항상 낫다)
+   */
+  override aiRouteBuildGate(ctx: AiRouteBuildGateContext): boolean {
+    const work = ctx.missingWork();
+    if (work === null) return false;
+    return work.tiles <= ctx.remainingSlots && work.cost <= ctx.cash;
+  }
   override get bonusCityCubeId(): string | null { return 'berlin'; }
   // Berlin은 원본 맵 시트에서 회색 헥스 (보너스 규칙과 별개의 시각 표현)
   override get grayRenderCityId(): string | null { return 'berlin'; }

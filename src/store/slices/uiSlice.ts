@@ -11,7 +11,7 @@
 
 import type { StoreApi } from 'zustand';
 import type { GameStore } from '../gameStore';
-import { HexCoord, MovingCubeContext, PlayerId } from '@/types/game';
+import { HexCoord, MovingCubeContext, PlayerId, RouteOption } from '@/types/game';
 import {
   isValidConnectionPoint,
   canRedirectTrack,
@@ -46,6 +46,34 @@ function govExtraOf(state: GameStore): number {
     : 0;
 }
 
+
+/**
+ * 요구사항 1의 **큐브 단위** 게이트 (2026-07-22 사용자 피드백): 본인 철도 최선(모든 목적지
+ * 통틀어 내 수입 최대)과 비교해, 내 수입이 **더 커지지 않는** 타인 경유 옵션은 숨긴다 —
+ * 목적지가 달라도 내 수입이 같으면 상대에게 수입만 헌납하는 선택지다(예: 하노버 own2 본인
+ * 철도가 있는데 뉘른베르크 own2+opp3 타인 경유가 노출되던 사례). findRouteOptions의
+ * 목적지별 게이트(2ⓐ)만으론 "본인 불가 목적지(2ⓑ)"가 큐브 최선과 무관하게 열렸다.
+ * 본인 철도 경로가 전무한 큐브는 전면 개방 유지(배달 가능성 보존).
+ * ⚠️ 사람 전용 — 봇은 ΔVP(타인 수입 페널티)가 같은 판단을 하므로 미적용
+ * (AI 결정 목적지가 여기서 숨겨지면 selectDestinationCity의 reachable 검사에 걸려 멈춘다).
+ */
+function gateMixedByCubeBest(
+  routeOptions: { dest: HexCoord; options: RouteOption[] }[]
+): { dest: HexCoord; options: RouteOption[] }[] {
+  let globalOwnBest = -1;
+  for (const r of routeOptions) {
+    for (const o of r.options) {
+      if (o.oppLinks === 0 && o.ownLinks > globalOwnBest) globalOwnBest = o.ownLinks;
+    }
+  }
+  if (globalOwnBest < 0) return routeOptions;
+  return routeOptions
+    .map(r => ({
+      dest: r.dest,
+      options: r.options.filter(o => o.oppLinks === 0 || o.ownLinks > globalOwnBest),
+    }))
+    .filter(r => r.options.length > 0);
+}
 
 /** 타인 철도 후보 디폴트 정렬용 플레이어 점수(VP = income×3 + 완성링크 트랙 − 주식×3).
  *  게임 종료 정산(GamePageClient)과 동일 공식 — 점수 낮은 주인의 경로가 디폴트가 된다. */
@@ -160,7 +188,7 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
         );
         const townOwnerScore = ownerScoreOf(state);
         const townLowGrav = player.selectedAction === 'lowGravitation';
-        const townRouteOptions = reachable
+        let townRouteOptions = reachable
           .map(dest => ({
             dest: dest.coord,
             options: findRouteOptions(
@@ -169,6 +197,7 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
             ),
           }))
           .filter(r => r.options.length > 0);
+        if (!player.isAI) townRouteOptions = gateMixedByCubeBest(townRouteOptions);
         let bestPath: HexCoord[] = [];
         let bestOwnT = -1;
         let bestTotalT = -1;
@@ -216,7 +245,7 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
       // 디폴트([0]) = 내 수입 최대 → 빌린 주인 중 VP 낮은 순 (findRouteOptions 정렬).
       const ownerScore = ownerScoreOf(state);
       const lowGravCredit = player.selectedAction === 'lowGravitation';
-      const routeOptions = reachable
+      let routeOptions = reachable
         .map(dest => ({
           dest: dest.coord,
           options: findRouteOptions(
@@ -225,6 +254,8 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
           ),
         }))
         .filter(r => r.options.length > 0);
+      // 사람만 큐브 단위 게이트 — 내 수입이 본인-철도-최선을 못 넘는 타인 경유 목적지 숨김
+      if (!player.isAI) routeOptions = gateMixedByCubeBest(routeOptions);
 
       // 화물 선택 시 미리보기 골드 점선: 목적지별 디폴트 중 내 수입 최대(동률이면 총 링크 최대)
       let bestPath: HexCoord[] = [];

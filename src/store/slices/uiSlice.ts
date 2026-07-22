@@ -11,25 +11,26 @@
 
 import type { StoreApi } from 'zustand';
 import type { GameStore } from '../gameStore';
-import { HexCoord, MovingCubeContext } from '@/types/game';
+import { HexCoord, MovingCubeContext, PlayerId } from '@/types/game';
 import {
   isValidConnectionPoint,
   canRedirectTrack,
   getRedirectableEdges,
   getRedirectTargetHexes,
   isEndpointOfIncompleteSection,
+  calculateTrackScore,
 } from '@/utils/trackValidation';
 import {
   getBuildableNeighbors,
   getExitDirections,
   hexCoordsEqual,
-  findLongestPath,
   findReachableDestinations,
+  findRouteOptions,
   findTrackCubeDeliveries,
-  countPathLinks,
   cityAcceptsCube,
   isBlockedEdge,
 } from '@/utils/hexGrid';
+import { calculateVictoryPoints } from '@/utils/gameLogic';
 import { logAction } from '@/utils/debugConfig';
 import { useToastStore } from '../toastStore';
 import { getBuildBlockReason } from '../helpers/buildReason';
@@ -45,10 +46,17 @@ function govExtraOf(state: GameStore): number {
     : 0;
 }
 
-/** 달(Moon) 저중력: 이 행동 보유자는 이동 경로에 타인 소유 링크를 1개까지 경유할 수 있다
- *  (그 링크 수입은 completeCubeMove의 applyLowGravitation이 이전) */
-function lowGravExtraOf(state: GameStore): number {
-  return state.players[state.currentPlayer]?.selectedAction === 'lowGravitation' ? 1 : 0;
+
+/** 타인 철도 후보 디폴트 정렬용 플레이어 점수(VP = income×3 + 완성링크 트랙 − 주식×3).
+ *  게임 종료 정산(GamePageClient)과 동일 공식 — 점수 낮은 주인의 경로가 디폴트가 된다. */
+function ownerScoreOf(state: GameStore): Partial<Record<PlayerId, number>> {
+  const scores: Partial<Record<PlayerId, number>> = {};
+  for (const pid of state.activePlayers) {
+    const p = state.players[pid];
+    if (!p) continue;
+    scores[pid] = calculateVictoryPoints(p.income, calculateTrackScore(state.board, pid), p.issuedShares);
+  }
+  return scores;
 }
 
 /** uiSlice가 제공하는 액션 — 인터페이스 정의는 gameStore(GameStore)에 그대로, Pick으로 참조 */
@@ -62,6 +70,7 @@ export type UiSlice = Pick<
   | 'canRedirect' | 'selectTrackToRedirect' | 'hideRedirectSelection'
   | 'enterUrbanizationMode' | 'exitUrbanizationMode' | 'selectNewCityTile' | 'canPlaceNewCity'
   | 'selectDestinationCity' | 'startCubeAnimation' | 'advanceCubeAnimation'
+  | 'selectRouteOption' | 'confirmRouteChoice'
   | 'selectRepopulationCube'
 >;
 
@@ -114,10 +123,12 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
           }
           return;
         }
-        logAction('goodsMovement', 'deliveryRoutes', { player: state.currentPlayer, trackId, routes: deliveries.map(d => ({ city: d.city.id, links: d.linkCount, oppLinks: d.oppLinks })) });
-        // 최적 경로(상대철도 적고 → 링크 긴=수입 큰 순)를 골라 하이라이트(movePath)로 표시
+        logAction('goodsMovement', 'deliveryRoutes', { player: state.currentPlayer, trackId, routes: deliveries.map(d => ({ city: d.city.id, links: d.linkCount, own: d.ownIncome, opp: d.oppIncome })) });
+        // 최적 경로(내 수입 최대 → 타인 수입 최소 → 링크 최대 — findRouteOptions 디폴트와 동일 기준)
         const best = deliveries.reduce((a, b) =>
-          (b.oppLinks < a.oppLinks || (b.oppLinks === a.oppLinks && b.linkCount > a.linkCount)) ? b : a
+          (b.ownIncome > a.ownIncome ||
+            (b.ownIncome === a.ownIncome && (b.oppIncome < a.oppIncome ||
+              (b.oppIncome === a.oppIncome && b.linkCount > a.linkCount)))) ? b : a
         );
         set({
           ui: {
@@ -132,6 +143,8 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
 
       // 마을 위 큐브 선택 (Western US — 'town:<townId>' 컨벤션). 마을은 도시처럼 출발점이 되며
       // 완성 링크를 따라 같은 색 도시로 배달된다(마을이 연결되어 있어야 함).
+      // 도시 큐브와 동일하게 타인 철도 개방 — ⚠️ AI 결정(decideMoveGoods.collectFromSource)이
+      // 마을 출발도 개방해 후보를 만들므로, 여기가 본인 철도만 보면 결정/실행 불일치로 AI가 멈춘다.
       if (cityId.startsWith('town:')) {
         const townId = cityId.slice('town:'.length);
         const town = state.board.towns.find(t => t.id === townId);
@@ -140,18 +153,39 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
         if (!cubeColor) return;
         const player = state.players[state.currentPlayer];
         const reachable = findReachableDestinations(
-          town.coord, state.board, state.currentPlayer, player.engineLevel, cubeColor, govExtraOf(state), lowGravExtraOf(state)
+          town.coord, state.board, state.currentPlayer, player.engineLevel, cubeColor, govExtraOf(state), player.engineLevel
         );
+        const townOwnerScore = ownerScoreOf(state);
+        const townLowGrav = player.selectedAction === 'lowGravitation';
+        const townRouteOptions = reachable
+          .map(dest => ({
+            dest: dest.coord,
+            options: findRouteOptions(
+              town.coord, dest.coord, state.board, state.currentPlayer,
+              player.engineLevel, cubeColor, govExtraOf(state), townOwnerScore, townLowGrav
+            ),
+          }))
+          .filter(r => r.options.length > 0);
         let bestPath: HexCoord[] = [];
-        let bestLinks = -1;
-        for (const dest of reachable) {
-          const p = findLongestPath(town.coord, dest.coord, state.board, state.currentPlayer, player.engineLevel, cubeColor, govExtraOf(state), lowGravExtraOf(state));
-          if (p) { const links = countPathLinks(p, state.board); if (links > bestLinks) { bestLinks = links; bestPath = p; } }
+        let bestOwnT = -1;
+        let bestTotalT = -1;
+        for (const r of townRouteOptions) {
+          const d = r.options[0];
+          if (d.ownLinks > bestOwnT || (d.ownLinks === bestOwnT && d.totalLinks > bestTotalT)) {
+            bestOwnT = d.ownLinks; bestTotalT = d.totalLinks; bestPath = d.path;
+          }
         }
         logAction('goodsMovement', 'townCubeSelect', { player: state.currentPlayer, town: townId, color: cubeColor, cities: reachable.map(c => c.id) });
-        if (reachable.length === 0) get().addLog('이 마을 화물은 배달할 수 있는 도시가 없습니다 (트랙으로 연결된 같은 색 도시 필요)');
+        if (townRouteOptions.length === 0) get().addLog('이 마을 화물은 배달할 수 있는 도시가 없습니다 (트랙으로 연결된 같은 색 도시 필요)');
         set({
-          ui: { ...state.ui, selectedCube: { cityId, cubeIndex }, reachableDestinations: reachable.map(c => c.coord), movePath: bestPath },
+          ui: {
+            ...state.ui,
+            selectedCube: { cityId, cubeIndex },
+            reachableDestinations: townRouteOptions.map(r => r.dest),
+            movePath: bestPath,
+            routeOptions: townRouteOptions,
+            routeChoice: null,
+          },
         });
         return;
       }
@@ -164,27 +198,39 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
 
       const player = state.players[state.currentPlayer];
 
-      // 도달 가능한 목적지 계산 (Montréal: 정부 링크 전용 추가 이동 govExtra 포함)
+      // 도달 가능한 목적지 계산 — 타인 철도 개방(룰북): 타인 링크는 엔진 한도 내 무제한
+      // (opponentExtra = engineLevel. 본인 철도 우선 게이트는 findRouteOptions가 적용).
       const reachable = findReachableDestinations(
         city.coord,
         state.board,
         state.currentPlayer,
         player.engineLevel,
         cubeColor,
-        govExtraOf(state), lowGravExtraOf(state)
+        govExtraOf(state), player.engineLevel
       );
 
-      // 화물 선택 시 최적 경로(최대 링크=최대 수입)를 골라 골드 점선으로 미리보기 표시 (모든 맵 공통).
-      // 사용자가 목적지를 클릭하면 moveGoods가 그 목적지로 경로를 다시 계산해 이동한다.
+      // 목적지별 후보 경로: 본인-철도-최선 + (내 수입이 더 커지는) 타인 경유 경로들.
+      // 디폴트([0]) = 내 수입 최대 → 빌린 주인 중 VP 낮은 순 (findRouteOptions 정렬).
+      const ownerScore = ownerScoreOf(state);
+      const lowGravCredit = player.selectedAction === 'lowGravitation';
+      const routeOptions = reachable
+        .map(dest => ({
+          dest: dest.coord,
+          options: findRouteOptions(
+            city.coord, dest.coord, state.board, state.currentPlayer,
+            player.engineLevel, cubeColor, govExtraOf(state), ownerScore, lowGravCredit
+          ),
+        }))
+        .filter(r => r.options.length > 0);
+
+      // 화물 선택 시 미리보기 골드 점선: 목적지별 디폴트 중 내 수입 최대(동률이면 총 링크 최대)
       let bestPath: HexCoord[] = [];
-      let bestLinks = -1;
-      for (const dest of reachable) {
-        const p = findLongestPath(
-          city.coord, dest.coord, state.board, state.currentPlayer, player.engineLevel, cubeColor, govExtraOf(state), lowGravExtraOf(state)
-        );
-        if (p) {
-          const links = countPathLinks(p, state.board);
-          if (links > bestLinks) { bestLinks = links; bestPath = p; }
+      let bestOwn = -1;
+      let bestTotal = -1;
+      for (const r of routeOptions) {
+        const d = r.options[0];
+        if (d.ownLinks > bestOwn || (d.ownLinks === bestOwn && d.totalLinks > bestTotal)) {
+          bestOwn = d.ownLinks; bestTotal = d.totalLinks; bestPath = d.path;
         }
       }
 
@@ -202,7 +248,11 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
       } else {
         logAction('goodsMovement', 'deliveryRoutes', {
           player: state.currentPlayer, city: cityId,
-          routes: reachable.map(c => ({ city: c.id })), bestLinks,
+          routes: routeOptions.map(r => ({
+            dest: r.dest,
+            options: r.options.map(o => ({ own: o.ownLinks, opp: o.oppLinks, owners: o.owners })),
+          })),
+          bestOwn,
         });
       }
 
@@ -210,8 +260,10 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
         ui: {
           ...state.ui,
           selectedCube: { cityId, cubeIndex },
-          reachableDestinations: reachable.map(c => c.coord),
+          reachableDestinations: routeOptions.map(r => r.dest),
           movePath: bestPath, // 최적 경로 골드 점선 미리보기 (St. Lucia와 동일)
+          routeOptions,
+          routeChoice: null,
         },
       });
     },
@@ -246,6 +298,8 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
           // 물품 이동 UI 초기화
           movingCube: null,
           reachableDestinations: [],
+          routeOptions: [],
+          routeChoice: null,
         },
       }));
     },
@@ -273,6 +327,8 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
           // 물품 이동 큐브 선택 취소 (진행 중 애니메이션 movingCube는 건드리지 않음)
           selectedCube: null,
           reachableDestinations: [],
+          routeOptions: [],
+          routeChoice: null,
           ...(state.ui.movingCube ? {} : { movePath: [] }),
         },
       }));
@@ -687,16 +743,41 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
         return;
       }
 
-      // 마을 위 큐브 배달 (Western US) — 마을 좌표에서 일반 배달과 동일 흐름
+      // 마을 위 큐브 배달 (Western US) — 마을 좌표에서 일반 배달과 동일 흐름 (타인 철도 개방 동일)
       if (sourceCityId.startsWith('town:')) {
         const town = state.board.towns.find(t => t.id === sourceCityId.slice('town:'.length));
         if (!town) return;
         const cubeColor = town.cubes[cubeIndex];
         if (!cubeColor) return;
+
+        if (state.ui.routeChoice && hexCoordsEqual(state.ui.routeChoice.dest, coord)) {
+          get().confirmRouteChoice();
+          return;
+        }
+
         const player = state.players[state.currentPlayer];
-        const path = findLongestPath(town.coord, coord, state.board, state.currentPlayer, player.engineLevel, cubeColor, govExtraOf(state), lowGravExtraOf(state));
-        if (!path || path.length < 2) return;
-        state.startCubeAnimation(path, cubeColor);
+        const options = state.ui.routeOptions.find(r => hexCoordsEqual(r.dest, coord))?.options
+          ?? findRouteOptions(
+            town.coord, coord, state.board, state.currentPlayer,
+            player.engineLevel, cubeColor, govExtraOf(state), ownerScoreOf(state),
+            player.selectedAction === 'lowGravitation'
+          );
+        if (options.length === 0) return;
+        if (options.length === 1 || state.players[state.currentPlayer]?.isAI) {
+          state.startCubeAnimation(options[0].path, cubeColor);
+          return;
+        }
+        logAction('goodsMovement', 'routeChoiceOpen', {
+          player: state.currentPlayer, dest: coord,
+          options: options.map(o => ({ own: o.ownLinks, opp: o.oppLinks, owners: o.owners })),
+        });
+        set({
+          ui: {
+            ...state.ui,
+            routeChoice: { dest: coord, options, selectedIndex: 0 },
+            movePath: options[0].path,
+          },
+        });
         return;
       }
 
@@ -706,23 +787,68 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
       const cubeColor = sourceCity.cubes[cubeIndex];
       if (!cubeColor) return;
 
+      // 같은 목적지의 경로 선택이 이미 열려 있으면 = 목적지 재클릭 → 현재 선택 경로로 확정
+      if (state.ui.routeChoice && hexCoordsEqual(state.ui.routeChoice.dest, coord)) {
+        get().confirmRouteChoice();
+        return;
+      }
+
+      // 후보 경로 (selectCube가 계산해둔 것 — 방어적으로 없으면 재계산)
       const player = state.players[state.currentPlayer];
+      const options = state.ui.routeOptions.find(r => hexCoordsEqual(r.dest, coord))?.options
+        ?? findRouteOptions(
+          sourceCity.coord, coord, state.board, state.currentPlayer,
+          player.engineLevel, cubeColor, govExtraOf(state), ownerScoreOf(state),
+          player.selectedAction === 'lowGravitation'
+        );
+      if (options.length === 0) return;
 
-      // 가장 긴 경로 찾기 (Montréal: 정부 링크 전용 추가 이동 govExtra 포함)
-      const path = findLongestPath(
-        sourceCity.coord,
-        coord,
-        state.board,
-        state.currentPlayer,
-        player.engineLevel,
-        cubeColor,
-        govExtraOf(state), lowGravExtraOf(state)
-      );
+      // 후보 1개 = 기존 UX 그대로 즉시 커밋. 봇도 즉시 커밋(경로 선택 UI 없이 디폴트 [0]) —
+      // AI 결정(decideMoveGoods)이 같은 findRouteOptions 디폴트로 평가했으므로 일치.
+      if (options.length === 1 || state.players[state.currentPlayer]?.isAI) {
+        state.startCubeAnimation(options[0].path, cubeColor);
+        return;
+      }
 
-      if (!path || path.length < 2) return;
+      // 후보 여러 개 → 경로 선택 모드 (디폴트 [0] = 내 수입 최대 → 최저 VP 주인)
+      logAction('goodsMovement', 'routeChoiceOpen', {
+        player: state.currentPlayer, dest: coord,
+        options: options.map(o => ({ own: o.ownLinks, opp: o.oppLinks, owners: o.owners })),
+      });
+      set({
+        ui: {
+          ...state.ui,
+          routeChoice: { dest: coord, options, selectedIndex: 0 },
+          movePath: options[0].path,
+        },
+      });
+    },
 
-      // 애니메이션 시작
-      state.startCubeAnimation(path, cubeColor);
+    selectRouteOption: (index) => {
+      set((state) => {
+        const rc = state.ui.routeChoice;
+        if (!rc || index < 0 || index >= rc.options.length) return state;
+        return {
+          ui: { ...state.ui, routeChoice: { ...rc, selectedIndex: index }, movePath: rc.options[index].path },
+        };
+      });
+    },
+
+    confirmRouteChoice: () => {
+      const state = get();
+      const rc = state.ui.routeChoice;
+      if (!rc || !state.ui.selectedCube) return;
+      const sel = rc.options[rc.selectedIndex];
+      // 경로 선택 UI는 도시·마을 큐브 공용 (St.Lucia 트랙 큐브는 기존 단일 경로 흐름)
+      const scid = state.ui.selectedCube.cityId;
+      const cubeColor = scid.startsWith('town:')
+        ? state.board.towns.find(t => t.id === scid.slice('town:'.length))?.cubes[state.ui.selectedCube.cubeIndex]
+        : state.board.cities.find(c => c.id === scid)?.cubes[state.ui.selectedCube.cubeIndex];
+      if (!sel || !cubeColor) return;
+      logAction('goodsMovement', 'routeChoiceConfirm', {
+        player: state.currentPlayer, own: sel.ownLinks, opp: sel.oppLinks, owners: sel.owners,
+      });
+      state.startCubeAnimation(sel.path, cubeColor);
     },
 
     startCubeAnimation: (path, color) => {
@@ -776,6 +902,8 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
           movePath: path,
           selectedCube: null,
           reachableDestinations: [],
+          routeOptions: [],
+          routeChoice: null,
         },
       });
     },

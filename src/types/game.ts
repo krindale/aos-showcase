@@ -401,6 +401,23 @@ export interface UIState {
     context: MovingCubeContext;  // 캡처된 실행 컨텍스트
   } | null;
   reachableDestinations: HexCoord[];             // 이동 가능한 목적지 도시들
+
+  // 타인 철도 이용 (전 맵) — 큐브 선택 시 목적지별 후보 경로. 로컬 UI 상태(스냅샷 미동기화).
+  routeOptions: { dest: HexCoord; options: RouteOption[] }[];
+  /** 목적지 클릭 후 후보가 2개 이상일 때의 경로 선택 상태 — [selectedIndex]가 현재 선택(초기값 0=디폴트) */
+  routeChoice: { dest: HexCoord; options: RouteOption[]; selectedIndex: number } | null;
+}
+
+/**
+ * 화물 이동 후보 경로 (타인 철도 이용 — utils/hexGrid.findRouteOptions가 생성).
+ * ownLinks = 내 수입 링크 수(정산 미러 기준), owners = 빌린 링크 소유자들.
+ */
+export interface RouteOption {
+  path: HexCoord[];
+  ownLinks: number;
+  oppLinks: number;
+  totalLinks: number;
+  owners: PlayerId[];
 }
 
 // === 게임 로그 ===
@@ -490,6 +507,14 @@ export interface GameState {
    * 위한 1회성 표시 상태. goodsGrowth 진입 시 null로 초기화된다(다음 턴 stale 방지).
    */
   goodsGrowthEvent?: { dice: number[]; results: { cityName: string; cubes: CubeColor[] }[] } | null;
+
+  /**
+   * 직전 수송(Phase V) 정산에서 수입을 얻은 플레이어별 증가량과 도착지 좌표.
+   * BoardPulses가 도착 도시 위에 "누가 +몇" 펄스로 표시하는 1회성 표시 상태 —
+   * 스냅샷에 실려 게스트도 같은 펄스를 본다. 표시 계층이 key 변화만 재생하므로
+   * 새로고침 rehydrate·스냅샷 재적용에 중복 재생 없음(persist merge 리셋 불요).
+   */
+  deliveryIncomeEvent?: { dest: HexCoord; gains: { player: PlayerId; amount: number }[]; key: number } | null;
 }
 
 /** 대륙횡단 연결 순간을 사람 플레이어에게 알리는 팝업 데이터. */

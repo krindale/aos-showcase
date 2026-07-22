@@ -133,6 +133,9 @@ export default function PhasePanel() {
   const repopPlayer = phaseState.repopulationPlayer ?? null;
   const repoCube = useGameStore((s) => s.ui.repopulationCube);
   const { selectRepopulationCube } = useGameStore();
+  // 타인 철도 경로 선택 (moveGoods — 목적지 클릭 후 후보 2개 이상일 때)
+  const routeChoice = useGameStore((s) => s.ui.routeChoice);
+  const { selectRouteOption, confirmRouteChoice } = useGameStore();
 
   // Montréal 정부 관리 로테이션 (셋업 순번 고정 — 라운드 N 관리자 = [(N-1) % 인원])
   const govControllers = useGameStore((s) => s.governmentControllers);
@@ -715,6 +718,52 @@ export default function PhasePanel() {
             </div>
             {isMyTurn ? (
               <>
+                {/* 타인 철도 경로 선택 — 목적지까지 쓸 수 있는 철도가 여러 개일 때.
+                    디폴트([0]) = 내 수입 최대 → 점수(VP) 낮은 주인. 보드의 경로 클릭과 동일 동작. */}
+                {routeChoice && !currentPlayerData.isAI && (
+                  <div className="p-2 md:p-3 rounded-lg bg-background/50 border border-accent/40 space-y-1.5">
+                    <p className="text-[11px] md:text-xs font-semibold text-foreground">
+                      이용할 철도 선택 ({routeChoice.options.length}개 후보)
+                    </p>
+                    {routeChoice.options.map((opt, i) => {
+                      const selected = i === routeChoice.selectedIndex;
+                      return (
+                        <button
+                          key={i}
+                          onClick={() => selectRouteOption(i)}
+                          className={`w-full text-left px-2 py-1.5 rounded-md text-[11px] md:text-xs border transition-colors flex items-center gap-1.5 flex-wrap ${
+                            selected
+                              ? 'border-accent bg-accent/10 text-foreground'
+                              : 'border-foreground/15 hover:bg-background/70 text-foreground-secondary'
+                          }`}
+                          aria-label={`경로 ${i + 1} 선택`}
+                        >
+                          <span className="font-semibold text-positive">내 수입 +{opt.ownLinks}</span>
+                          {opt.owners.length > 0 ? (
+                            opt.owners.map(pid => (
+                              <span key={pid} className="inline-flex items-center gap-1">
+                                <span
+                                  className="inline-block h-2 w-2 rounded-full ring-1 ring-black/15"
+                                  style={{ background: PLAYER_COLORS[players[pid]?.color] }}
+                                />
+                                {players[pid]?.name} +{opt.oppLinks}
+                              </span>
+                            ))
+                          ) : (
+                            <span>내 철도만</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                    <button
+                      onClick={confirmRouteChoice}
+                      className="w-full min-h-[38px] py-2 rounded-lg text-sm font-medium bg-accent text-background hover:bg-accent-light transition-colors"
+                      aria-label="선택한 경로로 수송"
+                    >
+                      이 경로로 수송
+                    </button>
+                  </div>
+                )}
                 {hasActiveSelection && !currentPlayerData.isAI && (
                   <button
                     onClick={cancelSelection}

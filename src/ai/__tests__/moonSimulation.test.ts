@@ -14,7 +14,7 @@ import { useGameStore } from '@/store/gameStore';
 import { getAIDecision } from '@/ai';
 import { addFailedBuildCoord } from '../strategies/buildTrack';
 import { calculateVictoryPoints } from '@/utils/gameLogic';
-import { isTrackPartOfCompletedLink, countPathLinks, countOwnPathLinks, findLongestPath, hexCoordsEqual } from '@/utils/hexGrid';
+import { isTrackPartOfCompletedLink, countPathLinks, countOwnPathLinks, hexCoordsEqual } from '@/utils/hexGrid';
 import { nightSideAfter, getMoonSide } from '@/utils/moonMap';
 import type { PlayerId } from '@/types/game';
 
@@ -215,12 +215,15 @@ function runMoonGame(seed: number): MResult {
         else if (d.action === 'upgradeEngine') moveOpps.engine++;
         else moveOpps.skip++;
         if (d.action === 'move') {
-          // 경로 링크 계측 (내 링크 = income 기여분)
+          store.selectCube(d.sourceCityId, d.cubeIndex);
+          useGameStore.getState().selectDestinationCity(d.destinationCoord);
+          // 경로 링크 계측 (내 링크 = income 기여분) — 실제 실행된 경로(movingCube.path)를 읽는다.
+          // (과거엔 findLongestPath를 미러 재계산했으나 타인 철도 개방 후 실행 경로는
+          //  findRouteOptions 디폴트라 미러가 어긋난다 — 실행 결과를 직접 계측)
           const srcCity = s.board.cities.find(c => c.id === d.sourceCityId);
           if (srcCity) {
             const color = srcCity.cubes[d.cubeIndex];
-            const path = color ? findLongestPath(srcCity.coord, d.destinationCoord, s.board, cp,
-              s.players[cp].engineLevel, color, 0, s.players[cp].selectedAction === 'lowGravitation' ? 1 : 0) : null;
+            const path = color ? (useGameStore.getState().ui.movingCube?.path ?? null) : null;
             if (path) {
               const links = countPathLinks(path, s.board);
               linkDist[links] = (linkDist[links] ?? 0) + 1;
@@ -249,8 +252,6 @@ function runMoonGame(seed: number): MResult {
               }
             }
           }
-          store.selectCube(d.sourceCityId, d.cubeIndex);
-          useGameStore.getState().selectDestinationCity(d.destinationCoord);
           deliveries++; deliveriesByPlayer[cp]++;
           if (!useGameStore.getState().ui.movingCube) useGameStore.getState().nextPhase();
         } else if (d.action === 'upgradeEngine') {

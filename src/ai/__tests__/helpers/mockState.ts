@@ -209,6 +209,8 @@ export function createMockGameState(
     repopulationCube: null,
       movingCube: null,
       reachableDestinations: [],
+      routeOptions: [],
+      routeChoice: null,
     },
 
     logs: [],

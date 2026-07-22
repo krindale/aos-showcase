@@ -280,7 +280,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
         // 이동이 시작되면(mc 도착) 게스트 로컬의 화물 안내(골드 점선/선택/목적지 하이라이트)를
         // 함께 정리 — 실행은 호스트가 하므로 안 지우면 이동 후에도 가이드가 남는다 (피드백)
         ...(netMovingCube
-          ? { selectedCube: null, reachableDestinations: [], movePath: [] }
+          ? { selectedCube: null, reachableDestinations: [], movePath: [], routeOptions: [], routeChoice: null }
           : {}),
       },
       // 로컬 전용 필드는 항상 안전값으로 (persist merge와 같은 원칙).

@@ -29,7 +29,7 @@ import {
   CubeColor,
   GAME_CONSTANTS,
 } from '@/types/game';
-import { findLongestPath, getNeighborHex, hexCoordsEqual, getBuildableNeighbors, isTrackPartOfCompletedLink } from '@/utils/hexGrid';
+import { findRouteOptions, getNeighborHex, hexCoordsEqual, getBuildableNeighbors, isTrackPartOfCompletedLink } from '@/utils/hexGrid';
 import { isValidConnectionPoint } from '@/utils/trackValidation';
 import { calculateVictoryPoints } from '@/utils/gameLogic';
 import { HexCoord } from '@/types/game';
@@ -362,16 +362,17 @@ function executeMoveGoodsStep(): void {
       const player = state.players[state.currentPlayer];
       const sourceCity = state.board.cities.find(c => c.id === moveDecision.sourceCityId);
       if (sourceCity && player) {
-        const path = findLongestPath(
+        // 타인 철도 개방 반영 — AI 결정(decideMoveGoods)과 같은 findRouteOptions 디폴트 경로로 실행
+        const opt = findRouteOptions(
           sourceCity.coord,
           moveDecision.destinationCoord,
           state.board,
           state.currentPlayer,
           player.engineLevel,
           moveDecision.cubeColor
-        );
-        if (path && path.length >= 2) {
-          useGameStore.getState().moveGoods(moveDecision.cubeColor, path);
+        )[0];
+        if (opt && opt.path.length >= 2) {
+          useGameStore.getState().moveGoods(moveDecision.cubeColor, opt.path);
         }
       }
     } else if (moveDecision.action === 'upgradeEngine') {

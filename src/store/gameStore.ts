@@ -257,6 +257,10 @@ export interface GameStore extends GameState {
   // --- UI: 물품 이동 애니메이션 ---
   /** 목적지 도시 선택 */
   selectDestinationCity: (coord: HexCoord) => void;
+  /** 타인 철도 경로 선택 모드에서 후보 경로 선택 (routeChoice.options 인덱스) */
+  selectRouteOption: (index: number) => void;
+  /** 경로 선택 모드에서 현재 선택 경로로 수송 확정 */
+  confirmRouteChoice: () => void;
   /** 큐브 애니메이션 시작 */
   startCubeAnimation: (path: HexCoord[], color: CubeColor) => void;
   /** 애니메이션 다음 단계 */

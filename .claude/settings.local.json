@@ -85,7 +85,9 @@
       "PowerShell($pid3999 = \\(Get-NetTCPConnection -State Listen -LocalPort 3999 -ErrorAction SilentlyContinue\\).OwningProcess | Select-Object -Unique; if\\($pid3999\\){ Stop-Process -Id $pid3999 -Force -ErrorAction SilentlyContinue }; $pid3000 = \\(Get-NetTCPConnection -State Listen -LocalPort 3000 -ErrorAction SilentlyContinue\\).OwningProcess | Select-Object -Unique; Write-Output \\(\"3999 killed; 3000 alive=\" + [bool]$pid3000\\))",
       "PowerShell(for\\($i=0;$i -lt 10;$i++\\){ if\\(Get-NetTCPConnection -State Listen -LocalPort 3999 -ErrorAction SilentlyContinue\\){break}; Start-Sleep -Milliseconds 400 }; $p=Get-NetTCPConnection -State Listen -LocalPort 3000,3999 -ErrorAction SilentlyContinue; Write-Output \\(\"listening: \" + \\(\\($p.LocalPort | Sort-Object -Unique\\) -join ','\\)\\); Get-Content \"C:\\\\Users\\\\wow32\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\play.log\" -ErrorAction SilentlyContinue)",
       "Bash(gh run *)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(git -C /Users/dalelee/Desktop/aos-showcase status --short --branch)",
+      "Bash(git -C /Users/dalelee/Desktop/aos-showcase log --oneline -3)"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -160,7 +160,7 @@ function resolveView(entry: MapEntry): MapView {
   const special: MapRuleSummary[] = profile.specialRules;
   return {
     ...entry,
-    players: profile.supportedPlayers.join('·'),
+    players: [...profile.supportedPlayers].sort((a, b) => a - b).join('·'),
     turns: `${profile.maxTurns}턴`,
     rules: special.length > 0 ? special : entry.fallbackRules ?? [],
   };

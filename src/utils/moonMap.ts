@@ -47,7 +47,7 @@ export const MOON_MAP = {
   description:
     '달 표면에 선로를 놓는 3~4인 맵. 매 턴 보드 절반이 밤이 되어 그쪽 도시는 검은 도시로 변하고, 맵 가장자리로 나간 선로는 반대편 같은 번호 변으로 이어진다.',
   players: { min: 3, max: 4 },
-  supportedPlayers: [3, 4],
+  supportedPlayers: [4, 3], // 첫 값이 디폴트 인원 (supportedPlayers[0]) — 달은 4인 권장. 표시는 오름차순 정렬
   difficulty: 5,
   cols: 10, // 유효 col: 0 ~ 9 (전치 — 화면 세로)
   rows: 16, // 유효 row: 1 ~ 15 (전치 — 화면 가로. row 0은 보드 밖 패딩)

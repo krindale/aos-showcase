@@ -73,17 +73,21 @@ export default function BoardTracks({
 
         // 방향 전환 가능 여부 확인
         const isRedirectable = isBuildPhase && canRedirect(tile.coord);
+        // 미소유(디스크 빠진) 트랙 — 룰 IV: 새 타일로 연장하면 소유권 인수 가능.
+        // 완성 링크 소속(파산 잔재) 여부는 selectSourceHex의 isValidConnectionPoint가 걸러준다.
+        const isUnownedClaimable = tile.owner === null && !tile.isGovernment;
         const isTrackClickable = isBuildPhase && (
-          tile.owner === currentPlayer || isRedirectable
+          tile.owner === currentPlayer || isUnownedClaimable || isRedirectable
         );
 
         // 트랙 클릭 핸들러 (연결점 선택 우선, 방향 전환은 Shift+클릭)
         const handleTrackClick = (e: React.MouseEvent) => {
           if (!isTrackClickable) return;
 
-          // 플레이어의 자신의 트랙은 먼저 연결점으로 선택 (이어 짓기용)
-          // Shift+클릭일 때만 방향 전환
-          if (tile.owner === currentPlayer) {
+          // 내 트랙·인수 가능한 미소유 트랙: 일반 클릭 = 연결점 선택(이어 짓기 — 미소유는 연장 시
+          // 소유권 인수), Shift+클릭 = 방향 전환. (과거엔 미소유 트랙 클릭이 무조건 방향 전환으로
+          // 갔음 — 연장 인수가 없던 시절의 라우팅이라 룰 정합 수정에서 내 트랙과 동일하게 통일)
+          if (tile.owner === currentPlayer || isUnownedClaimable) {
             if (e.shiftKey && isRedirectable && isBuildModeIdle) {
               // Shift+클릭: 방향 전환 모드
               selectTrackToRedirect(tile.coord);
@@ -94,7 +98,7 @@ export default function BoardTracks({
             return;
           }
 
-          // 소유자가 없는 방향 전환 가능 트랙
+          // 그 외 방향 전환만 가능한 트랙
           if (isRedirectable && isBuildModeIdle) {
             selectTrackToRedirect(tile.coord);
           }

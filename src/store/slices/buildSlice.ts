@@ -19,11 +19,12 @@ import {
   getRedirectableEdges,
   isEndpointOfIncompleteSection,
   isTrackPartOfCompletedLink,
+  touchesClaimableUnownedTrack,
 } from '@/utils/trackValidation';
 import { hexCoordsEqual, getNeighborHex } from '@/utils/hexGrid';
 import { debugLog, logAction } from '@/utils/debugConfig';
 import { captureUndo, undoSnapshots } from '../helpers/undo';
-import { crossesBlockedEdge, findMissingTownSpurs, touchesMasterNetwork } from '../helpers/boardRules';
+import { crossesBlockedEdge, findMissingTownSpurs, touchesMasterNetwork, findClaimableSectionKeys } from '../helpers/boardRules';
 import { applyEngineerDiscount, hasEngineerDiscount } from '../helpers/engineerDiscount';
 import { computeTranscontinental } from '../helpers/transcontinental';
 
@@ -108,9 +109,16 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         && !state.players[currentPlayer]?.transcontinental;
 
       if (!hasExistingTrack) {
-        // 첫 트랙: (시작) 도시에 인접해야 함
+        // 첫 트랙: (시작) 도시에 인접해야 함.
+        // 예외(룰 IV 인수 연장): 내 트랙이 0개여도 미소유 미완성 구간에 변으로 이어 지으면 허용 —
+        // 그 구간은 이미 도시로 이어져 있고, 커밋 시 구간 전체가 내 소유가 되므로 "궁극적으로
+        // 도시 연결" 규칙을 만족한다. (내 트랙이 전부 미소유로 풀린 직후 인수가 막히던 실플레이
+        // 버그 — 2026-07-22 브라우저 검증에서 발견.) Western US 연속성(requireNetwork) 중엔
+        // 분리 구간 인수가 연속성을 깨므로 기존대로 불허.
         if (!validateFirstTrackRule(coord, edges, board, allowedStartCityIds)) {
-          return false;
+          if (requireNetwork || !touchesClaimableUnownedTrack(coord, edges, board)) {
+            return false;
+          }
         }
       } else {
         // 후속 트랙: 기존 트랙/도시에 연결되어야 함 (연속성 강제 시 분리 구간 금지)
@@ -250,21 +258,35 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       const carriedCube = existingTrack?.cube ?? hexCube;
 
       // 트랙 데이터 생성/수정
+      // 룰(IV) 소유권: ① 기존 타일 위 건설 = 방향 전환 — "방향 전환만으로는 연장으로 인정되지
+      // 않는다" → 소유권을 얻지 못하고(owner 유지, 미소유는 미소유대로) builtTurn도 유지해
+      // releaseUnextendedTrack이 이를 연장으로 오인하지 않게 한다. ② 새 타일이 미소유 미완성
+      // 구간에 이어지면(연장) 그 구간 전체의 소유권을 주장한다(findClaimableSectionKeys).
       const trackId = existingTrack ? existingTrack.id : `track-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const newTrack: TrackTile = {
         id: trackId,
         coord,
         edges,
-        owner: isGovBuild ? null : currentPlayer,
+        owner: isGovBuild ? null : (existingTrack ? existingTrack.owner : currentPlayer),
         trackType: 'simple',
-        builtTurn: state.currentTurn,
+        builtTurn: existingTrack ? existingTrack.builtTurn : state.currentTurn,
         ...(isGovBuild ? { isGovernment: true } : {}),
         ...(carriedCube ? { cube: carriedCube } : {}),
       };
 
+      const claimKeys = (!existingTrack && !isGovBuild)
+        ? findClaimableSectionKeys(state.board, coord, edges)
+        : new Set<string>();
+      const claimKeyOf = (c: HexCoord) => `${c.col},${c.row}`;
+
       const newTrackTiles = existingTrack
         ? state.board.trackTiles.map(t => hexCoordsEqual(t.coord, coord) ? newTrack : t)
-        : [...state.board.trackTiles, newTrack];
+        : [
+            ...state.board.trackTiles.map(t =>
+              claimKeys.has(claimKeyOf(t.coord)) ? { ...t, owner: currentPlayer } : t
+            ),
+            newTrack,
+          ];
 
       // 큐브가 트랙 위로 이동했으면 헥스에서 제거
       const newHexTiles = (hexCube && !existingTrack)
@@ -317,7 +339,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
             turn: state.currentTurn,
             phase: state.currentPhase,
             player: currentPlayer,
-            action: `${isGovBuild ? '정부 링크 트랙 건설' : '트랙 건설'} (${coord.col}, ${coord.row})${newSpurs.length > 0 ? ` + 마을 가닥 ${newSpurs.length}개` : ''}${skippedSpurCount > 0 ? ' (마을 미연결 — 다음 턴 마을 클릭으로 가닥 건설)' : ''} - $${cost} [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`,
+            action: `${isGovBuild ? '정부 링크 트랙 건설' : '트랙 건설'} (${coord.col}, ${coord.row})${newSpurs.length > 0 ? ` + 마을 가닥 ${newSpurs.length}개` : ''}${skippedSpurCount > 0 ? ' (마을 미연결 — 다음 턴 마을 클릭으로 가닥 건설)' : ''}${claimKeys.size > 0 ? ` + 미소유 구간 ${claimKeys.size}타일 소유권 인수` : ''} - $${cost} [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`,
             timestamp: Date.now(),
           },
         ],
@@ -691,7 +713,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       if (!track) return false;
 
       // 방향 전환 정보 확인
-      const redirectInfo = getRedirectableEdges(coord, state.board);
+      const redirectInfo = getRedirectableEdges(coord, state.board, currentPlayer);
       if (!redirectInfo) return false;
 
       // 유효한 방향인지 확인
@@ -721,11 +743,12 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
 
       captureUndo(state, `트랙 방향 전환 (${coord.col},${coord.row})`);
 
-      // 트랙 업데이트
+      // 트랙 업데이트 — 룰(IV): "방향 전환만으로는 연장으로 인정되지 않는다" → 소유권을 얻지
+      // 못한다 (내 트랙은 내 것 그대로, 미소유 트랙은 미소유 그대로. builtTurn도 유지해
+      // releaseUnextendedTrack이 연장으로 오인하지 않게). 소유권 인수는 새 타일 연장(buildTrack)으로만.
       const updatedTrack: TrackTile = {
         ...track,
         edges: newEdges,
-        owner: currentPlayer, // 방향 전환하면 소유권 획득
       };
 
       const updatedTrackTiles = state.board.trackTiles.map(t =>
@@ -760,10 +783,20 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
           builtTracksThisTurn: state.phaseState.builtTracksThisTurn + 1, // 타일만 1카운트 (가닥 자동 생성 없음)
           lastBuiltCoords: [...state.phaseState.lastBuiltCoords, coord],
         },
+        // 건설 UI 전체 초기화 (resetBuildMode와 동일 필드 + redirectTrackSelection) —
+        // 이제 방향 전환이 source_selected(하이라이트 표시 중)에서도 커밋되므로,
+        // buildMode만 되돌리면 노란 하이라이트·소스 선택이 화면에 남는다 (2026-07-22 실플레이 버그).
         ui: {
           ...state.ui,
           buildMode: 'idle',
+          sourceHex: null,
+          buildableNeighbors: [],
+          highlightedHexes: [],
+          previewTrack: null,
           selectedHex: null,
+          targetHex: null,
+          entryEdge: null,
+          exitDirections: [],
           redirectTrackSelection: null,
         },
         logs: [

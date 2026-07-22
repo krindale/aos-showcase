@@ -16,6 +16,7 @@ import {
   isValidConnectionPoint,
   canRedirectTrack,
   getRedirectableEdges,
+  getRedirectTargetHexes,
   isEndpointOfIncompleteSection,
 } from '@/utils/trackValidation';
 import {
@@ -317,17 +318,28 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
       const neighbors = getBuildableNeighbors(coord, state.board, currentPlayer, !govMode, govMode)
         .filter(n => !isBlockedEdge(state.board, coord, n.coord));
 
+      // 소스가 미완성 트랙(내 것/미소유)이면 방향 전환 가능한 방향의 이웃도 함께 하이라이트 —
+      // 노란 칸 클릭 한 번 = 그 방향으로 방향 전환($2). 연장 후보와 서로소(현재 변 제외)라
+      // 클릭 판정이 겹치지 않는다 (GameBoard가 같은 헬퍼로 판정). 정부 모드는 방향 전환 불가.
+      const redirectTargets = govMode
+        ? []
+        : getRedirectTargetHexes(coord, state.board, currentPlayer)
+            .filter(rt => !isBlockedEdge(state.board, coord, rt.coord));
+
       // 노란 칸이 하나도 안 뜨는 흔한 원인 = 이번 턴 건설 제한 도달. 그 경우만 토스트로 안내
       // (그 외 "여기 방향 없음"은 다른 곳 클릭하면 되므로 노이즈 방지 차원에서 생략).
-      if (neighbors.length === 0) {
+      if (neighbors.length === 0 && redirectTargets.length === 0) {
         const { builtTracksThisTurn: b, maxTracksThisTurn: m } = state.phaseState;
         if (b >= m) {
           useToastStore.getState().showToast(`이번 턴 건설 제한에 도달했어요 (${b}/${m})`);
         }
       }
 
-      // 하이라이트할 헥스 목록
-      const highlightedHexes = neighbors.map(n => n.coord);
+      // 하이라이트할 헥스 목록 (연장 타깃 + 방향 전환 타깃)
+      const highlightedHexes = [
+        ...neighbors.map(n => n.coord),
+        ...redirectTargets.map(rt => rt.coord),
+      ];
 
       set({
         ui: {
@@ -548,7 +560,7 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
       }
 
       // 방향 전환 가능한 엣지 정보 가져오기
-      const redirectInfo = getRedirectableEdges(coord, state.board);
+      const redirectInfo = getRedirectableEdges(coord, state.board, currentPlayer);
       if (!redirectInfo) return false;
 
       const { isEndpoint, connectedEdge } = isEndpointOfIncompleteSection(coord, state.board);

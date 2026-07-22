@@ -6,6 +6,7 @@ import { GameState, HexCoord, GAME_CONSTANTS, TRACK_REPLACE_COSTS, TrackTile } f
 import { getMapProfile } from '@/maps/getMapProfile';
 import {
   validateFirstTrackRule,
+  touchesClaimableUnownedTrack,
   validateTrackConnection,
   validateGovernmentTrackConnection,
   playerHasTrack,
@@ -90,7 +91,9 @@ export function getBuildBlockReason(
     profile.requireContiguousUntilTranscontinental && !state.players[currentPlayer]?.transcontinental;
   const hasExistingTrack = playerHasTrack(board, currentPlayer);
   if (!hasExistingTrack) {
-    if (!validateFirstTrackRule(coord, edges, board, allowedStartCityIds)) {
+    // canBuildTrack 미러: 미소유 미완성 구간 인수 연장은 첫 트랙 규칙 예외 (룰 IV)
+    if (!validateFirstTrackRule(coord, edges, board, allowedStartCityIds)
+        && (requireNetwork || !touchesClaimableUnownedTrack(coord, edges, board))) {
       return profile.startingCitiesOnly ? '첫 트랙은 시작 도시에 붙여야 해요' : '첫 트랙은 도시에 붙여야 해요';
     }
   } else if (!validateTrackConnection(coord, edges, board, currentPlayer, requireNetwork)) {

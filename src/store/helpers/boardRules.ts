@@ -120,6 +120,43 @@ export function releaseUnextendedTrack(
 }
 
 /**
+ * 룰(IV) 소유권 주장: 새 타일(coord/edges)이 미소유 미완성 트랙 구간에 이어지면(연장) 그 구간
+ * 전체의 소유권을 건설자가 가져간다 — "다른 플레이어가 미소유 미완성 구간을 연장하면 소유권 주장
+ * 가능". 방향 전환은 연장이 아니므로(룰: "방향 전환만으로는 연장으로 인정되지 않음") 호출하지 않는다.
+ * 새 타일 변에서 시작해 미소유 트랙끼리 변이 맞물린 체인을 BFS로 모은다.
+ * 제외: 정부 트랙(Montréal, 중립 — 인수 불가) · 완성 링크 소속 타일(파산 해제분 — 소유권은 영구라
+ * 인수 대상 아님. 완성 링크 타일은 열린 변이 없어 실제로 닿을 수 없지만 방어적으로 차단).
+ * 반환: 소유권을 넘길 타일 좌표 키("col,row") 집합.
+ */
+export function findClaimableSectionKeys(
+  board: BoardState,
+  coord: HexCoord,
+  edges: [number, number]
+): Set<string> {
+  const k = (c: HexCoord) => `${c.col},${c.row}`;
+  const claimKeys = new Set<string>();
+  const visited = new Set<string>([k(coord)]);
+  const stack: { coord: HexCoord; edges: number[] }[] = [{ coord, edges: [...edges] }];
+
+  while (stack.length) {
+    const cur = stack.pop()!;
+    for (const e of cur.edges) {
+      const nb = getNeighborHex(cur.coord, e, board);
+      const key = k(nb);
+      if (visited.has(key)) continue;
+      const nbTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, nb));
+      if (!nbTrack || nbTrack.owner !== null || nbTrack.isGovernment) continue;
+      if (!nbTrack.edges.includes(getOppositeEdge(e))) continue; // 변이 맞물려야 연결
+      if (isTrackPartOfCompletedLink(nb, board)) continue;
+      visited.add(key);
+      claimKeys.add(key);
+      stack.push({ coord: nb, edges: [...nbTrack.edges] });
+    }
+  }
+  return claimKeys;
+}
+
+/**
  * Germany 미완성 링크 금지: 한 플레이어의 트랙 건설이 끝났을 때, 이번 턴에 새로 깐 트랙 중
  * 완성 링크(도시/마을↔도시/마을)에 속하지 않는 것을 제거하고 건설 비용을 환불한다.
  * (룰북: "미완성 트랙 구간 건설 불가, 완성된 링크만 건설 가능")

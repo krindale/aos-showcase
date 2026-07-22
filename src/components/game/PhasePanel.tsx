@@ -12,7 +12,10 @@ import {
   GAME_CONSTANTS,
   PLAYER_COLORS,
   CUBE_COLORS,
+  HexCoord,
+  PlayerId,
 } from '@/types/game';
+import { getPathLinkOwners } from '@/utils/hexGrid';
 import {
   FileText,
   Users,
@@ -135,7 +138,24 @@ export default function PhasePanel() {
   const { selectRepopulationCube } = useGameStore();
   // 타인 철도 경로 선택 (moveGoods — 목적지 클릭 후 후보 2개 이상일 때)
   const routeChoice = useGameStore((s) => s.ui.routeChoice);
+  const routeBoard = useGameStore((s) => s.board);
   const { selectRouteOption, confirmRouteChoice } = useGameStore();
+
+  /** 후보 경로의 주인별 실제 수입(+n) — 정산 미러(getPathLinkOwners) 기준.
+   *  ⚠️ opt.oppLinks(총합)를 주인마다 찍으면 "각자 +총합"처럼 보이는 표시 버그가 된다(실전 발견).
+   *  달 저중력이면 최다 수입 주인 1을 나에게 이전(applyLowGravitation 미러). */
+  const routeOwnerGains = (opt: { path: HexCoord[] }): [PlayerId, number][] => {
+    const counts = new Map<PlayerId, number>();
+    for (const o of getPathLinkOwners(opt.path, routeBoard)) {
+      if (o && o !== currentPlayer) counts.set(o, (counts.get(o) ?? 0) + 1);
+    }
+    if (players[currentPlayer]?.selectedAction === 'lowGravitation' && counts.size > 0) {
+      const top = Array.from(counts.entries()).reduce((a, b) => (b[1] > a[1] ? b : a));
+      if (top[1] <= 1) counts.delete(top[0]);
+      else counts.set(top[0], top[1] - 1);
+    }
+    return Array.from(counts.entries());
+  };
 
   // Montréal 정부 관리 로테이션 (셋업 순번 고정 — 라운드 N 관리자 = [(N-1) % 인원])
   const govControllers = useGameStore((s) => s.governmentControllers);
@@ -739,19 +759,22 @@ export default function PhasePanel() {
                           aria-label={`경로 ${i + 1} 선택`}
                         >
                           <span className="font-semibold text-positive">내 수입 +{opt.ownLinks}</span>
-                          {opt.owners.length > 0 ? (
-                            opt.owners.map(pid => (
-                              <span key={pid} className="inline-flex items-center gap-1">
-                                <span
-                                  className="inline-block h-2 w-2 rounded-full ring-1 ring-black/15"
-                                  style={{ background: PLAYER_COLORS[players[pid]?.color] }}
-                                />
-                                {players[pid]?.name} +{opt.oppLinks}
-                              </span>
-                            ))
-                          ) : (
-                            <span>내 철도만</span>
-                          )}
+                          {(() => {
+                            const gains = routeOwnerGains(opt);
+                            return gains.length > 0 ? (
+                              gains.map(([pid, n]) => (
+                                <span key={pid} className="inline-flex items-center gap-1">
+                                  <span
+                                    className="inline-block h-2 w-2 rounded-full ring-1 ring-black/15"
+                                    style={{ background: PLAYER_COLORS[players[pid]?.color] }}
+                                  />
+                                  {players[pid]?.name} +{n}
+                                </span>
+                              ))
+                            ) : (
+                              <span>내 철도만</span>
+                            );
+                          })()}
                         </button>
                       );
                     })}

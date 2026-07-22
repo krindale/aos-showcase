@@ -226,6 +226,27 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     });
   };
 
+  // 인원 변경: 인원을 늘리며 새로 드러나는 좌석은 기본 BOT (기본 정책 "1번만 사람" 유지 —
+  // 사람으로 두면 모르고 시작 시 의도치 않은 핫시트가 됨. 줄일 때는 잘려나가므로 무처리)
+  const selectPlayerCount = (n: number) => {
+    if (n > playerCount) {
+      setAiPlayerIndexes(prev => {
+        const next = new Set(prev);
+        const romanNumerals = ['', 'II', 'III', 'IV', 'V', 'VI'];
+        const newNames = [...playerNames];
+        for (let i = playerCount; i < n; i++) {
+          if (next.has(i)) continue;
+          next.add(i);
+          const suffix = romanNumerals[next.size - 1] || `${next.size}`;
+          newNames[i] = next.size === 1 ? '컴퓨터-기차' : `컴퓨터-기차${suffix}`;
+        }
+        setPlayerNames(newNames);
+        return next;
+      });
+    }
+    setPlayerCount(n);
+  };
+
   // 게임 시작
   const handleStartGame = () => {
     const aiPlayers = Array.from(aiPlayerIndexes).map(index => ({
@@ -356,7 +377,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                     {[...supportedPlayers].sort((a, b) => a - b).map((n) => (
                       <button
                         key={n}
-                        onClick={() => setPlayerCount(n)}
+                        onClick={() => selectPlayerCount(n)}
                         className={`
                           flex-1 py-2 px-3 rounded-lg font-semibold transition-colors
                           ${playerCount === n
@@ -370,7 +391,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                     ))}
                   </div>
                   <p className="mt-2 text-xs text-foreground-secondary">
-                    {mapConfig.maxTurns || TURNS_BY_PLAYER_COUNT[playerCount]}턴 진행
+                    {mapConfig.turnsByPlayers?.[playerCount] ?? (mapConfig.maxTurns || TURNS_BY_PLAYER_COUNT[playerCount])}턴 진행
                     {mapId === 'tutorial' && <span className="text-accent ml-1">(튜토리얼)</span>}
                   </p>
                 </div>
@@ -438,7 +459,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                 {mapId === 'tutorial' ? '튜토리얼 모드' : '게임 규칙'}
               </h3>
               <ul className="text-xs text-foreground-secondary space-y-1">
-                <li>• {mapConfig.maxTurns || TURNS_BY_PLAYER_COUNT[playerCount]}턴 동안 진행</li>
+                <li>• {mapConfig.turnsByPlayers?.[playerCount] ?? (mapConfig.maxTurns || TURNS_BY_PLAYER_COUNT[playerCount])}턴 동안 진행</li>
                 <li>• 시작: ${getMapProfile(mapId).startingCash ?? 10}, 2주 발행</li>
                 <li>• 매 턴 10단계 진행</li>
                 <li>• 최종 승점으로 승자 결정</li>

@@ -38,6 +38,8 @@ export abstract class MapProfile {
   abstract readonly nameKo: string;
   abstract readonly supportedPlayers: number[];
   abstract readonly maxTurns: number;
+  /** 인원별 턴 수 (다인원 지원 맵의 룰북 턴 트랙). 미지정 = maxTurns 고정 (기존 맵 항등) */
+  readonly turnsByPlayers?: Record<number, number>;
 
   // ── 세팅 ──
   /** 초기 보드 상태 생성 (도시/마을/헥스 + 큐브 배치는 createInitialGameState에서 추가) */

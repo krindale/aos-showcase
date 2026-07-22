@@ -21,6 +21,7 @@ export class GermanyMapProfile extends StandardMapProfile {
       nameKo: GERMANY_MAP.nameKo,
       supportedPlayers: GERMANY_MAP.supportedPlayers,
       maxTurns: GERMANY_MAP.maxTurns,
+      turnsByPlayers: GERMANY_MAP.turnsByPlayers,
       createBoardState: createGermanyBoardState,
     });
   }
@@ -72,7 +73,7 @@ export class GermanyMapProfile extends StandardMapProfile {
 
   override get specialRules(): MapRuleSummary[] {
     return [
-      { title: '4인 8턴', detail: '독일 맵 — 4명, 8턴으로 진행합니다.' },
+      { title: '5~6인', detail: '독일 맵 — 5인 7턴 / 6인 6턴으로 진행합니다.' },
       { title: '외국 터미널 (녹색)', detail: '국경의 녹색 도시는 한 종류 화물만 받습니다. 생산하지 않고 통과도 불가.' },
       { title: '헥스 고정 비용', detail: '사각형 숫자(€6~€12)가 그 헥스의 트랙 건설 비용입니다 (지형 기본비용 대신).' },
       {

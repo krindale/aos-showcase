@@ -138,8 +138,10 @@ export interface GameMapData {
   cols: number;
   rows: number;
   startCol: number;
-  /** 게임 총 턴 수 */
+  /** 게임 총 턴 수 (다인원 지원 맵에선 디폴트 인원 기준 — turnsByPlayers가 우선) */
   maxTurns: number;
+  /** 인원별 턴 수 (룰북 턴 트랙). 미지정 시 maxTurns 고정 (튜토리얼/St.Lucia 등 고정 인원 맵) */
+  turnsByPlayers?: Record<number, number>;
   cities: City[];
   towns: Town[];
   /** 물품 디스플레이 열-도시 매핑 */
@@ -256,6 +258,7 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     rows: RUST_BELT_MAP.rows,
     startCol: RUST_BELT_MAP.startCol,
     maxTurns: RUST_BELT_MAP.maxTurns,
+    turnsByPlayers: RUST_BELT_MAP.turnsByPlayers,
     cities: RUST_BELT_CITIES,
     towns: RUST_BELT_TOWNS,
     columnMapping: RUST_BELT_COLUMN_MAPPING,
@@ -282,6 +285,7 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     rows: GERMANY_MAP.rows,
     startCol: GERMANY_MAP.startCol,
     maxTurns: GERMANY_MAP.maxTurns,
+    turnsByPlayers: GERMANY_MAP.turnsByPlayers,
     cities: GERMANY_ALL_CITIES,
     towns: GERMANY_TOWNS,
     columnMapping: GERMANY_COLUMN_MAPPING,
@@ -309,6 +313,7 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     rows: WESTERN_US_MAP.rows,
     startCol: WESTERN_US_MAP.startCol,
     maxTurns: WESTERN_US_MAP.maxTurns,
+    turnsByPlayers: WESTERN_US_MAP.turnsByPlayers,
     cities: WESTERN_US_CITIES,
     towns: WESTERN_US_TOWNS,
     columnMapping: WESTERN_US_COLUMN_MAPPING,

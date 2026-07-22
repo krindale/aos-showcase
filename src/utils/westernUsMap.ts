@@ -1,5 +1,5 @@
 // Western US 맵 데이터
-// Age of Steam Western U.S. (John Bohrer 2012 / James Mathias 아트 2018). 6인 전용(6턴).
+// Age of Steam Western U.S. (John Bohrer 2012 / James Mathias 아트 2018). 5~6인 지원(디폴트 5인 7턴 / 6인 6턴).
 //
 // 공식 맵 시트(maps/western-us-v1.pdf → public/maps/western-us.png, 3368×2382)를
 // 색상 자동 검출 + 헥스 내부 라벨링(면적 ~33020px) + 행/열 자기상관으로 추출했다.
@@ -35,15 +35,16 @@ export const WESTERN_US_MAP = {
   name: 'Western U.S.',
   nameKo: '서부 미국',
   description:
-    '태평양에서 미시시피까지, 산맥과 사막을 가로지르는 대륙횡단 6인 맵. ' +
+    '태평양에서 미시시피까지, 산맥과 사막을 가로지르는 대륙횡단 5~6인 맵. ' +
     '서부·동부 시작 도시 연결 보너스와 동서 배달 보너스가 특징.',
-  players: { min: 6, max: 6 },
-  supportedPlayers: [6],
+  players: { min: 5, max: 6 },
+  supportedPlayers: [5, 6], // [0]=디폴트 인원 (GamePageClient/OnlineLobby 초기 선택)
   difficulty: 5,
   cols: 14, // 유효 col: 0 ~ 13
   rows: 14, // 유효 row: 1 ~ 13 (row 0은 비어 lake)
   startCol: 0,
-  maxTurns: 6, // 룰북 표준 턴 트랙: 6인 = 6턴
+  maxTurns: 7, // 디폴트(5인) 기준 — 실제 턴 수는 turnsByPlayers[인원]
+  turnsByPlayers: { 3: 10, 4: 8, 5: 7, 6: 6 }, // 룰북 표준 턴 트랙
 };
 
 // === 도시 12 (좌표 / 색 / 동서 지역) ===

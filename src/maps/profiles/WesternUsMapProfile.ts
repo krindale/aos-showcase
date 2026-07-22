@@ -30,6 +30,7 @@ export class WesternUsMapProfile extends StandardMapProfile {
       nameKo: WESTERN_US_MAP.nameKo,
       supportedPlayers: WESTERN_US_MAP.supportedPlayers,
       maxTurns: WESTERN_US_MAP.maxTurns,
+      turnsByPlayers: WESTERN_US_MAP.turnsByPlayers,
       createBoardState: createWesternUsBoardState,
     });
   }
@@ -90,7 +91,7 @@ export class WesternUsMapProfile extends StandardMapProfile {
 
   override get specialRules(): MapRuleSummary[] {
     return [
-      { title: '6인 6턴', detail: '서부 미국 대륙횡단 — 6명, 6턴으로 진행합니다.' },
+      { title: '5~6인', detail: '서부 미국 대륙횡단 — 5인 7턴 / 6인 6턴으로 진행합니다.' },
       { title: '시작 자금 $20', detail: '2주 발행으로 $20을 받고 시작합니다 (표준 $10보다 많음).' },
       { title: '마을 큐브 배달', detail: '마을에도 큐브가 1개씩 있어 도시처럼 출발점이 됩니다 (보충 안 됨).' },
       { title: '마을 도시화 시 화물', detail: '큐브가 남아 있는 마을을 도시화하면 그 큐브는 주머니로 반환됩니다.' },

@@ -62,7 +62,7 @@ const maps: MapEntry[] = [
     nameKo: '러스트 벨트',
     diff: '표준',
     image: '/maps/rust-belt.webp',
-    description: '미국 북동부 산업 지대를 배경으로 한 기본 맵. 오대호와 산악, 두 강을 낀 5인 대결입니다.',
+    description: '미국 북동부 산업 지대를 배경으로 한 기본 맵. 오대호와 산악, 두 강을 낀 4~5인 대결입니다.',
     playable: true,
     fallbackRules: [
       { detail: '룰북 기본 규칙으로 진행합니다.' },
@@ -85,7 +85,7 @@ const maps: MapEntry[] = [
     nameKo: '서부 미국',
     diff: '고급',
     image: '/maps/western-us.webp',
-    description: '태평양에서 미시시피까지 횡단하는 6인전. 험준한 산맥·늪, 동서 배달 보너스와 대륙횡단 보너스가 특징입니다.',
+    description: '태평양에서 미시시피까지 횡단하는 5~6인전. 험준한 산맥·늪, 동서 배달 보너스와 대륙횡단 보너스가 특징입니다.',
     playable: true,
   },
   {
@@ -103,7 +103,7 @@ const maps: MapEntry[] = [
     nameKo: '독일',
     diff: '중급',
     image: '/maps/germany.webp',
-    description: '외국 터미널과 헥스별 고정 건설비용, 도시 직결 링크가 있는 산업 혁명기의 독일 4인전입니다.',
+    description: '외국 터미널과 헥스별 고정 건설비용, 도시 직결 링크가 있는 산업 혁명기의 독일 5~6인전입니다.',
     playable: true,
   },
   {
@@ -161,7 +161,12 @@ function resolveView(entry: MapEntry): MapView {
   return {
     ...entry,
     players: [...profile.supportedPlayers].sort((a, b) => a - b).join('·'),
-    turns: `${profile.maxTurns}턴`,
+    // 다인원 맵은 인원별 턴 수를 범위로 표시 (예: 6·7턴), 고정 인원 맵은 maxTurns 그대로
+    turns: `${Array.from(new Set(
+      profile.turnsByPlayers
+        ? profile.supportedPlayers.map((n) => profile.turnsByPlayers![n] ?? profile.maxTurns)
+        : [profile.maxTurns]
+    )).sort((a, b) => a - b).join('·')}턴`,
     rules: special.length > 0 ? special : entry.fallbackRules ?? [],
   };
 }

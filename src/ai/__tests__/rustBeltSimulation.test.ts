@@ -1,8 +1,8 @@
 /**
- * Rust Belt 5인 AI 전체 게임 시뮬레이션 — 다인(5인) 실동작 + 파산/VP 베이스라인
+ * Rust Belt 4인 AI 전체 게임 시뮬레이션 — 다인(4인, 디폴트 인원) 실동작 + 파산/VP 베이스라인
  *
  * Rust Belt는 이 프로젝트 최초의 3인+ 맵이다. 게임 엔진은 N인을 지원하도록 작성돼 있으나
- * 실제 5인 게임(다인 경매 지불, 물품 성장 주사위 5개, AI 1/(N-1) 정규화)이 끝까지 구동되는지
+ * 실제 4인 게임(다인 경매 지불, 물품 성장 주사위 4개, AI 1/(N-1) 정규화)이 끝까지 구동되는지
  * 동기식으로 검증한다. tutorial/St.Lucia 회귀 게이트와 별개의 베이스라인.
  *
  * 측정: 시드별 최종 accurateVP(완성 링크 트랙만 +1), 파산 건수, 완주 턴, 건설/배달/도시화.
@@ -27,7 +27,7 @@ function createSeededRng(seed: number): () => number {
   };
 }
 
-const PLAYERS: PlayerId[] = ['player1', 'player2', 'player3', 'player4', 'player5'];
+const PLAYERS: PlayerId[] = ['player1', 'player2', 'player3', 'player4'];
 
 // goodsGrowth는 주사위로 직접 처리하므로 AUTO에서 제외 (나머지 정산 페이즈는 nextPhase)
 const AUTO_PHASES = new Set([
@@ -54,7 +54,7 @@ interface RBResult {
   bidsThisGame: number;                          // 이 게임에서 실제 입찰(placeBid) 발생 횟수
   firstSeatByBid: Record<PlayerId, number>;      // 입찰($>0)로 1번 획득한 횟수 (player별)
   firstSeatByYield: Record<PlayerId, number>;    // 양보(입찰 없이)로 1번이 된 횟수 (player별)
-  seatRankByPlayer: Record<PlayerId, number[]>;  // player별 [1위,2위,...,5위] 순번 점유 횟수 (앞 절반 고착 진단)
+  seatRankByPlayer: Record<PlayerId, number[]>;  // player별 [1위,2위,...,4위] 순번 점유 횟수 (앞 절반 고착 진단)
 }
 
 /** Rust Belt 한 게임(5 AI)을 동기식으로 끝까지 구동하고 결과 측정 */
@@ -81,7 +81,7 @@ function runRustBeltGame(seed: number): RBResult {
   PLAYERS.forEach(p => {
     firstSeatCounts[p] = 0; buildsByPlayer[p] = 0; deliveriesByPlayer[p] = 0;
     turnOrderByPlayer[p] = 0; firstSeatByBid[p] = 0; firstSeatByYield[p] = 0;
-    seatRankByPlayer[p] = [0, 0, 0, 0, 0];
+    seatRankByPlayer[p] = PLAYERS.map(() => 0);
   });
   let lastSeatTurn = 0;
   let bidsThisGame = 0;
@@ -104,7 +104,7 @@ function runRustBeltGame(seed: number): RBResult {
         if (turnHadBid) firstSeatByBid[first] = (firstSeatByBid[first] ?? 0) + 1;
         else firstSeatByYield[first] = (firstSeatByYield[first] ?? 0) + 1;
       }
-      // 각 player의 이번 턴 순번(1~5위) 기록 — 1번뿐 아니라 앞 절반 고착을 진단
+      // 각 player의 이번 턴 순번(1~4위) 기록 — 1번뿐 아니라 앞 절반 고착을 진단
       s.playerOrder.forEach((pid, rank) => {
         if (rank < PLAYERS.length && seatRankByPlayer[pid]) seatRankByPlayer[pid][rank]++;
       });
@@ -249,7 +249,7 @@ function runRustBeltGame(seed: number): RBResult {
   };
 }
 
-describe('Rust Belt 5 AI 전체 게임 — 다인 실동작 + 베이스라인', () => {
+describe('Rust Belt 4 AI 전체 게임 — 다인 실동작 + 베이스라인', () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
   let warnSpy: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
@@ -281,7 +281,7 @@ describe('Rust Belt 5 AI 전체 게임 — 다인 실동작 + 베이스라인', 
     PLAYERS.forEach(p => {
       firstSeatTotal[p] = 0; winnerCounts[p] = 0;
       turnOrderTotal[p] = 0; firstSeatBidTotal[p] = 0; firstSeatYieldTotal[p] = 0;
-      seatRankTotal[p] = [0, 0, 0, 0, 0];
+      seatRankTotal[p] = PLAYERS.map(() => 0);
       perPlayer[p] = { vp: 0, income: 0, shares: 0, engine: 0, builds: 0, deliveries: 0, tracks: 0 };
     });
     let totalBids = 0;
@@ -321,8 +321,8 @@ describe('Rust Belt 5 AI 전체 게임 — 다인 실동작 + 베이스라인', 
     return {
       results, seeds,
       avgVP, minVP: Math.min(...allVPs), maxVP: Math.max(...allVPs),
-      avgIncome: sum(r => PLAYERS.reduce((a, p) => a + (r.income[p] ?? 0), 0)) / (seeds * 5),
-      avgShares: sum(r => PLAYERS.reduce((a, p) => a + (r.shares[p] ?? 0), 0)) / (seeds * 5),
+      avgIncome: sum(r => PLAYERS.reduce((a, p) => a + (r.income[p] ?? 0), 0)) / (seeds * 4),
+      avgShares: sum(r => PLAYERS.reduce((a, p) => a + (r.shares[p] ?? 0), 0)) / (seeds * 4),
       avgBankruptPerGame: totalBankrupt / seeds,
       avgDeliveries: sum(r => r.deliveries) / seeds,
       avgBuilds: sum(r => r.builds) / seeds,
@@ -337,17 +337,17 @@ describe('Rust Belt 5 AI 전체 게임 — 다인 실동작 + 베이스라인', 
     };
   }
 
-  // 측정 + 핵심 게이트: 모든 5인 게임이 정상 종료(무한루프/멈춤 없음)하고 최소 진행한다.
-  it('5인 게임 완주 + 베이스라인 측정 (100 시드)', () => {
+  // 측정 + 핵심 게이트: 모든 4인 게임이 정상 종료(무한루프/멈춤 없음)하고 최소 진행한다.
+  it('4인 게임 완주 + 베이스라인 측정 (100 시드)', () => {
     const m = measure(100);
     logSpy.mockRestore();
-    console.log('\n===== Rust Belt 5인 VP 통계 (100 시드) =====');
+    console.log('\n===== Rust Belt 4인 VP 통계 (100 시드) =====');
     console.log(`평균 accurateVP: ${m.avgVP.toFixed(2)} (min ${m.minVP}, max ${m.maxVP})`);
     console.log(`평균 발행주식: ${m.avgShares.toFixed(2)}, 평균 income: ${m.avgIncome.toFixed(2)}`);
     console.log(`건설/배달/도시화: 건설 ${m.avgBuilds.toFixed(1)}, 배달 ${m.avgDeliveries.toFixed(1)}, 도시화 ${m.avgUrban.toFixed(1)}`);
-    console.log(`파산: ${m.avgBankruptPerGame.toFixed(2)}명/게임, 평균 완주턴 ${m.avgTurns.toFixed(1)} (최대 7)`);
+    console.log(`파산: ${m.avgBankruptPerGame.toFixed(2)}명/게임, 평균 완주턴 ${m.avgTurns.toFixed(1)} (최대 8)`);
     console.log(`완주 턴 분포: ${JSON.stringify(m.finishedTurns)}`);
-    // 순서 고착 진단: 5인이면 이상적으로 1번 점유·승자가 각 ~20% (고착이면 한 명이 독점)
+    // 순서 고착 진단: 4인이면 이상적으로 1번 점유·승자가 각 ~25% (고착이면 한 명이 독점)
     console.log(`1번(선공) 점유 횟수(전 게임 합): ${JSON.stringify(m.firstSeatTotal)}`);
     console.log(`최종 승자 분포: ${JSON.stringify(m.winnerCounts)}`);
     // ── 경매/순서 진단 (상시) ──
@@ -355,8 +355,8 @@ describe('Rust Belt 5 AI 전체 게임 — 다인 실동작 + 베이스라인', 
     console.log(`1번 획득 — 입찰로(byBid): ${JSON.stringify(m.firstSeatBidTotal)}`);
     console.log(`1번 획득 — 양보로(byYield): ${JSON.stringify(m.firstSeatYieldTotal)}`);
     console.log(`turnOrder 행동 선택 횟수(전 게임 합): ${JSON.stringify(m.turnOrderTotal)}`);
-    // ── player별 순번(1~5위) 점유 분포 (앞 절반 고착 진단) ── 균등이면 각 100
-    console.log('--- player별 순번 점유 (1위~5위 횟수, 균등=각 100) ---');
+    // ── player별 순번(1~4위) 점유 분포 (앞 절반 고착 진단) ── 균등이면 각 100
+    console.log('--- player별 순번 점유 (1위~4위 횟수, 균등=각 100) ---');
     PLAYERS.forEach(p => {
       const r = m.seatRankTotal[p];
       const frontHalf = r[0] + r[1]; // 1~2위(앞 절반) 합
@@ -372,7 +372,7 @@ describe('Rust Belt 5 AI 전체 게임 — 다인 실동작 + 베이스라인', 
     expect(m.allReachedEnd).toBe(true);
     // 모든 게임이 최소 2턴 이상 진행
     expect(m.finishedTurns.every(t => t >= 2)).toBe(true);
-    // 5인 게임은 7턴 — 정상 게임은 7턴 도달 (조기 종료=전원 파산은 비정상)
-    expect(m.finishedTurns.some(t => t >= 7)).toBe(true);
+    // 4인 게임은 8턴 — 정상 게임은 8턴 도달 (조기 종료=전원 파산은 비정상)
+    expect(m.finishedTurns.some(t => t >= 8)).toBe(true);
   }, 900_000);
 });

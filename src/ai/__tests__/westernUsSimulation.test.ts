@@ -1,12 +1,12 @@
 /**
- * Western US 6인 AI 전체 게임 시뮬레이션 — 다인(6인) 실동작 + 베이스라인
+ * Western US 5인 AI 전체 게임 시뮬레이션 — 다인(5인, 디폴트 인원) 실동작 + 베이스라인
  *
  * 서부 미국 맵 특수 규칙(마을 큐브·$20 시작현금·늪/강 $4·산 $5·동서 배달 보너스·
  * 시작 도시 제한·대륙횡단 전 연속성 강제·대륙횡단 연결 보너스)이 끝까지 정상 구동되는지
  * 동기식으로 검증한다. tutorial/St.Lucia/Rust Belt/Germany 회귀 게이트와 별개의 베이스라인.
  *
- * 게이트: 모든 게임이 정상 종료(무한 루프/멈춤 없음) + 6턴 도달.
- * ⚠️ 6인은 편차가 매우 크다 → 베이스라인 측정은 반드시 다(多)시드로.
+ * 게이트: 모든 게임이 정상 종료(무한 루프/멈춤 없음) + 7턴 도달.
+ * ⚠️ 다인은 편차가 매우 크다 → 베이스라인 측정은 반드시 다(多)시드로.
  * 동기식 러너 — 실시간 executeAITurn 대신 getAIDecision을 직접 구동(ms 단위).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -28,7 +28,7 @@ function createSeededRng(seed: number): () => number {
   };
 }
 
-const PLAYERS: PlayerId[] = ['player1', 'player2', 'player3', 'player4', 'player5', 'player6'];
+const PLAYERS: PlayerId[] = ['player1', 'player2', 'player3', 'player4', 'player5'];
 
 const AUTO_PHASES = new Set([
   'collectIncome', 'payExpenses', 'incomeReduction', 'advanceTurn',
@@ -79,7 +79,7 @@ function runWesternUsGame(seed: number): WResult {
   PLAYERS.forEach(p => {
     firstSeatCounts[p] = 0; buildsByPlayer[p] = 0; deliveriesByPlayer[p] = 0;
     turnOrderByPlayer[p] = 0; firstSeatByBid[p] = 0; firstSeatByYield[p] = 0;
-    seatRankByPlayer[p] = [0, 0, 0, 0, 0, 0];
+    seatRankByPlayer[p] = PLAYERS.map(() => 0);
   });
   let lastSeatTurn = 0;
   let bidsThisGame = 0;
@@ -279,7 +279,7 @@ describe('Western US 6 AI 전체 게임 — 다인 실동작 + 베이스라인',
     PLAYERS.forEach(p => {
       firstSeatTotal[p] = 0; winnerCounts[p] = 0;
       turnOrderTotal[p] = 0; firstSeatBidTotal[p] = 0; firstSeatYieldTotal[p] = 0;
-      seatRankTotal[p] = [0, 0, 0, 0, 0, 0];
+      seatRankTotal[p] = PLAYERS.map(() => 0);
       perPlayer[p] = { vp: 0, income: 0, shares: 0, engine: 0, builds: 0, deliveries: 0, tracks: 0 };
     });
     let totalBids = 0;
@@ -319,8 +319,8 @@ describe('Western US 6 AI 전체 게임 — 다인 실동작 + 베이스라인',
     return {
       results, seeds,
       avgVP, minVP: Math.min(...allVPs), maxVP: Math.max(...allVPs),
-      avgIncome: sum(r => PLAYERS.reduce((a, p) => a + (r.income[p] ?? 0), 0)) / (seeds * 6),
-      avgShares: sum(r => PLAYERS.reduce((a, p) => a + (r.shares[p] ?? 0), 0)) / (seeds * 6),
+      avgIncome: sum(r => PLAYERS.reduce((a, p) => a + (r.income[p] ?? 0), 0)) / (seeds * 5),
+      avgShares: sum(r => PLAYERS.reduce((a, p) => a + (r.shares[p] ?? 0), 0)) / (seeds * 5),
       avgBankruptPerGame: totalBankrupt / seeds,
       avgDeliveries: sum(r => r.deliveries) / seeds,
       avgBuilds: sum(r => r.builds) / seeds,
@@ -336,15 +336,15 @@ describe('Western US 6 AI 전체 게임 — 다인 실동작 + 베이스라인',
     };
   }
 
-  it('6인 게임 완주 + 베이스라인 측정 (100 시드)', () => {
+  it('5인 게임 완주 + 베이스라인 측정 (100 시드)', () => {
     const m = measure(100);
     logSpy.mockRestore();
-    console.log('\n===== Western US 6인 VP 통계 (100 시드) =====');
+    console.log('\n===== Western US 5인 VP 통계 (100 시드) =====');
     console.log(`평균 accurateVP: ${m.avgVP.toFixed(2)} (min ${m.minVP}, max ${m.maxVP})`);
     console.log(`평균 발행주식: ${m.avgShares.toFixed(2)}, 평균 income: ${m.avgIncome.toFixed(2)}`);
     console.log(`건설/배달/도시화: 건설 ${m.avgBuilds.toFixed(1)}, 배달 ${m.avgDeliveries.toFixed(1)}, 도시화 ${m.avgUrban.toFixed(1)}`);
     console.log(`대륙횡단 달성: ${m.avgTranscontinental.toFixed(2)}명/게임`);
-    console.log(`파산: ${m.avgBankruptPerGame.toFixed(2)}명/게임, 평균 완주턴 ${m.avgTurns.toFixed(1)} (최대 6)`);
+    console.log(`파산: ${m.avgBankruptPerGame.toFixed(2)}명/게임, 평균 완주턴 ${m.avgTurns.toFixed(1)} (최대 7)`);
     console.log(`완주 턴 분포: ${JSON.stringify(m.finishedTurns)}`);
     console.log(`1번(선공) 점유 횟수(전 게임 합): ${JSON.stringify(m.firstSeatTotal)}`);
     console.log(`최종 승자 분포: ${JSON.stringify(m.winnerCounts)}`);
@@ -353,12 +353,12 @@ describe('Western US 6 AI 전체 게임 — 다인 실동작 + 베이스라인',
     console.log(`1번 획득 — 입찰로(byBid): ${JSON.stringify(m.firstSeatBidTotal)}`);
     console.log(`1번 획득 — 양보로(byYield): ${JSON.stringify(m.firstSeatYieldTotal)}`);
     console.log(`turnOrder 행동 선택 횟수(전 게임 합): ${JSON.stringify(m.turnOrderTotal)}`);
-    // ── player별 순번(1~6위) 점유 분포 (앞 절반 고착 진단) ── 균등이면 각 100
-    console.log('--- player별 순번 점유 (1위~6위 횟수, 균등=각 100) ---');
+    // ── player별 순번(1~5위) 점유 분포 (앞 절반 고착 진단) ── 균등이면 각 100
+    console.log('--- player별 순번 점유 (1위~5위 횟수, 균등=각 100) ---');
     PLAYERS.forEach(p => {
       const r = m.seatRankTotal[p];
-      const frontHalf = r[0] + r[1] + r[2]; // 1~3위(앞 절반) 합
-      console.log(`${p}: ${r.map((c, i) => `${i + 1}위 ${c}`).join(' | ')}  → 앞3합 ${frontHalf}`);
+      const frontHalf = r[0] + r[1]; // 1~2위(앞 절반) 합
+      console.log(`${p}: ${r.map((c, i) => `${i + 1}위 ${c}`).join(' | ')}  → 앞2합 ${frontHalf}`);
     });
     console.log('--- player별 평균 (건설/수송/엔진/주식) ---');
     PLAYERS.forEach(p => {
@@ -370,8 +370,8 @@ describe('Western US 6 AI 전체 게임 — 다인 실동작 + 베이스라인',
     expect(m.allReachedEnd).toBe(true);
     // 모든 게임이 최소 2턴 이상 진행
     expect(m.finishedTurns.every(t => t >= 2)).toBe(true);
-    // Western US 6인 = 6턴 (룰북) — 정상 게임은 6턴 도달
-    expect(m.finishedTurns.some(t => t >= 6)).toBe(true);
+    // Western US 5인 = 7턴 (룰북) — 정상 게임은 7턴 도달
+    expect(m.finishedTurns.some(t => t >= 7)).toBe(true);
   }, 900_000);
 
   // 1게임을 턴별로 추적 — 각 player가 매 턴 무엇을 하는지(건설/완성/수송/income) 하나하나.

@@ -219,8 +219,9 @@ export function createInitialGameState(
   const playerMoves: Partial<Record<PlayerId, boolean>> = {};
   activePlayers.forEach(p => { playerMoves[p] = false; });
 
-  // 맵별 턴 수 (튜토리얼 3턴, St. Lucia 8턴 등 - mapRegistry에서 정의)
-  const maxTurns = mapData.maxTurns || (TURNS_BY_PLAYER_COUNT[playerCount] || 6);
+  // 맵별 턴 수: 다인원 맵은 인원별 룰북 턴 트랙(turnsByPlayers) 우선, 고정 인원 맵은 maxTurns
+  const maxTurns = mapData.turnsByPlayers?.[playerCount]
+    ?? (mapData.maxTurns || (TURNS_BY_PLAYER_COUNT[playerCount] || 6));
 
   // 첫 턴 플레이어 순서 결정 (룰북: 주사위를 굴려 무작위로 결정)
   // - 실제 게임(UI/온라인)은 randomizeStartOrder=true → 좌석은 유지하고 turn order만 무작위 셔플.

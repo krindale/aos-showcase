@@ -14,6 +14,8 @@ export interface StandardMapArgs {
   nameKo: string;
   supportedPlayers: number[];
   maxTurns: number;
+  /** 인원별 턴 수 (다인원 지원 맵 — 미지정 시 maxTurns 고정) */
+  turnsByPlayers?: Record<number, number>;
   createBoardState: () => BoardState;
   /** 맵 규모에 따른 AI 엔진 전략 상한 (미지정 시 룰북 기본) */
   engineMax?: number;
@@ -27,6 +29,7 @@ export class StandardMapProfile extends MapProfile {
   readonly nameKo: string;
   readonly supportedPlayers: number[];
   readonly maxTurns: number;
+  override readonly turnsByPlayers?: Record<number, number>;
   private readonly _createBoardState: () => BoardState;
   private readonly _engineMax?: number;
   private readonly _noOwnColorCubes: boolean;
@@ -38,6 +41,7 @@ export class StandardMapProfile extends MapProfile {
     this.nameKo = args.nameKo;
     this.supportedPlayers = args.supportedPlayers;
     this.maxTurns = args.maxTurns;
+    this.turnsByPlayers = args.turnsByPlayers;
     this._createBoardState = args.createBoardState;
     this._engineMax = args.engineMax;
     this._noOwnColorCubes = args.noOwnColorCubes ?? false;

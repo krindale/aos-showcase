@@ -1,6 +1,6 @@
 // Rust Belt 맵 데이터
 // Age of Steam 기본 맵 (John Bohrer, 2002 / Deluxe Edition). 미국 북동부·중서부.
-// 사용자 결정으로 5인 전용(7턴)으로 제공한다.
+// 사용자 결정으로 4~5인 지원(디폴트 4인 8턴 / 5인 7턴)으로 제공한다.
 //
 // 공식 맵 시트(maps/rust-belt-v2.pdf)를 고해상도 렌더 후 색상 기반 자동 검출로 추출했다.
 // 원본은 St. Lucia와 동일한 flat-top(평평한 윗변) 헥스 보드 — 게임 좌표는 전치(transpose)해
@@ -25,14 +25,15 @@ export const RUST_BELT_MAP = {
   id: 'rust-belt',
   name: 'Rust Belt',
   nameKo: '러스트 벨트',
-  description: '미국 북동부·중서부를 잇는 Age of Steam 기본 맵. 오대호와 산악, 두 강을 낀 5인 대결 맵.',
-  players: { min: 5, max: 5 },
-  supportedPlayers: [5],
+  description: '미국 북동부·중서부를 잇는 Age of Steam 기본 맵. 오대호와 산악, 두 강을 낀 4~5인 대결 맵.',
+  players: { min: 4, max: 5 },
+  supportedPlayers: [4, 5], // [0]=디폴트 인원 (GamePageClient/OnlineLobby 초기 선택)
   difficulty: 2,
   cols: 11, // 유효 col: 0 ~ 10 (0-base)
   rows: 18, // 유효 row: 0 ~ 17
   startCol: 0,
-  maxTurns: 7, // 룰북: 5인 게임은 7턴
+  maxTurns: 8, // 디폴트(4인) 기준 — 실제 턴 수는 turnsByPlayers[인원]
+  turnsByPlayers: { 3: 10, 4: 8, 5: 7, 6: 6 }, // 룰북 표준 턴 트랙
 };
 
 // === 도시 12개 (전치 좌표 / 색 / 물품성장 주사위 번호) ===

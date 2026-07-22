@@ -153,9 +153,9 @@ src/
 │       ├── fullSimulation.test.ts        # 2 AI 멀티턴 트랙 건설/링크 완성 시뮬레이션
 │       ├── fullGameSimulation.test.ts    # 실제 gameStore 구동 전체 게임 시뮬레이션 (파산율/재정 검증)
 │       ├── stLuciaSimulation.test.ts     # St.Lucia 2 AI 동기식 전체게임 러너 + 수익/건설 깔때기 측정
-│       ├── rustBeltSimulation.test.ts    # Rust Belt 5인 AI 동기식 전체게임 러너 + 베이스라인
-│       ├── germanySimulation.test.ts     # Germany 4인 AI 동기식 전체게임 러너(8턴) + 베이스라인
-│       ├── westernUsSimulation.test.ts   # Western US 6인 AI 동기식 전체게임 러너(6턴) + 베이스라인
+│       ├── rustBeltSimulation.test.ts    # Rust Belt 4인(디폴트) AI 동기식 전체게임 러너(8턴) + 베이스라인
+│       ├── germanySimulation.test.ts     # Germany 5인(디폴트) AI 동기식 전체게임 러너(7턴) + 베이스라인
+│       ├── westernUsSimulation.test.ts   # Western US 5인(디폴트) AI 동기식 전체게임 러너(7턴) + 베이스라인
 │       ├── southernUsSimulation.test.ts  # Southern US 6인 AI 동기식 전체게임 러너(6턴) + 면화 불변식 + 베이스라인
 │       ├── koreaSimulation.test.ts       # Korea 4인 AI 동기식 전체게임 러너(8턴) + 베이스라인
 │       ├── montrealSimulation.test.ts    # Montréal 3인 AI 동기식 러너(9턴) + 특수룰 불변식(정부링크/마스터네트워크/DGEL)
@@ -272,9 +272,9 @@ src/
     ├── trackValidation.ts      # 트랙 건설 및 연결성 검증
     ├── tutorialMap.ts          # 튜토리얼 맵 데이터 정의 (좌표 0-base)
     ├── stLuciaMap.ts           # St. Lucia 맵 데이터 정의 (2인 전용, 헥스큐브, 좌표 0-base)
-    ├── rustBeltMap.ts          # Rust Belt 맵 데이터 정의 (5인 전용, flat-top 전치, 좌표 0-base)
-    ├── germanyMap.ts           # Germany 맵 데이터 정의 (4인 전용, flat-top 전치, 터미널/고정비용/직결)
-    ├── westernUsMap.ts         # Western US 맵 데이터 정의 (6인 전용, pointy-top 네이티브, 마을큐브/지형fixedCost/동서region)
+    ├── rustBeltMap.ts          # Rust Belt 맵 데이터 정의 (4~5인·디폴트 4인, flat-top 전치, 좌표 0-base)
+    ├── germanyMap.ts           # Germany 맵 데이터 정의 (5~6인·디폴트 5인, flat-top 전치, 터미널/고정비용/직결)
+    ├── westernUsMap.ts         # Western US 맵 데이터 정의 (5~6인·디폴트 5인, pointy-top 네이티브, 마을큐브/지형fixedCost/동서region)
     ├── southernUsMap.ts        # Southern US 맵 데이터 정의 (6인 전용, flat-top 전치, 면화/4대 항구/애팔래치아)
     ├── koreaMap.ts             # Korea 맵 데이터 정의 (4인 전용, flat-top 전치, 동적색 플래그/산fixedCost/수원 직결)
     ├── montrealMap.ts          # Montréal Métro 맵 데이터 정의 (3인 전용 9턴, flat-top 전치, 언덕$3/도로$4/물$6·Parc 밀봉)
@@ -341,12 +341,13 @@ docs/
 Next가 압축을 안 하므로 원본 대용량 PNG를 그대로 받으면 갤러리가 무거워진다 (PNG 기준 맵당 1~5MB).
 게임 보드는 SVG 렌더라 이 이미지와 무관(갤러리 표시용일 뿐).
 
-9개 맵 갤러리:
-- **Rust Belt** (기본) - 미국 북동부
+9개 맵 갤러리 (다인원 지원 맵은 `supportedPlayers[0]`=디폴트 인원, 인원별 턴 수는 맵 데이터
+`turnsByPlayers`(룰북 턴 트랙 3인10/4인8/5인7/6인6)를 setup·게임 셋업 UI가 조회 — 고정 인원 맵은 미지정=maxTurns 항등):
+- **Rust Belt** (기본) - 미국 북동부, 4~5인(디폴트 4인 8턴/5인 7턴)
 - **Korea** (플레이 가능) - 한반도, 동적 도시 색상, 4인 8턴 (도시 수요색=현재 큐브색·수원 직결 링크·신도시 회색)
-- **Western U.S.** (플레이 가능) - 대륙횡단 철도, 6인 6턴 (마을 큐브·동서 배달 보너스·대륙횡단 연결 보너스)
+- **Western U.S.** (플레이 가능) - 대륙횡단 철도, 5~6인(디폴트 5인 7턴/6인 6턴) (마을 큐브·동서 배달 보너스·대륙횡단 연결 보너스)
 - **Southern U.S.** (플레이 가능) - 면화 운송, 6인 6턴 (마을 면화→4대 항구 배달·Atlanta 호황·4턴 남북전쟁 수입감소 2배)
-- **Germany** (플레이 가능) - 외국 터미널·헥스 고정비용·도시 직결, 4인 8턴
+- **Germany** (플레이 가능) - 외국 터미널·헥스 고정비용·도시 직결, 5~6인(디폴트 5인 7턴/6인 6턴)
 - **Montréal Métro** (플레이 가능) - 몬트리올 지하철, 3인 9턴 (정부 링크·마스터 네트워크·DGEL·Repopulation)
 - **The Moon** (플레이 가능) - 달 표면, 4인 8턴 (밤낮 교대·랩 어라운드·Moon Base 네트워크·건설 2개 제한·저중력)
 - **Barbados** - 솔로 게임
@@ -670,9 +671,9 @@ npx vitest run src/ai/__tests__/fullGameSimulation.test.ts -t "executeAITurn" # 
 - `src/ai/__tests__/fullSimulation.test.ts` - 2 AI 멀티턴 트랙 건설/링크 완성 시뮬레이션
 - `src/ai/__tests__/fullGameSimulation.test.ts` - 실제 gameStore 구동 전체 게임 시뮬레이션 (파산율 0%, 재정 건전성, 랜덤 시드 스트레스 테스트)
 - `src/ai/__tests__/stLuciaSimulation.test.ts` - St.Lucia 2 AI 동기식 전체게임 러너 + 수익/건설 깔때기 측정 (income/VP 베이스라인 + 목표 게이트)
-- `src/ai/__tests__/rustBeltSimulation.test.ts` - Rust Belt 5인 AI 동기식 전체게임 러너 + 베이스라인
-- `src/ai/__tests__/germanySimulation.test.ts` - Germany 4인 AI 동기식 전체게임 러너(8턴) + 베이스라인
-- `src/ai/__tests__/westernUsSimulation.test.ts` - Western US 6인 AI 동기식 전체게임 러너(6턴) + 베이스라인
+- `src/ai/__tests__/rustBeltSimulation.test.ts` - Rust Belt 4인(디폴트) AI 동기식 전체게임 러너(8턴) + 베이스라인
+- `src/ai/__tests__/germanySimulation.test.ts` - Germany 5인(디폴트) AI 동기식 전체게임 러너(7턴) + 베이스라인
+- `src/ai/__tests__/westernUsSimulation.test.ts` - Western US 5인(디폴트) AI 동기식 전체게임 러너(7턴) + 베이스라인
 - `src/ai/__tests__/southernUsSimulation.test.ts` - Southern US 6인 AI 동기식 전체게임 러너(6턴) + 면화 불변식 + 베이스라인
 - `src/ai/__tests__/koreaSimulation.test.ts` - Korea 4인 AI 동기식 전체게임 러너(8턴) + 베이스라인
 - **다인 맵 시뮬은 모두 100시드로 측정** (8/20시드는 편차가 커 노이즈). 변경 전/후 비교 기준 수치는

@@ -17,6 +17,7 @@ export class RustBeltMapProfile extends StandardMapProfile {
       nameKo: RUST_BELT_MAP.nameKo,
       supportedPlayers: RUST_BELT_MAP.supportedPlayers,
       maxTurns: RUST_BELT_MAP.maxTurns,
+      turnsByPlayers: RUST_BELT_MAP.turnsByPlayers,
       createBoardState: createRustBeltBoardState,
     });
   }
@@ -38,7 +39,7 @@ export class RustBeltMapProfile extends StandardMapProfile {
     return [
       { title: '표준 규칙 맵', detail: 'Age of Steam 기본 룰을 그대로 따르는 미국 북동부 맵입니다.' },
       { title: '큐브 많은 도시', detail: 'Pittsburgh·Wheeling은 시작 큐브 3개, 그 외 도시는 2개입니다.' },
-      { title: '5인 7턴', detail: '플레이어 수에 따라 턴 수가 정해집니다 (5인 기준 7턴).' },
+      { title: '4~5인', detail: '플레이어 수에 따라 턴 수가 정해집니다 (4인 8턴 / 5인 7턴).' },
     ];
   }
 }

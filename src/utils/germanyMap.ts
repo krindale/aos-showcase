@@ -1,5 +1,5 @@
 // Germany 맵 데이터
-// Age of Steam Germany (John Bohrer, 2003 / James Mathias 아트 2018). 4인 전용(8턴).
+// Age of Steam Germany (John Bohrer, 2003 / James Mathias 아트 2018). 5~6인 지원(디폴트 5인 7턴 / 6인 6턴).
 //
 // 공식 맵 시트(maps/germany-v2.pdf → public/maps/germany.png)를 고해상도 렌더 후
 // 색상 기반 자동 검출 + 테두리 자기상관 격자 피팅으로 추출했다.
@@ -30,14 +30,15 @@ export const GERMANY_MAP = {
   id: 'germany',
   name: 'Germany',
   nameKo: '독일',
-  description: '외국 터미널과 알프스를 낀 중부 유럽 4인 맵. 헥스별 고정 건설비용과 Berlin 물품 보너스가 특징.',
-  players: { min: 4, max: 4 },
-  supportedPlayers: [4],
+  description: '외국 터미널과 알프스를 낀 중부 유럽 5~6인 맵. 헥스별 고정 건설비용과 Berlin 물품 보너스가 특징.',
+  players: { min: 5, max: 6 },
+  supportedPlayers: [5, 6], // [0]=디폴트 인원 (GamePageClient/OnlineLobby 초기 선택)
   difficulty: 4,
   cols: 15, // 유효 col: 0 ~ 14 (전치 — 화면 세로)
   rows: 13, // 유효 row: 0 ~ 12 (전치 — 화면 가로)
   startCol: 0,
-  maxTurns: 8, // 룰북 표준: 4인 게임 8턴 (3인10/4인8/5인7/6인6)
+  maxTurns: 7, // 디폴트(5인) 기준 — 실제 턴 수는 turnsByPlayers[인원]
+  turnsByPlayers: { 3: 10, 4: 8, 5: 7, 6: 6 }, // 룰북 표준 턴 트랙
 };
 
 // === 도시 13 (전치 좌표 / 색) ===

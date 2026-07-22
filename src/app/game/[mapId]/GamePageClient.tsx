@@ -370,7 +370,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                     ))}
                   </div>
                   <p className="mt-2 text-xs text-foreground-secondary">
-                    {mapConfig.maxTurns || TURNS_BY_PLAYER_COUNT[playerCount]}턴 진행
+                    {mapConfig.turnsByPlayers?.[playerCount] ?? (mapConfig.maxTurns || TURNS_BY_PLAYER_COUNT[playerCount])}턴 진행
                     {mapId === 'tutorial' && <span className="text-accent ml-1">(튜토리얼)</span>}
                   </p>
                 </div>
@@ -438,7 +438,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                 {mapId === 'tutorial' ? '튜토리얼 모드' : '게임 규칙'}
               </h3>
               <ul className="text-xs text-foreground-secondary space-y-1">
-                <li>• {mapConfig.maxTurns || TURNS_BY_PLAYER_COUNT[playerCount]}턴 동안 진행</li>
+                <li>• {mapConfig.turnsByPlayers?.[playerCount] ?? (mapConfig.maxTurns || TURNS_BY_PLAYER_COUNT[playerCount])}턴 동안 진행</li>
                 <li>• 시작: ${getMapProfile(mapId).startingCash ?? 10}, 2주 발행</li>
                 <li>• 매 턴 10단계 진행</li>
                 <li>• 최종 승점으로 승자 결정</li>

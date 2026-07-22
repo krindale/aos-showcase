@@ -862,6 +862,10 @@ export function findOptimalPathAvoidingOpponent(
  * 이 헥스의 미소유 트랙이 인수 연장(룰 IV) 대상인가 — AI 계획용 판정.
  * 미소유(디스크 빠진)·비정부·simple·완성 링크 소속 아님. 변 일치 여부는 호출자가
  * 경로 방향으로 검증한다 (isReusableUnownedOnPath 또는 buildTrack frontier 루프).
+ * ⚠️ **의도된 비대칭**: store 인수(findClaimableSectionKeys)는 `simple`을 요구하지 않아
+ *    복합 무소유 타일도 인수하지만, AI 계획은 여기서 `simple`만 재사용으로 인정한다 —
+ *    복합 무소유는 건설비로 계상해 경로를 과대평가하지 않는 보수적 방향(안전). 복합 무소유는
+ *    파산 해제 등으로만 생기는 희귀 상태이므로 이 비대칭의 실무 영향은 미미하다.
  */
 export function getClaimableUnownedTrackAt(
   board: BoardState,

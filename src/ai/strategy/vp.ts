@@ -337,6 +337,11 @@ export function estimateRouteVP(
     if (board.trackTiles.some(t => t.owner === playerId && hexCoordsEqual(t.coord, coord))) continue;
     // 미소유 트랙을 변 일치로 그대로 재사용(인수 연장, 룰 IV) — 건설 불요, 비용 0.
     // 인접 타일을 지으면 store claim이 구간을 자동 인수하므로 계획상 "이미 깔린 구간"으로 취급.
+    // ⚠️ tracksToBuild는 아래 netTrackVP(완성링크 트랙 +1 VP) 크레딧에도 쓰인다 — 재사용 타일을
+    //    여기서 빼면 claim으로 실제 얻는 그 타일들의 +1 VP도 함께 빠져 경로 VP를 보수적으로
+    //    과소평가한다. 이는 **의도된 선택**(비용 절감으로만 반영, 가산 보너스 금지 — 달 성장 가치
+    //    기각 교훈, 100시드 게이트로 검증). netTrackVP에 재사용 타일을 되살리면 불확실한 claim을
+    //    과대평가하게 되므로 하지 말 것.
     if (isReusableUnownedOnPath(board, fullPath, i)) continue;
     tracksToBuild++;
     buildCost += getTerrainBuildCost(coord, board);

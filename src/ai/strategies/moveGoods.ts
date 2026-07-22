@@ -9,7 +9,7 @@
  *  - 어느 쪽도 양수가 아니면 스킵 (상대만 이득인 배달은 하지 않음)
  */
 
-import { GameState, PlayerId, HexCoord, CubeColor, City } from '@/types/game';
+import { GameState, PlayerId, HexCoord, CubeColor } from '@/types/game';
 import { findReachableDestinations, findRouteOptions, hexCoordsEqual, findTrackCubeDeliveries } from '@/utils/hexGrid';
 import { calculateVictoryPoints } from '@/utils/gameLogic';
 import { calculateTrackScore } from '@/utils/trackValidation';

@@ -136,6 +136,9 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
             selectedCube: { cityId, cubeIndex: 0 },
             reachableDestinations: deliveries.map(d => d.city.coord),
             movePath: [...best.pathCoords, best.city.coord],
+            // 직전 도시 큐브의 경로 선택 상태 잔존 방지 (트랙 큐브는 경로 선택 UI 미사용)
+            routeOptions: [],
+            routeChoice: null,
           },
         });
         return;

@@ -142,6 +142,18 @@ findRouteOptions(start, end, board, playerId, maxLength, cubeColor, govExtra): R
 | 6 | 100시드 게이트: 7맵 전/후 비교(기준: docs/ai-auction-baseline-100seed.md), 달은 저중력 선호값 스윕 재튜닝 루프 | 시뮬 테스트 실행·베이스라인 문서 갱신 | VP 하락 −1 초과·파산 +0.1 초과 맵 없음(달은 신규 기준 수립) |
 | 7 | 확장·문서: St.Lucia 트랙 큐브·Western US 마을 큐브 동일 개방, CLAUDE.md·ai-system.md·이 문서 상태 갱신 | `uiSlice.ts`, `hexGrid.ts`(findTrackCubeDeliveries), 문서 | 해당 맵 시뮬 + 수동 검수 |
 
+## PR #41 코드리뷰 체크리스트 (스텝바이스텝 — 스텝마다 결과 기록·커밋)
+
+| # | 스텝 | 상태 | 결과 |
+|---|------|------|------|
+| 1 | 탐색 코어 (hexGrid: findRouteOptions·getPathLinkOwners·tie-break·직결·트랙큐브 랭킹) | ✅ 통과 | 메모 3건(모두 무해): ① getPathLinkOwners 직결 분기는 인접 정거장 한정 — 정산은 무조건 검사지만 독일 직결=인접 도시쌍뿐이라 실차이 없음 ② findLongestPath tie-break의 own(secondary 인정)/opp(정산 미러) 기준 혼용 — 휴리스틱이라 무해 ③ cmp의 −Infinity는 ‖ 체인에서 NaN 반환 불가 확인 |
+| 2 | uiSlice 상태기계 (selectCube 도시/마을·selectDestinationCity·selectRouteOption/confirm·정리·봇 우회) | ✅ 수정 1건 | **스테일 routeChoice**: 트랙 큐브 선택(selectCube track:)·moveTrackCube·completeCubeMove가 routeChoice/routeOptions를 정리 안 해 St.Lucia에서 수송 후 스테일 경로 UI 부활(확정은 selectedCube 가드로 불가—표시 혼란만). 3곳 정리 추가. 단위 184개 통과 |
+| 3 | 렌더 계층 (BoardOverlays 분절/히트영역·PhasePanel 카드·GameBoard 배선) | 대기 | |
+| 4 | AI 계층 (moveGoods: 개방·디폴트 채택·선점/해금·트랙큐브 평가) | 대기 | |
+| 5 | 온라인/동기화 (intents 무등록 타당성·netStore 정리·deliveryIncomeEvent 스냅샷/persist) | 대기 | |
+| 6 | 수익 펄스 (moveSlice 이벤트·BoardPulses 가드/수명) | 대기 | |
+| 7 | 테스트/문서 (커버리지 빈틈·sim 러너 수정 타당성·CLAUDE.md/베이스라인 정확성) | 대기 | |
+
 ## 리스크 / 미결
 
 - 달 봇 밸런스: 저중력 축소 + 전원 타인 링크 개방의 순효과 예측 불가 — 스텝 6에서

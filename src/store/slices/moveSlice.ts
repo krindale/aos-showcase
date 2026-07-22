@@ -283,6 +283,8 @@ export function createMoveSlice(set: Set, get: Get): MoveSlice {
           movePath: path,
           selectedCube: null,
           reachableDestinations: [],
+          routeOptions: [],
+          routeChoice: null,
         },
       });
 
@@ -429,6 +431,8 @@ export function createMoveSlice(set: Set, get: Get): MoveSlice {
           movePath: [],
           selectedCube: null,
           reachableDestinations: [],
+          routeOptions: [],
+          routeChoice: null,
         },
         logs: [
           ...state.logs,

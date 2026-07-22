@@ -176,6 +176,51 @@ describe('타인 철도 경로 선택 상태기계', () => {
     expect(ui.movingCube!.path.some(c => c.col === 3 && c.row === 0)).toBe(true); // 디폴트 윗길
   });
 
+  it('큐브 단위 게이트: 내 수입이 본인 철도 최선을 못 넘는 타인 경유 목적지는 사람에게 숨긴다', () => {
+    // T(6,1) = 본인 철도 own2 (P→Y→T) / T2(4,0) = 타인 경유 own1+opp1만 → 숨김 대상
+    const install = (meIsBot: boolean) => {
+      const st = useGameStore.getState();
+      useGameStore.setState({
+        currentPhase: 'moveGoods',
+        currentPlayer: P1,
+        board: {
+          ...st.board,
+          cities: [
+            city('P', 'red', 0, 1, ['blue']),
+            city('Y', 'yellow', 3, 2),
+            city('M', 'yellow', 2, 0),
+            city('T2', 'blue', 4, 0),
+            city('T', 'blue', 6, 1),
+          ],
+          towns: [],
+          townSpurs: [],
+          trackTiles: [
+            // 본인 철도 own2: P─(1,2)(2,2)─Y─(4,2)(5,2)(6,2)─T
+            trk(1, 2, [4, 0], P1), trk(2, 2, [3, 0], P1),
+            trk(4, 2, [3, 0], P1), trk(5, 2, [3, 0], P1), trk(6, 2, [3, 5], P1),
+            // 타인 경유 own1+opp1: P─(1,0)내꺼─M─(3,0)타인─T2
+            trk(1, 0, [2, 0], P1), trk(3, 0, [3, 0], P2),
+          ],
+        },
+        players: {
+          ...st.players,
+          [P1]: { ...st.players[P1], engineLevel: 4, isAI: meIsBot },
+        },
+      });
+    };
+    install(false);
+    useGameStore.getState().selectCube('P', 0);
+    let dests = useGameStore.getState().ui.reachableDestinations;
+    expect(dests.some(d => d.col === 6 && d.row === 1)).toBe(true);  // T 유지
+    expect(dests.some(d => d.col === 4 && d.row === 0)).toBe(false); // T2 숨김
+    // 봇은 미적용 (ΔVP가 같은 판단 — 결정/실행 일치 유지)
+    useGameStore.getState().initGame('tutorial', ['사람1', '사람2']);
+    install(true);
+    useGameStore.getState().selectCube('P', 0);
+    dests = useGameStore.getState().ui.reachableDestinations;
+    expect(dests.some(d => d.col === 4 && d.row === 0)).toBe(true);
+  });
+
   it('범위 밖 selectRouteOption은 무시된다', () => {
     installBoard();
     useGameStore.getState().selectCube('P', 0);

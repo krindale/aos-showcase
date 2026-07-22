@@ -10,7 +10,9 @@
  */
 
 import { GameState, PlayerId, HexCoord, CubeColor, City } from '@/types/game';
-import { findReachableDestinations, findLongestPath, hexCoordsEqual, countPathLinks, findTrackCubeDeliveries } from '@/utils/hexGrid';
+import { findReachableDestinations, findRouteOptions, hexCoordsEqual, findTrackCubeDeliveries } from '@/utils/hexGrid';
+import { calculateVictoryPoints } from '@/utils/gameLogic';
+import { calculateTrackScore } from '@/utils/trackValidation';
 import { getSelectedStrategy, getCurrentRoute } from '../strategy/state';
 import { getConnectedCities } from '../strategy/analyzer';
 import { getMapAIConfig } from '../strategy/mapConfig';
@@ -69,8 +71,18 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
   const incomeSources = getMapAIConfig(state).incomeSources;
   // Montréal DGEL: 정부 링크 전용 추가 이동 (다른 맵은 0 — 탐색 동작 무변경)
   const govExtra = profile.dedicatedGovEngine ? (player.dgel ?? 0) : 0;
-  // 달(Moon) 저중력 보유: 이동 경로에 타인 소유 링크 1개 경유 가능 (그 링크 수입도 내가 받음)
-  const oppExtra = player.selectedAction === 'lowGravitation' ? 1 : 0;
+  // 타인 철도 개방(전 맵, 룰북): 타인 링크는 엔진 한도 내 무제한 — 본인 철도 우선 게이트와
+  // "최저 VP 주인에게 수입 주기" 디폴트는 findRouteOptions가 사람 UI와 동일하게 적용.
+  const oppExtra = player.engineLevel;
+  // 달(Moon) 저중력 보유: 빌린 링크 1개 수입 이전(applyLowGravitation)을 경로 수치에 반영
+  const lowGravCredit = player.selectedAction === 'lowGravitation';
+  // 후보 정렬용 상대 점수(VP) — 사람 UI(uiSlice.ownerScoreOf)와 동일 공식
+  const ownerScore: Partial<Record<PlayerId, number>> = {};
+  for (const pid of state.activePlayers) {
+    const p = state.players[pid];
+    if (!p) continue;
+    ownerScore[pid] = calculateVictoryPoints(p.income, calculateTrackScore(board, pid), p.issuedShares);
+  }
   const candidates: MoveCandidate[] = [];
 
   // 한 출발지(도시/마을)의 큐브들에 대해 배달 후보를 생성해 candidates에 추가 (도시·마을 공용).
@@ -86,15 +98,33 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
     for (let cubeIndex = 0; cubeIndex < cubes.length; cubeIndex++) {
       const cubeColor = cubes[cubeIndex];
       const reachable = findReachableDestinations(sourceCoord, board, playerId, player.engineLevel, cubeColor, govExtra, oppExtra);
-      for (const destCity of reachable) {
-        const path = findLongestPath(sourceCoord, destCity.coord, board, playerId, player.engineLevel, cubeColor, govExtra, oppExtra);
-        if (!path || path.length < 2) continue;
+      if (reachable.length === 0) continue;
 
-        const linksCount = countPathLinks(path, board);
-        const ownTrackCount = countOwnLinksInPath(path, board, playerId);
+      // 선점 보너스용 상대 도달 집합 — (출발지·큐브)당 상대별 1회만 계산해 목적지 루프에서 재사용
+      // (목적지 루프 안에서 재탐색하면 같은 탐색을 목적지 수만큼 반복 — 개방 후 탐색이 무거워져 체감 큼)
+      const oppReachSets = state.activePlayers
+        .filter(oppId => oppId !== playerId && state.players[oppId] && !state.players[oppId].eliminated)
+        .map(oppId => {
+          const oppPlayer = state.players[oppId];
+          return findReachableDestinations(sourceCoord, board, oppId, oppPlayer.engineLevel, cubeColor, 0, oppPlayer.engineLevel);
+        });
+
+      for (const destCity of reachable) {
+        // 목적지별 대표 경로 = findRouteOptions 디폴트([0]) — 사람 UI와 동일 정책
+        // (내 수입 최대 → 최저 VP 주인 → 빌린 링크 최소, 저중력 수입 이전 반영)
+        const opt = findRouteOptions(
+          sourceCoord, destCity.coord, board, playerId, player.engineLevel, cubeColor,
+          govExtra, ownerScore, lowGravCredit
+        )[0];
+        if (!opt || opt.path.length < 2) continue;
+        const path = opt.path;
+
+        const linksCount = opt.totalLinks;
+        const ownTrackCount = opt.ownLinks;
 
         // 배달의 기본 ΔVP (내 income VP + 현금흐름 − 상대 income 페널티)
-        let deltaVP = deliveryDeltaVP(state, playerId, ownTrackCount, linksCount - ownTrackCount);
+        // own/opp는 정산 미러 수치(저중력 이전 포함) — 과거의 평가/정산 불일치 해소
+        let deltaVP = deliveryDeltaVP(state, playerId, ownTrackCount, opt.oppLinks);
 
         // Western US: 동↔서 배달 보너스(+$1 income, 배달자에게) — ΔVP에 가산
         // Southern US: 면화(흰 큐브) 배달 +$1 보너스도 동일하게 가산
@@ -103,15 +133,9 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
         if (regionBonus > 0) deltaVP += VP_PER_INCOME * regionBonus;
 
         // 선점 보너스: 상대도 같은 배달이 가능하면, 내가 먼저 옮겨 상대의 income 기회를 차단
-        for (const oppId of state.activePlayers) {
-          if (oppId === playerId) continue;
-          const oppPlayer = state.players[oppId];
-          if (!oppPlayer || oppPlayer.eliminated) continue;
-          const oppReachable = findReachableDestinations(sourceCoord, board, oppId, oppPlayer.engineLevel, cubeColor);
-          if (oppReachable.some(d => hexCoordsEqual(d.coord, destCity.coord))) {
-            deltaVP += VP_PER_INCOME * opponentWeight(state);
-            break;
-          }
+        // (상대도 타인 철도를 쓸 수 있으므로 opponentExtra = 상대 엔진으로 판정 — 집합은 위에서 1회 계산)
+        if (oppReachSets.some(set => set.some(d => hexCoordsEqual(d.coord, destCity.coord)))) {
+          deltaVP += VP_PER_INCOME * opponentWeight(state);
         }
 
         candidates.push({
@@ -156,13 +180,13 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
   }
 
   // St. Lucia: 트랙 위 큐브 배달 후보 (미완성 링크 허용 — 구간 소유자 수입 +1)
+  // ownIncome/oppIncome = 정산 미러(시작 구간 보너스 + 이후 링크 귀속) — 과거의
+  // "시작 구간 소유만 보는" 거친 근사를 전체 수입 분배로 교체 (타인 철도 개방 정책과 통일)
   let bestTrackCube: { trackId: string; destCityId: string; deltaVP: number } | null = null;
   for (const track of board.trackTiles) {
     if (!track.cube) continue;
     for (const delivery of findTrackCubeDeliveries(board, track.id, player.engineLevel, playerId)) {
-      const own = delivery.sectionOwner === playerId ? 1 : 0;
-      const opp = delivery.sectionOwner && delivery.sectionOwner !== playerId ? 1 : 0;
-      const vp = deliveryDeltaVP(state, playerId, own, opp);
+      const vp = deliveryDeltaVP(state, playerId, delivery.ownIncome, delivery.oppIncome);
       if (!bestTrackCube || vp > bestTrackCube.deltaVP) {
         bestTrackCube = { trackId: track.id, destCityId: delivery.city.id, deltaVP: vp };
       }
@@ -333,21 +357,22 @@ function findBestUnlockedDelivery(
   for (const city of board.cities) {
     for (let ci = 0; ci < city.cubes.length; ci++) {
       const cubeColor = city.cubes[ci];
-      const reachable = findReachableDestinations(city.coord, board, playerId, engineLevel, cubeColor);
+      // 타인 철도 개방 반영 — 해금 판정도 실제 이동 규칙과 같은 탐색으로
+      const reachable = findReachableDestinations(city.coord, board, playerId, engineLevel, cubeColor, 0, engineLevel);
 
       for (const destCity of reachable) {
-        const path = findLongestPath(city.coord, destCity.coord, board, playerId, engineLevel, cubeColor);
-        if (!path || path.length < 2) continue;
+        const opt = findRouteOptions(city.coord, destCity.coord, board, playerId, engineLevel, cubeColor)[0];
+        if (!opt || opt.path.length < 2) continue;
 
-        const totalLinks = countPathLinks(path, board);
-        const ownLinks = countOwnLinksInPath(path, board, playerId);
+        const totalLinks = opt.totalLinks;
+        const ownLinks = opt.ownLinks;
 
         // 현재 엔진으로도 가능한 배달은 "해금"이 아님
         if (totalLinks <= player.engineLevel) continue;
         // 내 income이 없는 배달은 업그레이드 근거가 안 됨
         if (ownLinks < 1) continue;
 
-        const value = deliveryDeltaVP(state, playerId, ownLinks, totalLinks - ownLinks);
+        const value = deliveryDeltaVP(state, playerId, ownLinks, opt.oppLinks);
         if (value > bestValue) {
           bestValue = value;
           best = { ownLinks, totalLinks };
@@ -378,44 +403,11 @@ function findBestUnlockedTrackCubeVP(
     const nowReachable = findTrackCubeDeliveries(board, track.id, engineLevel, playerId).length > 0;
     if (nowReachable) continue;
     for (const delivery of findTrackCubeDeliveries(board, track.id, engineLevel + 1, playerId)) {
-      const own = delivery.sectionOwner === playerId ? 1 : 0;
-      if (own < 1) continue; // 내 income 없는 배달은 업그레이드 근거 아님
-      const vp = deliveryDeltaVP(state, playerId, own, 0);
+      if (delivery.ownIncome < 1) continue; // 내 income 없는 배달은 업그레이드 근거 아님
+      const vp = deliveryDeltaVP(state, playerId, delivery.ownIncome, delivery.oppIncome);
       if (vp > best) best = vp;
     }
   }
   return best;
 }
 
-/**
- * 경로에서 플레이어 소유 트랙이 포함된 링크 수 계산
- */
-function countOwnLinksInPath(
-  path: HexCoord[],
-  board: { trackTiles: { coord: HexCoord; owner: PlayerId | null }[]; cities: City[]; towns: { coord: HexCoord }[] },
-  playerId: PlayerId
-): number {
-  let ownLinks = 0;
-  let currentLinkHasOwnTrack = false;
-
-  for (let i = 1; i < path.length; i++) {
-    const coord = path[i];
-    const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
-
-    if (track?.owner === playerId) {
-      currentLinkHasOwnTrack = true;
-    }
-
-    const isStop = board.cities.some(c => hexCoordsEqual(c.coord, coord)) ||
-      board.towns.some(t => hexCoordsEqual(t.coord, coord));
-
-    if (isStop) {
-      if (currentLinkHasOwnTrack) {
-        ownLinks++;
-      }
-      currentLinkHasOwnTrack = false;
-    }
-  }
-
-  return ownLinks;
-}

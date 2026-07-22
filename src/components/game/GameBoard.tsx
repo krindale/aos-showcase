@@ -235,6 +235,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     updateTrackPreview,
     resetBuildMode,
     selectDestinationCity,
+    selectRouteOption,
+    confirmRouteChoice,
     completeCubeMove,
     canRedirect,
     selectTrackToRedirect,
@@ -1075,7 +1077,11 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           selectedCubeCityId={ui.selectedCube?.cityId ?? null}
           movePath={ui.movePath}
           movingCube={ui.movingCube}
+          routeChoice={ui.routeChoice}
+          players={players}
           selectCube={selectCube}
+          selectRouteOption={selectRouteOption}
+          confirmRouteChoice={confirmRouteChoice}
         />
         {/* 인플레이스 펄스 레이어 (건설/큐브 유입) — memo 자식으로 분리, 미니 오버레이에서도 표시 */}
         <BoardPulses isFlat={isFlat} />

@@ -7,9 +7,14 @@ import {
   getTrackPath,
   getMovementPathSVG,
   getAnimationPoints,
+  getPathLinkOwners,
+  hexCoordsEqual,
   HEX_SIZE,
 } from '@/utils/hexGrid';
-import { BoardState, CITY_COLORS, CUBE_COLORS, CubeColor, GamePhase, HexCoord } from '@/types/game';
+import {
+  BoardState, CITY_COLORS, CUBE_COLORS, CubeColor, GamePhase, HexCoord,
+  PLAYER_COLORS, PlayerId, PlayerState, RouteOption,
+} from '@/types/game';
 import { cubeStrokeColor } from './boardGeometry';
 
 // 오버레이 레이어 — 미리보기 트랙·트랙 위 큐브·이동 경로·이동 큐브 애니메이션·
@@ -35,8 +40,29 @@ interface BoardOverlaysProps {
   selectedCubeCityId: string | null;
   movePath: HexCoord[];
   movingCube: { color: CubeColor; path: HexCoord[] } | null;
+  /** 타인 철도 경로 선택 상태 — 후보 경로들을 소유자 색으로 렌더, 클릭으로 선택/확정 */
+  routeChoice: { dest: HexCoord; options: RouteOption[]; selectedIndex: number } | null;
+  players: Record<PlayerId, PlayerState>;
   // 액션
   selectCube: (cityId: string, cubeIndex: number) => void;
+  selectRouteOption: (index: number) => void;
+  confirmRouteChoice: () => void;
+}
+
+/** 경로를 링크(정거장 사이 구간) 단위로 분절 — 세그먼트 [i] = getPathLinkOwners [i] 링크 */
+function splitPathLinks(path: HexCoord[], board: BoardState): HexCoord[][] {
+  const isStop = (c: HexCoord) =>
+    board.cities.some(x => hexCoordsEqual(x.coord, c)) ||
+    board.towns.some(x => hexCoordsEqual(x.coord, c));
+  const segs: HexCoord[][] = [];
+  let start = 0;
+  for (let i = 1; i < path.length; i++) {
+    if (isStop(path[i])) {
+      segs.push(path.slice(start, i + 1));
+      start = i;
+    }
+  }
+  return segs;
 }
 
 export default function BoardOverlays({
@@ -53,7 +79,11 @@ export default function BoardOverlays({
   selectedCubeCityId,
   movePath,
   movingCube,
+  routeChoice,
+  players,
   selectCube,
+  selectRouteOption,
+  confirmRouteChoice,
 }: BoardOverlaysProps) {
   return (
     <>
@@ -127,7 +157,7 @@ export default function BoardOverlays({
         );
       })}
 
-      {movePath.length > 1 && !movingCube && (
+      {movePath.length > 1 && !movingCube && !routeChoice && (
         <path
           d={getMovementPathSVG(movePath, board, HEX_SIZE - 2, isFlat)}
           fill="none"
@@ -138,6 +168,62 @@ export default function BoardOverlays({
           shapeRendering="geometricPrecision"
           style={{ pointerEvents: 'none' }}
         />
+      )}
+
+      {/* 타인 철도 경로 선택 — 후보 경로를 링크 단위로 분절해 각 링크를 "그 링크 소유자의
+          마커 색"으로 렌더(내 구간 = 내 색 포함 — 요구사항 "각 철도 주인의 마커 색" 그대로).
+          무수입 구간(정부/파산 공용)만 골드. 비선택 후보 클릭=선택 전환,
+          선택된 후보 재클릭=수송 확정(목적지 재클릭·PhasePanel 버튼과 동일). */}
+      {routeChoice && !movingCube && (
+        <g>
+          {routeChoice.options
+            .map((opt, i) => ({ opt, i }))
+            // 선택된 경로를 마지막에 그려 위로 올림 (겹치는 구간에서 선택이 보이게)
+            .sort((a, b) => (a.i === routeChoice.selectedIndex ? 1 : 0) - (b.i === routeChoice.selectedIndex ? 1 : 0))
+            .map(({ opt, i }) => {
+              const selected = i === routeChoice.selectedIndex;
+              const linkOwners = getPathLinkOwners(opt.path, board);
+              const segs = splitPathLinks(opt.path, board);
+              const onClick = (e: React.MouseEvent) => {
+                e.stopPropagation();
+                if (selected) confirmRouteChoice();
+                else selectRouteOption(i);
+              };
+              return (
+                <g key={`route-opt-${i}`} className="cursor-pointer" onClick={onClick}>
+                  {segs.map((seg, s) => {
+                    const owner = linkOwners[s] ?? null;
+                    const color = owner && players[owner]
+                      ? PLAYER_COLORS[players[owner].color]
+                      : '#d4a853'; // 무수입(정부/파산 공용) 구간만 골드 — 소유 구간은 주인 색(나 포함)
+                    return (
+                      <path
+                        key={`route-opt-${i}-seg-${s}`}
+                        d={getMovementPathSVG(seg, board, HEX_SIZE - 2, isFlat)}
+                        fill="none"
+                        stroke={color}
+                        strokeWidth={selected ? 5.5 : 3.5}
+                        strokeLinecap="round"
+                        strokeDasharray={selected ? '10 4' : '5 5'}
+                        opacity={selected ? 1 : 0.4}
+                        shapeRendering="geometricPrecision"
+                        style={{ pointerEvents: 'none' }}
+                      />
+                    );
+                  })}
+                  {/* 투명 히트 영역 — 얇은 점선도 클릭하기 쉽게 (모바일 터치 포함) */}
+                  <path
+                    d={getMovementPathSVG(opt.path, board, HEX_SIZE - 2, isFlat)}
+                    fill="none"
+                    stroke="transparent"
+                    strokeWidth={18}
+                    strokeLinecap="round"
+                    style={{ pointerEvents: 'stroke' }}
+                  />
+                </g>
+              );
+            })}
+        </g>
       )}
 
       {/* 이동 중인 큐브 애니메이션 - Framer Motion 사용 */}

@@ -283,6 +283,8 @@ export function createMoveSlice(set: Set, get: Get): MoveSlice {
           movePath: path,
           selectedCube: null,
           reachableDestinations: [],
+          routeOptions: [],
+          routeChoice: null,
         },
       });
 
@@ -393,9 +395,20 @@ export function createMoveSlice(set: Set, get: Get): MoveSlice {
       // 총 링크 수 계산 (로그용)
       const totalLinks = Object.values(incomeChanges).reduce((a, b) => a + b, 0);
 
+      // 도착지 수익 펄스 이벤트 — 수입 얻은 플레이어만, 증가량 내림차순(동률이면 수송자 먼저).
+      // BoardPulses가 도착 도시 위에 표시하고 스냅샷으로 게스트에게도 전파된다.
+      const incomeGains = state.activePlayers
+        .map(p => ({ player: p, amount: incomeChanges[p] ?? 0 }))
+        .filter(g => g.amount > 0)
+        .sort((a, b) => b.amount - a.amount
+          || (a.player === movingPlayerId ? -1 : b.player === movingPlayerId ? 1 : 0));
+
       // 캡처된 플레이어 ID 사용 (state.currentPlayer 대신)
       set({
         players: newPlayers,
+        ...(incomeGains.length > 0
+          ? { deliveryIncomeEvent: { dest: path[path.length - 1], gains: incomeGains, key: Date.now() } }
+          : {}),
         // 룰북 V: "이동 완료 후 큐브는 미사용 물품 주머니로 반환" — 반환하지 않으면 주머니가
         // 게임 진행에 따라 고갈돼 생산(Production)·물품 성장 보충·Berlin 보너스가 어긋난다.
         // 단 Southern US 면화(흰 큐브)는 배달 후 게임에서 제거 (룰북: removed from the game).
@@ -418,6 +431,8 @@ export function createMoveSlice(set: Set, get: Get): MoveSlice {
           movePath: [],
           selectedCube: null,
           reachableDestinations: [],
+          routeOptions: [],
+          routeChoice: null,
         },
         logs: [
           ...state.logs,

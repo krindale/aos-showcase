@@ -2,7 +2,7 @@
 import { debugLog } from '@/utils/debugConfig';
 // GameBoardPreview.tsx에서 추출
 
-import { HexCoord, BoardState, PlayerId, CubeColor, City, TrackTile } from '@/types/game';
+import { HexCoord, BoardState, PlayerId, CubeColor, City, TrackTile, RouteOption } from '@/types/game';
 import { getMoonSide } from '@/utils/moonMap';
 
 /**
@@ -775,7 +775,7 @@ export function getConnectedNeighbors(
       const cityHere = board.cities.find(c => hexCoordsEqual(c.coord, currentCoord));
       for (const dl of board.directLinks ?? []) {
         if (dl.owner === null) continue;
-        if (playerId !== undefined && playerId !== null && dl.owner !== playerId) continue;
+        if (playerId !== undefined && playerId !== null && !includeOpponents && dl.owner !== playerId) continue;
         const otherId = cityHere?.id === dl.cityA ? dl.cityB : cityHere?.id === dl.cityB ? dl.cityA : null;
         if (!otherId) continue;
         const other = board.cities.find(c => c.id === otherId);
@@ -1098,25 +1098,154 @@ export function findLongestPath(
 
   if (allPaths.length === 0) return null;
 
-  // 경로 선택: ① 내 소유 링크 수(=내 수입) 최대 → ② 총 링크 수 최대.
+  // 경로 선택: ① 내 소유 링크 수(=내 수입) 최대 → ② 타인 소유 링크 수 최소 → ③ 총 링크 수 최대.
   // 총 링크만 보면 수입 없는 링크(정부 링크·파산 공용 트랙)를 거치는 긴 우회를
   // 골라 수입이 줄어든다 (Montréal에서 두드러짐 — 정부 링크는 수입 0).
-  // 이동은 원래 자기+공용 트랙만 쓰므로 다른 맵에선 대부분 내 링크 = 총 링크 (동작 보존).
+  // ②는 타인 링크 개방(opponentExtra>0) 시 "내 링크 같으면 총 링크 많은 경로"가
+  // 상대에게 불필요하게 수입을 헌납하는 것 방지 — opponentExtra=0 경로에선 항상 0이라 항등.
   let bestPath = allPaths[0];
   let bestOwn = countOwnPathLinks(bestPath, board, playerId);
+  let bestOpp = countOppPathLinks(bestPath, board, playerId);
   let bestTotal = countPathLinks(bestPath, board);
 
   for (const path of allPaths) {
     const own = countOwnPathLinks(path, board, playerId);
+    const opp = countOppPathLinks(path, board, playerId);
     const total = countPathLinks(path, board);
-    if (own > bestOwn || (own === bestOwn && total > bestTotal)) {
+    if (own > bestOwn || (own === bestOwn && (opp < bestOpp || (opp === bestOpp && total > bestTotal)))) {
       bestOwn = own;
+      bestOpp = opp;
       bestTotal = total;
       bestPath = path;
     }
   }
 
   return bestPath;
+}
+
+/**
+ * 경로의 링크별 수입 귀속 소유자 — completeCubeMove 정산과 동일 판정을 미러.
+ * 링크(정거장 사이 구간)마다: 링크 내 첫 owner 타일의 소유자, 사이 트랙이 없으면(Germany 직결)
+ * directLinks의 소유자, 그 외(정부 링크·파산 공용)는 null(무수입).
+ * 반환 배열 길이 = 경로의 링크 수 (path[0]은 출발 정거장이라 링크에 안 들어감).
+ * ⚠️ 정산(moveSlice.completeCubeMove) 로직 변경 시 여기도 함께 맞출 것 — 표시/게이트가
+ * 실제 수입 흐름과 어긋나면 안 된다.
+ */
+export function getPathLinkOwners(path: HexCoord[], board: BoardState): (PlayerId | null)[] {
+  const owners: (PlayerId | null)[] = [];
+  const isStopAt = (coord: HexCoord) =>
+    board.cities.some(c => hexCoordsEqual(c.coord, coord)) ||
+    board.towns.some(t => hexCoordsEqual(t.coord, coord));
+  let linkStartIndex = 0;
+  for (let i = 1; i < path.length; i++) {
+    if (!isStopAt(path[i])) continue;
+    let owner: PlayerId | null = null;
+    for (let j = linkStartIndex + 1; j < i; j++) {
+      const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, path[j]));
+      if (track?.owner) {
+        owner = track.owner;
+        break; // 정산과 동일: 링크당 첫 owner 타일 한 번만
+      }
+    }
+    if (owner === null && i === linkStartIndex + 1) {
+      // Germany 직결 링크: 사이 트랙 없이 두 도시가 바로 이어진 구간
+      const a = board.cities.find(c => hexCoordsEqual(c.coord, path[linkStartIndex]));
+      const b = board.cities.find(c => hexCoordsEqual(c.coord, path[i]));
+      if (a && b) {
+        const dl = (board.directLinks ?? []).find(d => d.owner &&
+          ((d.cityA === a.id && d.cityB === b.id) || (d.cityA === b.id && d.cityB === a.id)));
+        if (dl?.owner) owner = dl.owner;
+      }
+    }
+    owners.push(owner);
+    linkStartIndex = i;
+  }
+  return owners;
+}
+
+/** 경로에서 "타인 수입" 링크 수 — 정산 미러(getPathLinkOwners) 기준 */
+export function countOppPathLinks(path: HexCoord[], board: BoardState, playerId: PlayerId): number {
+  return getPathLinkOwners(path, board).filter(o => o !== null && o !== playerId).length;
+}
+
+/**
+ * 타인 철도 이용 후보 경로 (전 맵 화물 이동 — 룰북: 타인 완성 링크도 이용 가능, 수입은 소유자에게).
+ *
+ * 정책(사용자 확정 요구사항):
+ * - 본인 철도 우선: 본인(+공용) 철도만으로 낼 수 있는 최선의 "내 수입(내 귀속 링크 수)"이 기준.
+ * - 타인 경유 경로는 내 수입이 그 기준을 **초과**할 때만 후보로 노출(2ⓐ).
+ *   본인 철도만으론 도달 불가한 목적지면 모든 경로가 후보 풀(2ⓑ).
+ * - 같은 "빌린 소유자 집합"의 경로는 대표 1개만(중복 제거).
+ * - 정렬(= [0]이 디폴트): 내 수입 ↓ → 빌린 소유자 중 최고 ownerScore 낮은 순(점수 낮은 주인에게
+ *   수입 주기) → 빌린 링크 수 ↑ → 총 링크 수 ↓.
+ * - 수입 귀속 판정은 정산 미러(getPathLinkOwners) — 정부 링크·파산 공용은 무수입(빌린 것으로 안 침).
+ * - 달 저중력(lowGravCredit): 정산의 applyLowGravitation(빌린 링크 1개 수입을 내가 가져옴)을
+ *   반영해 oppLinks≥1 경로의 ownLinks/oppLinks를 +1/−1 보정 — RouteOption 수치 = 실제 정산 수입.
+ *   (보정 없이는 "빌린 링크가 오히려 이득"인 저중력 경로가 게이트에서 잘못 걸러진다)
+ * (RouteOption 타입은 types/game.ts — GameUIState가 참조하므로 순환 방지 위해 거기 정의)
+ */
+export function findRouteOptions(
+  startCityCoord: HexCoord,
+  targetCityCoord: HexCoord,
+  board: BoardState,
+  playerId: PlayerId,
+  engineLevel: number,
+  cubeColor: CubeColor,
+  /** Montréal DGEL: 정부 링크 전용 추가 이동 수 */
+  govExtra: number = 0,
+  /** 플레이어별 점수(VP 등) — 낮은 주인의 경로를 디폴트로. 미지정 시 0 취급 */
+  ownerScore?: Partial<Record<PlayerId, number>>,
+  /** 달 저중력 보유자: true면 빌린 링크 1개 수입 이전을 수치에 반영 */
+  lowGravCredit: boolean = false
+): RouteOption[] {
+  const targetCity = board.cities.find(c => hexCoordsEqual(c.coord, targetCityCoord));
+  if (!targetCity) return [];
+  if (!cityAcceptsCube(targetCity, cubeColor, board)) return [];
+  if (hexCoordsEqual(startCityCoord, targetCityCoord)) return [];
+
+  // 타인 링크는 무제한(엔진 한도 내) — 비정부 링크 ≤ 엔진이므로 opponentExtra=engineLevel이면 사실상 무제한
+  const allPaths = findAllPaths(
+    startCityCoord, targetCityCoord, board, playerId, engineLevel, cubeColor, govExtra, engineLevel
+  );
+  if (allPaths.length === 0) return [];
+
+  const scored: RouteOption[] = allPaths.map(path => {
+    const linkOwners = getPathLinkOwners(path, board);
+    const borrowed = linkOwners.filter((o): o is PlayerId => o !== null && o !== playerId);
+    // 저중력 크레딧: 빌린 링크가 하나라도 있으면 그중 1개의 수입이 나에게 이전됨 (정산 일치)
+    const credit = lowGravCredit && borrowed.length > 0 ? 1 : 0;
+    return {
+      path,
+      ownLinks: linkOwners.filter(o => o === playerId).length + credit,
+      oppLinks: borrowed.length - credit,
+      totalLinks: linkOwners.length,
+      owners: Array.from(new Set(borrowed)),
+    };
+  });
+
+  const maxOwnerScore = (o: RouteOption) =>
+    o.owners.length === 0 ? -Infinity : Math.max(...o.owners.map(p => ownerScore?.[p] ?? 0));
+  const cmp = (a: RouteOption, b: RouteOption) =>
+    b.ownLinks - a.ownLinks
+    || maxOwnerScore(a) - maxOwnerScore(b)
+    || a.oppLinks - b.oppLinks
+    || b.totalLinks - a.totalLinks;
+
+  // 본인(+공용)-철도-최선: 기존 findLongestPath와 동일한 결과가 되도록 cmp로 선정
+  const ownOnly = scored.filter(o => o.oppLinks === 0).sort(cmp);
+  const bestOwnOnly = ownOnly[0] ?? null;
+  const threshold = bestOwnOnly ? bestOwnOnly.ownLinks : -1;
+
+  // 타인 경유 후보: 내 수입이 본인-최선을 초과하는 경로만 → 빌린 소유자 집합 단위로 대표 1개
+  const bySet = new Map<string, RouteOption>();
+  for (const o of scored) {
+    if (o.oppLinks === 0 || o.ownLinks <= threshold) continue;
+    const key = [...o.owners].sort().join('|');
+    const cur = bySet.get(key);
+    if (!cur || cmp(o, cur) < 0) bySet.set(key, o);
+  }
+
+  return [...(bestOwnOnly ? [bestOwnOnly] : []), ...Array.from(bySet.values())].sort(cmp);
 }
 
 /** 경로에서 "내 소유" 링크 수 — 링크(정거장 사이 구간)의 첫 트랙 타일 소유자로 판정 */
@@ -1753,10 +1882,14 @@ export interface TrackCubeDelivery {
   pathCoords: HexCoord[];
   /** 이 구간(체인)의 소유자 — 보너스 수입 1을 받음 (룰북: the player who owns the track section) */
   sectionOwner: PlayerId | null;
-  /** 경로에서 상대(배달자 외) 소유 트랙을 경유한 수 — 적을수록 자기 철도 위주 경로 (경로 선택 우선용) */
+  /** 경로에서 상대(배달자 외) 소유 트랙을 경유한 수 — 자기 철도 위주 판별 참고치(로그용) */
   oppLinks: number;
-  /** 이 경로의 링크 수(=수입). 같은 도시 여러 경로 중 자기 철도만으로 가장 긴(수입 큰) 루트를 고르는 데 사용 */
+  /** 이 경로의 링크 수(=총 수입). */
   linkCount: number;
+  /** 배달자(playerId) 수입 — 정산 미러: 시작 구간 보너스 + 이후 링크 첫 owner 타일 귀속. playerId 미지정 시 0 */
+  ownIncome: number;
+  /** 타인(배달자 외) 수입 — 위와 동일 미러. playerId 미지정 시 0 */
+  oppIncome: number;
 }
 
 /**
@@ -1812,6 +1945,25 @@ export function findTrackCubeDeliveries(
     });
   }
 
+  // 배달자 기준 수입 분배 — completeCubeMove 트랙 큐브 정산과 동일 미러:
+  // 시작 구간(첫 정거장 전) = sectionOwner 보너스 +1, 이후 링크는 첫 owner 타일 귀속.
+  // 같은 도시로 가는 여러 루트 중 "내 수입 최대" 루트를 고르는 기준 (타인 철도 개방 정책과 통일).
+  const incomeOf = (fullPath: HexCoord[], sectionOwner: PlayerId | null) => {
+    if (playerId === null) return { ownIncome: 0, oppIncome: 0 };
+    let firstStopIdx = -1;
+    for (let i = 1; i < fullPath.length; i++) {
+      const c = fullPath[i];
+      if (board.cities.some(x => hexCoordsEqual(x.coord, c)) ||
+          board.towns.some(x => hexCoordsEqual(x.coord, c))) { firstStopIdx = i; break; }
+    }
+    const owners = firstStopIdx >= 0 ? getPathLinkOwners(fullPath.slice(firstStopIdx), board) : [];
+    return {
+      ownIncome: (sectionOwner === playerId ? 1 : 0) + owners.filter(o => o === playerId).length,
+      oppIncome: (sectionOwner !== null && sectionOwner !== playerId ? 1 : 0)
+        + owners.filter(o => o !== null && o !== playerId).length,
+    };
+  };
+
   // 엔진을 초과하는 경로는 배달엔 못 쓰지만, "엔진 N이면 가능"을 로그로 노출하면 디버깅에 유용.
   // onCandidate(로그)가 있을 때만 엔진 + 여유분만큼 더 탐색한다 (AI 내부 평가엔 영향 없음).
   const ENGINE_REPORT_MARGIN = 2;
@@ -1845,21 +1997,33 @@ export function findTrackCubeDeliveries(
             return t && t.owner !== null && t.owner !== playerId;
           }).length;
           if (linkCount <= engineLevel) {
+            const { ownIncome, oppIncome } = incomeOf([...pathCoords, city.coord], sectionOwner);
             const existing = deliveries.find(d => d.city.id === city.id);
+            // 같은 도시 여러 루트 중 선택: 내 수입 최대 → 타인 수입 최소 → 링크 수 최대
+            // (타인 철도 개방 정책의 findRouteOptions 디폴트와 동일 기준 — St.Lucia는 2인이라
+            //  "최저 VP 주인" 축은 상대가 1명뿐이라 성립하지 않음, playerId 미지정 시 링크 수만)
+            const better = existing && (
+              ownIncome > existing.ownIncome ||
+              (ownIncome === existing.ownIncome && (
+                oppIncome < existing.oppIncome ||
+                (oppIncome === existing.oppIncome && linkCount > existing.linkCount)
+              ))
+            );
             if (!existing) {
-              deliveries.push({ city, pathCoords: [...pathCoords], sectionOwner, oppLinks, linkCount });
+              deliveries.push({ city, pathCoords: [...pathCoords], sectionOwner, oppLinks, linkCount, ownIncome, oppIncome });
               onCandidate?.({ cityId: city.id, linkCount, oppLinks, accepted: true, reason: 'first' });
-            } else if (oppLinks < existing.oppLinks || (oppLinks === existing.oppLinks && linkCount > existing.linkCount)) {
-              // 상대 철도 경유가 더 적거나(자기 철도 우선), 같으면 더 긴 루트(=통과 링크 많음=수입 큼) 선택
+            } else if (better) {
               existing.pathCoords = [...pathCoords];
               existing.sectionOwner = sectionOwner;
               existing.oppLinks = oppLinks;
               existing.linkCount = linkCount;
+              existing.ownIncome = ownIncome;
+              existing.oppIncome = oppIncome;
               onCandidate?.({ cityId: city.id, linkCount, oppLinks, accepted: true, reason: 'replace' });
             } else {
               onCandidate?.({
                 cityId: city.id, linkCount, oppLinks, accepted: false,
-                reason: oppLinks > existing.oppLinks ? 'reject-oppLinks' : 'reject-shorter',
+                reason: oppIncome > existing.oppIncome ? 'reject-oppLinks' : 'reject-shorter',
               });
             }
           } else {

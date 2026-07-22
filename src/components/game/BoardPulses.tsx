@@ -22,6 +22,8 @@ import { GAME_ACCENT, GAME_INK, GAME_PAPER, isRecentUndoLog } from './uiEffects'
 type Pulse = { x: number; y: number; color: string; k: string };
 /** 큐브 유입 펄스 — 색상별 증가량을 세로 스택 배지로 표시 */
 type CubePulse = { x: number; y: number; items: { color: CubeColor; n: number }[]; k: string };
+/** 수송 정산 수익 펄스 — 도착 도시 위에 "플레이어 디스크 이름 +n" 세로 스택 */
+type IncomePulse = { x: number; y: number; rows: { name: string; color: string; amount: number }[]; k: string };
 
 const BUILD_LOG_RE = /^(트랙 건설|복합 트랙 건설|마을 가닥 건설|트랙 방향 전환)/;
 const COORD_RE = /\((\d+),\s*(\d+)\)/;
@@ -56,13 +58,16 @@ function RingPulse({ x, y, color }: { x: number; y: number; color: string }) {
 }
 
 function BoardPulsesInner({ isFlat }: { isFlat: boolean }) {
-  const { logs, cities, towns } = useGameStore(
-    useShallow((s) => ({ logs: s.logs, cities: s.board.cities, towns: s.board.towns }))
+  const { logs, cities, towns, deliveryEvent } = useGameStore(
+    useShallow((s) => ({ logs: s.logs, cities: s.board.cities, towns: s.board.towns, deliveryEvent: s.deliveryIncomeEvent }))
   );
   const [buildPulses, addBuild, clearBuild] = usePulseList<Pulse>();
   const [cubePulses, addCube, clearCube] = usePulseList<CubePulse>();
+  const [incomePulses, addIncome] = usePulseList<IncomePulse>();
   const seenLogsRef = useRef(logs.length); // 마운트 시점 이전 로그는 재생하지 않음
   const cubeCountsRef = useRef<Record<string, Partial<Record<CubeColor, number>>> | null>(null);
+  // undefined = 미관측(마운트 직후) — 첫 관측은 기록만 하고 재생하지 않음 (rehydrate/스냅샷 재적용 중복 방지)
+  const incomeKeyRef = useRef<number | null | undefined>(undefined);
 
   // 건설 이벤트 → 로그 기반 펄스
   useEffect(() => {
@@ -131,6 +136,27 @@ function BoardPulsesInner({ isFlat }: { isFlat: boolean }) {
     addCube(batch);
   }, [cities, towns, isFlat, addCube]);
 
+  // 수송 정산 → 도착 도시 위 "누가 수입 +몇" 펄스 (completeCubeMove가 남긴 deliveryIncomeEvent)
+  useEffect(() => {
+    const first = incomeKeyRef.current === undefined;
+    const prevKey = incomeKeyRef.current;
+    incomeKeyRef.current = deliveryEvent?.key ?? null;
+    if (first || !deliveryEvent || deliveryEvent.key === prevKey) return;
+    if (isRecentUndoLog(useGameStore.getState().logs)) return; // 실행 취소 복원은 재생하지 않음
+    const players = useGameStore.getState().players;
+    const { x, y } = hexToPixel(deliveryEvent.dest.col, deliveryEvent.dest.row, undefined, undefined, undefined, isFlat);
+    addIncome([{
+      x,
+      y,
+      k: `i-${deliveryEvent.key}`,
+      rows: deliveryEvent.gains.map((g) => ({
+        name: players[g.player]?.name ?? g.player,
+        color: PLAYER_COLORS[players[g.player]?.color] ?? GAME_ACCENT,
+        amount: g.amount,
+      })),
+    }]);
+  }, [deliveryEvent, isFlat, addIncome]);
+
   return (
     <g style={{ pointerEvents: 'none' }}>
       {buildPulses.map((p) => (
@@ -196,6 +222,58 @@ function BoardPulsesInner({ isFlat }: { isFlat: boolean }) {
                     transition={rowTransition}
                   />
                 ))}
+              </g>
+            );
+          })}
+        </g>
+      ))}
+      {incomePulses.map((p) => (
+        <g key={p.k}>
+          {/* 플레이어별 "디스크 이름 +n" — 큐브 유입 펄스와 동일 모션(세로 스택, 떠오르며 사라짐).
+              행 폭은 글자폭 근사(한글 ~13px/그외 ~8px)로 중앙 정렬 — 오차는 광학상 무해 */}
+          {p.rows.map((row, i) => {
+            const label = `${row.name} +${row.amount}`;
+            const textW = Array.from(label).reduce((w, ch) => w + (ch.charCodeAt(0) > 0x7f ? 13 : 8), 0);
+            const disc = 12;
+            const gap = 5;
+            const rowW = disc + gap + textW;
+            const startX = p.x - rowW / 2;
+            const yFrom = p.y - HEX_SIZE * 0.9 - i * 20;
+            const yTo = p.y - HEX_SIZE * 1.15 - i * 20;
+            const rowTransition = { duration: 2.0, times: [0, 0.15, 0.75, 1], delay: i * 0.15, ease: 'easeOut' as const };
+            return (
+              <g key={row.name + i}>
+                {/* 소유자 색 디스크 — motion.g transform은 SVG 미동작이라 rect(rx=반지름)로 원 표현,
+                    텍스트 baseline 기준 광학 정렬(-11) */}
+                <motion.rect
+                  x={startX}
+                  width={disc}
+                  height={disc}
+                  rx={disc / 2}
+                  fill={row.color}
+                  stroke={GAME_PAPER}
+                  strokeWidth={1.5}
+                  initial={{ opacity: 0, y: yFrom - 11 }}
+                  animate={{ opacity: [0, 1, 1, 0], y: yTo - 11 }}
+                  transition={rowTransition}
+                />
+                <motion.text
+                  x={startX + disc + gap}
+                  textAnchor="start"
+                  fill={GAME_INK}
+                  stroke={GAME_PAPER}
+                  strokeWidth={3.5}
+                  strokeLinejoin="round"
+                  style={{ paintOrder: 'stroke' }}
+                  fontSize={14}
+                  fontWeight={800}
+                  fontFamily="system-ui, sans-serif"
+                  initial={{ opacity: 0, y: yFrom }}
+                  animate={{ opacity: [0, 1, 1, 0], y: yTo }}
+                  transition={rowTransition}
+                >
+                  {label}
+                </motion.text>
               </g>
             );
           })}

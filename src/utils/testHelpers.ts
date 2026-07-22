@@ -218,6 +218,8 @@ export function createTestGameState(options: TestGameStateOptions = {}): GameSta
     repopulationCube: null,
       movingCube: null,
       reachableDestinations: [],
+      routeOptions: [],
+      routeChoice: null,
     },
 
     // 로그

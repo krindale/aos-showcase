@@ -342,6 +342,9 @@ export function createInitialGameState(
       // 물품 이동 애니메이션 상태
       movingCube: null,
       reachableDestinations: [],
+      // 타인 철도 이용 — 후보 경로/경로 선택 상태
+      routeOptions: [],
+      routeChoice: null,
     },
 
     // 로그
@@ -359,5 +362,6 @@ export function createInitialGameState(
     transcontinentalEvent: null,
     incomeReductions: null,
     goodsGrowthEvent: null,
+    deliveryIncomeEvent: null,
   };
 }

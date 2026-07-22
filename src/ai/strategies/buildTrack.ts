@@ -23,6 +23,7 @@ import {
   isRouteComplete,
   clearPathCache,
   findOptimalPathAvoidingOpponent,
+  getTerrainBuildCost,
   getEdgeBetweenHexes,
   findStopById,
   analyzeDeliveryOpportunities,
@@ -174,8 +175,8 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     !getMapAIConfig(state).incomeSources.includes('trackCubes');
   const myConnectedCities = banScatter ? getConnectedCities(state, playerId) : [];
   const hasMyTracks = state.board.trackTiles.some(t => t.owner === playerId);
-  // Germany: 미완성 링크 금지 — 이번 턴 슬롯으로 완성 못 할 링크는 착공하지 않는다(다음 턴 이어붙이기 불가).
-  const requireCompleteLinks = getMapProfile(state.mapId).requireCompleteLinks;
+  // 맵 전용 건설 게이트 (MapProfile DI — 예: Germany 미완성 링크 금지). 기본 구현은 항상 true.
+  const mapProfile = getMapProfile(state.mapId);
   // ★ 첫 착공 완성 가능성 게이트 (1게임 추적: player5가 seattle→memphis 대륙횡단 경로에 3트랙을
   //   미완성으로 깔아 현금 소진→income 0→파산). 다인 맵에서 첫 착공 시, 시간·자금 안에 완성 불가능한
   //   경로(estimateRouteVP.completable=false, selectStandardRoute의 fallback opportunities[0] 등)는
@@ -203,11 +204,14 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
       if (opp && !estimateRouteVP(state, playerId, opp).completable) continue;
     }
 
-    // Germany 미완성 링크 금지: 첫 착공 시 이번 턴 잔여 슬롯으로 완성 가능한 경로만 시작한다.
-    if (requireCompleteLinks && state.phaseState.builtTracksThisTurn === 0) {
-      const missing = countMissingTrackHexes(state, route, playerId);
-      if (missing === null || missing > state.phaseState.maxTracksThisTurn) continue;
-    }
+    // 맵 전용 건설 게이트 (MapProfile.aiRouteBuildGate — DI 주입점).
+    // Germany: 이번 턴 잔여 슬롯·현금으로 완성 불가한 경로는 착공/계속 금지 (미완성 = 삭제·환불 반복).
+    // 기본 맵은 항등(true)이고 missingWork 썽크를 호출하지 않아 추가 비용 없음.
+    if (!mapProfile.aiRouteBuildGate({
+      remainingSlots: state.phaseState.maxTracksThisTurn - state.phaseState.builtTracksThisTurn,
+      cash: player.cash,
+      missingWork: () => countMissingTrackWork(state, route, playerId),
+    })) continue;
 
     const decision = tryDirectPathBuild(state, playerId, route);
     if (decision) {
@@ -237,26 +241,31 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
 }
 
 /**
- * Germany 미완성 링크 금지용: route(도시→도시) 완성에 아직 필요한 신규 트랙 타일 수.
- * A* 경로상 헥스 중 도시/마을이 아니고 내 트랙이 아직 없는 칸 수. 경로가 없으면 null.
+ * 맵 건설 게이트(aiRouteBuildGate)용: route(도시→도시) 완성에 아직 필요한 신규 트랙 타일 수와
+ * 예상 비용(지형/fixedCost 기준 — A*와 동일한 getTerrainBuildCost, Engineer 할인 미반영=보수적).
+ * A* 경로상 헥스 중 도시/마을이 아니고 내 트랙이 아직 없는 칸을 집계. 경로가 없으면 null.
  */
-function countMissingTrackHexes(state: GameState, route: DeliveryRoute, playerId: PlayerId): number | null {
+function countMissingTrackWork(
+  state: GameState, route: DeliveryRoute, playerId: PlayerId
+): { tiles: number; cost: number } | null {
   const board = state.board;
   const from = board.cities.find(c => c.id === route.from);
   const to = board.cities.find(c => c.id === route.to);
   if (!from || !to) return null;
   const path = findOptimalPathAvoidingOpponent(from.coord, to.coord, board, playerId, undefined, false);
   if (path.length < 3) return null;
-  let missing = 0;
+  let tiles = 0;
+  let cost = 0;
   for (let i = 1; i < path.length - 1; i++) {
     const c = path[i];
     if (board.cities.some(ci => hexCoordsEqual(ci.coord, c))) continue; // 도시 통과
     if (board.towns.some(t => hexCoordsEqual(t.coord, c) && t.newCityColor === null)) continue; // 마을(가닥 별도)
     const t = board.trackTiles.find(tt => hexCoordsEqual(tt.coord, c));
     if (t && t.owner === playerId) continue; // 이미 내 트랙
-    missing++;
+    tiles++;
+    cost += getTerrainBuildCost(c, board);
   }
-  return missing;
+  return { tiles, cost };
 }
 
 /**

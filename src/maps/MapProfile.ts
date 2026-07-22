@@ -15,6 +15,17 @@ import { MapId } from './MapId';
 export type IncomeSource = 'cityCubes' | 'trackCubes' | 'townCubes';
 
 /** 게임 시작 화면에서 보여줄 맵 특수룰 1줄 요약 (제목 + 설명). */
+/** aiRouteBuildGate 컨텍스트 — 일반 buildTrack 알고리즘이 계산해 프로파일 훅에 주입 */
+export interface AiRouteBuildGateContext {
+  /** 이번 턴 잔여 건설 슬롯 (maxTracksThisTurn − builtTracksThisTurn) */
+  remainingSlots: number;
+  /** 현재 현금 */
+  cash: number;
+  /** 지연 계산 — 경로 완성에 필요한 신규 타일 수·예상 비용(지형/fixedCost 기준, Engineer 할인 미반영=보수적).
+   *  A* 경로가 없으면 null. 기본 구현은 호출하지 않으므로 기본 맵은 비용 0. */
+  missingWork: () => { tiles: number; cost: number } | null;
+}
+
 export interface MapRuleSummary {
   title: string;
   detail: string;
@@ -278,6 +289,27 @@ export abstract class MapProfile {
     _state: GameState, _playerId: PlayerId, _opp: DeliveryOpportunity,
     _fullPath: HexCoord[], _deliveryStartDelay: number,
   ): number { return 0; }
+
+  /**
+   * AI 건설 후보 게이트 (DI 지점) — "이 배달 경로를 지금 착공/계속해도 되는가".
+   * 일반 알고리즘(strategies/buildTrack의 후보 루프)이 경로마다 호출하고, 맵 전용 건설
+   * 제약은 프로파일 override로 주입한다. 기본 = 항상 허용(항등). 비용 계산이 필요한
+   * 맵만 지연 썽크(ctx.missingWork)를 호출하므로 기본 맵은 추가 비용 0.
+   *
+   * Germany(requireCompleteLinks) override: 이번 턴 잔여 슬롯·현금으로 경로 전체를
+   * 완성 못 하면 착공 금지 — 부분 건설은 단계 전환 시 removeIncompleteNewTracks가
+   * 삭제·환불하므로 "짓다 사라짐"만 반복(2026-07-22 사용자 관찰). 과거 인라인 게이트는
+   * 첫 슬롯·슬롯 수만 검사해 중간 슬롯 착공·현금 부족(숫자 헥스 $6~12)을 놓쳤다.
+   */
+  aiRouteBuildGate(_ctx: AiRouteBuildGateContext): boolean { return true; }
+
+  /**
+   * 맵 전용 추가 행동(extraActions)의 AI 선호 ΔVP (DI 지점) — 행동 자체가 맵 전용이므로
+   * 평가식도 프로파일이 소유한다. selectAction의 공유 switch는 기본 7종 외 행동에 대해
+   * 이 훅을 호출한다. 기본 0 = 등록만 되고 평가 미구현인 행동은 선택하지 않음.
+   * (Moon lowGravitation이 유일한 구현 — MoonMapProfile 참조)
+   */
+  aiExtraActionVP(_action: SpecialAction, _state: GameState, _playerId: PlayerId): number { return 0; }
 
   /**
    * AI 경로 선택의 **거점 거리 감점(areaBias)** 사용 여부 (기본 true = 기존 동작).

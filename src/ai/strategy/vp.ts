@@ -23,6 +23,7 @@ import {
   getRouteProgress,
   isRouteComplete,
   getConnectedCities,
+  isReusableUnownedOnPath,
 } from './analyzer';
 import { getCurrentRoute } from './state';
 import { hexCoordsEqual, cityEverAcceptsCube, isTrackPartOfCompletedLink } from '@/utils/hexGrid';
@@ -330,9 +331,13 @@ export function estimateRouteVP(
 
   let tracksToBuild = 0;
   let buildCost = 0;
-  for (const coord of fullPath) {
+  for (let i = 0; i < fullPath.length; i++) {
+    const coord = fullPath[i];
     if (board.cities.some(c => hexCoordsEqual(c.coord, coord))) continue;
     if (board.trackTiles.some(t => t.owner === playerId && hexCoordsEqual(t.coord, coord))) continue;
+    // 미소유 트랙을 변 일치로 그대로 재사용(인수 연장, 룰 IV) — 건설 불요, 비용 0.
+    // 인접 타일을 지으면 store claim이 구간을 자동 인수하므로 계획상 "이미 깔린 구간"으로 취급.
+    if (isReusableUnownedOnPath(board, fullPath, i)) continue;
     tracksToBuild++;
     buildCost += getTerrainBuildCost(coord, board);
   }

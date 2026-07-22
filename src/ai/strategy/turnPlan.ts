@@ -23,6 +23,7 @@ import {
   findOptimalPathAvoidingOpponent,
   getTerrainBuildCost,
   findStopById,
+  isReusableUnownedOnPath,
 } from './analyzer';
 import { getMapAIConfig } from './mapConfig';
 import { getMapProfile } from '@/maps/getMapProfile';
@@ -164,13 +165,16 @@ function computeTurnPlan(state: GameState, playerId: PlayerId): TurnPlan {
 
         // 미건설 헥스(도시 아님 + 내 트랙 아님)의 수와 비용
         const unbuiltCosts: number[] = [];
-        for (const coord of path) {
+        for (let i = 0; i < path.length; i++) {
+          const coord = path[i];
           const isCity = board.cities.some(c => hexCoordsEqual(c.coord, coord));
           if (isCity) continue;
           const myTrack = board.trackTiles.some(
             t => t.owner === playerId && hexCoordsEqual(t.coord, coord)
           );
           if (myTrack) continue;
+          // 변 일치 재사용 가능한 미소유 트랙(인수 연장, 룰 IV) = 건설 불요·비용 0 (vp.ts와 동일 판정)
+          if (isReusableUnownedOnPath(board, path, i)) continue;
           unbuiltCosts.push(getTerrainBuildCost(coord, board));
         }
         tracksNeeded = unbuiltCosts.length;

@@ -11,6 +11,7 @@ import {
   validateTrackConnection,
   isTrackPartOfCompletedLink,
   stationInMasterNetwork,
+  touchesClaimableUnownedTrack,
 } from '@/utils/trackValidation';
 import { hexCoordsEqual, hexDistance, getNeighborHex, getOppositeEdge, playerEdgesAtTrack, cityEverAcceptsCube, cityAcceptsCube } from '@/utils/hexGrid';
 import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, incrementInvestedTracks } from '../strategy/state';
@@ -25,6 +26,8 @@ import {
   getEdgeBetweenHexes,
   findStopById,
   analyzeDeliveryOpportunities,
+  getClaimableUnownedTrackAt,
+  isReusableUnownedOnPath,
 } from '../strategy/analyzer';
 import { estimateRouteVP } from '../strategy/vp';
 import type { DeliveryRoute } from '../strategy/types';
@@ -689,8 +692,11 @@ function tryDirectPathBuild(
         break;
       }
 
-      // 일반 헥스: 역방향 + 순방향 엣지 연결 모두 확인
-      const trackHere = playerTracks.find(t => hexCoordsEqual(t.coord, pathCoord));
+      // 일반 헥스: 역방향 + 순방향 엣지 연결 모두 확인.
+      // 미소유(인수 가능) 트랙도 체인으로 인정 — 룰 IV 인수 연장: 변 일치 여부는 아래 기존
+      // 엣지 검증이 그대로 판정하고, 인접 타일을 지으면 store claim이 구간을 자동 인수한다.
+      const trackHere = playerTracks.find(t => hexCoordsEqual(t.coord, pathCoord))
+        ?? getClaimableUnownedTrackAt(board, pathCoord) ?? undefined;
       if (trackHere) {
         const prevCoord = optimalPath[i - 1];
         const edgeToPrev = getEdgeBetweenHexes(pathCoord, prevCoord, board);
@@ -924,7 +930,9 @@ function tryDirectPathBuild(
         return null;
       }
     } else {
-      if (!validateFirstTrackRule(nextCoord, edges, board, allowedStartCityIds)) {
+      // canBuildTrack 미러: 미소유 미완성 구간 인수 연장은 첫 트랙 규칙(도시 인접) 예외 (룰 IV)
+      if (!validateFirstTrackRule(nextCoord, edges, board, allowedStartCityIds)
+          && (requireNetwork || !touchesClaimableUnownedTrack(nextCoord, edges, board))) {
         debugLog.trackBuilding(`[직접 경로] (${nextCoord.col},${nextCoord.row}) edges=[${edges}] 첫 트랙 규칙 실패`);
         return null;
       }
@@ -945,7 +953,10 @@ function tryDirectPathBuild(
         const isHub = board.cities.some(ci => hexCoordsEqual(ci.coord, c))
           || board.towns.some(t => hexCoordsEqual(t.coord, c) && t.newCityColor === null);
         if (isHub) continue;
-        if (!playerTracks.some(pt => hexCoordsEqual(pt.coord, c))) missingAhead++;
+        if (playerTracks.some(pt => hexCoordsEqual(pt.coord, c))) continue;
+        // 변 일치 재사용 가능한 미소유 트랙은 건설 불요 (vp/turnPlan과 동일 판정)
+        if (isReusableUnownedOnPath(board, optimalPath, i)) continue;
+        missingAhead++;
       }
       const remainingSlots = state.phaseState.maxTracksThisTurn - state.phaseState.builtTracksThisTurn;
       const srcCity = board.cities.find(c => c.id === route.from);

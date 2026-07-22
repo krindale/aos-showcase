@@ -170,8 +170,9 @@ export default function BoardOverlays({
         />
       )}
 
-      {/* 타인 철도 경로 선택 — 후보 경로를 링크 단위로 분절해 내/무수입 구간=골드,
-          빌린 구간=그 링크 소유자의 마커 색으로 렌더. 비선택 후보 클릭=선택 전환,
+      {/* 타인 철도 경로 선택 — 후보 경로를 링크 단위로 분절해 각 링크를 "그 링크 소유자의
+          마커 색"으로 렌더(내 구간 = 내 색 포함 — 요구사항 "각 철도 주인의 마커 색" 그대로).
+          무수입 구간(정부/파산 공용)만 골드. 비선택 후보 클릭=선택 전환,
           선택된 후보 재클릭=수송 확정(목적지 재클릭·PhasePanel 버튼과 동일). */}
       {routeChoice && !movingCube && (
         <g>
@@ -194,7 +195,7 @@ export default function BoardOverlays({
                     const owner = linkOwners[s] ?? null;
                     const color = owner && players[owner]
                       ? PLAYER_COLORS[players[owner].color]
-                      : '#d4a853'; // 내 구간·무수입(정부/공용) 구간은 골드
+                      : '#d4a853'; // 무수입(정부/파산 공용) 구간만 골드 — 소유 구간은 주인 색(나 포함)
                     return (
                       <path
                         key={`route-opt-${i}-seg-${s}`}

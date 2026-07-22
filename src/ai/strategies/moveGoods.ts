@@ -98,6 +98,17 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
     for (let cubeIndex = 0; cubeIndex < cubes.length; cubeIndex++) {
       const cubeColor = cubes[cubeIndex];
       const reachable = findReachableDestinations(sourceCoord, board, playerId, player.engineLevel, cubeColor, govExtra, oppExtra);
+      if (reachable.length === 0) continue;
+
+      // 선점 보너스용 상대 도달 집합 — (출발지·큐브)당 상대별 1회만 계산해 목적지 루프에서 재사용
+      // (목적지 루프 안에서 재탐색하면 같은 탐색을 목적지 수만큼 반복 — 개방 후 탐색이 무거워져 체감 큼)
+      const oppReachSets = state.activePlayers
+        .filter(oppId => oppId !== playerId && state.players[oppId] && !state.players[oppId].eliminated)
+        .map(oppId => {
+          const oppPlayer = state.players[oppId];
+          return findReachableDestinations(sourceCoord, board, oppId, oppPlayer.engineLevel, cubeColor, 0, oppPlayer.engineLevel);
+        });
+
       for (const destCity of reachable) {
         // 목적지별 대표 경로 = findRouteOptions 디폴트([0]) — 사람 UI와 동일 정책
         // (내 수입 최대 → 최저 VP 주인 → 빌린 링크 최소, 저중력 수입 이전 반영)
@@ -122,16 +133,9 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
         if (regionBonus > 0) deltaVP += VP_PER_INCOME * regionBonus;
 
         // 선점 보너스: 상대도 같은 배달이 가능하면, 내가 먼저 옮겨 상대의 income 기회를 차단
-        // (상대도 타인 철도를 쓸 수 있으므로 opponentExtra = 상대 엔진으로 판정)
-        for (const oppId of state.activePlayers) {
-          if (oppId === playerId) continue;
-          const oppPlayer = state.players[oppId];
-          if (!oppPlayer || oppPlayer.eliminated) continue;
-          const oppReachable = findReachableDestinations(sourceCoord, board, oppId, oppPlayer.engineLevel, cubeColor, 0, oppPlayer.engineLevel);
-          if (oppReachable.some(d => hexCoordsEqual(d.coord, destCity.coord))) {
-            deltaVP += VP_PER_INCOME * opponentWeight(state);
-            break;
-          }
+        // (상대도 타인 철도를 쓸 수 있으므로 opponentExtra = 상대 엔진으로 판정 — 집합은 위에서 1회 계산)
+        if (oppReachSets.some(set => set.some(d => hexCoordsEqual(d.coord, destCity.coord)))) {
+          deltaVP += VP_PER_INCOME * opponentWeight(state);
         }
 
         candidates.push({

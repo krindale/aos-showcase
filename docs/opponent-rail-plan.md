@@ -148,11 +148,11 @@ findRouteOptions(start, end, board, playerId, maxLength, cubeColor, govExtra): R
 |---|------|------|------|
 | 1 | 탐색 코어 (hexGrid: findRouteOptions·getPathLinkOwners·tie-break·직결·트랙큐브 랭킹) | ✅ 통과 | 메모 3건(모두 무해): ① getPathLinkOwners 직결 분기는 인접 정거장 한정 — 정산은 무조건 검사지만 독일 직결=인접 도시쌍뿐이라 실차이 없음 ② findLongestPath tie-break의 own(secondary 인정)/opp(정산 미러) 기준 혼용 — 휴리스틱이라 무해 ③ cmp의 −Infinity는 ‖ 체인에서 NaN 반환 불가 확인 |
 | 2 | uiSlice 상태기계 (selectCube 도시/마을·selectDestinationCity·selectRouteOption/confirm·정리·봇 우회) | ✅ 수정 1건 | **스테일 routeChoice**: 트랙 큐브 선택(selectCube track:)·moveTrackCube·completeCubeMove가 routeChoice/routeOptions를 정리 안 해 St.Lucia에서 수송 후 스테일 경로 UI 부활(확정은 selectedCube 가드로 불가—표시 혼란만). 3곳 정리 추가. 단위 184개 통과 |
-| 3 | 렌더 계층 (BoardOverlays 분절/히트영역·PhasePanel 카드·GameBoard 배선) | 대기 | |
-| 4 | AI 계층 (moveGoods: 개방·디폴트 채택·선점/해금·트랙큐브 평가) | 대기 | |
-| 5 | 온라인/동기화 (intents 무등록 타당성·netStore 정리·deliveryIncomeEvent 스냅샷/persist) | 대기 | |
-| 6 | 수익 펄스 (moveSlice 이벤트·BoardPulses 가드/수명) | 대기 | |
-| 7 | 테스트/문서 (커버리지 빈틈·sim 러너 수정 타당성·CLAUDE.md/베이스라인 정확성) | 대기 | |
+| 3 | 렌더 계층 (BoardOverlays 분절/히트영역·PhasePanel 카드·GameBoard 배선) | ✅ 주석 정정 | 동작 이상 없음(미니맵은 경로 선택 시점 미표시라 오클릭 불가·stopPropagation·선택 위로 정렬 확인). "내 구간=골드" 주석이 실동작(내 구간=내 마커 색 — 요구사항 문구에 부합)과 달라 주석만 정정 |
+| 4 | AI 계층 (moveGoods: 개방·디폴트 채택·선점/해금·트랙큐브 평가) | ✅ 개선 1건 | 선점 보너스 상대 도달 탐색이 목적지 루프 안에 있어 (출발지·큐브·상대)당 목적지 수만큼 재탐색 — 큐브 단위 1회로 호이스팅(동작 동치: 달 100시드 VP 20.29·파산 0.16 정확 재현) |
+| 5 | 온라인/동기화 (intents 무등록 타당성·netStore 정리·deliveryIncomeEvent 스냅샷/persist) | ✅ 통과 | 경로=startCubeAnimation args(기존 신뢰 모델)·새 UI 액션 미등록=게스트 로컬 허용 타당·이벤트는 블록리스트 코덱으로 자동 전파, merge 미리셋+컴포넌트 key 가드 정합. routeChoice의 persist 복원은 기존 selectedCube 관례와 동일 |
+| 6 | 수익 펄스 (moveSlice 이벤트·BoardPulses 가드/수명) | ✅ 통과 | key 최초 관측 스킵·undo 억제 확인. 비고: 6행 스택 마지막 행 페이드가 TTL(2.6s)에 ~0.15s 잘림 — 기존 큐브 펄스와 동일 패턴이라 수용 |
+| 7 | 테스트/문서 (커버리지 빈틈·sim 러너 수정 타당성·CLAUDE.md/베이스라인 정확성) | ✅ 보강 1건 | lowGravCredit이 단위 미커버(달 시뮬 간접뿐) → routeOptions.test에 크레딧 유/무 2케이스 추가(13/13). sim 러너 수정(실행 경로 직독·findRouteOptions 실행) 타당, 문서 수치 대조 일치 |
 
 ## 리스크 / 미결
 

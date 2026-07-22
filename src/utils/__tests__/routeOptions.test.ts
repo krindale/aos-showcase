@@ -170,6 +170,39 @@ describe('getPathLinkOwners — 정산 미러', () => {
   });
 });
 
+describe('findRouteOptions — 달 저중력 크레딧 (수입 이전 반영)', () => {
+  // P(0,1)→T(4,1): 직행(내1) vs M(2,0) 경유(내1+타1) — 크레딧 없으면 경유는 게이트에서 탈락
+  const lowGravBoard = () => board(
+    [city('P', 'red', 0, 1), city('M', 'yellow', 2, 0), city('T', 'blue', 4, 1)],
+    [
+      trk(1, 0, [2, 0], P1), // P↔M 내꺼
+      trk(3, 0, [3, 0], P2), // M→(4,0) 타인
+      trk(4, 0, [3, 1], P2), // (3,0)→T 타인
+      trk(1, 2, [4, 0], P1), // 아랫줄 직행 내꺼
+      trk(2, 2, [3, 0], P1),
+      trk(3, 2, [3, 0], P1),
+      trk(4, 2, [3, 5], P1),
+    ]
+  );
+
+  it('크레딧 없음: 내 수입이 같은 타인 경유는 후보에서 제외된다', () => {
+    const options = findRouteOptions({ col: 0, row: 1 }, { col: 4, row: 1 }, lowGravBoard(), P1, 4, 'blue');
+    expect(options).toHaveLength(1);
+    expect(options[0].owners).toEqual([]);
+    expect(options[0].ownLinks).toBe(1);
+  });
+
+  it('lowGravCredit: 빌린 링크 1개 수입 이전이 반영돼(own+1/opp−1) 경유 경로가 최선이 된다', () => {
+    const options = findRouteOptions(
+      { col: 0, row: 1 }, { col: 4, row: 1 }, lowGravBoard(), P1, 4, 'blue', 0, undefined, true
+    );
+    // 경유 경로: 정산상 내 수입 2(내 링크 1 + 이전 1), 타인 순수입 0 — applyLowGravitation 미러
+    expect(options[0].ownLinks).toBe(2);
+    expect(options[0].oppLinks).toBe(0);
+    expect(options[0].owners).toEqual([P2]);
+  });
+});
+
 describe('findTrackCubeDeliveries — St.Lucia 트랙 큐브는 원래부터 타인 철도 개방', () => {
   it('타인 소유 트랙 체인을 지나 같은 색 도시로 배달 가능하다 (소유자 필터 없음 확인)', () => {
     // 내 트랙(1,1)에 파랑 큐브 — 타인(P2) 트랙(2,1)을 지나야만 파랑 도시 T(3,1)에 닿는다

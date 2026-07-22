@@ -175,7 +175,12 @@ function evaluateActionDeltaVP(
         t => t.owner && t.owner !== playerId && isTrackPartOfCompletedLink(t.coord, state.board)
       ).length;
       if (oppCompleted === 0) return 0;
-      return Math.min(2.5, 0.8 + oppCompleted * 0.1);
+      // 저중력 선호 최적값 (2026-07-22 달 100시드 스윕): base 2.0·계수 0.12·상한 2.5.
+      // 응답면이 결정론적이라(달 시뮬은 셋업만 시드 고정·게임은 그래도 재현) plateau를 직접 확인 —
+      // base 1.8~2.4 · cap 2.4~2.8이 모두 VP −2.15·파산 0.88(넓고 안정, 중앙값 채택). cap 3.0+는
+      // −2.27로 미세 하락, coef 0(스케일 없음)은 −3.91, coef 0.2·base 2.3+는 과선호로 하락.
+      // 원본(0.8/0.1/2.5)=−4.60 → 이 값=−2.15 (+2.45). Moon 전용이라 타 맵 무영향.
+      return Math.min(2.5, 2.0 + oppCompleted * 0.12);
     }
     default: return 0;
   }

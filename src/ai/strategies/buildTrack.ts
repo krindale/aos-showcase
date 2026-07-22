@@ -241,9 +241,19 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
 }
 
 /**
- * 맵 건설 게이트(aiRouteBuildGate)용: route(도시→도시) 완성에 아직 필요한 신규 트랙 타일 수와
- * 예상 비용(지형/fixedCost 기준 — A*와 동일한 getTerrainBuildCost, Engineer 할인 미반영=보수적).
- * A* 경로상 헥스 중 도시/마을이 아니고 내 트랙이 아직 없는 칸을 집계. 경로가 없으면 null.
+ * 맵 건설 게이트(aiRouteBuildGate)용: route(도시→도시) 경로의 **첫 미완성 링크**(from쪽부터
+ * 정거장 사이 구간)의 작업량 — 신규 타일 수·예상 비용(지형/fixedCost — A*와 동일한
+ * getTerrainBuildCost, Engineer 할인 미반영=보수적) + 링크 양끝 마을의 가닥(내 가닥 없는
+ * 구간쪽 변당 townSpurCost, 마을당 1카운트 — 룰: 마을은 턴 첫 변경 시 1카운트).
+ *
+ * **링크 단위인 이유 (PR #43 리뷰)**: 독일 룰이 요구하는 건 "링크 완성"이지 경로 완성이
+ * 아니다 — P→마을→C 2링크 경로는 이번 턴 P→마을 링크만 완성하고 다음 턴 이어 짓는 게
+ * 합법. 경로 전체 기준 게이트는 이 분할 건설까지 막아 VP를 깎았다(42.98→42.09 실측).
+ * 링크가 완성되면 다음 결정에서 다음 링크가 "첫 미완성 링크"가 되어 재검사된다 —
+ * 잔여 슬롯·현금에 안 맞으면 거기서 깔끔히 멈춘다(완성 링크는 삭제 대상 아님).
+ * ⚠️ 마을 가닥 카운트를 빠뜨리면 "타일 3+마을" 링크가 게이트(3≤3)를 통과하고 실제론
+ * 4카운트라 미완성으로 끝난다 (같은 리뷰에서 발견한 구멍 — 독일은 마을이 많음).
+ * A* 경로가 없으면 null, 전 링크 완성이면 {0,0}.
  */
 function countMissingTrackWork(
   state: GameState, route: DeliveryRoute, playerId: PlayerId
@@ -254,18 +264,47 @@ function countMissingTrackWork(
   if (!from || !to) return null;
   const path = findOptimalPathAvoidingOpponent(from.coord, to.coord, board, playerId, undefined, false);
   if (path.length < 3) return null;
-  let tiles = 0;
-  let cost = 0;
+  const spurCost = getMapProfile(state.mapId).townSpurCost;
+
+  const isCityAt = (c: HexCoord) => board.cities.some(ci => hexCoordsEqual(ci.coord, c));
+  const townAt = (c: HexCoord) => board.towns.find(t => hexCoordsEqual(t.coord, c) && t.newCityColor === null);
+  const needsMySpur = (townCoord: HexCoord, toward: HexCoord): boolean => {
+    const edge = getEdgeBetweenHexes(townCoord, toward, board);
+    if (edge === null) return false;
+    return !(board.townSpurs ?? []).some(
+      sp => hexCoordsEqual(sp.townCoord, townCoord) && sp.edge === edge && sp.owner === playerId
+    );
+  };
+
+  // 정거장 인덱스 목록 (양끝 도시 포함)
+  const stops: number[] = [0];
   for (let i = 1; i < path.length - 1; i++) {
-    const c = path[i];
-    if (board.cities.some(ci => hexCoordsEqual(ci.coord, c))) continue; // 도시 통과
-    if (board.towns.some(t => hexCoordsEqual(t.coord, c) && t.newCityColor === null)) continue; // 마을(가닥 별도)
-    const t = board.trackTiles.find(tt => hexCoordsEqual(tt.coord, c));
-    if (t && t.owner === playerId) continue; // 이미 내 트랙
-    tiles++;
-    cost += getTerrainBuildCost(c, board);
+    if (isCityAt(path[i]) || townAt(path[i])) stops.push(i);
   }
-  return { tiles, cost };
+  stops.push(path.length - 1);
+
+  // from쪽부터 링크(정거장 사이 구간)별로 작업량 계산 — 첫 미완성 링크의 작업량 반환
+  for (let s = 0; s < stops.length - 1; s++) {
+    const a = stops[s];
+    const b = stops[s + 1];
+    let tiles = 0;
+    let cost = 0;
+    for (let j = a + 1; j < b; j++) {
+      const t = board.trackTiles.find(tt => hexCoordsEqual(tt.coord, path[j]));
+      if (t && t.owner === playerId) continue; // 이미 내 트랙
+      tiles++;
+      cost += getTerrainBuildCost(path[j], board);
+    }
+    // 링크 양끝이 마을이면 구간쪽 변의 내 가닥 필요 (마을당 1카운트 + 가닥 비용)
+    for (const [end, toward] of [[a, a + 1], [b, b - 1]] as const) {
+      if (townAt(path[end]) && needsMySpur(path[end], path[toward])) {
+        tiles++;
+        cost += spurCost;
+      }
+    }
+    if (tiles > 0) return { tiles, cost };
+  }
+  return { tiles: 0, cost: 0 };
 }
 
 /**

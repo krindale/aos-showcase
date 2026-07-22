@@ -73,7 +73,8 @@ export default function RedirectTrackPanel() {
 
           {/* 설명 */}
           <p className="text-sm text-foreground-secondary mb-4">
-            미완성 트랙의 방향을 변경합니다.
+            미완성 트랙의 방향을 변경합니다. 방향 전환만으로는 소유권을 얻지 못합니다 —
+            미소유 트랙의 소유권은 새 타일로 이어 지을 때(연장) 획득합니다.
             <br />
             비용: <span className="text-accent font-medium">${cost}</span>
             <span className="mx-2">|</span>

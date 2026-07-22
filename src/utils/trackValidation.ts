@@ -77,6 +77,13 @@ export function isValidConnectionPoint(
   // 내 트랙이 진입해 있는 마을 - 마을은 진입 트랙을 모두 연결하는 허브
   if (playerConnectsToTown(coord, board, currentPlayer)) return true;
 
+  // 미소유 미완성 트랙 (룰 IV: "다른 플레이어가 미소유 미완성 구간을 연장하면 소유권 주장 가능")
+  // — 여기서 연장을 시작할 수 있다. 정부 트랙(Montréal, 중립)과 완성 링크 소속(파산 해제분)은 제외.
+  if (trackAtCoord && trackAtCoord.owner === null && !trackAtCoord.isGovernment &&
+      !isTrackPartOfCompletedLink(coord, board)) {
+    return true;
+  }
+
   return false;
 }
 
@@ -220,6 +227,15 @@ export function validateTrackConnection(
       // 2. 보조 경로(secondaryEdges)가 내 소유이고 해당 엣지를 포함하는지 확인 (복합 트랙)
       if (neighborTrack.secondaryOwner === currentPlayer &&
           neighborTrack.secondaryEdges?.includes(oppositeEdge)) {
+        return true;
+      }
+
+      // 3. 미소유 미완성 트랙에 연결 (룰 IV: 연장하면 그 구간 소유권 주장 — 인수는 buildTrack이 수행).
+      //    정부 트랙(중립)은 제외. Western US 연속성(requireNetwork) 중엔 내 네트워크와 분리된
+      //    구간 인수가 연속성 규칙을 깨므로 제외(기존 동작 유지).
+      if (!requireNetwork && neighborTrack.owner === null && !neighborTrack.isGovernment &&
+          neighborTrack.edges.includes(oppositeEdge) &&
+          !isTrackPartOfCompletedLink(neighbor, board)) {
         return true;
       }
     }
@@ -600,7 +616,8 @@ export function canRedirectTrack(
  */
 export function getRedirectableEdges(
   trackCoord: HexCoord,
-  board: BoardState
+  board: BoardState,
+  currentPlayer: PlayerId
 ): { currentOpenEdge: number; availableEdges: number[] } | null {
   const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, trackCoord));
   if (!track) return null;
@@ -623,22 +640,25 @@ export function getRedirectableEdges(
     // 현재 열린 엣지도 선택지에 포함 (같은 방향 유지 가능)
     const neighborCoord = getNeighborHex(trackCoord, edge, board);
 
-    // 이웃이 유효한지 확인 (호수, 맵 밖 제외)
+    // 도시 방향은 허용 — 룰북 방향 전환 규칙에 도시 금지 조항 없음.
+    // 자기 미완성 구간을 도시로 틀어 링크를 완성하는 정상 플레이 (2026-07-21 룰 정합 수정).
+    const isCityNeighbor = board.cities.some(c => hexCoordsEqual(c.coord, neighborCoord));
+    const isTownNeighbor = board.towns.some(t => hexCoordsEqual(t.coord, neighborCoord));
+
+    // 이웃이 유효한지 확인 (맵 밖·호수 제외). 도시/마을 헥스는 hexTiles에 항목이 없는 맵이
+    // 있으므로(튜토리얼 등 — "도시 헥스는 지형 없음") 도시/마을이 아닐 때만 항목 없음 = 맵 밖.
+    // 룰: "트랙이 그리드 밖으로 나가도록 건설 불가"
     const hexTile = board.hexTiles.find(h => hexCoordsEqual(h.coord, neighborCoord));
-    if (hexTile && hexTile.terrain === 'lake') continue;
+    if (!isCityNeighbor && !isTownNeighbor && (!hexTile || hexTile.terrain === 'lake')) continue;
 
-    // 이웃이 도시가 아닌지 확인 (도시에 직접 들어가는 방향 전환은 불가)
-    const isCity = board.cities.some(c => hexCoordsEqual(c.coord, neighborCoord));
-    if (isCity) continue;
-
-    // 이웃에 다른 플레이어의 트랙이 있으면 안 됨 (직접 연결 금지)
+    // 이웃 트랙 확인: 다른 플레이어 트랙·정부 트랙(중립)에 직접 연결되는 방향은 금지,
+    // 내 트랙·미소유 트랙으로 잇는 방향은 허용
     const neighborTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighborCoord));
     if (neighborTrack) {
       const oppositeEdge = getOppositeEdge(edge);
-      // 이웃 트랙이 반대 엣지를 가지고 있으면 연결됨 - 소유자 확인 필요
-      if (neighborTrack.edges.includes(oppositeEdge) && neighborTrack.owner !== null) {
-        // 다른 플레이어의 완성된 트랙에는 연결 불가
-        continue;
+      if (neighborTrack.edges.includes(oppositeEdge)) {
+        if (neighborTrack.isGovernment) continue;
+        if (neighborTrack.owner !== null && neighborTrack.owner !== currentPlayer) continue;
       }
     }
 
@@ -646,6 +666,47 @@ export function getRedirectableEdges(
   }
 
   return { currentOpenEdge: actualOpenEdge, availableEdges };
+}
+
+/**
+ * 새 타일(coord/edges)이 미소유 미완성 트랙에 변으로 맞물리는지 — 룰 IV "인수 연장" 판정.
+ * canBuildTrack의 첫 트랙 규칙 예외(내 트랙이 0개여도 미소유 구간에 이어 짓기 허용)와
+ * getBuildBlockReason이 공유한다. 정부 트랙(중립)·완성 링크 소속(파산 해제분)은 제외.
+ */
+export function touchesClaimableUnownedTrack(
+  coord: HexCoord,
+  edges: [number, number],
+  board: BoardState
+): boolean {
+  return edges.some(e => {
+    const nb = getNeighborHex(coord, e, board);
+    const nt = board.trackTiles.find(t => hexCoordsEqual(t.coord, nb));
+    return !!nt && nt.owner === null && !nt.isGovernment
+      && nt.edges.includes(getOppositeEdge(e))
+      && !isTrackPartOfCompletedLink(nb, board);
+  });
+}
+
+/**
+ * 방향 전환 후보 이웃 헥스 — 미완성 트랙(내 것/미소유)을 소스로 선택했을 때,
+ * "노란 칸 클릭 한 번 = 그 방향으로 방향 전환($2)"이 되는 대상 헥스 목록.
+ * 트랙의 현재 변(edges) 방향은 연장 타깃(getBuildableNeighbors)이 담당하므로 제외 —
+ * 연장 후보와 방향 전환 후보는 서로소가 되어 클릭 판정이 겹치지 않는다.
+ * 하이라이트(uiSlice.selectSourceHex)와 클릭 판정(GameBoard)이 이 함수를 공유한다 — 미러 금지.
+ */
+export function getRedirectTargetHexes(
+  trackCoord: HexCoord,
+  board: BoardState,
+  currentPlayer: PlayerId
+): { coord: HexCoord; edge: number }[] {
+  const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, trackCoord));
+  if (!track) return [];
+  if (!canRedirectTrack(trackCoord, board, currentPlayer)) return [];
+  const info = getRedirectableEdges(trackCoord, board, currentPlayer);
+  if (!info) return [];
+  return info.availableEdges
+    .filter(e => !track.edges.includes(e)) // 현재 변 방향은 연장 타깃이 담당 (중복 방지)
+    .map(e => ({ coord: getNeighborHex(trackCoord, e, board), edge: e }));
 }
 
 /**

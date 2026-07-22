@@ -31,7 +31,7 @@ import {
 import { getMapData } from '@/utils/mapRegistry';
 import { getMoonSide } from '@/utils/moonMap';
 import { getMapProfile } from '@/maps/getMapProfile';
-import { isValidConnectionPoint as isValidConnectionPointUtil } from '@/utils/trackValidation';
+import { isValidConnectionPoint as isValidConnectionPointUtil, getRedirectTargetHexes } from '@/utils/trackValidation';
 import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId, TerrainType } from '@/types/game';
 import { NewCityTilesModal } from './NewCityTilesModal';
 import { shadeColor, hexVertex } from './board/boardGeometry';
@@ -238,6 +238,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     completeCubeMove,
     canRedirect,
     selectTrackToRedirect,
+    redirectTrack,
     canPlaceNewCity,
     placeNewCity,
     canBuildTownSpur,
@@ -508,6 +509,17 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             return;
           }
 
+          // 소스가 미완성 트랙이면: 방향 전환 하이라이트 헥스 클릭 = 그 방향으로 즉시 전환($2).
+          // 후보 계산은 uiSlice 하이라이트와 같은 헬퍼(getRedirectTargetHexes) — 미러 금지.
+          // 연장 후보(isBuildableTarget)와 서로소라 위 분기와 겹치지 않는다.
+          if (ui.sourceHex) {
+            const rt = getRedirectTargetHexes(ui.sourceHex, board, currentPlayer)
+              .find(t => hexCoordsEqual(t.coord, coord));
+            if (rt && redirectTrack(ui.sourceHex, rt.edge)) {
+              return;
+            }
+          }
+
           // 다른 유효한 연결점 클릭 → 새로운 선택
           if (isValidConnectionPoint(coord)) {
             selectSourceHex(coord);
@@ -538,7 +550,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
         }
       }
     },
-    [currentPhase, ui.buildMode, ui.sourceHex, ui.targetHex, isValidConnectionPoint, isBuildableTarget, getExitEdgeForCoord, selectSourceHex, selectTargetHex, selectExitDirection, resetBuildMode, canBuildTownSpur, buildTownSpur]
+    [currentPhase, ui.buildMode, ui.sourceHex, ui.targetHex, board, currentPlayer, isValidConnectionPoint, isBuildableTarget, getExitEdgeForCoord, selectSourceHex, selectTargetHex, selectExitDirection, redirectTrack, resetBuildMode, canBuildTownSpur, buildTownSpur]
   );
 
   // 헥스 호버 핸들러

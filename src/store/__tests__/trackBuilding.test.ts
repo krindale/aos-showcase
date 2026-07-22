@@ -23,7 +23,8 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useGameStore } from '../gameStore';
-import { getBuildableNeighbors } from '@/utils/hexGrid';
+import { getBuildableNeighbors, isValidBuildTargetWithReplace } from '@/utils/hexGrid';
+import { getRedirectTargetHexes } from '@/utils/trackValidation';
 import { PlayerId, HexCoord } from '@/types/game';
 
 describe('트랙 건설 메커니즘', () => {
@@ -35,8 +36,13 @@ describe('트랙 건설 메커니즘', () => {
     });
   });
 
-  /** 헬퍼: 단순 트랙 직접 배치 (검증 우회) */
-  function placeTrack(coord: HexCoord, edges: [number, number], owner: PlayerId) {
+  /** 헬퍼: 단순 트랙 직접 배치 (검증 우회) — owner null = 미소유(디스크 제거된) 트랙 */
+  function placeTrack(
+    coord: HexCoord,
+    edges: [number, number],
+    owner: PlayerId | null,
+    isGovernment = false
+  ) {
     const state = useGameStore.getState();
     useGameStore.setState({
       board: {
@@ -49,6 +55,7 @@ describe('트랙 건설 메커니즘', () => {
             edges,
             owner,
             trackType: 'simple' as const,
+            ...(isGovernment ? { isGovernment: true } : {}),
           },
         ],
       },
@@ -313,6 +320,196 @@ describe('트랙 건설 메커니즘', () => {
 
       const afterUi = store.getState().ui;
       expect(afterUi.complexTrackSelection).not.toBeNull();
+    });
+  });
+
+  // ===== 4. 룰북 소유권: 연장 인수 · 방향 전환 무소유 (2026-07-21 룰 정합 수정) =====
+  //
+  // 룰(IV): "다른 플레이어가 미소유 미완성 구간을 연장하면 소유권 주장 가능.
+  //          방향 전환만으로는 연장으로 인정되지 않는다."
+
+  describe('룰북 소유권 (연장 인수 / 방향 전환 무소유)', () => {
+    it('미소유 미완성 구간을 새 타일로 연장하면 그 구간 소유권을 인수한다', () => {
+      // 미소유 구간: O 도시에 닿은 타일 1개, (3,0) 방향으로 열림 (buildCompletedLink 앞쪽 절반)
+      placeTrack({ col: 2, row: 1 }, [2, 5], null);
+      const store = useGameStore;
+
+      // player1 첫 트랙: C 도시에 edge0으로 닿으면서 edge2가 미소유 타일과 맞물림
+      expect(store.getState().canBuildTrack({ col: 3, row: 0 }, [2, 0])).toBe(true);
+      expect(store.getState().buildTrack({ col: 3, row: 0 }, [2, 0])).toBe(true);
+
+      // 미소유였던 타일의 소유권이 player1로 넘어옴
+      const claimed = store.getState().board.trackTiles.find(
+        t => t.coord.col === 2 && t.coord.row === 1
+      );
+      expect(claimed!.owner).toBe('player1');
+      // 새 타일도 내 것
+      const mine = store.getState().board.trackTiles.find(
+        t => t.coord.col === 3 && t.coord.row === 0
+      );
+      expect(mine!.owner).toBe('player1');
+    });
+
+    it('방향 전환(전용 액션)만으로는 미소유 트랙의 소유권을 얻지 못한다', () => {
+      // 미소유 미완성 타일: O 도시 연결(edge2 쪽), (3,0) 방향(edge5)으로 열림
+      placeTrack({ col: 2, row: 1 }, [2, 5], null);
+      const store = useGameStore;
+
+      const info = store.getState();
+      void info;
+      // 열린 edge5를 다른 방향으로 전환 (어느 유효 방향이든)
+      const ok = store.getState().selectTrackToRedirect({ col: 2, row: 1 });
+      expect(ok).toBe(true);
+      const sel = store.getState().ui.redirectTrackSelection!;
+      expect(sel.availableEdges.length).toBeGreaterThan(0);
+      const newEdge = sel.availableEdges.find(e => e !== sel.currentOpenEdge) ?? sel.availableEdges[0];
+      expect(store.getState().redirectTrack({ col: 2, row: 1 }, newEdge)).toBe(true);
+
+      // 소유권은 여전히 없음 (룰: 방향 전환은 연장이 아님)
+      const track = store.getState().board.trackTiles.find(
+        t => t.coord.col === 2 && t.coord.row === 1
+      );
+      expect(track!.owner).toBeNull();
+    });
+
+    it('방향 전환으로 도시 방향을 선택할 수 있다 (자기 미완성 구간 → 도시로 완성)', () => {
+      // player1 미완성 구간: O→(2,1)→(3,0), (3,0)의 열린 변은 edge1 (도시 C는 edge0 방향)
+      placeTrack({ col: 2, row: 1 }, [2, 5], 'player1');
+      placeTrack({ col: 3, row: 0 }, [2, 1], 'player1');
+      const store = useGameStore;
+
+      expect(store.getState().selectTrackToRedirect({ col: 3, row: 0 })).toBe(true);
+      const sel = store.getState().ui.redirectTrackSelection!;
+      // 도시(C) 방향 edge0이 선택지에 포함되어야 한다 (룰북에 도시 금지 조항 없음)
+      expect(sel.availableEdges).toContain(0);
+
+      // 도시로 방향 전환 → 링크 완성, 소유권은 원래대로 내 것
+      expect(store.getState().redirectTrack({ col: 3, row: 0 }, 0)).toBe(true);
+      const track = store.getState().board.trackTiles.find(
+        t => t.coord.col === 3 && t.coord.row === 0
+      );
+      expect(track!.edges).toEqual([2, 0]);
+      expect(track!.owner).toBe('player1');
+    });
+
+    it('일반 건설 플로우로 미소유 트랙을 타깃 삼아 방향 전환할 수 있다 (소유권 무변경)', () => {
+      // 내 트랙 방향 전환과 동일한 경로: 인접 연결점 소스 → 트랙을 타깃으로 → 새 방향 커밋.
+      // (과거엔 isValidBuildTargetWithReplace가 "내 소유"만 인정해 미소유는 이 플로우에서 제외)
+      placeTrack({ col: 2, row: 1 }, [2, 5], null);
+      const store = useGameStore;
+
+      // 미소유 simple 트랙이 교체(방향 전환) 타깃으로 인정된다
+      expect(isValidBuildTargetWithReplace({ col: 2, row: 1 }, store.getState().board, 'player1')).toBe(true);
+
+      // buildTrack 경유 방향 전환: [2,5] → [2,1] (O 도시 연결 변 유지, 열린 변만 변경)
+      expect(store.getState().canBuildTrack({ col: 2, row: 1 }, [2, 1])).toBe(true);
+      expect(store.getState().buildTrack({ col: 2, row: 1 }, [2, 1])).toBe(true);
+
+      const track = store.getState().board.trackTiles.find(
+        t => t.coord.col === 2 && t.coord.row === 1
+      );
+      expect(track!.edges).toEqual([2, 1]);
+      expect(track!.owner).toBeNull(); // 방향 전환은 소유권 무변경 (룰 IV)
+    });
+
+    it('UI 흐름: 미소유 트랙을 소스로 선택하면 연장 타깃이 하이라이트된다', () => {
+      // (실플레이 버그: store 검증만 열리고 getBuildableNeighbors가 미소유 소스에 []를 돌려줘
+      //  소스 클릭은 되는데 노란 타깃이 0개 — UI에서 연장이 계속 불가능했다)
+      placeTrack({ col: 2, row: 1 }, [2, 5], null);
+      const store = useGameStore;
+
+      store.getState().selectSourceHex({ col: 2, row: 1 });
+      const ui = store.getState().ui;
+      expect(ui.buildMode).toBe('source_selected');
+      expect(ui.buildableNeighbors.length).toBeGreaterThan(0);
+      // 열린 변(edge5) 방향의 (3,0)이 연장 후보에 포함
+      expect(ui.buildableNeighbors.some(n => n.coord.col === 3 && n.coord.row === 0)).toBe(true);
+    });
+
+    it('트랙 소스 선택 시 방향 전환 방향도 노란 하이라이트에 포함 + 클릭 한 번에 전환', () => {
+      // 사용자 UX: 미완성 트랙 클릭 → 갈 수 있는 방향 전부 노랑 (연장 + 방향 전환, 버튼 없음)
+      placeTrack({ col: 2, row: 1 }, [2, 5], null);
+      const store = useGameStore;
+
+      store.getState().selectSourceHex({ col: 2, row: 1 });
+      const ui = store.getState().ui;
+
+      // 방향 전환 타깃(현재 변 2·5 제외한 유효 방향)이 하이라이트에 포함된다
+      const redirectTargets = getRedirectTargetHexes(
+        { col: 2, row: 1 }, store.getState().board, 'player1'
+      );
+      expect(redirectTargets.length).toBeGreaterThan(0);
+      for (const rt of redirectTargets) {
+        expect(ui.highlightedHexes.some(h => h.col === rt.coord.col && h.row === rt.coord.row)).toBe(true);
+      }
+      // 연장 후보와 방향 전환 후보는 서로소 (클릭 판정이 겹치지 않음)
+      for (const rt of redirectTargets) {
+        expect(ui.buildableNeighbors.some(n => n.coord.col === rt.coord.col && n.coord.row === rt.coord.row)).toBe(false);
+      }
+
+      // 노란 방향 전환 칸 클릭 = 즉시 전환 (GameBoard가 같은 헬퍼로 edge를 찾아 redirectTrack 호출)
+      const rt = redirectTargets[0];
+      expect(store.getState().redirectTrack({ col: 2, row: 1 }, rt.edge)).toBe(true);
+      const track = store.getState().board.trackTiles.find(
+        t => t.coord.col === 2 && t.coord.row === 1
+      );
+      expect(track!.edges).toEqual([2, rt.edge]);
+      expect(track!.owner).toBeNull(); // 소유권 무변경
+    });
+
+    it('내 트랙이 0개여도 미소유 구간 인수 연장은 첫 트랙 규칙(도시 인접) 예외로 허용된다', () => {
+      // 실플레이 버그 재현(2026-07-22 브라우저 검증): 내 트랙이 전부 미소유로 풀린 뒤
+      // 도시에서 떨어진 미소유 구간 끝에 이어 지으면 "첫 트랙 = 도시 인접" 규칙에 걸려 거부됐다.
+      // 미소유 체인: O 도시 → (2,1) → (3,0), 열린 끝 (3,0)의 edge1 너머 (3,1)은 도시 비인접.
+      placeTrack({ col: 2, row: 1 }, [2, 5], null);
+      placeTrack({ col: 3, row: 0 }, [2, 1], null);
+      const store = useGameStore;
+
+      // player1 트랙 0개 + (3,1)은 도시 인접 아님 → 예전엔 false, 이제 인수 연장으로 true
+      expect(store.getState().board.trackTiles.some(t => t.owner === 'player1')).toBe(false);
+      expect(store.getState().canBuildTrack({ col: 3, row: 1 }, [4, 1])).toBe(true);
+      expect(store.getState().buildTrack({ col: 3, row: 1 }, [4, 1])).toBe(true);
+
+      // 미소유 체인 전체가 인수됨
+      const owners = ['2,1', '3,0', '3,1'].map(k => {
+        const [c, r] = k.split(',').map(Number);
+        return store.getState().board.trackTiles.find(t => t.coord.col === c && t.coord.row === r)!.owner;
+      });
+      expect(owners).toEqual(['player1', 'player1', 'player1']);
+    });
+
+    it('소스 선택 상태에서 방향 전환을 커밋하면 하이라이트·선택 UI가 전부 초기화된다', () => {
+      // 실플레이 버그(2026-07-22): redirectTrack이 buildMode만 idle로 되돌리고
+      // highlightedHexes/sourceHex를 남겨 방향 전환 후에도 노란 칸이 화면에 잔존했다.
+      placeTrack({ col: 2, row: 1 }, [2, 5], null);
+      const store = useGameStore;
+
+      store.getState().selectSourceHex({ col: 2, row: 1 });
+      expect(store.getState().ui.highlightedHexes.length).toBeGreaterThan(0);
+
+      const rt = getRedirectTargetHexes({ col: 2, row: 1 }, store.getState().board, 'player1')[0];
+      expect(store.getState().redirectTrack({ col: 2, row: 1 }, rt.edge)).toBe(true);
+
+      const ui = store.getState().ui;
+      expect(ui.buildMode).toBe('idle');
+      expect(ui.highlightedHexes).toEqual([]);
+      expect(ui.buildableNeighbors).toEqual([]);
+      expect(ui.sourceHex).toBeNull();
+    });
+
+    it('정부 트랙(중립)은 연장해도 인수되지 않는다', () => {
+      // 정부 트랙(미소유·isGovernment): O 도시 연결, (3,0) 방향으로 열림
+      placeTrack({ col: 2, row: 1 }, [2, 5], null, true);
+      const store = useGameStore;
+
+      // 새 타일이 물리적으로 맞물려도 (연결성은 C 도시 인접으로 충족)
+      expect(store.getState().buildTrack({ col: 3, row: 0 }, [2, 0])).toBe(true);
+
+      // 정부 트랙은 중립 유지
+      const gov = store.getState().board.trackTiles.find(
+        t => t.coord.col === 2 && t.coord.row === 1
+      );
+      expect(gov!.owner).toBeNull();
     });
   });
 });

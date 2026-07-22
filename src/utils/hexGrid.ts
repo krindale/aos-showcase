@@ -512,8 +512,11 @@ export function isValidBuildTargetWithReplace(
 
   const existingTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
   if (existingTrack) {
-    // 내 'simple' 트랙만 교체(방향 전환) 가능
-    if (existingTrack.owner !== playerId || existingTrack.trackType !== 'simple') return false;
+    // 내 트랙 또는 미소유 트랙의 'simple' 타일만 교체(방향 전환) 가능 — 미소유는 룰 IV
+    // "소유권이 있거나 미소유 상태여야 함"에 따라 방향 전환 대상(정부 트랙 제외, 소유권은 안 넘어감)
+    if (existingTrack.trackType !== 'simple') return false;
+    if (existingTrack.isGovernment) return false;
+    if (existingTrack.owner !== playerId && existingTrack.owner !== null) return false;
 
     // 완성된 링크의 일부라면 교체 불가
     if (isTrackPartOfCompletedLink(coord, board)) return false;
@@ -578,21 +581,27 @@ export function getBuildableNeighbors(
     ? trackAtSource.isGovernment
     : (trackAtSource.owner === currentPlayer || trackAtSource.secondaryOwner === currentPlayer));
 
+  // 미소유 미완성 트랙 (룰 IV: 새 타일로 연장하면 그 구간 소유권 주장) — 여기서도 연장 시작 가능.
+  // 정부 트랙(중립)·완성 링크 소속은 제외 (trackValidation의 연결점 인정 조건과 동일하게 유지)
+  const isClaimableUnowned = !governmentMode && !!trackAtSource &&
+    trackAtSource.owner === null && !trackAtSource.isGovernment &&
+    !isTrackPartOfCompletedLink(sourceCoord, board);
+
   // 연결 가능한 엣지 목록 결정
   let availableEdges: number[];
 
   if (isCity || isConnectedTown) {
     // 도시/진입한 마을: 모든 6개 엣지에서 연결 가능
     availableEdges = [0, 1, 2, 3, 4, 5];
-  } else if (isPlayerOwned && trackAtSource) {
+  } else if ((isPlayerOwned || isClaimableUnowned) && trackAtSource) {
     // 플레이어 트랙: 플레이어 소유 경로의 엣지에서만 연결 가능 (복합 트랙 지원)
     availableEdges = [];
 
     if (governmentMode) {
       availableEdges.push(...trackAtSource.edges);
     } else {
-      // 기본 경로가 내 소유이면 해당 엣지 추가
-      if (trackAtSource.owner === currentPlayer) {
+      // 기본 경로가 내 소유(또는 인수 가능한 미소유)이면 해당 엣지 추가
+      if (trackAtSource.owner === currentPlayer || isClaimableUnowned) {
         availableEdges.push(...trackAtSource.edges);
       }
 

@@ -2,7 +2,7 @@ import { GameState, PlayerId, HexCoord, CubeColor, BoardState, GAME_CONSTANTS } 
 import { debugLog } from '@/utils/debugConfig';
 import { DeliveryOpportunity, DeliveryRoute } from './types';
 import { getMapAIConfig } from './mapConfig';
-import { getNeighborHex, hexCoordsEqual, hexDistance, getConnectedNeighbors, hexToKey, getConnectingEdge, getOppositeEdge, playerEdgesAtTrack, cityEverAcceptsCube, isBlockedEdge } from '@/utils/hexGrid';
+import { getNeighborHex, hexCoordsEqual, hexDistance, getConnectedNeighbors, hexToKey, getConnectingEdge, getOppositeEdge, playerEdgesAtTrack, cityEverAcceptsCube, isBlockedEdge, isTrackPartOfCompletedLink } from '@/utils/hexGrid';
 
 // 경로 캐시 (출발지-목적지 → 경로)
 const pathCache: Map<string, HexCoord[]> = new Map();
@@ -856,6 +856,44 @@ export function findOptimalPathAvoidingOpponent(
 
   // 경로 없음
   return [];
+}
+
+/**
+ * 이 헥스의 미소유 트랙이 인수 연장(룰 IV) 대상인가 — AI 계획용 판정.
+ * 미소유(디스크 빠진)·비정부·simple·완성 링크 소속 아님. 변 일치 여부는 호출자가
+ * 경로 방향으로 검증한다 (isReusableUnownedOnPath 또는 buildTrack frontier 루프).
+ * ⚠️ **의도된 비대칭**: store 인수(findClaimableSectionKeys)는 `simple`을 요구하지 않아
+ *    복합 무소유 타일도 인수하지만, AI 계획은 여기서 `simple`만 재사용으로 인정한다 —
+ *    복합 무소유는 건설비로 계상해 경로를 과대평가하지 않는 보수적 방향(안전). 복합 무소유는
+ *    파산 해제 등으로만 생기는 희귀 상태이므로 이 비대칭의 실무 영향은 미미하다.
+ */
+export function getClaimableUnownedTrackAt(
+  board: BoardState,
+  coord: HexCoord
+): { edges: number[] } | null {
+  const t = board.trackTiles.find(tt => hexCoordsEqual(tt.coord, coord));
+  if (!t || t.owner !== null || t.isGovernment || t.trackType !== 'simple') return null;
+  if (isTrackPartOfCompletedLink(coord, board)) return null;
+  return t;
+}
+
+/**
+ * 경로 path의 i번째 헥스에 있는 미소유 트랙을 **그대로(변 일치) 재사용**할 수 있는가.
+ * 재사용 = 건설 불요(비용 0·슬롯 0) — 인접 타일을 지으면 store의 claim이 구간을 자동 인수한다.
+ * vp.estimateRouteVP · turnPlan.computeTurnPlan · buildTrack 예비금 면제가 공유 — 미러 금지.
+ * 가산 보너스가 아니라 비용 절감으로만 반영해 이중 계상을 피한다 (달 성장 가치 기각 교훈).
+ */
+export function isReusableUnownedOnPath(
+  board: BoardState,
+  path: HexCoord[],
+  i: number
+): boolean {
+  if (i <= 0 || i >= path.length - 1) return false;
+  const t = getClaimableUnownedTrackAt(board, path[i]);
+  if (!t) return false;
+  const eIn = getEdgeBetweenHexes(path[i], path[i - 1], board);
+  const eOut = getEdgeBetweenHexes(path[i], path[i + 1], board);
+  return eIn >= 0 && eOut >= 0 && t.edges.includes(eIn) && t.edges.includes(eOut);
 }
 
 /**

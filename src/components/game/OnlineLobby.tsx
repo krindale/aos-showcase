@@ -393,7 +393,7 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
         )}
         {supportedPlayers.length > 1 && (
           <div className="flex gap-2">
-            {supportedPlayers.map((n) => (
+            {[...supportedPlayers].sort((a, b) => a - b).map((n) => (
               <button
                 key={n}
                 onClick={() => setPlayerCount(n)}

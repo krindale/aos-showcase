@@ -1525,6 +1525,13 @@ export function getMovementPathSVG(
 ): string {
   if (path.length < 2) return '';
 
+  // 달(Moon) 랩 어라운드: 게임상 연결이지만 화면상 반대편에 있는(물리적 비인접) 전환.
+  // 이 경계에서 선을 이으면 보드를 가로지르는 어색한 직선이 되므로, 진입점을 L 대신 M으로
+  // 끊어 반대편에서 새 subpath로 다시 시작한다(큐브가 한쪽 변으로 나가 반대편 변으로 재등장).
+  // board 없이 호출한 getConnectingEdge가 null(비인접)이고 board로는 non-null이면 랩 스텝이다.
+  const isWrapStep = (a: HexCoord, b: HexCoord) =>
+    getConnectingEdge(a, b, board) !== null && getConnectingEdge(a, b) === null;
+
   const pathParts: string[] = [];
 
   for (let i = 0; i < path.length; i++) {
@@ -1534,13 +1541,17 @@ export function getMovementPathSVG(
     const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
     const isTown = board.towns.some(t => hexCoordsEqual(t.coord, coord));
 
+    // 이전 헥스와의 연결이 랩 경계면 진입을 M(끊기)으로, 아니면 L(잇기)로
+    const wrapFromPrev = i > 0 && isWrapStep(coord, path[i - 1]);
+    const enterCmd = wrapFromPrev ? 'M' : 'L';
+
     if (i === 0) {
       // 시작점 — 도시/마을 또는 트랙(트랙 큐브 배달) 중심에서 시작
       pathParts.push(`M ${pixel.x} ${pixel.y}`);
 
       // 다음 헥스로 나가는 엣지
       if (i + 1 < path.length) {
-        const nextEdge = getConnectingEdge(coord, path[i + 1]);
+        const nextEdge = getConnectingEdge(coord, path[i + 1], board);
         if (nextEdge !== null) {
           const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat);
           pathParts.push(`L ${exitPoint.x} ${exitPoint.y}`);
@@ -1549,18 +1560,20 @@ export function getMovementPathSVG(
     } else if (i === path.length - 1) {
       // 끝점 (도시/마을 중심으로 진입)
       {
-        const prevEdge = getConnectingEdge(coord, path[i - 1]);
+        const prevEdge = getConnectingEdge(coord, path[i - 1], board);
         if (prevEdge !== null) {
           const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat);
-          pathParts.push(`L ${entryPoint.x} ${entryPoint.y}`);
+          pathParts.push(`${enterCmd} ${entryPoint.x} ${entryPoint.y}`);
+        } else if (wrapFromPrev) {
+          pathParts.push(`M ${pixel.x} ${pixel.y}`);
         }
         pathParts.push(`L ${pixel.x} ${pixel.y}`);
       }
     } else {
       // 중간 트랙
       if (track) {
-        const prevEdge = getConnectingEdge(coord, path[i - 1]);
-        const nextEdge = getConnectingEdge(coord, path[i + 1]);
+        const prevEdge = getConnectingEdge(coord, path[i - 1], board);
+        const nextEdge = getConnectingEdge(coord, path[i + 1], board);
 
         if (prevEdge !== null && nextEdge !== null) {
           const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat);
@@ -1570,7 +1583,7 @@ export function getMovementPathSVG(
           const edgeDiff = Math.abs(prevEdge - nextEdge);
           const edgeDist = Math.min(edgeDiff, 6 - edgeDiff);
 
-          pathParts.push(`L ${entryPoint.x} ${entryPoint.y}`);
+          pathParts.push(`${enterCmd} ${entryPoint.x} ${entryPoint.y}`);
 
           if (edgeDist === 3) {
             // 직선 트랙
@@ -1582,14 +1595,14 @@ export function getMovementPathSVG(
         }
       } else if (isTown) {
         // 마을 통과
-        const prevEdge = getConnectingEdge(coord, path[i - 1]);
-        const nextEdge = getConnectingEdge(coord, path[i + 1]);
+        const prevEdge = getConnectingEdge(coord, path[i - 1], board);
+        const nextEdge = getConnectingEdge(coord, path[i + 1], board);
 
         if (prevEdge !== null && nextEdge !== null) {
           const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat);
           const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat);
 
-          pathParts.push(`L ${entryPoint.x} ${entryPoint.y}`);
+          pathParts.push(`${enterCmd} ${entryPoint.x} ${entryPoint.y}`);
           pathParts.push(`L ${pixel.x} ${pixel.y}`);
           pathParts.push(`L ${exitPoint.x} ${exitPoint.y}`);
         }
@@ -1628,7 +1641,7 @@ export function getAnimationPoints(
 
       // 나가는 엣지까지
       if (i + 1 < path.length) {
-        const nextEdge = getConnectingEdge(coord, path[i + 1]);
+        const nextEdge = getConnectingEdge(coord, path[i + 1], board);
         if (nextEdge !== null) {
           const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat);
           // 중간 포인트 추가
@@ -1643,7 +1656,7 @@ export function getAnimationPoints(
       }
     } else if (i === path.length - 1) {
       // 끝 도시
-      const prevEdge = getConnectingEdge(coord, path[i - 1]);
+      const prevEdge = getConnectingEdge(coord, path[i - 1], board);
       if (prevEdge !== null) {
         const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat);
         // 이전 헥스 경계에서 진입점으로
@@ -1657,8 +1670,8 @@ export function getAnimationPoints(
       }
     } else {
       // 중간 헥스 (트랙 또는 마을)
-      const prevEdge = getConnectingEdge(coord, path[i - 1]);
-      const nextEdge = getConnectingEdge(coord, path[i + 1]);
+      const prevEdge = getConnectingEdge(coord, path[i - 1], board);
+      const nextEdge = getConnectingEdge(coord, path[i + 1], board);
 
       if (prevEdge !== null && nextEdge !== null) {
         const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat);

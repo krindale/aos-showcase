@@ -353,7 +353,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                     플레이어 수
                   </label>
                   <div className="flex gap-2">
-                    {supportedPlayers.map((n) => (
+                    {[...supportedPlayers].sort((a, b) => a - b).map((n) => (
                       <button
                         key={n}
                         onClick={() => setPlayerCount(n)}

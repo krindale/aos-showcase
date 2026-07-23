@@ -9,7 +9,7 @@ import type { StoreApi } from 'zustand';
 import type { GameStore } from '../gameStore';
 import { HexCoord, PlayerId, GAME_CONSTANTS, MovingCubeContext } from '@/types/game';
 import { getMapProfile } from '@/maps/getMapProfile';
-import { hexCoordsEqual, findTrackCubeDeliveries } from '@/utils/hexGrid';
+import { hexCoordsEqual, findTrackCubeDeliveries, getConnectingEdge, trackOwnerForEntry } from '@/utils/hexGrid';
 import { logAction } from '@/utils/debugConfig';
 import { releaseAILock } from '../helpers/aiScheduler';
 import { captureUndo } from '../helpers/undo';
@@ -110,11 +110,16 @@ export function createMoveSlice(set: Set, get: Get): MoveSlice {
             currentLinkOwner = null;
             prevStopCoord = coord;
           } else {
-            // 트랙 구간: 소유자 확인 (한 링크는 한 소유자만 가짐)
+            // 트랙 구간: 소유자 확인 (한 링크는 한 소유자만 가짐).
+            // 교차/공존 타일은 화물이 들어온 edge에 맞는 트랙(primary/secondary)의 소유자를
+            // 봐야 한다 — getPathLinkOwners와 동일 (내 crossing을 지나는데 상대 owner로
+            // 카운트되던 버그 수정). i>0 보장(도시 다음 트랙부터).
             if (inLink && !currentLinkOwner) {
               const track = state.board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
-              if (track?.owner) {
-                currentLinkOwner = track.owner;
+              if (track) {
+                const entryEdge = i > 0 ? getConnectingEdge(coord, path[i - 1], state.board) : null;
+                const o = trackOwnerForEntry(track, entryEdge);
+                if (o) currentLinkOwner = o;
               }
             }
           }
@@ -122,6 +127,14 @@ export function createMoveSlice(set: Set, get: Get): MoveSlice {
 
         // 달(Moon) Low Gravitation: 상대 링크 1개의 수입을 내가 가져온다 (수송마다 1회)
         applyLowGravitation(state, state.currentPlayer, incomeChanges);
+
+        // 진단: 이 수송으로 각 플레이어 수입이 얼마 올랐는지 (수입 귀속 추적 — :3999)
+        logAction('goodsMovement', 'moveIncome', {
+          mover: state.currentPlayer,
+          selectedAction: state.players[state.currentPlayer]?.selectedAction,
+          gains: incomeChanges,
+          turn: state.currentTurn,
+        });
 
         const newPlayers = { ...state.players };
         for (const playerId of state.activePlayers) {

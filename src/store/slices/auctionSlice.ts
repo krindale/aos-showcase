@@ -142,12 +142,17 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
           // 방금 포기한 playerId의 다음 순서부터 미포기 플레이어를 찾는다.
           // (lastActedPlayer 기반 계산은 그 플레이어가 이미 포기했을 때 indexOf가 -1이 되어
           //  첫 입찰자로 잘못 되돌아가는 버그 — 5인+ 경매에서 차례가 꼬임)
+          // ⚠️ 최고입찰자(highestBidder)는 건너뛴다 — 남이 자기 위로 올리기 전엔 다시 차례를
+          //  줄 이유가 없고, Turn Order 스킵(skipBid) 플레이어가 활성으로 남아 순환이
+          //  최고입찰자에게 되돌아가면 그가 (이미 1등인데) 포기를 눌러 스스로 순서를 무너뜨리는
+          //  버그가 난다. (passBid는 highestBidder를 갱신하지 않아 포기해도 1등으로 남는다)
+          const highestBidder = state.auction.highestBidder;
           const order = state.playerOrder;
           const start = order.indexOf(playerId);
-          nextBidder = activePlayers[0];
+          nextBidder = activePlayers.find(p => p !== highestBidder) ?? activePlayers[0];
           for (let i = 1; i <= order.length; i++) {
             const cand = order[(start + i) % order.length];
-            if (activePlayers.includes(cand)) { nextBidder = cand; break; }
+            if (activePlayers.includes(cand) && cand !== highestBidder) { nextBidder = cand; break; }
           }
         }
 
@@ -184,11 +189,15 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
           return state;
         }
 
-        // 다음 입찰자 계산 (패스한 플레이어 제외)
+        // 다음 입찰자 계산 (패스한 플레이어 제외, 최고입찰자는 건너뜀 — passBid와 동일 이유)
+        const highestBidder = state.auction.highestBidder;
         const activePlayers = state.playerOrder.filter(p => !state.auction!.passedPlayers.includes(p));
         const currentIndex = activePlayers.indexOf(playerId);
-        const nextIndex = (currentIndex + 1) % activePlayers.length;
-        const nextBidder = activePlayers[nextIndex];
+        let nextBidder = activePlayers[(currentIndex + 1) % activePlayers.length];
+        for (let i = 1; i <= activePlayers.length; i++) {
+          const cand = activePlayers[(currentIndex + i) % activePlayers.length];
+          if (cand !== highestBidder) { nextBidder = cand; break; }
+        }
 
         return {
           auction: {

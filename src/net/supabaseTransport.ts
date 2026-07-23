@@ -279,6 +279,28 @@ class SupabaseRoomConnection implements RoomConnection {
     this._room = { ...this._room, ...patch };
   }
 
+  async upsertRoom(
+    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic'>>
+  ): Promise<void> {
+    // updateRoom과 달리 방 전체를 id 기준 upsert — 방장이 나가며 closeRoom으로 삭제한 방을
+    // 승계자가 그대로 되살린다(같은 id·code 유지). 있으면 update, 없으면 insert.
+    this._room = { ...this._room, ...patch };
+    const r = this._room;
+    const row = {
+      id: r.id,
+      code: r.code,
+      title: r.title,
+      is_public: r.isPublic,
+      map_id: r.mapId,
+      status: r.status,
+      seats: r.seats,
+      host_client_id: r.hostClientId,
+      snapshot: r.snapshot ?? null,
+    };
+    const { error } = await this.client.from('rooms').upsert(row);
+    if (error) throw new Error(`방 복원(upsert) 실패: ${error.message}`);
+  }
+
   async touchRoom(): Promise<void> {
     // 같은 값으로 update해도 트리거가 updated_at을 갱신한다 (대기실 생존 신호)
     const { error } = await this.client

@@ -26,7 +26,7 @@ import {
   removeGuestGuard,
   type GameIntentPayload,
 } from './intents';
-import { assignSeatForClaim, isHostAbsent, pickHostSuccessor } from './roomLogic';
+import { assignSeatForClaim, isHostAbsent, pickHostSuccessor, renameSeat as renameSeatRule } from './roomLogic';
 import { useGameStore } from '@/store/gameStore';
 import { scheduleAICheck } from '@/store/helpers/aiScheduler';
 import { clearUndo } from '@/store/helpers/undo';
@@ -78,6 +78,12 @@ export interface NetStore {
   sendChat: (text: string) => void;
   /** 호스트 전용: 로비에서 좌석 구성 변경 (사람↔AI 등) */
   updateSeats: (seats: RoomSeat[]) => Promise<void>;
+  /**
+   * 대기실에서 본인 좌석 이름 변경 (트림 저장, 중복 이름 거부).
+   * 호스트는 직접 반영, 게스트는 intent로 호스트에 요청 → 스냅샷/room 통지로 확정.
+   * 반환: { ok } — 로컬 선검사 실패(빈 이름/중복) 시 ok:false + reason.
+   */
+  renameSeat: (name: string) => Promise<{ ok: boolean; reason?: string }>;
   /** 호스트 전용: 게임 시작 — initGame + status 'playing' */
   startOnlineGame: () => Promise<void>;
   /** 호스트 전용: 이탈한 게스트 좌석을 AI로 전환 (players.isAI + seats.kind — 게임 계속) */
@@ -312,6 +318,25 @@ export const useNetStore = create<NetStore>()((set, get) => {
     }
   };
 
+  // ---- 호스트: 게스트의 이름 변경 요청 처리 (renameSeat intent) ----
+  const handleRename = async (msg: IntentMessage): Promise<void> => {
+    const conn = connection;
+    const { room } = get();
+    if (!conn || !room) return;
+    const seat = seatOf(room, msg.clientId);
+    if (seat === null) return; // 발신자가 좌석 없음(관전) — 무시
+    const name = (msg.payload as { name?: string } | undefined)?.name ?? '';
+    try {
+      const next = renameSeatRule(room.seats, seat, name); // 트림·중복 검사(호스트 권위)
+      if (!next) return; // 빈 이름/중복 — 조용히 거부 (게스트 화면은 기존 이름 유지)
+      await conn.updateRoom({ seats: next });
+      await conn.broadcastRoom();
+      set({ room: conn.room });
+    } catch (e) {
+      console.warn('[net] 이름 변경 처리 실패:', e);
+    }
+  };
+
   // ---- 게스트 커밋 가드 설치 (intent 전송 + 유실 대비 동일 멱등 id 1회 재전송) ----
   // joinRoom(게스트 입장)과 이중 호스트 강등 양쪽에서 사용
   const installGuardWithResend = (): void => {
@@ -356,6 +381,10 @@ export const useNetStore = create<NetStore>()((set, get) => {
       }
       if (msg.type === 'claimSeat') {
         void handleClaimSeat(msg);
+        return;
+      }
+      if (msg.type === 'renameSeat') {
+        void handleRename(msg);
         return;
       }
       if (get().room?.status !== 'playing') return; // 게임 전 게임 인텐트 무시
@@ -591,7 +620,10 @@ export const useNetStore = create<NetStore>()((set, get) => {
               : s
           )
         : null;
-      await conn.updateRoom(
+      // upsertRoom(‌update-or-insert): 대기실 방장이 "방 나가기"로 나가면 closeRoom이 방을
+      // DB에서 지운다. 승계자가 updateRoom(UPDATE)만 하면 삭제된 행을 못 살려 공개방 목록·
+      // 재입장에서 방이 사라진다 → id 기준 upsert로 방을 그대로 되살린다.
+      await conn.upsertRoom(
         newSeats
           ? { hostClientId: conn.clientId, seats: newSeats }
           : { hostClientId: conn.clientId }
@@ -833,7 +865,9 @@ export const useNetStore = create<NetStore>()((set, get) => {
     },
 
     leaveRoom: async () => {
-      // 호스트가 대기실을 명시적으로 떠나면 방 자체를 폐쇄 (목록의 유령 방 방지)
+      // 호스트가 대기실을 명시적으로 떠나면 방 자체를 폐쇄 (목록의 유령 방 방지).
+      // 남은 사람이 승계하면 promoteToHost가 방을 DB에 다시 만든다(upsertRoom) — 아무도
+      // 이어받지 않으면 방이 DB에 남지 않아 깔끔하다.
       const { mode, room } = get();
       if (mode === 'host' && room?.status === 'waiting' && connection) {
         await connection.closeRoom().catch((e) => console.warn('[net] 방 폐쇄 실패:', e));
@@ -891,6 +925,40 @@ export const useNetStore = create<NetStore>()((set, get) => {
       } catch (e) {
         console.warn('[net] 좌석 갱신 실패:', e);
       }
+    },
+
+    renameSeat: async (name) => {
+      const { mode, room, mySeat } = get();
+      if (!room || mySeat === null) return { ok: false, reason: '좌석이 없어요' };
+      const trimmed = name.trim();
+      if (!trimmed) return { ok: false, reason: '이름을 입력하세요' };
+      // 로컬 선검사(중복) — 최종 권위는 호스트(handleRename의 renameSeatRule)
+      if (room.seats.some((s) => s.seat !== mySeat && s.name === trimmed)) {
+        return { ok: false, reason: '이미 같은 이름이 있어요' };
+      }
+      const conn = connection;
+      if (!conn) return { ok: false, reason: '연결이 없어요' };
+      if (mode === 'host') {
+        const next = renameSeatRule(room.seats, mySeat, trimmed);
+        if (!next) return { ok: false, reason: '이미 같은 이름이 있어요' };
+        try {
+          await conn.updateRoom({ seats: next });
+          await conn.broadcastRoom();
+          set({ room: conn.room });
+        } catch (e) {
+          console.warn('[net] 이름 변경 실패:', e);
+          return { ok: false, reason: '변경에 실패했어요' };
+        }
+        return { ok: true };
+      }
+      // 게스트: 호스트에 요청 → room 통지로 확정 (호스트가 트림·중복 재검증)
+      try {
+        await conn.sendIntent({ type: 'renameSeat', seat: mySeat, payload: { name: trimmed } });
+      } catch (e) {
+        console.warn('[net] 이름 변경 요청 실패:', e);
+        return { ok: false, reason: '요청 전송에 실패했어요' };
+      }
+      return { ok: true };
     },
 
     startOnlineGame: async () => {

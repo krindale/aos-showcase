@@ -79,6 +79,10 @@ export interface RoomConnection {
   updateRoom(
     patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic'>>
   ): Promise<void>;
+  /** 호스트 전용: 방 전체를 id 기준 upsert — 승계자가 삭제된 방을 되살릴 때 (updateRoom과 달리 insert 가능) */
+  upsertRoom(
+    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic'>>
+  ): Promise<void>;
   /** 호스트 전용: 대기실 하트비트 — updated_at만 갱신 (공개방 목록의 유령 방 필터 기준) */
   touchRoom(): Promise<void>;
   /** 호스트 전용: 방 폐쇄 — finished 처리 후 행 삭제 시도 (대기실을 명시적으로 나갈 때) */

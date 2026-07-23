@@ -91,8 +91,10 @@ export function getBuildBlockReason(
     profile.requireContiguousUntilTranscontinental && !state.players[currentPlayer]?.transcontinental;
   const hasExistingTrack = playerHasTrack(board, currentPlayer);
   if (!hasExistingTrack) {
-    // canBuildTrack 미러: 미소유 미완성 구간 인수 연장은 첫 트랙 규칙 예외 (룰 IV)
-    if (!validateFirstTrackRule(coord, edges, board, allowedStartCityIds)
+    // canBuildTrack 미러: 미소유 미완성 구간 인수 연장은 첫 트랙 규칙 예외 (룰 IV).
+    // masterNetwork(Montréal)는 첫 트랙 규칙을 아래 touchesMasterNetwork가 대신하므로 건너뛴다.
+    if (!profile.masterNetwork
+        && !validateFirstTrackRule(coord, edges, board, allowedStartCityIds)
         && (requireNetwork || !touchesClaimableUnownedTrack(coord, edges, board))) {
       return profile.startingCitiesOnly ? '첫 트랙은 시작 도시에 붙여야 해요' : '첫 트랙은 도시에 붙여야 해요';
     }

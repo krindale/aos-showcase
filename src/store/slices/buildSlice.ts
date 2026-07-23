@@ -115,7 +115,11 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         // 도시 연결" 규칙을 만족한다. (내 트랙이 전부 미소유로 풀린 직후 인수가 막히던 실플레이
         // 버그 — 2026-07-22 브라우저 검증에서 발견.) Western US 연속성(requireNetwork) 중엔
         // 분리 구간 인수가 연속성을 깨므로 기존대로 불허.
-        if (!validateFirstTrackRule(coord, edges, board, allowedStartCityIds)) {
+        // Montréal 마스터 네트워크: 첫 트랙 연결성은 아래 touchesMasterNetwork가 대신 보장한다
+        // (네트워크 정거장 = 도시 / 정부 가닥이 닿은 마을 / 아무 트랙). 도시 인접만 보는
+        // validateFirstTrackRule은 정부 철도가 연결된 마을에서 첫 트랙 시작을 막으므로 건너뛴다.
+        if (!profile.masterNetwork &&
+            !validateFirstTrackRule(coord, edges, board, allowedStartCityIds)) {
           if (requireNetwork || !touchesClaimableUnownedTrack(coord, edges, board)) {
             return false;
           }

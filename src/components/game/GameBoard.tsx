@@ -35,7 +35,7 @@ import { isValidConnectionPoint as isValidConnectionPointUtil, getRedirectTarget
 import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId, TerrainType } from '@/types/game';
 import { NewCityTilesModal } from './NewCityTilesModal';
 import { shadeColor, hexVertex } from './board/boardGeometry';
-import { useNetStore } from '@/net/netStore';
+import { useMyPlayerId } from '@/hooks/useMyPlayerId';
 import { safeTimeout } from '@/utils/safeTimers';
 
 export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean } = {}) {
@@ -59,6 +59,14 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
       ui: state.ui,
     }))
   );
+
+  const myPlayerId = useMyPlayerId();
+  // 보드 조작은 "내 차례"일 때만 — 봇 차례나 남의 차례에 사람이 클릭해 봇/타인의 이동·건설을
+  // 대신 실행해 버리는 것을 막는다(수입이 엉뚱하게 귀속되던 사용자 보고). AI는 store 액션을
+  // 직접 호출해 이 게이트를 거치지 않으므로 자동 진행에는 영향이 없다.
+  // 오프라인(myPlayerId=null)은 봇 차례만 차단, 온라인은 내 좌석이 currentPlayer일 때만 허용.
+  const boardInteractionBlocked =
+    !!players[currentPlayer]?.isAI || (myPlayerId !== null && currentPlayer !== myPlayerId);
   const mapId = useGameStore((state) => state.mapId);
   const currentTurn = useGameStore((state) => state.currentTurn);
   // Montréal Repopulation: 배치 대기 큐브가 있는지 (boolean 셀렉터 — 값 변화시만 리렌더)
@@ -460,6 +468,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   // 헥스 클릭 핸들러 — governmentLink(Montréal 정부 링크)도 동일한 건설 플로우 사용
   const handleHexClick = useCallback(
     (coord: HexCoord) => {
+      if (boardInteractionBlocked) return; // 내 차례가 아니면 무시 (봇/타인 차례 보호)
       if (isMousePanning()) return; // 마우스 드래그(팬) 직후의 클릭은 무시
       if (currentPhase === 'buildTrack' || currentPhase === 'governmentLink') {
         // 미연결 가닥 완성: 내 트랙이 변에 닿아 있으나 가닥이 없는 마을 클릭 → 가닥 건설.
@@ -552,7 +561,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
         }
       }
     },
-    [currentPhase, ui.buildMode, ui.sourceHex, ui.targetHex, board, currentPlayer, isValidConnectionPoint, isBuildableTarget, getExitEdgeForCoord, selectSourceHex, selectTargetHex, selectExitDirection, redirectTrack, resetBuildMode, canBuildTownSpur, buildTownSpur]
+    [currentPhase, ui.buildMode, ui.sourceHex, ui.targetHex, board, currentPlayer, isValidConnectionPoint, isBuildableTarget, getExitEdgeForCoord, selectSourceHex, selectTargetHex, selectExitDirection, redirectTrack, resetBuildMode, canBuildTownSpur, buildTownSpur, boardInteractionBlocked]
   );
 
   // 헥스 호버 핸들러
@@ -598,11 +607,12 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
 
   const handleCubeClick = useCallback(
     (cityId: string, cubeIndex: number) => {
+      if (boardInteractionBlocked) return; // 내 차례가 아니면 무시 (봇/타인 차례 보호)
       if (currentPhase === 'moveGoods') {
         selectCube(cityId, cubeIndex);
       }
     },
-    [currentPhase, selectCube]
+    [currentPhase, selectCube, boardInteractionBlocked]
   );
 
   // 헥스 렌더링 여부 확인
@@ -620,11 +630,6 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
 
   // 보드 위 호버링 HUD (사용자 요청 2026-07-04): 스크롤해도 보이는 현재 플레이어 표시 + 줌 컨트롤.
   // 보드 컨테이너가 overflow-hidden이라 sticky가 안 먹혀 컨테이너 밖(fragment)에 둔다.
-  const netMode = useNetStore((s) => s.mode);
-  const netMySeat = useNetStore((s) => s.mySeat);
-  const activePlayersForHud = useGameStore((s) => s.activePlayers);
-  const myPlayerId =
-    netMode === 'offline' || netMySeat === null ? null : activePlayersForHud[netMySeat] ?? null;
   const hudPlayer = players[currentPlayer];
   // 정산 단계(수입·비용·수입감소·턴마커)는 방장이 '진행' 버튼으로 넘긴다 — 아무도 "플레이" 하지
   // 않는데 currentPlayer(playerOrder[0]) 이름으로 "○○ 플레이 중" HUD가 뜨면 방장은 "남 차례네"로

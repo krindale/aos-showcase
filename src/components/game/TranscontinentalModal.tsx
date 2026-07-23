@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 
@@ -13,7 +14,19 @@ export default function TranscontinentalModal() {
   const event = useGameStore((s) => s.transcontinentalEvent);
   const dismiss = useGameStore((s) => s.dismissTranscontinental);
 
-  const open = !!event && (event.bonusRecipients.length > 0 || event.unlockedPlayers.length > 0);
+  // 이미 닫은 이벤트 key는 다시 열지 않는다 — 온라인에서 호스트가 클리어하지 않은 이벤트가
+  // 매 스냅샷마다 재전파돼 "건설할 때마다 팝업" 이 뜨던 버그 방지 (deliveryIncomeEvent와 동일 가드).
+  const seenKeyRef = useRef<number | null>(null);
+
+  const open =
+    !!event &&
+    event.key !== seenKeyRef.current &&
+    (event.bonusRecipients.length > 0 || event.unlockedPlayers.length > 0);
+
+  const handleDismiss = () => {
+    if (event) seenKeyRef.current = event.key;
+    dismiss();
+  };
 
   return (
     <AnimatePresence>
@@ -23,7 +36,7 @@ export default function TranscontinentalModal() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          onClick={dismiss}
+          onClick={handleDismiss}
         >
           <motion.div
             className="glass-card relative max-w-md w-full p-8 text-center border border-accent/40"
@@ -89,7 +102,7 @@ export default function TranscontinentalModal() {
               </p>
             </div>
 
-            <button onClick={dismiss} className="btn-primary w-full">
+            <button onClick={handleDismiss} className="btn-primary w-full">
               확인
             </button>
           </motion.div>

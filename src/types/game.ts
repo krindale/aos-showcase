@@ -523,6 +523,12 @@ export interface TranscontinentalEvent {
   bonusRecipients: { playerId: PlayerId; name: string; amount: number }[];
   /** 이번 연결로 "한 줄 연속 건설" 규칙이 해제된 플레이어 (자기 철도로 서↔동 연결). */
   unlockedPlayers: { playerId: PlayerId; name: string }[];
+  /**
+   * 이 이벤트의 고유 키. 온라인에서 호스트가 클리어하지 않은 이벤트가 매 스냅샷마다
+   * 게스트에게 재전파돼 팝업이 반복되던 버그 방지 — 모달이 이미 닫은 key는 다시 열지 않는다
+   * (deliveryIncomeEvent와 동일한 "key 최초 관측" 가드).
+   */
+  key: number;
 }
 
 // === 게임 액션 타입 ===

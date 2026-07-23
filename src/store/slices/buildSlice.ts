@@ -142,8 +142,10 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       set({
         players: result.players,
         transcontinentalAwarded: result.awarded,
-        // 보너스 수령 or 연속성 해제가 발생한 순간 — 사람에게 팝업으로 알림 (모달이 닫으면 초기화)
-        transcontinentalEvent: result.event,
+        // 보너스 수령 or 연속성 해제가 발생한 순간 — 사람에게 팝업으로 알림 (모달이 닫으면 초기화).
+        // key = 발생 시각: 온라인에서 이 이벤트가 스냅샷에 실려 게스트에게 반복 전파돼도
+        // 모달이 같은 key는 다시 열지 않아 "건설할 때마다 팝업" 버그를 막는다.
+        transcontinentalEvent: { ...result.event, key: Date.now() },
       });
       if (result.log) get().addLog(result.log);
     },

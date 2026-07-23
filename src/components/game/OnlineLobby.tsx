@@ -296,7 +296,7 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
             <input
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSendChat()}
+              onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && handleSendChat()}
               placeholder="메시지…"
               className="flex-1 px-3 py-2 bg-transparent text-sm text-foreground focus:outline-none"
             />

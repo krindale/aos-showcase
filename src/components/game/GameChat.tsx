@@ -118,7 +118,7 @@ export default function GameChat() {
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && handleSend()}
                 placeholder="메시지…"
                 className="flex-1 px-3 py-2 bg-transparent text-xs text-foreground focus:outline-none"
               />

@@ -184,9 +184,38 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
     skipBid: (playerId) => {
       logAction('preparation', 'skipBid', { player: playerId, turn: get().currentTurn });
       set((state) => {
+        // 첫 순서 플레이어가 아직 아무도 입찰하지 않은 상태(auction=null)에서 Turn Order 패스를
+        // 쓰는 경우 — 탈락 없이 다음 플레이어로 넘기고, 자기는 경매 그룹에 남는다(passedPlayers에
+        // 넣지 않음). 이 케이스를 빼면 첫 플레이어의 Turn Order 패스가 무시돼 화면이 멈춘다.
         if (!state.auction) {
-          console.warn(`[WARN] skipBid: 경매 없음 - playerId: ${playerId}`);
-          return state;
+          const order = state.playerOrder;
+          const idx = order.indexOf(playerId);
+          const nextBidder = order[(idx + 1) % order.length];
+          return {
+            auction: {
+              currentBidder: nextBidder,
+              highestBid: 0,
+              highestBidder: null,
+              passedPlayers: [],
+              bids: {} as Record<PlayerId, number>,
+              lastActedPlayer: playerId,
+            },
+            currentPlayer: nextBidder,
+            players: {
+              ...state.players,
+              [playerId]: { ...state.players[playerId], turnOrderPassUsed: true },
+            },
+            logs: [
+              ...state.logs,
+              {
+                turn: state.currentTurn,
+                phase: state.currentPhase,
+                player: playerId,
+                action: `Turn Order 패스 사용 (첫 순서, 탈락 없음)`,
+                timestamp: Date.now(),
+              },
+            ],
+          };
         }
 
         // 다음 입찰자 계산 (패스한 플레이어 제외, 최고입찰자는 건너뜀 — passBid와 동일 이유)

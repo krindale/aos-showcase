@@ -49,6 +49,26 @@ describe('경매: Turn Order 패스와 최고입찰자 차례', () => {
     expect(st().auction?.highestBidder).toBe(B);
   });
 
+  it('첫 순서 플레이어가 Turn Order 패스를 쓰면 다음 플레이어로 넘어가고 그룹에 남는다', () => {
+    const st = () => useGameStore.getState();
+    // playerOrder = [B, A, C, D, E] — 첫 순서 B가 아직 auction 없는 상태에서 skip
+    // (B에게도 Turn Order 권한을 부여해 첫 순서 skip을 검증)
+    useGameStore.setState({
+      players: { ...st().players, [B]: { ...st().players[B], turnOrderPassAvailable: true } },
+    });
+
+    st().skipBid(B); // auction === null 상태에서 첫 순서 skip
+
+    // 무시되지 않고 다음 플레이어(A)로 넘어간다
+    expect(st().currentPlayer).toBe(A);
+    // auction이 생성되되 최고입찰자는 없고, B는 탈락(passedPlayers)되지 않았다
+    expect(st().auction).not.toBeNull();
+    expect(st().auction?.highestBidder).toBeNull();
+    expect(st().auction?.passedPlayers).not.toContain(B);
+    // 패스 사용 플래그가 세팅된다 (재사용 방지)
+    expect(st().players[B].turnOrderPassUsed).toBe(true);
+  });
+
   it('A가 마지막에 포기하면 B가 정상 1등, A는 꼴등이 아니다', () => {
     const st = () => useGameStore.getState();
 

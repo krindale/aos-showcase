@@ -759,7 +759,11 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           {showTurnHud && hudPlayer && (
             <div className="sticky top-[100px] z-20 h-0 flex justify-center pointer-events-none">
               <div
-                className="flex items-center gap-2.5 px-4 py-2 rounded-full bg-background-secondary/95 border-2 shadow-xl backdrop-blur-sm self-start"
+                // backdrop-blur 제거: 이 배지는 sticky(스크롤 추적)라 스크롤 중 backdrop-filter가
+                // 매 프레임 재계산돼 화면 전체가 깜빡였다. 배경이 95% 불투명이라 blur는 거의 안
+                // 보이던 효과 — 제거해도 시각 차이는 없고 깜빡임만 사라진다. (sticky엔 translateZ
+                // 격리를 쓸 수 없어 — transform이 containing block을 만들어 sticky가 깨짐 — 제거가 정답)
+                className="flex items-center gap-2.5 px-4 py-2 rounded-full bg-background-secondary/95 border-2 shadow-xl self-start"
                 style={{ borderColor: `${PLAYER_COLORS[hudPlayer.color]}B3` }}
               >
                 <span

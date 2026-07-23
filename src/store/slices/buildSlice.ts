@@ -115,7 +115,15 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         // 도시 연결" 규칙을 만족한다. (내 트랙이 전부 미소유로 풀린 직후 인수가 막히던 실플레이
         // 버그 — 2026-07-22 브라우저 검증에서 발견.) Western US 연속성(requireNetwork) 중엔
         // 분리 구간 인수가 연속성을 깨므로 기존대로 불허.
-        if (!validateFirstTrackRule(coord, edges, board, allowedStartCityIds)) {
+        // Montréal 마스터 네트워크: 첫 트랙 연결성은 아래 touchesMasterNetwork가 대신 보장한다
+        // (네트워크 정거장 = 도시 / 정부 가닥이 닿은 마을 / 아무 트랙). 도시 인접만 보는
+        // validateFirstTrackRule은 정부 철도가 연결된 마을에서 첫 트랙 시작을 막으므로 건너뛴다.
+        // ⚠️ 단 보드에 트랙이 하나도 없으면(정부 링크 미건설) touchesMasterNetwork가 true라
+        //    아무 헥스에나 고립 트랙이 허용되므로, 그때는 표준 첫 트랙 규칙(도시 인접)을 유지한다.
+        const boardHasNetwork = board.trackTiles.length > 0 || (board.townSpurs ?? []).length > 0;
+        const skipFirstTrackRule = profile.masterNetwork && boardHasNetwork;
+        if (!skipFirstTrackRule &&
+            !validateFirstTrackRule(coord, edges, board, allowedStartCityIds)) {
           if (requireNetwork || !touchesClaimableUnownedTrack(coord, edges, board)) {
             return false;
           }
@@ -142,8 +150,10 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       set({
         players: result.players,
         transcontinentalAwarded: result.awarded,
-        // 보너스 수령 or 연속성 해제가 발생한 순간 — 사람에게 팝업으로 알림 (모달이 닫으면 초기화)
-        transcontinentalEvent: result.event,
+        // 보너스 수령 or 연속성 해제가 발생한 순간 — 사람에게 팝업으로 알림 (모달이 닫으면 초기화).
+        // key = 발생 시각: 온라인에서 이 이벤트가 스냅샷에 실려 게스트에게 반복 전파돼도
+        // 모달이 같은 key는 다시 열지 않아 "건설할 때마다 팝업" 버그를 막는다.
+        transcontinentalEvent: { ...result.event, key: Date.now() },
       });
       if (result.log) get().addLog(result.log);
     },

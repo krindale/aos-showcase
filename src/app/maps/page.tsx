@@ -406,8 +406,13 @@ export default function MapsPage() {
             className="fixed inset-0 z-[100] flex items-center justify-center p-[clamp(12px,4vw,40px)]"
             onClick={() => setLightboxMap(null)}
           >
-            {/* 백드롭 */}
-            <div className="absolute inset-0 bg-[#1c1b18]/60 backdrop-blur-sm" />
+            {/* 백드롭 — backdrop-blur를 자체 GPU 합성 레이어로 고정(translateZ). 안 하면
+                우측 규칙 목록을 스크롤할 때 브라우저가 blur를 재계산하며 레이어가 오락가락해
+                화면이 간헐적으로 깜빡인다(backdrop-filter + scroll 리페인트 간섭). */}
+            <div
+              className="absolute inset-0 bg-[#1c1b18]/60 backdrop-blur-sm"
+              style={{ transform: 'translateZ(0)', willChange: 'transform' }}
+            />
 
             {/* 패널 */}
             <motion.div
@@ -461,8 +466,13 @@ export default function MapsPage() {
                   <div className="mb-3 flex-none font-display text-[11px] font-semibold tracking-[0.12em] text-accent">
                     특수 규칙
                   </div>
-                  {/* 규칙이 길면 이 목록만 스크롤 — 제목/버튼은 고정 */}
-                  <ul className="min-h-0 flex-1 space-y-[10px] overflow-y-auto pr-1 max-h-[30vh] md:max-h-none">
+                  {/* 규칙이 길면 이 목록만 스크롤 — 제목/버튼은 고정.
+                      overscroll-contain: 목록 끝에서 스크롤이 백드롭(backdrop-blur)으로 체이닝되지
+                      않게 차단. translateZ: 스크롤 컨테이너를 자체 레이어로 격리(백드롭 깜빡임 방지). */}
+                  <ul
+                    className="min-h-0 flex-1 space-y-[10px] overflow-y-auto overscroll-contain pr-1 max-h-[30vh] md:max-h-none"
+                    style={{ transform: 'translateZ(0)' }}
+                  >
                     {lightboxMap.rules.map((rule) => (
                       <li
                         key={rule.detail}

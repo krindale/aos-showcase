@@ -1,11 +1,13 @@
 'use client';
 
 import { Crown } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { GamePhase, PHASE_INFO, PLAYER_COLORS } from '@/types/game';
 import { useMyPlayerId, isMyPlayer } from '@/hooks/useMyPlayerId';
-import { CROWN_GOLD, CROWN_INK } from './uiEffects';
+import { predictAuctionOrderSlots } from '@/store/helpers/auctionOrder';
+import { CROWN_GOLD, CROWN_INK, POP_SPRING } from './uiEffects';
 
 interface TurnTrackProps {
   currentTurn: number;
@@ -21,6 +23,24 @@ export default function TurnTrack({
   const phaseInfo = PHASE_INFO[currentPhase];
   const { playerOrder, players, currentPlayer } = useGameStore();
   const myPlayerId = useMyPlayerId();
+
+  // 경매 진행 중(determinePlayerOrder + auction 존재)이면 "새로운 순서" 미리보기를 파생한다.
+  // auction은 온라인 스냅샷에 자동 포함되므로 게스트/관전도 동일하게 본다(순수 파생, store 무변경).
+  const auction = useGameStore((s) => s.auction);
+  const showNewOrder = currentPhase === 'determinePlayerOrder' && !!auction;
+  // 경매 완료(미포기 활성 ≤1명, AuctionPanel의 isAuctionComplete와 동일 조건)면 승자 확정 →
+  // 미정으로 남은 1등 자리도 채운다. 승자 = 최고입찰자, 없으면(전원 무입찰) 미포기 첫 명
+  // (resolveAuction의 승자 승격 규칙과 일치).
+  const activeBidders = auction
+    ? playerOrder.filter((p) => !auction.passedPlayers.includes(p))
+    : [];
+  const auctionWinner =
+    auction && activeBidders.length <= 1
+      ? auction.highestBidder ?? activeBidders[0] ?? null
+      : null;
+  const newOrderSlots = showNewOrder
+    ? predictAuctionOrderSlots(playerOrder, auction!.passedPlayers, auctionWinner)
+    : null;
 
   // Montréal: 이번/다음 라운드 정부 링크 관리자 (셋업 순번 로테이션, 탈락자는 건너뜀)
   // 맵 룰 게이트 — 스테일 저장본(비몬트리올 맵에 governmentControllers 잔존)에서도 배지 미표시
@@ -131,6 +151,60 @@ export default function TurnTrack({
               );
             })}
           </div>
+
+          {/* 경매 진행 중: "새로운 순서" 미리보기 (정부 링크 배지 좌측에 위치) — 포기가 쌓일
+              때마다 맨 우측(꼴등)부터 해당 플레이어 색 토큰이 채워진다(우→좌). 경매가 끝나면
+              auction=null이 되며 이 영역이 사라지고 위 "순서"가 새 playerOrder로 대체된다. */}
+          <AnimatePresence>
+            {showNewOrder && newOrderSlots && (
+              <motion.div
+                key="new-order"
+                initial={{ opacity: 0, width: 0 }}
+                animate={{ opacity: 1, width: 'auto' }}
+                exit={{ opacity: 0, width: 0 }}
+                transition={{ duration: 0.3, ease: 'easeOut' }}
+                className="flex items-center gap-3 overflow-hidden"
+              >
+                <div className="w-px h-6 bg-foreground/10 flex-none" />
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-accent font-medium whitespace-nowrap">새로운 순서</span>
+                  <div className="flex gap-1">
+                    {newOrderSlots.map((pid, index) => {
+                      const player = pid ? players[pid] : null;
+                      return (
+                        <div key={index} className="relative w-6 h-6">
+                          <AnimatePresence mode="wait">
+                            {player ? (
+                              <motion.div
+                                key={pid}
+                                initial={{ scale: 0, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                transition={POP_SPRING}
+                                className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                                style={{ backgroundColor: PLAYER_COLORS[player.color] }}
+                                title={`${index + 1}번(예상): ${player.name}`}
+                              >
+                                {index + 1}
+                              </motion.div>
+                            ) : (
+                              <div
+                                key="empty"
+                                className="w-6 h-6 rounded-full border-2 border-dashed border-foreground/20 flex items-center justify-center text-[10px] text-foreground-muted"
+                                title={`${index + 1}번(미정)`}
+                              >
+                                {index + 1}
+                              </div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Montréal: 이번/다음 라운드 정부 링크 관리자 — 글자는 위에 띄우고,
               색 원의 세로 중앙을 순서 원과 맞춘다 (왕관과 같은 오버레이 방식) */}
           {govController && (

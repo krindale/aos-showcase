@@ -150,6 +150,7 @@ export function computeTranscontinental(state: GameState, builder: PlayerId):
   const event: TranscontinentalEvent = {
     bonusRecipients,
     unlockedPlayers: unlockedPlayers.filter(u => !bonusIds.has(u.playerId)),
+    key: 0, // applyTranscontinental이 발생 시각으로 교체 (순수 계산부는 시간을 모른다)
   };
   return { players, awarded, log, event };
 }

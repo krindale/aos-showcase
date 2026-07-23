@@ -118,7 +118,11 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         // Montréal 마스터 네트워크: 첫 트랙 연결성은 아래 touchesMasterNetwork가 대신 보장한다
         // (네트워크 정거장 = 도시 / 정부 가닥이 닿은 마을 / 아무 트랙). 도시 인접만 보는
         // validateFirstTrackRule은 정부 철도가 연결된 마을에서 첫 트랙 시작을 막으므로 건너뛴다.
-        if (!profile.masterNetwork &&
+        // ⚠️ 단 보드에 트랙이 하나도 없으면(정부 링크 미건설) touchesMasterNetwork가 true라
+        //    아무 헥스에나 고립 트랙이 허용되므로, 그때는 표준 첫 트랙 규칙(도시 인접)을 유지한다.
+        const boardHasNetwork = board.trackTiles.length > 0 || (board.townSpurs ?? []).length > 0;
+        const skipFirstTrackRule = profile.masterNetwork && boardHasNetwork;
+        if (!skipFirstTrackRule &&
             !validateFirstTrackRule(coord, edges, board, allowedStartCityIds)) {
           if (requireNetwork || !touchesClaimableUnownedTrack(coord, edges, board)) {
             return false;

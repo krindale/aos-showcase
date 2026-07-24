@@ -488,6 +488,13 @@ export interface GameState {
   transcontinentalEvent?: TranscontinentalEvent | null;
 
   /**
+   * initGame으로 시작된 진행 중 게임 여부 — 오프라인 F5 복원 판단용.
+   * (persist로 살아나며, GamePageClient가 마운트 시 이 값으로 셋업 화면을 건너뛴다.
+   *  resetGame/초기값은 false — 셋업 화면에서 새로고침하면 셋업 유지)
+   */
+  gameStarted?: boolean;
+
+  /**
    * 터보 모드 표시 상태 (방장이 토글, 스냅샷으로 전원 동기화 — 게스트는 버튼
    * disabled + 이 값으로 라벨/토스트만). 실제 딜레이 축소는 방장 로컬의
    * localStorage 'aos-turbo'(utils/turboMode)가 담당하고, 이 필드는 표시/알림 전용.

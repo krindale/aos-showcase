@@ -41,3 +41,10 @@ export function isTurboMode(): boolean {
 export function turboDelay(ms: number): number {
   return isTurboMode() ? Math.min(ms, 50) : ms;
 }
+
+/** 터보 플래그 초기화 — 새 게임 진입 시 디폴트 OFF (initGame/resetGame이 호출) */
+export function resetTurboFlag(): void {
+  try {
+    if (typeof window !== 'undefined') window.localStorage.removeItem('aos-turbo');
+  } catch { /* noop */ }
+}

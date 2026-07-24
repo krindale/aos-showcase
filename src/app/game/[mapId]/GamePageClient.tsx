@@ -38,7 +38,7 @@ import GameBoard from '@/components/game/GameBoard';
 import GameChat from '@/components/game/GameChat';
 import OnlineLobby from '@/components/game/OnlineLobby';
 import PhaseTransition from '@/components/game/PhaseTransition';
-import { useNetStore } from '@/net/netStore';
+import { useNetStore, getLastRoom } from '@/net/netStore';
 import { isNetConfigured } from '@/net';
 import PlayerPanel from '@/components/game/PlayerPanel';
 import PhasePanel from '@/components/game/PhasePanel';
@@ -56,6 +56,7 @@ import TranscontinentalModal from '@/components/game/TranscontinentalModal';
 import BankruptcyModal from '@/components/game/BankruptcyModal';
 import BottomSheet from '@/components/game/BottomSheet';
 import HelpOverlay from '@/components/game/HelpOverlay';
+import TurboSwitch from '@/components/game/TurboSwitch';
 import HostTakeoverDialog from '@/components/game/HostTakeoverDialog';
 import { calculateTrackScore } from '@/utils/trackValidation';
 import { ArrowLeft, RotateCcw, Users, Zap, X, Bot, Crown, ChevronRight, ChevronLeft, HelpCircle } from 'lucide-react';
@@ -149,6 +150,17 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     void autoRejoin();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 오프라인 진행 중 게임 F5 복원 — showSetup이 useState(true)라 새로고침하면 무조건 셋업이
+  // 떠서, persist로 살아 있는 게임이 셋업 뒤에서 봇만 계속 돌던 문제(2026-07-24 사용자 보고).
+  // 온라인은 위 autoRejoin → netRoom.status 효과가 담당하므로, 마지막 온라인 방 기록이 있으면
+  // 그 흐름에 맡기고 건드리지 않는다. persist(localStorage)는 동기 복원이라 마운트 효과면 충분.
+  useEffect(() => {
+    if (getLastRoom()) return; // 온라인 재입장 흐름 우선
+    const s = useGameStore.getState();
+    if (s.gameStarted && s.mapId === mapId && !s.winner) setShowSetup(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapId]);
   const myPlayerId = isOnline && netMySeat !== null ? activePlayers[netMySeat] ?? null : null;
   // 지금 행동해야 하는 플레이어 — 경매 입찰 차례 포함 currentPlayer가 단일 진실
   // (auction.currentBidder는 갱신 안 되는 레거시 필드 — AuctionPanel.tsx:39 주석 참조)
@@ -731,6 +743,9 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                 <ChevronRight size={18} className="text-foreground-secondary sm:w-5 sm:h-5" />
               )}
             </button>
+
+            {/* 터보 스위치 — 봇/연출 딜레이 축소 (방장 전용 변경, 게스트는 상태 표시) */}
+            <TurboSwitch />
 
             {/* 도움말 (규칙/단계/특수행동/맵 특수룰) — 온라인·오프라인 공통 */}
             <button

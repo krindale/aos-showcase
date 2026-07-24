@@ -366,5 +366,6 @@ export function createInitialGameState(
     deliveryIncomeEvent: null,
     bankruptcyEvent: null,
     turboMode: false,
+    gameStarted: false,
   };
 }

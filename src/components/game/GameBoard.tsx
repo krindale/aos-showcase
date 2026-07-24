@@ -9,7 +9,6 @@ import BoardOverlays from './board/BoardOverlays';
 import { motion } from 'framer-motion';
 import { ZoomIn, ZoomOut, Maximize2, Building2 } from 'lucide-react';
 import { useGameStore } from '@/store/gameStore';
-import { useToastStore } from '@/store/toastStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useTouchGestures } from '@/hooks/useTouchGestures';
 import {
@@ -39,7 +38,7 @@ import { shadeColor, hexVertex } from './board/boardGeometry';
 import { useMyPlayerId } from '@/hooks/useMyPlayerId';
 import { useNetStore } from '@/net/netStore';
 import { safeTimeout } from '@/utils/safeTimers';
-import { turboDelay, isTurboMode } from '@/utils/turboMode';
+import { turboDelay } from '@/utils/turboMode';
 
 export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean } = {}) {
   // fitOverlay: 화물 이동 애니메이션을 전체 화면에 꽉 차게(fit) 보여주는 비인터랙티브 오버레이 모드
@@ -67,29 +66,6 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   // 진행 주체(방장/오프라인) 여부 — 정산 단계 HUD 억제 대상 판정에 쓴다 (PhasePanel과 동일 기준)
   const netMode = useNetStore((s) => s.mode);
   const amIHost = netMode === 'offline' || netMode === 'host';
-  // 터보 모드 (테스트용 — 봇 딜레이·연출 홀드 축소).
-  // - 실제 딜레이 축소 = 방장 로컬 localStorage('aos-turbo', turboDelay가 읽음)
-  // - 표시/알림 = gameStore.turboMode (스냅샷으로 게스트까지 동기화 — 버튼 라벨·토스트)
-  const turboSynced = useGameStore((s) => s.turboMode ?? false);
-  const showToast = useToastStore((s) => s.showToast);
-  // 마운트 시 방장 localStorage 값을 표시 상태로 동기화 (새로고침/이전 세션 잔존 대비)
-  useEffect(() => {
-    if (amIHost && isTurboMode() !== (useGameStore.getState().turboMode ?? false)) {
-      useGameStore.setState({ turboMode: isTurboMode() });
-    }
-  }, [amIHost]);
-  // 터보 변경 토스트 — 방장/게스트 공통 (최초 관측은 스킵: 입장 시점 상태는 알림 아님)
-  const turboSeenRef = useRef<boolean | null>(null);
-  useEffect(() => {
-    if (turboSeenRef.current === null) { turboSeenRef.current = turboSynced; return; }
-    if (turboSeenRef.current !== turboSynced) {
-      turboSeenRef.current = turboSynced;
-      showToast(
-        turboSynced ? '터보 모드 켜짐 — 봇 진행이 빨라집니다' : '터보 모드 꺼짐 — 원래 속도로 진행합니다',
-        'info'
-      );
-    }
-  }, [turboSynced, showToast]);
   // 보드 조작은 "내 차례"일 때만 — 봇 차례나 남의 차례에 사람이 클릭해 봇/타인의 이동·건설을
   // 대신 실행해 버리는 것을 막는다(수입이 엉뚱하게 귀속되던 사용자 보고). AI는 store 액션을
   // 직접 호출해 이 게이트를 거치지 않으므로 자동 진행에는 영향이 없다.
@@ -730,28 +706,6 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             >
               {/* 라벨 = 누르면 실행될 동작 (상태는 배경색으로 구분) */}
               {showCoords ? '좌표 OFF' : '좌표 ON'}
-            </button>
-            {/* 터보 토글 — 설정 권한은 방장 전용(게스트는 disabled로 상태만 보임,
-                setTurboAllowed 게이트로 게스트가 플래그를 직접 켜도 무효). 게임 중 언제든
-                온오프 — 딜레이는 타이머 생성 시점마다 읽힌다. 변경은 전원 토스트 알림. */}
-            <button
-              onClick={() => {
-                if (!amIHost) return;
-                const next = !turboSynced;
-                try {
-                  if (next) window.localStorage.setItem('aos-turbo', '1');
-                  else window.localStorage.removeItem('aos-turbo');
-                } catch { /* localStorage 불가 환경 무시 */ }
-                useGameStore.setState({ turboMode: next }); // 스냅샷으로 게스트에도 전파
-              }}
-              disabled={!amIHost}
-              className={`px-2 py-0.5 text-xs rounded transition-colors ${turboSynced ? 'bg-accent text-background' : 'bg-foreground/10 text-accent hover:bg-foreground/20'} disabled:opacity-50 disabled:cursor-not-allowed`}
-              title={amIHost
-                ? '터보: 봇 딜레이·연출 홀드를 50ms로 축소 (게임 로직 무변경, 테스트용)'
-                : '터보 모드는 방장만 변경할 수 있습니다'}
-            >
-              {/* 라벨 = 누르면 실행될 동작 (상태는 배경색으로 구분 — 좌표 버튼과 동일 관례) */}
-              {turboSynced ? '터보 OFF' : '터보 ON'}
             </button>
           </div>
         </div>

@@ -35,7 +35,7 @@ import {
   isLastPlayer,
 } from '@/utils/gameLogic';
 import { logAction, newLogSession } from '@/utils/debugConfig';
-import { turboDelay } from '@/utils/turboMode';
+import { turboDelay, resetTurboFlag } from '@/utils/turboMode';
 // 모듈 헬퍼 (2026-07-03 스텝 3a 분리 — 로직 무변경, 파일만 이동)
 import { undoSnapshots, captureUndo, clearUndo } from './helpers/undo';
 import {
@@ -293,6 +293,7 @@ export const useGameStore = create<GameStore>()(
     // 기존 AI 인스턴스 정리
     aiPlayerManager.clear();
     clearUndo();
+    resetTurboFlag(); // 새 게임은 터보 디폴트 OFF (사용자 요청 2026-07-24)
 
     // 새 게임 세션ID 부여 (이후 모든 액션 로그가 이 세션으로 묶임)
     const sessionId = newLogSession();
@@ -304,6 +305,7 @@ export const useGameStore = create<GameStore>()(
     // 새 게임 상태 설정
     set({
       ...createInitialGameState(mapId, playerNames, aiPlayers, options),
+      gameStarted: true, // F5 복원 판단용 — 셋업 화면을 건너뛰고 게임 화면 복원
       aiExecution: { pending: false, executionId: 0 },
     });
 
@@ -324,6 +326,7 @@ export const useGameStore = create<GameStore>()(
 
   resetGame: () => {
     const state = get();
+    resetTurboFlag(); // 새 게임은 터보 디폴트 OFF
     // 기존 플레이어 이름과 AI 설정 유지하며 리셋
     const playerNames = state.activePlayers.map(
       pid => state.players[pid]?.name || `플레이어 ${pid.slice(-1)}`

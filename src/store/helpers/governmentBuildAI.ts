@@ -222,6 +222,14 @@ export function runGovernmentBuildAI(get: () => GameStore): void {
   // (사용자 관찰: 10판 연속 Berri↔Longueuil). Berri 가산은 원본 룰이 "권장(필수 아님)"이므로
   // 절대 보너스(+100) 대신 약한 가산(+3)으로 — 화물 색이 좋은 다른 링크가 이길 수 있게.
   const cityOf = (st: Station) => st.isTown ? null : (board.cities.find(c => c.id === st.id) ?? null);
+
+  // ⚠️ 기각 실험 (2026-07-25, 100시드): 정부 링크를 "봇 계획 지원"으로 유도하는 두 항 —
+  // 계획 끝 정거장 네트워크 편입 가점 + 계획 구간 잠식 방지 감점 — 전 지점 단조 악화.
+  //   기본 13.46·파산0.70 / 감점만(0/−4) 11.44·0.75 / (3/−4) 9.14·0.80 / (6/−8) 6.28·0.89.
+  // 원인: 화물 중심의 정부 링크는 전원이 공유하는 무료 배달 인프라라, 그걸 계획 방향으로
+  // 돌리면 공용 인프라 가치가 죽어 3인 전원의 수입이 준다(봇은 매턴 재계획하므로 "계획
+  // 잠식"의 실피해도 작음). 화물수·색매칭·짧음 기반 기본 휴리스틱이 봇들에게도 최적.
+
   for (const c of candidates) {
     const fromCity = cityOf(c.from);
     const toCity = cityOf(c.to);
@@ -231,6 +239,7 @@ export function runGovernmentBuildAI(get: () => GameStore): void {
       matches += toCity.cubes.filter(cb => cityAcceptsCube(fromCity, cb, board)).length;
     }
     c.score = matches * 4 + (c.from.cubes + c.to.cubes) - c.path.length;
+
     if (firstLink && (c.from.id === 'berriUqam' || c.to.id === 'berriUqam')) c.score += 3;
     // 네트워크 밖 정거장을 새로 잇는 확장 우선 (+1).
     // ⚠️ 확장 가중 스윕 (2026-07-25, 100시드 — "건설이 중심에만 몰린다" 사용자 관찰로 실험):

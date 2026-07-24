@@ -177,12 +177,17 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapId]);
 
-  // 게임 화면에 있는 동안 'aos-ingame' 마킹 (F5와 "일부러 나감"을 구분하는 유일한 신호).
-  // 뒤로/리셋 등 의도적 이탈 경로에서 지운다.
+  // 게임 화면에 있는 동안 'aos-ingame' 마킹 (F5와 "화면을 떠남"을 구분하는 신호).
+  // 정리(cleanup)에서 지운다 — 앱 뒤로 버튼뿐 아니라 브라우저 뒤로가기·다른 링크 등
+  // 어떤 경로로든 게임 화면을 떠나면(언마운트/셋업 전환) 마킹이 사라져, 재입장 시
+  // 자동 복원 대신 셋업+이어하기 배너가 뜬다. F5(하드 리로드)는 cleanup이 실행되지
+  // 않아 마킹이 살아남고 자동 복원된다 (2026-07-24 사용자 보고 — 브라우저 백 경로 누락).
   useEffect(() => {
-    try {
-      if (!showSetup) window.sessionStorage.setItem('aos-ingame', '1');
-    } catch { /* noop */ }
+    if (showSetup) return;
+    try { window.sessionStorage.setItem('aos-ingame', '1'); } catch { /* noop */ }
+    return () => {
+      try { window.sessionStorage.removeItem('aos-ingame'); } catch { /* noop */ }
+    };
   }, [showSetup]);
   const myPlayerId = isOnline && netMySeat !== null ? activePlayers[netMySeat] ?? null : null;
   // 지금 행동해야 하는 플레이어 — 경매 입찰 차례 포함 currentPlayer가 단일 진실

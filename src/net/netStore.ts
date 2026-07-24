@@ -70,8 +70,10 @@ export interface NetStore {
   refreshPublicRooms: () => Promise<void>;
   /** 빠른 매칭 (Phase 5): 빈자리 있는 공개방에 순서대로 입장 시도, 성공 여부 반환 */
   quickMatch: (name: string) => Promise<boolean>;
-  /** 방 코드로 입장 (게스트 / 새로고침한 호스트 복귀). 좌석은 호스트가 배정해 room 브로드캐스트로 통지 */
-  joinRoom: (code: string, name: string) => Promise<void>;
+  /** 방 코드로 입장 (게스트 / 새로고침한 호스트 복귀). 좌석은 호스트가 배정해 room 브로드캐스트로 통지.
+   *  reconnect=true(순단 자동 재연결)면 offline 전환(leaveRoom)을 거치지 않고 같은 방에 조용히 재부착한다
+   *  — 안 그러면 mode가 잠깐 offline이 돼 화면이 셋업으로 튕기고(F5 깜빡임) 좌석이 관전으로 풀린다. */
+  joinRoom: (code: string, name: string, reconnect?: boolean) => Promise<void>;
   /** 같은 탭 새로고침 후 마지막 방으로 자동 재입장 (성공 여부 반환) */
   autoRejoin: () => Promise<boolean>;
   leaveRoom: () => Promise<void>;
@@ -469,7 +471,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
     reconnectTimer = safeTimeout(async () => {
       reconnectTimer = null;
       if (get().connected || get().mode === 'offline') return; // 자동 재조인으로 이미 복구됨
-      await get().joinRoom(code, name);
+      await get().joinRoom(code, name, true); // reconnect: offline 전환 없이 조용히 재부착
       if (!get().connected) scheduleReconnect(); // 실패 — 다음 시도 예약
     }, RECONNECT_DELAY);
   };
@@ -782,8 +784,20 @@ export const useNetStore = create<NetStore>()((set, get) => {
       }
     },
 
-    joinRoom: async (code, name) => {
-      if (get().mode !== 'offline') await get().leaveRoom();
+    joinRoom: async (code, name, reconnect = false) => {
+      if (get().mode !== 'offline') {
+        if (reconnect) {
+          // 순단 재연결: offline으로 전환하지 않고(화면 튕김·좌석 관전 고착 방지) 옛 채널만 조용히 정리.
+          // connectionGen++로 버려진 채널의 늦은 이벤트를 무시하고, 새 makeEvents가 새 세대를 연다.
+          connectionGen++;
+          removeGuestGuard();
+          const old = connection;
+          connection = null;
+          old?.leave().catch(() => { /* 이미 끊긴 채널 */ });
+        } else {
+          await get().leaveRoom();
+        }
+      }
       set({ busy: true, error: null });
       try {
         const conn = await getTransport().joinRoom(code, makeEvents());

@@ -9,6 +9,8 @@ import type { StoreApi } from 'zustand';
 import type { GameStore } from '../gameStore';
 import { PlayerId, GamePhase, GAME_CONSTANTS } from '@/types/game';
 import { getMapProfile } from '@/maps/getMapProfile';
+import { calculateVictoryPoints } from '@/utils/gameLogic';
+import { calculateTrackScore } from '@/utils/trackValidation';
 import { logAction } from '@/utils/debugConfig';
 
 type Set = StoreApi<GameStore>['setState'];
@@ -173,6 +175,22 @@ export function createSettlementSlice(set: Set, _get: Get): SettlementSlice {
             player: winner || state.currentPlayer,
             action: `게임 종료! ${winnerName} 승리 (상대 파산)`,
             timestamp: Date.now(),
+          });
+
+          // 분석용 최종 점수 로그 — 파산 종료 경로 (정상 종료는 gameStore nextPhase가 기록)
+          logAction('turnEnd', 'finalScores', {
+            turn: state.currentTurn,
+            endedBy: 'bankruptcy',
+            players: state.activePlayers.map((pid) => {
+              const pl = newPlayers[pid];
+              const trackScore = calculateTrackScore(newBoard, pid);
+              return {
+                id: pid, name: pl?.name, eliminated: pl?.eliminated ?? false,
+                income: pl?.income ?? 0, shares: pl?.issuedShares ?? 0,
+                engine: pl?.engineLevel ?? 0, cash: pl?.cash ?? 0, trackScore,
+                vp: pl ? calculateVictoryPoints(pl.income, trackScore, pl.issuedShares) : 0,
+              };
+            }),
           });
 
           return {

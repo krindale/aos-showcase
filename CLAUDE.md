@@ -646,8 +646,17 @@ AI는 객체 지향 아키텍처(`AIPlayer`/`AIPlayerManager`/`AIDebugger`) + **
 
 ### 개발 서버
 ```bash
-npm run dev
+npm run dev                  # :3000 앱
+node scripts/log-server.mjs  # :3999 로그 서버 — 앱과 항상 함께 띄운다
 ```
+**⚠️ 로컬 서버를 띄울 땐 로그 서버(:3999)도 반드시 같이 띄울 것.** 게임 진행/버그 추적은
+화면 묘사가 아니라 `logAction` JSON으로 하는데, 로그 서버가 꺼져 있으면 브라우저가 보낸 로그가
+그대로 유실돼 "재현했는데 로그가 없다"가 된다(실제로 그래서 진단이 한 번 헛돌았다).
+로그는 `logs/game-mirror.log` 파일에도 쌓이므로 서버 재시작 후에도 파일 로그는 남는다.
+
+**⚠️ store 로직(slice/hexGrid 등)을 고쳤는데 화면 동작이 그대로면 HMR을 의심할 것** — zustand
+store는 HMR로 slice 함수가 갈아끼워지지 않아 **옛 로직이 계속 돈다**(미리보기는 바뀌었는데 정산은
+옛 코드가 도는 식). `.next` 삭제 + dev 재시작 + 브라우저 강력 새로고침으로 강제 반영.
 
 ### 프로덕션 빌드
 ```bash

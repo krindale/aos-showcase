@@ -134,12 +134,12 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
 
         // 선점 보너스: 상대도 같은 배달이 가능하면, 내가 먼저 옮겨 상대의 income 기회를 차단
         // (상대도 타인 철도를 쓸 수 있으므로 opponentExtra = 상대 엔진으로 판정 — 집합은 위에서 1회 계산)
-        // ⚠️ "상납" 경로(내 수입 0인데 상대 링크에 수입을 주는 경로)엔 주지 않는다 — 화물을
-        // 옮겨도 그 상대가 같은 수입을 받아 차단이 아니라 상납 (2026-07-24 한국 4봇 실측:
-        // own0/opp1 배달 3건). 반면 정부 링크 경유처럼 아무에게도 수입이 없는 경로의 차단
-        // (몬트리올 — 상대가 나중에 배달할 큐브를 0원으로 제거)은 정당한 선점이라 유지.
-        // 훅 분기(사용자 지시로 몬트리올 전용): 기본 = 상납 가드(내 수입 0이면 보너스 없음),
-        // aiPreemptZeroIncomeDenial 맵은 own0/opp0 순수 차단만 보너스 인정(상납은 계속 제외)
+        // ⚠️ "상납" 경로(내 수입 0인데 상대 링크에 수입을 주는 경로)엔 주지 않는다 —
+        // 2026-07-24 한국 실측(own0/opp1 배달 3건)에서 도입. 2026-07-25 게이트 분리 측정:
+        // 이 가드의 VP 비용 = Korea −1.2 (44.41→43.21), Germany/Rust Belt도 유사 폭 하락
+        // 추정 — 상납에도 선점 이득이 있어 데이터상으론 무조건이 우세하나, **사용자 선택으로
+        // 가드 유지**(봇이 상대에게 공짜 수입을 주는 수를 두지 않는 것을 우선). 몬트리올은
+        // 정밀 가드(aiPreemptZeroIncomeDenial → !isPureGift, 14.82/0.70) 별도 유지.
         const isPureGift = ownTrackCount === 0 && opt.oppLinks > 0 && regionBonus === 0;
         const preemptEligible = profile.aiPreemptZeroIncomeDenial
           ? !isPureGift

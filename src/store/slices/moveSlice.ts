@@ -345,12 +345,19 @@ export function createMoveSlice(set: Set, get: Get): MoveSlice {
       // 룰북: "물품이 지나가는 각 완성된 철도 링크마다 해당 링크 소유자의 수입이 1 증가"
       for (let i = linkStartIndex + 1; i < path.length; i++) {
         if (isStopAt(path[i])) {
-          // 이 링크(linkStartIndex → i) 구간의 트랙 소유자 찾기
+          // 이 링크(linkStartIndex → i) 구간의 트랙 소유자 찾기.
+          // ⚠️ 교차/공존 타일은 화물이 들어온 edge에 맞는 트랙(primary/secondary)의 소유자를
+          // 봐야 한다 — 미리보기 getPathLinkOwners와 동일(trackOwnerForEntry). 이 수정이
+          // 레거시 moveGoods 정산에만 들어가고 실경로인 여기엔 빠져 있었다 (2026-07-24 로그
+          // 분석에서 발견 — "내 crossing인데 수입은 상대"가 실게임에서 재현되던 진짜 원인).
           let credited = false;
           for (let j = linkStartIndex + 1; j < i; j++) {
             const track = trackTiles.find(t => hexCoordsEqual(t.coord, path[j]));
-            if (track?.owner) {
-              incomeChanges[track.owner] = (incomeChanges[track.owner] || 0) + 1;
+            if (!track) continue;
+            const entryEdge = getConnectingEdge(path[j], path[j - 1], state.board);
+            const o = trackOwnerForEntry(track, entryEdge);
+            if (o) {
+              incomeChanges[o] = (incomeChanges[o] || 0) + 1;
               credited = true;
               break; // 링크당 한 번만 계산 (같은 링크 내 트랙은 같은 소유자)
             }
@@ -390,6 +397,15 @@ export function createMoveSlice(set: Set, get: Get): MoveSlice {
       if (lowGravTarget) {
         console.log(`[Low Gravitation] ${state.players[movingPlayerId]?.name}이 ${state.players[lowGravTarget]?.name}의 링크 수입 1을 가져옴`);
       }
+
+      // 진단: 이 수송으로 각 플레이어 수입이 얼마 올랐는지 (수입 귀속 추적 — :3999).
+      // 실정산 경로는 여기(completeCubeMove) — 레거시 moveGoods에만 로그가 있어 실게임
+      // 분석에서 moveIncome이 0건으로 나오던 것 교정.
+      logAction('goodsMovement', 'moveIncome', {
+        mover: movingPlayerId,
+        gains: incomeChanges,
+        turn: state.currentTurn,
+      });
 
       const newPlayers = { ...state.players };
       for (const playerId of state.activePlayers) {

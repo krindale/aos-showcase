@@ -57,8 +57,10 @@ export class MontrealMapProfile extends StandardMapProfile {
   // 진단(3봇 로그 wbmv): 전원 주식 만발행(14~15)·기차III 파산 VP −45 — 몬트리올은
   // 언덕$3/도로$4에 income 성장이 느려(정부 링크 무수입·성장 없음) 후반 차입 회수가 안 된다.
   // 달과 동일 병리(만성 저수입 차입 자기증폭)라 같은 처방. ⚠️ 100시드 게이트로 검증 예정.
-  /** 후반 4라운드(9라운드 중 T6~9)는 건설 계획 발행 금지 — 생존 발행은 허용 */
-  override get aiNoBuildIssueLastTurns(): number { return 4; }
+  /** 후반 6라운드(9라운드 중 T4~9)는 건설 계획 발행 금지 — 생존 발행은 허용.
+   *  스윕(100시드): 4→VP12.51·파산0.74 / 5→13.84·0.76 / 6→13.46·0.70 / 7→9.42·0.88(과소투자 붕괴)
+   *  — 파산 최소인 6 채택(사용자 우선순위). 엔진 상한 3은 VP 6.36·파산 0.83으로 기각(엔진4 필수). */
+  override get aiNoBuildIssueLastTurns(): number { return 6; }
   /** 발행→비용↑→필요현금↑→또 발행의 자기증폭 차단 (달 최대 기여 훅) */
   override get aiPlanExpensesNetOfIncome(): boolean { return true; }
   /** 최대 발행으로도 파산 회피 불가면 발행 포기 — VP만 깎는 무의미 발행 방지 */

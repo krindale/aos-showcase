@@ -134,7 +134,13 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
 
         // 선점 보너스: 상대도 같은 배달이 가능하면, 내가 먼저 옮겨 상대의 income 기회를 차단
         // (상대도 타인 철도를 쓸 수 있으므로 opponentExtra = 상대 엔진으로 판정 — 집합은 위에서 1회 계산)
-        if (oppReachSets.some(set => set.some(d => hexCoordsEqual(d.coord, destCity.coord)))) {
+        // ⚠️ 내 수입 0(보너스 포함) 배달엔 주지 않는다 — 경로가 상대 링크뿐이면 화물을 옮겨도
+        // 그 상대가 어차피 같은 수입을 받으므로 "차단"이 아니라 상납이다 (2026-07-24 한국 4봇
+        // 로그 실측: own0/opp1 배달 3건 — 상대에게 공짜 +1만 주고 내 수송 기회를 버림).
+        if (
+          (ownTrackCount > 0 || regionBonus > 0) &&
+          oppReachSets.some(set => set.some(d => hexCoordsEqual(d.coord, destCity.coord)))
+        ) {
           deltaVP += VP_PER_INCOME * opponentWeight(state);
         }
 

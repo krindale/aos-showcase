@@ -33,7 +33,9 @@ import {
   findFirstBuildPlayer,
   findFirstMovePlayer,
   isLastPlayer,
+  calculateVictoryPoints,
 } from '@/utils/gameLogic';
+import { calculateTrackScore } from '@/utils/trackValidation';
 import { logAction, newLogSession } from '@/utils/debugConfig';
 import { turboDelay, resetTurboFlag } from '@/utils/turboMode';
 // 모듈 헬퍼 (2026-07-03 스텝 3a 분리 — 로직 무변경, 파일만 이동)
@@ -1299,11 +1301,36 @@ export const useGameStore = create<GameStore>()(
 
         // 게임 종료 확인
         if (state.currentTurn >= state.maxTurns) {
+          // 분석용 최종 점수 로그 (전 맵 공통 — :3999에서 봇 게임 결과를 바로 판독)
+          logAction('turnEnd', 'finalScores', {
+            turn: state.currentTurn,
+            players: state.activePlayers.map((pid) => {
+              const pl = state.players[pid];
+              const trackScore = calculateTrackScore(cleanedBoard, pid);
+              return {
+                id: pid, name: pl?.name, eliminated: pl?.eliminated ?? false,
+                income: pl?.income ?? 0, shares: pl?.issuedShares ?? 0,
+                engine: pl?.engineLevel ?? 0, cash: pl?.cash ?? 0, trackScore,
+                vp: pl ? calculateVictoryPoints(pl.income, trackScore, pl.issuedShares) : 0,
+              };
+            }),
+          });
           return {
             board: cleanedBoard,
             currentPhase: 'gameOver' as GamePhase,
           };
         }
+
+        // 분석용 턴 스탯 로그 (전 맵 공통 — 턴별 재무 추적)
+        logAction('turnEnd', 'turnStats', {
+          turn: state.currentTurn,
+          players: state.activePlayers.map((pid) => {
+            const pl = state.players[pid];
+            return { id: pid, cash: pl?.cash ?? 0, income: pl?.income ?? 0,
+              shares: pl?.issuedShares ?? 0, engine: pl?.engineLevel ?? 0,
+              eliminated: pl?.eliminated ?? false };
+          }),
+        });
 
         // Montréal: 새 턴 첫 단계(governmentLink)의 차례는 정부 관리 순번 로테이션
         // (셋업 스냅샷 governmentControllers 기준, 탈락자는 건너뜀)

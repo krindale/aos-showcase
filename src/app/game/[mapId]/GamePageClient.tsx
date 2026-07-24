@@ -383,8 +383,16 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
 
             {/* 진행 중 게임 이어하기 — 나갔다 재입장한 경우에만 표시 (새 게임 시작하면 덮어씀) */}
             {resumeAvailable && (
-              <div className="mb-6 rounded-xl border border-accent/40 bg-accent/5 p-4">
-                <div className="text-sm font-semibold text-foreground mb-1">
+              <div className="mb-6 rounded-xl border border-accent/40 bg-accent/5 p-4 relative">
+                <button
+                  onClick={() => setResumeAvailable(false)}
+                  className="absolute top-2 right-2 p-1 text-foreground-secondary hover:text-foreground hover:bg-foreground/10 rounded transition-colors"
+                  title="닫기"
+                  aria-label="이어하기 안내 닫기"
+                >
+                  <X size={14} />
+                </button>
+                <div className="text-sm font-semibold text-foreground mb-1 pr-6">
                   진행 중인 게임이 있습니다
                 </div>
                 <p className="text-xs text-foreground-secondary mb-3">

@@ -61,16 +61,25 @@ export function decideAuctionBid(state: GameState, playerId: PlayerId): AuctionD
   // 보너스는 cashCeiling(건설예산 보호) 밖에서 더하되, 보유 현금은 넘지 않게 가드(파산 방지).
   const maxBid = Math.min(baseCeiling + seatBonus, Math.max(0, player.cash - expenses));
 
-  // 상시 참여 맵(Montréal, aiAuctionAlwaysParticipate): 무입찰 패스 대신 감당 가능한
-  // 소액 입찰로 기록을 남긴다 — 입찰 후 첫 포기는 무료라 행동 밴을 공짜로 면한다.
-  const alwaysJoin = getMapProfile(state.mapId).aiAuctionAlwaysParticipate;
+  // 행동권 확보 참여(Montréal, aiAuctionAlwaysParticipate — 사용자 지시 2026-07-25):
+  // 무입찰 패스는 행동 밴이므로, "이번 턴 내 최선 행동의 ΔVP"가 입찰비(달러→VP 환산)보다
+  // 클 때만 최소 금액으로 입찰 기록을 남긴다 — 1등 경쟁이 아니라 행동권 보험.
+  // (입찰 후 첫 포기는 무료 룰이라 실비용은 0~입찰액 절반 수준)
+  const joinForAction = getMapProfile(state.mapId).aiAuctionAlwaysParticipate;
   const myBidSoFar = auction?.bids?.[playerId] ?? 0;
   const cashAfterExpenses = Math.max(0, player.cash - expenses);
+  /** 이번 턴 내가 고를 수 있는 최선 행동의 ΔVP (밴당하면 잃는 가치) */
+  const bestActionVP = joinForAction
+    ? (rankActionsByDeltaVP(state, playerId, plan)[0]?.deltaVP ?? 0)
+    : 0;
+  const actionJoinWorth = (amount: number): boolean =>
+    joinForAction && myBidSoFar === 0 && cashAfterExpenses >= amount &&
+    bestActionVP > amount * lambda;
 
-  // 경매가 시작되지 않았으면 가치가 있을 때만 $1로 시작 (상시 참여 맵은 감당되면 무조건)
+  // 경매가 시작되지 않았으면 가치가 있을 때만 $1로 시작 (행동권 가치가 있으면 참여)
   if (!auction) {
-    if ((maxBid >= 1 || alwaysJoin) && player.cash >= 1 && cashAfterExpenses >= 1) {
-      debugLog.preparation(`[Phase II: 경매] ${player.name}: 경매 시작 $1 (절실함 ${desperation.toFixed(1)}VP → 상한 $${maxBid})`);
+    if ((maxBid >= 1 || actionJoinWorth(1)) && player.cash >= 1 && cashAfterExpenses >= 1) {
+      debugLog.preparation(`[Phase II: 경매] ${player.name}: 경매 시작 $1 (절실함 ${desperation.toFixed(1)}VP, 최선행동 ${bestActionVP.toFixed(1)}VP)`);
       return { action: 'bid', amount: 1 };
     }
     debugLog.preparation(`[Phase II: 경매] ${player.name}: 절실한 행동 없음 (${desperation.toFixed(1)}VP) → 양보`);
@@ -79,9 +88,9 @@ export function decideAuctionBid(state: GameState, playerId: PlayerId): AuctionD
 
   const currentBid = auction.highestBid;
 
-  // 상시 참여: 아직 무입찰인데 포기하게 될 상황이면 감당 한도 내에서 입찰 기록을 남긴다
-  if (alwaysJoin && myBidSoFar === 0 && currentBid >= maxBid && cashAfterExpenses >= currentBid + 1) {
-    debugLog.preparation(`[Phase II: 경매] ${player.name}: 참여 입찰 $${currentBid + 1} (무입찰 패스 방지)`);
+  // 행동권 보험 입찰: 아직 무입찰인데 포기하게 될 상황이면, 행동 가치가 비용을 넘을 때만 기록
+  if (currentBid >= maxBid && actionJoinWorth(currentBid + 1)) {
+    debugLog.preparation(`[Phase II: 경매] ${player.name}: 행동권 입찰 $${currentBid + 1} (최선행동 ${bestActionVP.toFixed(1)}VP > 비용)`);
     return { action: 'bid', amount: currentBid + 1 };
   }
 

@@ -38,7 +38,7 @@ import GameBoard from '@/components/game/GameBoard';
 import GameChat from '@/components/game/GameChat';
 import OnlineLobby from '@/components/game/OnlineLobby';
 import PhaseTransition from '@/components/game/PhaseTransition';
-import { useNetStore, getLastRoom } from '@/net/netStore';
+import { useNetStore } from '@/net/netStore';
 import { isNetConfigured } from '@/net';
 import PlayerPanel from '@/components/game/PlayerPanel';
 import PhasePanel from '@/components/game/PhasePanel';
@@ -145,20 +145,27 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     Boolean(netRoom?.hostClientId) &&
     !netPresent.includes(netRoom?.hostClientId as string);
 
-  // 같은 탭 새로고침(F5) 후 마지막 방으로 자동 재입장 (Phase 2 재접속)
+  // F5 복원: ① 온라인 자동 재입장 시도 → ② 실패/기록 없음이면 오프라인 진행 중 게임 복원.
+  // showSetup이 useState(true)라 새로고침하면 무조건 셋업이 떠서, persist로 살아 있는 게임이
+  // 셋업 뒤에서 봇만 계속 돌던 문제(2026-07-24 사용자 보고). 온라인 복원 성공 시엔
+  // netRoom.status 효과가 화면을 전환하므로 여기선 손대지 않는다.
   useEffect(() => {
-    void autoRejoin();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // 오프라인 진행 중 게임 F5 복원 — showSetup이 useState(true)라 새로고침하면 무조건 셋업이
-  // 떠서, persist로 살아 있는 게임이 셋업 뒤에서 봇만 계속 돌던 문제(2026-07-24 사용자 보고).
-  // 온라인은 위 autoRejoin → netRoom.status 효과가 담당하므로, 마지막 온라인 방 기록이 있으면
-  // 그 흐름에 맡기고 건드리지 않는다. persist(localStorage)는 동기 복원이라 마운트 효과면 충분.
-  useEffect(() => {
-    if (getLastRoom()) return; // 온라인 재입장 흐름 우선
-    const s = useGameStore.getState();
-    if (s.gameStarted && s.mapId === mapId && !s.winner) setShowSetup(false);
+    void (async () => {
+      const rejoined = await autoRejoin().catch(() => false);
+      if (rejoined) return;
+      const s = useGameStore.getState();
+      // gameStarted가 없는 옛 저장본(플래그 도입 전 시작한 게임)은 진행 흔적으로 추정.
+      // ⚠️ persist 병합이 기본값 false를 채우므로 ?? 가 아니라 || 로 이어야 한다.
+      // 흔적: 턴 진행 / 1단계 이탈 / 트랙 존재 / 주식 발행(시작값 2에서 변화 — 1턴 주식만
+      // 발행한 게임도 잡는다). 리셋 직후 미시작 상태(전부 초기값)는 어디에도 안 걸려 셋업 유지.
+      const inProgress =
+        s.gameStarted ||
+        s.currentTurn > 1 ||
+        s.currentPhase !== 'issueShares' ||
+        s.board.trackTiles.length > 0 ||
+        Object.values(s.players).some((p) => p.issuedShares !== 2);
+      if (inProgress && s.mapId === mapId && !s.winner) setShowSetup(false);
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapId]);
   const myPlayerId = isOnline && netMySeat !== null ? activePlayers[netMySeat] ?? null : null;

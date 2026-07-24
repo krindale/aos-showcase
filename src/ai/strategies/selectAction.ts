@@ -293,6 +293,9 @@ function evaluateLocomotive(state: GameState, playerId: PlayerId, plan: TurnPlan
     if (dgel >= GAME_CONSTANTS.MAX_DGEL) return 0;
     // 보드에 정부 링크가 없으면 DGEL은 순수 비용 (이동 보너스를 쓸 곳이 없음)
     if (!state.board.trackTiles.some(t => t.isGovernment)) return 0;
+    // ⚠️ 기각(2026-07-25): "내 완성 링크 0이면 DGEL=순수 비용" 가드 → VP 14.82→6.67·파산
+    // 0.73으로 대폭 악화. 링크 없는 봇에게도 DGEL 도달 확장이 차단 배달·미래 경로에 실가치가
+    // 있고, 대안 행동(도시화 등)이 더 나빴다. 개별 사례(5ijt DGEL×3 파산)로 일반화 금지.
   }
   const effectiveEngine = player.engineLevel + (isDgelMap ? dgel : 0);
 

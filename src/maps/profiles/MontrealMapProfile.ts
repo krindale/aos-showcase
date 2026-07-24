@@ -67,7 +67,10 @@ export class MontrealMapProfile extends StandardMapProfile {
   override get aiSkipHopelessSurvivalIssue(): boolean { return true; }
   /** 배달 실행 문턱 = 순수 ΔVP>0 (tie-break 제외) — 정부 링크 0수입 배달 차단 (100시드 VP 5.43→12.51) */
   override get aiStrictDeliveryVP(): boolean { return true; }
-  /** own0/opp0 순수 차단(정부 링크 경유)에 선점 보너스 인정 */
+  /** own0/opp0 순수 차단(정부 링크 경유)에 선점 보너스 인정.
+   *  기각(2026-07-25): off 실험 → VP 13.56·파산 0.77 (on 14.82·0.70) — 약자 봇이 차단
+   *  배달로 수송 기회를 소진하는 개별 사례는 있으나, 통계적으론 차단이 상대 수입을 눌러
+   *  VP·파산 모두 개선. 파산의 근본 원인은 차단이 아니라 초반 자기 링크 확보 실패. */
   override get aiPreemptZeroIncomeDenial(): boolean { return true; }
   // (지연 완성 페널티 11 오버라이드는 제거 — vp.ts가 배달 시작 지연의 현금 흐름 손실과
   //  엔진 증분 유지비를 직접 계산하게 되면서 기본값으로도 즉시 경로가 자연 우선됨. 2026-07-14)

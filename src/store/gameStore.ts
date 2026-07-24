@@ -1356,6 +1356,13 @@ export const useGameStore = create<GameStore>()(
         const rolledBoard = cleanedBoard.nightSide
           ? { ...cleanedBoard, nightSide: (cleanedBoard.nightSide === 'west' ? 'east' : 'west') as 'west' | 'east' }
           : cleanedBoard;
+        if (cleanedBoard.nightSide) {
+          // 분석용: 교대 결과를 :3999에 기록 (새 턴 기준 밤쪽)
+          logAction('turnEnd', 'nightSideSwap', {
+            turn: state.currentTurn + 1,
+            nightSide: rolledBoard.nightSide,
+          });
+        }
 
         const newTurnBase = {
           currentPhase: nextPhaseName,

@@ -9,7 +9,7 @@ import type { StoreApi } from 'zustand';
 import type { GameStore } from '../gameStore';
 import { HexCoord, PlayerId, GAME_CONSTANTS, MovingCubeContext } from '@/types/game';
 import { getMapProfile } from '@/maps/getMapProfile';
-import { hexCoordsEqual, findTrackCubeDeliveries, getConnectingEdge, trackOwnerForEntry } from '@/utils/hexGrid';
+import { hexCoordsEqual, findTrackCubeDeliveries, getConnectingEdge, trackOwnerForEntry, getNeighborHex } from '@/utils/hexGrid';
 import { logAction } from '@/utils/debugConfig';
 import { releaseAILock } from '../helpers/aiScheduler';
 import { captureUndo } from '../helpers/undo';
@@ -406,6 +406,23 @@ export function createMoveSlice(set: Set, get: Get): MoveSlice {
         gains: incomeChanges,
         turn: state.currentTurn,
       });
+
+      // 분석용(달): 경로가 랩 어라운드를 건넜는지 — 연속 좌표가 자연 이웃(보드 미전달
+      // getNeighborHex)이 아니면 랩 점프다. wrapEdges 맵에서만 검사(타 맵 비용 0).
+      if (state.board.wrapEdges?.length) {
+        const jumps: { from: HexCoord; to: HexCoord }[] = [];
+        for (let i = 1; i < path.length; i++) {
+          const natural = [0, 1, 2, 3, 4, 5].some(ed =>
+            hexCoordsEqual(getNeighborHex(path[i - 1], ed), path[i])
+          );
+          if (!natural) jumps.push({ from: path[i - 1], to: path[i] });
+        }
+        if (jumps.length > 0) {
+          logAction('goodsMovement', 'wrapUsed', {
+            mover: movingPlayerId, jumps, turn: state.currentTurn,
+          });
+        }
+      }
 
       const newPlayers = { ...state.players };
       for (const playerId of state.activePlayers) {

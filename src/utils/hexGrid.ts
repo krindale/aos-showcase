@@ -1131,6 +1131,20 @@ export function findLongestPath(
  * ⚠️ 정산(moveSlice.completeCubeMove) 로직 변경 시 여기도 함께 맞출 것 — 표시/게이트가
  * 실제 수입 흐름과 어긋나면 안 된다.
  */
+/**
+ * 화물이 `entryEdge`로 들어온 타일에서 "실제로 지나는 트랙"의 소유자.
+ * 교차/공존(complex) 타일은 두 독립 트랙(edges/secondaryEdges)이 겹쳐 있으므로,
+ * 들어온 edge가 secondaryEdges 쪽이면 그 트랙의 secondaryOwner를 봐야 한다.
+ * (예: 상대 트랙 위에 내가 crossing을 깔면 owner=상대·secondaryOwner=나 — 내 secondary를
+ *  지나는데 owner만 보면 상대 링크로 잘못 카운트된다.)
+ */
+export function trackOwnerForEntry(track: TrackTile, entryEdge: number | null): PlayerId | null {
+  if (entryEdge !== null && track.secondaryEdges && track.secondaryEdges.includes(entryEdge)) {
+    return track.secondaryOwner ?? null;
+  }
+  return track.owner;
+}
+
 export function getPathLinkOwners(path: HexCoord[], board: BoardState): (PlayerId | null)[] {
   const owners: (PlayerId | null)[] = [];
   const isStopAt = (coord: HexCoord) =>
@@ -1142,8 +1156,12 @@ export function getPathLinkOwners(path: HexCoord[], board: BoardState): (PlayerI
     let owner: PlayerId | null = null;
     for (let j = linkStartIndex + 1; j < i; j++) {
       const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, path[j]));
-      if (track?.owner) {
-        owner = track.owner;
+      if (!track) continue;
+      // 교차/공존 타일: 화물이 들어온 edge에 맞는 트랙(primary/secondary)의 소유자를 집는다.
+      const entryEdge = getConnectingEdge(path[j], path[j - 1], board);
+      const o = trackOwnerForEntry(track, entryEdge);
+      if (o) {
+        owner = o;
         break; // 정산과 동일: 링크당 첫 owner 타일 한 번만
       }
     }
@@ -1639,6 +1657,23 @@ export function isTrackPartOfCompletedLink(
 
   // 양쪽 모두 도시/마을과 연결되어 있다면 완성된 링크의 일부임
   return connectsDir1 && connectsDir2;
+}
+
+/**
+ * 복합 타일의 secondary 트랙이 완성 링크의 일부인지 (isTrackPartOfCompletedLink의
+ * secondaryEdges 판. 독일 미완성 제거가 "이번 턴 얹은 교차"의 완성 여부를 볼 때 사용 —
+ * 기존 함수는 primary edges만 봐서 교차 추가분이 검출을 통째로 빠져나갔다, 2026-07-24).
+ */
+export function isSecondaryTrackPartOfCompletedLink(
+  trackCoord: HexCoord,
+  board: BoardState
+): boolean {
+  const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, trackCoord));
+  if (!track?.secondaryEdges || track.secondaryEdges.length !== 2) return false;
+  return (
+    checkConnectionToCity(trackCoord, track.secondaryEdges[0], board) &&
+    checkConnectionToCity(trackCoord, track.secondaryEdges[1], board)
+  );
 }
 
 

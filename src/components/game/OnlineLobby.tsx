@@ -13,7 +13,7 @@ import { useNetStore } from '@/net/netStore';
 import { uniqueSeatName } from '@/net/roomLogic';
 import { getMapData } from '@/utils/mapRegistry';
 import {
-  ArrowLeftRight, Bot, Check, Copy, Crown, Globe, Loader2, LogOut, Play, RefreshCw, Send, Star, User, UserX, Wifi, WifiOff, Zap,
+  ArrowLeftRight, Bot, Check, Copy, Crown, Globe, Loader2, LogOut, Pencil, Play, RefreshCw, Send, Star, User, UserX, Wifi, WifiOff, X, Zap,
 } from 'lucide-react';
 import { CROWN_GOLD, CROWN_INK } from './uiEffects';
 import { ChatSenderIcon } from './ChatSenderIcon';
@@ -37,8 +37,13 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
     mode, room, mySeat, presentClientIds, chat, busy, error,
     publicRooms, publicRoomsLoading,
     hostRoom, joinRoom, leaveRoom, sendChat, updateSeats, startOnlineGame,
-    refreshPublicRooms, quickMatch,
+    refreshPublicRooms, quickMatch, renameSeat,
   } = useNetStore();
+
+  // 대기실 본인 이름 편집
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [nameError, setNameError] = useState<string | null>(null);
 
   const [myName, setMyName] = useState('기차-하나');
   const [joinCode, setJoinCode] = useState('');
@@ -134,6 +139,21 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
     setChatInput('');
   };
 
+  const startEditName = (currentName: string) => {
+    setNameDraft(currentName);
+    setNameError(null);
+    setEditingName(true);
+  };
+  const submitName = async () => {
+    const res = await renameSeat(nameDraft);
+    if (res.ok) {
+      setEditingName(false);
+      setNameError(null);
+    } else {
+      setNameError(res.reason ?? '변경에 실패했어요');
+    }
+  };
+
   // ---------- 대기실 ----------
   if (room) {
     // 시작 조건: AI 좌석이거나, 착석자가 실제 접속 중 (나갔다 안 돌아온 좌석은 미준비)
@@ -184,10 +204,47 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
                 ) : (
                   <User size={15} fill="currentColor" className="flex-shrink-0" style={{ color: CROWN_INK }} aria-label="사람" />
                 )}
-                <span className="text-sm text-foreground flex-1 truncate">
-                  {seat.name}
-                  {isMe && <span className="text-accent text-xs ml-1">(나)</span>}
-                </span>
+                {isMe && editingName && room.status === 'waiting' ? (
+                  /* 본인 이름 편집 (대기실 한정) — 트림 저장·중복 거부는 renameSeat가 처리 */
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1">
+                      <input
+                        value={nameDraft}
+                        onChange={(e) => { setNameDraft(e.target.value); setNameError(null); }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.nativeEvent.isComposing) void submitName();
+                          else if (e.key === 'Escape') { setEditingName(false); setNameError(null); }
+                        }}
+                        autoFocus
+                        maxLength={20}
+                        placeholder="이름"
+                        className="flex-1 min-w-0 px-2 py-0.5 text-sm rounded border border-accent bg-background text-foreground focus:outline-none"
+                      />
+                      <button onClick={() => void submitName()} className="p-1 rounded text-positive hover:bg-foreground/10" aria-label="이름 저장">
+                        <Check size={14} />
+                      </button>
+                      <button onClick={() => { setEditingName(false); setNameError(null); }} className="p-1 rounded text-foreground-muted hover:bg-foreground/10" aria-label="편집 취소">
+                        <X size={14} />
+                      </button>
+                    </div>
+                    {nameError && <p className="text-[11px] text-red-500 mt-0.5 truncate">{nameError}</p>}
+                  </div>
+                ) : (
+                  <span className="text-sm text-foreground flex-1 truncate flex items-center gap-1">
+                    <span className="truncate">{seat.name}</span>
+                    {isMe && <span className="text-accent text-xs flex-shrink-0">(나)</span>}
+                    {isMe && room.status === 'waiting' && (
+                      <button
+                        onClick={() => startEditName(seat.name)}
+                        className="p-0.5 flex-shrink-0 text-foreground-muted hover:text-accent"
+                        title="이름 변경"
+                        aria-label="이름 변경"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                    )}
+                  </span>
+                )}
                 {/* 호스트 태그: 내가 호스트여도 표시 */}
                 {seat.clientId != null && seat.clientId === room.hostClientId && (
                   <span className="flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded-full bg-yellow-500/15 text-yellow-600" title="호스트">

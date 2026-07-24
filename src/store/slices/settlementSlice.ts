@@ -9,6 +9,9 @@ import type { StoreApi } from 'zustand';
 import type { GameStore } from '../gameStore';
 import { PlayerId, GamePhase, GAME_CONSTANTS } from '@/types/game';
 import { getMapProfile } from '@/maps/getMapProfile';
+import { calculateVictoryPoints } from '@/utils/gameLogic';
+import { calculateTrackScore } from '@/utils/trackValidation';
+import { logAction } from '@/utils/debugConfig';
 
 type Set = StoreApi<GameStore>['setState'];
 type Get = StoreApi<GameStore>['getState'];
@@ -140,8 +143,11 @@ export function createSettlementSlice(set: Set, _get: Get): SettlementSlice {
             if (t.secondaryOwner && bankruptPlayers.includes(t.secondaryOwner)) t = { ...t, secondaryOwner: null };
             return t;
           });
-          const updatedTownSpurs = (newBoard.townSpurs ?? []).filter(
-            sp => sp.owner === null || !bankruptPlayers.includes(sp.owner)
+          // 가닥도 타일과 동일하게 "공용 전환"(owner null) — 삭제하면 마을을 지나는 완성
+          // 링크가 물리적으로 끊겨 공용 철도로 남아야 할 노선이 사라진다 (2026-07-25 사용자
+          // 보고: 파산 후 마을에 건설한 철도 끝들이 소멸). 정부 가닥(owner null)과 동일 패턴.
+          const updatedTownSpurs = (newBoard.townSpurs ?? []).map(sp =>
+            sp.owner && bankruptPlayers.includes(sp.owner) ? { ...sp, owner: null } : sp
           );
           newBoard = {
             ...newBoard,
@@ -171,6 +177,22 @@ export function createSettlementSlice(set: Set, _get: Get): SettlementSlice {
             timestamp: Date.now(),
           });
 
+          // 분석용 최종 점수 로그 — 파산 종료 경로 (정상 종료는 gameStore nextPhase가 기록)
+          logAction('turnEnd', 'finalScores', {
+            turn: state.currentTurn,
+            endedBy: 'bankruptcy',
+            players: state.activePlayers.map((pid) => {
+              const pl = newPlayers[pid];
+              const trackScore = calculateTrackScore(newBoard, pid);
+              return {
+                id: pid, name: pl?.name, eliminated: pl?.eliminated ?? false,
+                income: pl?.income ?? 0, shares: pl?.issuedShares ?? 0,
+                engine: pl?.engineLevel ?? 0, cash: pl?.cash ?? 0, trackScore,
+                vp: pl ? calculateVictoryPoints(pl.income, trackScore, pl.issuedShares) : 0,
+              };
+            }),
+          });
+
           return {
             players: newPlayers,
             board: newBoard,
@@ -180,10 +202,34 @@ export function createSettlementSlice(set: Set, _get: Get): SettlementSlice {
           };
         }
 
+        // 파산자는 이후 모든 단계에서 차례를 받지 않는다 (룰북 VII: 게임에서 탈락).
+        // 차례 계산은 20곳 넘게 흩어져 있지만 전부 playerOrder를 순회하므로, 여기서 한 번
+        // 빼면 주식 발행·경매·행동 선택·건설·이동이 모두 자동으로 파산자를 건너뛴다.
+        // ⚠️ activePlayers(좌석)는 건드리지 않는다 — 온라인 mySeat 매핑이 좌석 인덱스 기준이라
+        // 여기서 빼면 남의 좌석으로 밀린다. 파산자는 좌석을 유지한 채 관전한다.
+        const survivingOrder = bankruptPlayers.length > 0
+          ? state.playerOrder.filter((pid) => !bankruptPlayers.includes(pid))
+          : state.playerOrder;
+
         return {
           players: newPlayers,
           board: newBoard,
           logs: newLogs,
+          playerOrder: survivingOrder,
+          // 파산 알림 팝업용 1회성 이벤트 (온라인 스냅샷으로 전파 — 게스트도 동일하게 본다).
+          // key로 중복 재생을 막는다 (BankruptcyModal이 "최초 관측 key는 스킵").
+          ...(bankruptPlayers.length > 0
+            ? {
+                bankruptcyEvent: {
+                  key: `${state.currentTurn}-${bankruptPlayers.join(',')}`,
+                  turn: state.currentTurn,
+                  players: bankruptPlayers.map((pid) => ({
+                    id: pid,
+                    name: newPlayers[pid]?.name ?? pid,
+                  })),
+                },
+              }
+            : {}),
         };
       });
     },
@@ -231,6 +277,13 @@ export function createSettlementSlice(set: Set, _get: Get): SettlementSlice {
             });
           }
         }
+
+        // 분석용: 수입 감소 결과(배수 포함)를 :3999 미러에 기록 — Southern US 4턴 2배 검증용
+        logAction('turnEnd', 'incomeReduction', {
+          turn: state.currentTurn,
+          multiplier: incomeReductionMult,
+          reductions,
+        });
 
         return {
           players: newPlayers,

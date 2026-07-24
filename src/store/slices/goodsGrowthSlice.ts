@@ -10,6 +10,7 @@ import type { GameStore } from '../gameStore';
 import { CubeColor, GAME_CONSTANTS } from '@/types/game';
 import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
+import { logAction } from '@/utils/debugConfig';
 import { citiesConnectedToSeed, isNightCity } from '@/utils/hexGrid';
 
 type Set = StoreApi<GameStore>['setState'];
@@ -344,6 +345,10 @@ export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
           if (bonusCity && cube) {
             bonusCity.cubes.push(cube);
             console.log(`[Berlin 보너스] T${state.currentTurn} ${bonusCity.name}에 ${cube} 큐브 +1 (매 턴 물품 성장)`);
+            // 분석용: 보너스 도시 성장(Berlin/Atlanta 호황)을 :3999 미러에 기록
+            logAction('turnEnd', 'bonusCityCube', {
+              city: bonusCityId, cube, turn: state.currentTurn, maxTurn: bonusMaxTurn ?? null,
+            });
             newLogs.push({
               turn: state.currentTurn,
               phase: state.currentPhase,

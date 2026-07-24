@@ -52,6 +52,35 @@ export class MontrealMapProfile extends StandardMapProfile {
   override get newCitySetupCube(): boolean { return true; }
   // 물품 성장 단계 없음 (mapRegistry rules.skipGoodsGrowth와 이중 안전망)
   override get skipGoodsGrowth(): boolean { return true; }
+
+  // ── 몬트리올 AI 재무 훅 (달에서 실증된 훅 3종을 몬트리올 값으로, 2026-07-25) ──
+  // 진단(3봇 로그 wbmv): 전원 주식 만발행(14~15)·기차III 파산 VP −45 — 몬트리올은
+  // 언덕$3/도로$4에 income 성장이 느려(정부 링크 무수입·성장 없음) 후반 차입 회수가 안 된다.
+  // 달과 동일 병리(만성 저수입 차입 자기증폭)라 같은 처방. ⚠️ 100시드 게이트로 검증 예정.
+  /** 후반 6라운드(9라운드 중 T4~9)는 건설 계획 발행 금지 — 생존 발행은 허용.
+   *  스윕(100시드): 4→VP12.51·파산0.74 / 5→13.84·0.76 / 6→13.46·0.70 / 7→9.42·0.88(과소투자 붕괴)
+   *  — 파산 최소인 6 채택(사용자 우선순위). 엔진 상한 3은 VP 6.36·파산 0.83으로 기각(엔진4 필수). */
+  override get aiNoBuildIssueLastTurns(): number { return 6; }
+  /** 발행→비용↑→필요현금↑→또 발행의 자기증폭 차단 (달 최대 기여 훅) */
+  override get aiPlanExpensesNetOfIncome(): boolean { return true; }
+  /** 최대 발행으로도 파산 회피 불가면 발행 포기 — VP만 깎는 무의미 발행 방지 */
+  override get aiSkipHopelessSurvivalIssue(): boolean { return true; }
+  /** 배달 실행 문턱 = 순수 ΔVP>0 (tie-break 제외) — 정부 링크 0수입 배달 차단 (100시드 VP 5.43→12.51) */
+  override get aiStrictDeliveryVP(): boolean { return true; }
+  /** own0/opp0 순수 차단(정부 링크 경유)에 선점 보너스 인정.
+   *  기각(2026-07-25): off 실험 → VP 13.56·파산 0.77 (on 14.82·0.70) — 약자 봇이 차단
+   *  배달로 수송 기회를 소진하는 개별 사례는 있으나, 통계적으론 차단이 상대 수입을 눌러
+   *  VP·파산 모두 개선. 파산의 근본 원인은 차단이 아니라 초반 자기 링크 확보 실패. */
+  override get aiPreemptZeroIncomeDenial(): boolean { return true; }
+  /** ⚠️ 기각 스윕(2026-07-25, 100시드) — 경매 상시 참여·꼴등 턴오더 가중 (사용자 제안 검증):
+   *  기본(참여 강제 없음·턴오더 0.1) 14.82/파산0.70 ← 최적
+   *  턴오더 0.5 → 6.26/0.91 · 턴오더 2.0 → 0.56/1.18 · 상시 참여 → −0.17/1.01 ·
+   *  결합(참여+2.0) → −7.94/1.43. 몬트리올 봇 경제에서 경매 참여=현금 유출+행동(추가
+   *  지출 경로) 획득이고, 턴오더=이번 턴 경제 행동 0개라 순서 가치가 기회비용에 못 미침.
+   *  훅·구현은 남겨둠(aiAuctionAlwaysParticipate / turnOrderSeatVP) — 켜면 재현 가능. */
+  /** 행동권 확보 참여(정밀판, 최선 행동 ΔVP > 입찰비 조건)도 기각: 2.35/파산 1.08 —
+   *  행동 가치 평가가 몬트리올에서 과대(회수 미달)라 조건이 사실상 항상 참 → 전원 참여
+   *  동학 재현. "경매 밴 = 과지출 브레이크"가 3개 변형에서 일관 확인됨. */
   // (지연 완성 페널티 11 오버라이드는 제거 — vp.ts가 배달 시작 지연의 현금 흐름 손실과
   //  엔진 증분 유지비를 직접 계산하게 되면서 기본값으로도 즉시 경로가 자연 우선됨. 2026-07-14)
 

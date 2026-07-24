@@ -27,6 +27,25 @@ export function uniqueSeatName(
 }
 
 /**
+ * 좌석 이름 변경 규칙 (대기실에서 본인 이름 수정).
+ * - 이름은 앞뒤 공백을 트림해 저장한다.
+ * - 빈 이름(트림 후 '')은 거부(null).
+ * - 다른 좌석과 같은 이름이면 거부(null) — 중복 금지.
+ * 성공 시 해당 좌석 이름만 바꾼 새 seats 배열, 실패 시 null.
+ */
+export function renameSeat(
+  seats: RoomSeat[],
+  seat: number,
+  desired: string
+): RoomSeat[] | null {
+  const trimmed = desired.trim();
+  if (!trimmed) return null;
+  const others = seats.filter((s) => s.seat !== seat).map((s) => s.name);
+  if (others.includes(trimmed)) return null;
+  return seats.map((s) => (s.seat === seat ? { ...s, name: trimmed } : s));
+}
+
+/**
  * claimSeat 좌석 배정 규칙.
  * ① 이미 내 좌석이 있으면 그대로 (같은 탭 새로고침 — sessionStorage clientId 유지)
  * ② 대기실(waiting): 빈 human 좌석 배정 (요청 이름 반영)

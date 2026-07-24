@@ -33,8 +33,11 @@ import {
   findFirstBuildPlayer,
   findFirstMovePlayer,
   isLastPlayer,
+  calculateVictoryPoints,
 } from '@/utils/gameLogic';
+import { calculateTrackScore } from '@/utils/trackValidation';
 import { logAction, newLogSession } from '@/utils/debugConfig';
+import { turboDelay, resetTurboFlag } from '@/utils/turboMode';
 // 모듈 헬퍼 (2026-07-03 스텝 3a 분리 — 로직 무변경, 파일만 이동)
 import { undoSnapshots, captureUndo, clearUndo } from './helpers/undo';
 import {
@@ -292,6 +295,7 @@ export const useGameStore = create<GameStore>()(
     // 기존 AI 인스턴스 정리
     aiPlayerManager.clear();
     clearUndo();
+    resetTurboFlag(); // 새 게임은 터보 디폴트 OFF (사용자 요청 2026-07-24)
 
     // 새 게임 세션ID 부여 (이후 모든 액션 로그가 이 세션으로 묶임)
     const sessionId = newLogSession();
@@ -303,6 +307,7 @@ export const useGameStore = create<GameStore>()(
     // 새 게임 상태 설정
     set({
       ...createInitialGameState(mapId, playerNames, aiPlayers, options),
+      gameStarted: true, // F5 복원 판단용 — 셋업 화면을 건너뛰고 게임 화면 복원
       aiExecution: { pending: false, executionId: 0 },
     });
 
@@ -323,6 +328,7 @@ export const useGameStore = create<GameStore>()(
 
   resetGame: () => {
     const state = get();
+    resetTurboFlag(); // 새 게임은 터보 디폴트 OFF
     // 기존 플레이어 이름과 AI 설정 유지하며 리셋
     const playerNames = state.activePlayers.map(
       pid => state.players[pid]?.name || `플레이어 ${pid.slice(-1)}`
@@ -348,8 +354,11 @@ export const useGameStore = create<GameStore>()(
 
     console.log(`[resetGame] AI 플레이어 ${aiPlayerManager.count}명 리셋됨`);
 
-    // 첫 번째 플레이어가 AI면 자동 실행 트리거
-    scheduleAICheck(get);
+    // ⚠️ 여기서 scheduleAICheck를 호출하지 않는다 — resetGame의 두 호출처(게임 리셋 버튼·
+    // 이어하기 배너 X)는 모두 셋업 화면으로 돌아가는 경로다. 봇을 시동하면 사용자가 셋업을
+    // 보는 동안 뒤에서 유령 게임이 진행돼 진행 흔적(주식/트랙)이 쌓이고, 재입장 시
+    // "진행 중인 게임" 배너가 되살아났다 (2026-07-24 사용자 보고 — X 눌러도 배너 재발).
+    // 실제 게임 시작은 initGame(게임 시작 버튼)이 하며 거기서 봇이 시동된다.
   },
 
   // ============================================================
@@ -433,7 +442,7 @@ export const useGameStore = create<GameStore>()(
       // 행동 결과를 화면에 잠시 보여준 뒤 진행 — 락은 유지한 채 대기해 중복 실행 방지.
       // 딜레이는 "보여줄 행동이 있고(view) + 이 진행으로 단계가 끝날 때"만 (마지막 플레이어 전용)
       const proceedAfterView = (view: boolean) => {
-        const delay = view && endsPhaseNow() ? AI_ACTION_VIEW_DELAY : 0;
+        const delay = view && endsPhaseNow() ? turboDelay(AI_ACTION_VIEW_DELAY) : 0;
         safeTimeout(() => {
           get().nextPhase();
           releaseAILock(executionId, get, set);
@@ -645,7 +654,7 @@ export const useGameStore = create<GameStore>()(
           proceedAfterView(false);
           return;
       }
-    }, AI_TURN_DELAY);
+    }, turboDelay(AI_TURN_DELAY));
   },
 
   // ============================================================
@@ -951,7 +960,13 @@ export const useGameStore = create<GameStore>()(
 
       const currentIndex = phases.indexOf(state.currentPhase);
       const playerOrder = state.playerOrder;
-      const { activePlayers } = state;
+      // ⚠️ 파산자(eliminated) 제외 — state.activePlayers는 좌석 전체라, 그대로 완료 판정
+      // (allPlayersSelectedAction/allPlayersMoved)에 쓰면 playerOrder에서 빠진 파산자가
+      // 영원히 "미완료"로 남아 단계가 진행되지 않는 교착이 된다 (2026-07-24).
+      // 좌석 자체(state.activePlayers)는 불변 — 여기 지역 변수만 생존자로 좁힌다.
+      const activePlayers = state.activePlayers.filter(
+        (p) => !state.players[p]?.eliminated
+      );
 
       // 빈 배열 방어 검증
       if (playerOrder.length === 0 || activePlayers.length === 0) {
@@ -1106,12 +1121,17 @@ export const useGameStore = create<GameStore>()(
         let bwBoard = state.board;
         let bwPlayers = state.players;
         if (getMapProfile(state.mapId).requireCompleteLinks) {
-          const r = removeIncompleteNewTracks(state.board, state.currentTurn, state.currentPlayer);
+          const r = removeIncompleteNewTracks(state.board, state.currentTurn, state.currentPlayer, getMapProfile(state.mapId).townSpurCost);
           if (r.board !== state.board) {
             bwBoard = r.board;
             const p = state.players[state.currentPlayer];
             bwPlayers = { ...state.players, [state.currentPlayer]: { ...p, cash: p.cash + r.refund } };
             console.log(`[미완성 제거] ${state.currentPlayer}: 미완성 신설 트랙 제거, $${r.refund} 환불 (Germany 미완성 링크 금지)`);
+            // 분석용: 제거 내역(타일/교차/가닥)을 :3999 미러에 기록 — 교차·가닥 제거 실증용
+            logAction('trackBuilding', 'incompleteRemoved', {
+              player: state.currentPlayer, turn: state.currentTurn,
+              refund: r.refund, ...r.removed,
+            });
           }
         }
 
@@ -1289,11 +1309,36 @@ export const useGameStore = create<GameStore>()(
 
         // 게임 종료 확인
         if (state.currentTurn >= state.maxTurns) {
+          // 분석용 최종 점수 로그 (전 맵 공통 — :3999에서 봇 게임 결과를 바로 판독)
+          logAction('turnEnd', 'finalScores', {
+            turn: state.currentTurn,
+            players: state.activePlayers.map((pid) => {
+              const pl = state.players[pid];
+              const trackScore = calculateTrackScore(cleanedBoard, pid);
+              return {
+                id: pid, name: pl?.name, eliminated: pl?.eliminated ?? false,
+                income: pl?.income ?? 0, shares: pl?.issuedShares ?? 0,
+                engine: pl?.engineLevel ?? 0, cash: pl?.cash ?? 0, trackScore,
+                vp: pl ? calculateVictoryPoints(pl.income, trackScore, pl.issuedShares) : 0,
+              };
+            }),
+          });
           return {
             board: cleanedBoard,
             currentPhase: 'gameOver' as GamePhase,
           };
         }
+
+        // 분석용 턴 스탯 로그 (전 맵 공통 — 턴별 재무 추적)
+        logAction('turnEnd', 'turnStats', {
+          turn: state.currentTurn,
+          players: state.activePlayers.map((pid) => {
+            const pl = state.players[pid];
+            return { id: pid, cash: pl?.cash ?? 0, income: pl?.income ?? 0,
+              shares: pl?.issuedShares ?? 0, engine: pl?.engineLevel ?? 0,
+              eliminated: pl?.eliminated ?? false };
+          }),
+        });
 
         // Montréal: 새 턴 첫 단계(governmentLink)의 차례는 정부 관리 순번 로테이션
         // (셋업 스냅샷 governmentControllers 기준, 탈락자는 건너뜀)
@@ -1311,6 +1356,13 @@ export const useGameStore = create<GameStore>()(
         const rolledBoard = cleanedBoard.nightSide
           ? { ...cleanedBoard, nightSide: (cleanedBoard.nightSide === 'west' ? 'east' : 'west') as 'west' | 'east' }
           : cleanedBoard;
+        if (cleanedBoard.nightSide) {
+          // 분석용: 교대 결과를 :3999에 기록 (새 턴 기준 밤쪽)
+          logAction('turnEnd', 'nightSideSwap', {
+            turn: state.currentTurn + 1,
+            nightSide: rolledBoard.nightSide,
+          });
+        }
 
         const newTurnBase = {
           currentPhase: nextPhaseName,
@@ -1328,7 +1380,9 @@ export const useGameStore = create<GameStore>()(
       urbanizationUsed: false,
             locomotiveUsed: false,
           },
-          players: resetPlayerActions(state.players, activePlayers),
+          // 행동 리셋은 좌석 전체(파산자 포함) — 생존자만 리셋하면 파산자의 마지막
+          // selectedAction이 스테일로 남아 그 행동이 계속 "선택됨"으로 잠긴다.
+          players: resetPlayerActions(state.players, state.activePlayers),
         };
 
         // 교대 선공권 맵(St. Lucia): 새 턴은 선공권 제안으로 시작
@@ -1442,7 +1496,7 @@ export const useGameStore = create<GameStore>()(
           if (s.currentPhase === 'goodsGrowth' && s.players[s.currentPlayer]?.isAI) {
             get().nextPhase();
           }
-        }, AI_ACTION_VIEW_DELAY);
+        }, turboDelay(AI_ACTION_VIEW_DELAY));
         return;
       }
     }

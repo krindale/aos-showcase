@@ -254,6 +254,29 @@ export abstract class MapProfile {
   get aiNoBuildIssueLastTurns(): number { return 0; }
 
   /**
+   * 배달 실행 문턱에서 전략 경로 tie-break(routeScore)를 제외하고 순수 ΔVP>0만 볼지.
+   * 기본 false = 기존 동작(deltaVP+routeScore>0). Montréal true — 정부 링크(무수입) 경유
+   * ΔVP=0 배달이 tie-break에 밀려 실행돼 유한한 큐브를 공짜로 태우던 문제(0수입 배달 29%).
+   * 다른 맵은 모든 링크에 소유자가 있어 ΔVP가 정확히 0인 배달이 구조적으로 없지만,
+   * 미세 음수 배달의 행동 변화 가능성이 있어 사용자 지시로 몬트리올 전용(2026-07-25).
+   */
+  get aiStrictDeliveryVP(): boolean { return false; }
+
+  /**
+   * 선점 보너스에서 "아무에게도 수입이 없는 경로"(정부 링크 경유)의 차단을 인정할지.
+   * 기본 false = 상납 가드만(내 수입 0이면 보너스 없음 — 2026-07-24 한국 상납 배달 수정).
+   * Montréal true — own0/opp0 순수 차단(상대가 배달할 큐브를 0원에 제거)은 정당한 선점.
+   */
+  get aiPreemptZeroIncomeDenial(): boolean { return false; }
+
+  /**
+   * 경매 상시 참여(사용자 지시, Montréal): 무입찰 패스 대신 감당 가능한 소액이라도 입찰해
+   * 입찰 기록을 남긴다 — 몬트리올 트윅에서 무입찰 패스는 행동 밴이지만, 입찰 후 첫 포기는
+   * 비용 무료라 행동권을 지킬 수 있다. 기본 false = 기존 가치 기반 참여 판단 그대로.
+   */
+  get aiAuctionAlwaysParticipate(): boolean { return false; }
+
+  /**
    * AI 턴 예산(turnPlan.cashNeeded)에서 **운영비를 income으로 상계**할지 (기본 false = 현재 동작).
    * 표준 맵은 운영비 전액을 예산에 넣어도 income이 커서 문제가 없지만, 달처럼 income이 낮고
    * 유지비가 큰 맵에서는 이것이 "발행 → issuedShares↑ → expenses↑ → cashNeeded↑ → 또 발행"의

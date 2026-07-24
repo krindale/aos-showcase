@@ -228,11 +228,15 @@ describe('달 AI 튜닝 훅 (2026-07-21)', () => {
     expect(getMapProfile('germany').aiDeliveryTimingFactor(imbrium, 'black', 1, state)).toBe(1);
   });
 
-  it('달만 후반 계획 발행 금지·운영비 income 상계가 켜져 있다 (타 맵 기본값 불변)', () => {
+  it('달·몬트리올만 후반 계획 발행 금지·운영비 income 상계가 켜져 있다 (타 맵 기본값 불변)', () => {
     const moon = getMapProfile('moon');
     expect(moon.aiNoBuildIssueLastTurns).toBe(5); // 8턴 중 T4~8 계획 발행 금지
     expect(moon.aiPlanExpensesNetOfIncome).toBe(true);
-    for (const other of ['germany', 'korea', 'rust-belt', 'montreal', 'western-us']) {
+    // 몬트리올도 동일 병리(만성 저수입 차입 자기증폭)로 훅 적용 (2026-07-25, 100시드 게이트)
+    const montreal = getMapProfile('montreal');
+    expect(montreal.aiNoBuildIssueLastTurns).toBe(6); // 9라운드 중 T4~9
+    expect(montreal.aiPlanExpensesNetOfIncome).toBe(true);
+    for (const other of ['germany', 'korea', 'rust-belt', 'western-us']) {
       expect(getMapProfile(other).aiNoBuildIssueLastTurns).toBe(0);
       expect(getMapProfile(other).aiPlanExpensesNetOfIncome).toBe(false);
       expect(getMapProfile(other).aiEngineFrontLoad).toBe(true);

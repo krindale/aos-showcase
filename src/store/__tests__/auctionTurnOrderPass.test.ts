@@ -23,6 +23,12 @@ describe('경매: Turn Order 패스와 최고입찰자 차례', () => {
   const D: PlayerId = 'player4';
   const E: PlayerId = 'player5';
 
+  /** 아직 포기하지 않은(활성) 플레이어 목록 — 경매 종료 판정과 동일 기준 */
+  const playerOrderRemaining = () => {
+    const s = useGameStore.getState();
+    return s.playerOrder.filter((p) => !s.auction?.passedPlayers.includes(p));
+  };
+
   beforeEach(() => {
     const s = createInitialGameState('germany', ['B', 'A', 'C', 'D', 'E'], []);
     // A에게 직전 턴 Turn Order 선택으로 부여된 무탈락 패스 권한
@@ -67,6 +73,29 @@ describe('경매: Turn Order 패스와 최고입찰자 차례', () => {
     expect(st().auction?.passedPlayers).not.toContain(B);
     // 패스 사용 플래그가 세팅된다 (재사용 방지)
     expect(st().players[B].turnOrderPassUsed).toBe(true);
+  });
+
+  it('최고입찰자만 남았을 때 Turn Order 패스를 쓰면 경매가 끝난다 (내 차례로 되돌아오지 않음)', () => {
+    const st = () => useGameStore.getState();
+    // B가 최고입찰자, C·D·E는 포기 → 활성 = {B(최고), A}
+    st().placeBid(B, 3);
+    st().passBid(C);
+    st().passBid(D);
+    st().passBid(E);
+    expect(st().currentPlayer).toBe(A); // A 차례
+
+    st().skipBid(A); // Turn Order 패스
+
+    // ❌ 회귀: 최고입찰자를 건너뛰다 한 바퀴 돌아 A 자신이 다시 잡히던 버그
+    expect(st().currentPlayer).not.toBe(A);
+    // 더 부를 사람이 없으므로 경매 종료 상태 — A는 마지막 포기자로 들어간다
+    expect(st().auction?.passedPlayers).toContain(A);
+    expect(playerOrderRemaining()).toEqual([B]); // 미포기 활성 = 최고입찰자뿐
+
+    st().resolveAuction();
+    const order = st().playerOrder;
+    expect(order[0]).toBe(B); // 최고입찰자 승리
+    expect(order[1]).toBe(A); // Turn Order 패스한 A는 마지막 포기자 = 2등
   });
 
   it('A가 마지막에 포기하면 B가 정상 1등, A는 꼴등이 아니다', () => {

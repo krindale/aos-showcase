@@ -26,11 +26,12 @@ import {
   removeGuestGuard,
   type GameIntentPayload,
 } from './intents';
-import { assignSeatForClaim, isHostAbsent, pickHostSuccessor } from './roomLogic';
+import { assignSeatForClaim, isHostAbsent, pickHostSuccessor, renameSeat as renameSeatRule } from './roomLogic';
 import { useGameStore } from '@/store/gameStore';
 import { scheduleAICheck } from '@/store/helpers/aiScheduler';
 import { clearUndo } from '@/store/helpers/undo';
 import { safeInterval, safeTimeout } from '@/utils/safeTimers';
+import { turboDelay, setTurboAllowed } from '@/utils/turboMode';
 
 export type NetMode = 'offline' | 'host' | 'guest';
 
@@ -70,14 +71,22 @@ export interface NetStore {
   refreshPublicRooms: () => Promise<void>;
   /** 빠른 매칭 (Phase 5): 빈자리 있는 공개방에 순서대로 입장 시도, 성공 여부 반환 */
   quickMatch: (name: string) => Promise<boolean>;
-  /** 방 코드로 입장 (게스트 / 새로고침한 호스트 복귀). 좌석은 호스트가 배정해 room 브로드캐스트로 통지 */
-  joinRoom: (code: string, name: string) => Promise<void>;
+  /** 방 코드로 입장 (게스트 / 새로고침한 호스트 복귀). 좌석은 호스트가 배정해 room 브로드캐스트로 통지.
+   *  reconnect=true(순단 자동 재연결)면 offline 전환(leaveRoom)을 거치지 않고 같은 방에 조용히 재부착한다
+   *  — 안 그러면 mode가 잠깐 offline이 돼 화면이 셋업으로 튕기고(F5 깜빡임) 좌석이 관전으로 풀린다. */
+  joinRoom: (code: string, name: string, reconnect?: boolean) => Promise<void>;
   /** 같은 탭 새로고침 후 마지막 방으로 자동 재입장 (성공 여부 반환) */
   autoRejoin: () => Promise<boolean>;
   leaveRoom: () => Promise<void>;
   sendChat: (text: string) => void;
   /** 호스트 전용: 로비에서 좌석 구성 변경 (사람↔AI 등) */
   updateSeats: (seats: RoomSeat[]) => Promise<void>;
+  /**
+   * 대기실에서 본인 좌석 이름 변경 (트림 저장, 중복 이름 거부).
+   * 호스트는 직접 반영, 게스트는 intent로 호스트에 요청 → 스냅샷/room 통지로 확정.
+   * 반환: { ok } — 로컬 선검사 실패(빈 이름/중복) 시 ok:false + reason.
+   */
+  renameSeat: (name: string) => Promise<{ ok: boolean; reason?: string }>;
   /** 호스트 전용: 게임 시작 — initGame + status 'playing' */
   startOnlineGame: () => Promise<void>;
   /** 호스트 전용: 이탈한 게스트 좌석을 AI로 전환 (players.isAI + seats.kind — 게임 계속) */
@@ -223,7 +232,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
     const phaseChanged = lastBroadcastPhase !== null && phaseNow !== lastBroadcastPhase;
     const elapsed = Date.now() - lastBroadcastAt;
     const wanted = phaseChanged
-      ? Math.max(BROADCAST_DEBOUNCE, PHASE_CHANGE_HOLD - elapsed)
+      ? Math.max(BROADCAST_DEBOUNCE, turboDelay(PHASE_CHANGE_HOLD) - elapsed)
       : BROADCAST_DEBOUNCE;
 
     if (broadcastTimer !== null) {
@@ -312,6 +321,25 @@ export const useNetStore = create<NetStore>()((set, get) => {
     }
   };
 
+  // ---- 호스트: 게스트의 이름 변경 요청 처리 (renameSeat intent) ----
+  const handleRename = async (msg: IntentMessage): Promise<void> => {
+    const conn = connection;
+    const { room } = get();
+    if (!conn || !room) return;
+    const seat = seatOf(room, msg.clientId);
+    if (seat === null) return; // 발신자가 좌석 없음(관전) — 무시
+    const name = (msg.payload as { name?: string } | undefined)?.name ?? '';
+    try {
+      const next = renameSeatRule(room.seats, seat, name); // 트림·중복 검사(호스트 권위)
+      if (!next) return; // 빈 이름/중복 — 조용히 거부 (게스트 화면은 기존 이름 유지)
+      await conn.updateRoom({ seats: next });
+      await conn.broadcastRoom();
+      set({ room: conn.room });
+    } catch (e) {
+      console.warn('[net] 이름 변경 처리 실패:', e);
+    }
+  };
+
   // ---- 게스트 커밋 가드 설치 (intent 전송 + 유실 대비 동일 멱등 id 1회 재전송) ----
   // joinRoom(게스트 입장)과 이중 호스트 강등 양쪽에서 사용
   const installGuardWithResend = (): void => {
@@ -356,6 +384,10 @@ export const useNetStore = create<NetStore>()((set, get) => {
       }
       if (msg.type === 'claimSeat') {
         void handleClaimSeat(msg);
+        return;
+      }
+      if (msg.type === 'renameSeat') {
+        void handleRename(msg);
         return;
       }
       if (get().room?.status !== 'playing') return; // 게임 전 게임 인텐트 무시
@@ -440,7 +472,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
     reconnectTimer = safeTimeout(async () => {
       reconnectTimer = null;
       if (get().connected || get().mode === 'offline') return; // 자동 재조인으로 이미 복구됨
-      await get().joinRoom(code, name);
+      await get().joinRoom(code, name, true); // reconnect: offline 전환 없이 조용히 재부착
       if (!get().connected) scheduleReconnect(); // 실패 — 다음 시도 예약
     }, RECONNECT_DELAY);
   };
@@ -591,7 +623,10 @@ export const useNetStore = create<NetStore>()((set, get) => {
               : s
           )
         : null;
-      await conn.updateRoom(
+      // upsertRoom(‌update-or-insert): 대기실 방장이 "방 나가기"로 나가면 closeRoom이 방을
+      // DB에서 지운다. 승계자가 updateRoom(UPDATE)만 하면 삭제된 행을 못 살려 공개방 목록·
+      // 재입장에서 방이 사라진다 → id 기준 upsert로 방을 그대로 되살린다.
+      await conn.upsertRoom(
         newSeats
           ? { hostClientId: conn.clientId, seats: newSeats }
           : { hostClientId: conn.clientId }
@@ -750,8 +785,20 @@ export const useNetStore = create<NetStore>()((set, get) => {
       }
     },
 
-    joinRoom: async (code, name) => {
-      if (get().mode !== 'offline') await get().leaveRoom();
+    joinRoom: async (code, name, reconnect = false) => {
+      if (get().mode !== 'offline') {
+        if (reconnect) {
+          // 순단 재연결: offline으로 전환하지 않고(화면 튕김·좌석 관전 고착 방지) 옛 채널만 조용히 정리.
+          // connectionGen++로 버려진 채널의 늦은 이벤트를 무시하고, 새 makeEvents가 새 세대를 연다.
+          connectionGen++;
+          removeGuestGuard();
+          const old = connection;
+          connection = null;
+          old?.leave().catch(() => { /* 이미 끊긴 채널 */ });
+        } else {
+          await get().leaveRoom();
+        }
+      }
       set({ busy: true, error: null });
       try {
         const conn = await getTransport().joinRoom(code, makeEvents());
@@ -833,7 +880,9 @@ export const useNetStore = create<NetStore>()((set, get) => {
     },
 
     leaveRoom: async () => {
-      // 호스트가 대기실을 명시적으로 떠나면 방 자체를 폐쇄 (목록의 유령 방 방지)
+      // 호스트가 대기실을 명시적으로 떠나면 방 자체를 폐쇄 (목록의 유령 방 방지).
+      // 남은 사람이 승계하면 promoteToHost가 방을 DB에 다시 만든다(upsertRoom) — 아무도
+      // 이어받지 않으면 방이 DB에 남지 않아 깔끔하다.
       const { mode, room } = get();
       if (mode === 'host' && room?.status === 'waiting' && connection) {
         await connection.closeRoom().catch((e) => console.warn('[net] 방 폐쇄 실패:', e));
@@ -893,6 +942,40 @@ export const useNetStore = create<NetStore>()((set, get) => {
       }
     },
 
+    renameSeat: async (name) => {
+      const { mode, room, mySeat } = get();
+      if (!room || mySeat === null) return { ok: false, reason: '좌석이 없어요' };
+      const trimmed = name.trim();
+      if (!trimmed) return { ok: false, reason: '이름을 입력하세요' };
+      // 로컬 선검사(중복) — 최종 권위는 호스트(handleRename의 renameSeatRule)
+      if (room.seats.some((s) => s.seat !== mySeat && s.name === trimmed)) {
+        return { ok: false, reason: '이미 같은 이름이 있어요' };
+      }
+      const conn = connection;
+      if (!conn) return { ok: false, reason: '연결이 없어요' };
+      if (mode === 'host') {
+        const next = renameSeatRule(room.seats, mySeat, trimmed);
+        if (!next) return { ok: false, reason: '이미 같은 이름이 있어요' };
+        try {
+          await conn.updateRoom({ seats: next });
+          await conn.broadcastRoom();
+          set({ room: conn.room });
+        } catch (e) {
+          console.warn('[net] 이름 변경 실패:', e);
+          return { ok: false, reason: '변경에 실패했어요' };
+        }
+        return { ok: true };
+      }
+      // 게스트: 호스트에 요청 → room 통지로 확정 (호스트가 트림·중복 재검증)
+      try {
+        await conn.sendIntent({ type: 'renameSeat', seat: mySeat, payload: { name: trimmed } });
+      } catch (e) {
+        console.warn('[net] 이름 변경 요청 실패:', e);
+        return { ok: false, reason: '요청 전송에 실패했어요' };
+      }
+      return { ok: true };
+    },
+
     startOnlineGame: async () => {
       const conn = connection;
       const { room, mode } = get();
@@ -923,6 +1006,10 @@ export function getMyPlayerId(): string | null {
   const active = useGameStore.getState().activePlayers;
   return active[mySeat] ?? null;
 }
+
+// 터보 설정 권한: 온라인 게스트는 설정 자체 금지(방장 전용) — 모드 전환마다 게이트 갱신.
+// (버튼 숨김은 UI일 뿐이고, localStorage/?turbo=1 직접 세팅도 여기서 무효화된다)
+useNetStore.subscribe((s) => setTurboAllowed(s.mode !== 'guest'));
 
 // 디버깅용: 전역에 노출 (__GAME_STORE__와 동일 패턴)
 if (typeof window !== 'undefined') {

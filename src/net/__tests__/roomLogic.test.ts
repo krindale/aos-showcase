@@ -1,10 +1,37 @@
 // 좌석 배정/호스트 승계 순수 규칙 테스트 (Phase 2)
 import { describe, it, expect } from 'vitest';
-import { assignSeatForClaim, isHostAbsent, pickHostSuccessor, uniqueSeatName } from '../roomLogic';
+import { assignSeatForClaim, isHostAbsent, pickHostSuccessor, uniqueSeatName, renameSeat } from '../roomLogic';
 import type { RoomSeat } from '../types';
 
 const seats = (over: Partial<RoomSeat>[]): RoomSeat[] =>
   over.map((o, i) => ({ seat: i, name: `자리${i}`, kind: 'human', clientId: null, ...o }));
+
+describe('renameSeat', () => {
+  it('이름을 바꾸고 앞뒤 공백을 트림해 저장', () => {
+    const s = seats([{ name: '호스트' }, { name: '기차-둘' }]);
+    const r = renameSeat(s, 1, '  새이름  ');
+    expect(r?.[1].name).toBe('새이름');
+    expect(r?.[0].name).toBe('호스트'); // 다른 좌석 불변
+  });
+
+  it('다른 좌석과 같은 이름이면 거부(null)', () => {
+    const s = seats([{ name: '호스트' }, { name: '기차-둘' }]);
+    expect(renameSeat(s, 1, '호스트')).toBeNull();
+    // 트림 후 중복도 거부
+    expect(renameSeat(s, 1, '  호스트 ')).toBeNull();
+  });
+
+  it('빈 이름(트림 후 빈 문자열)은 거부(null)', () => {
+    const s = seats([{ name: '호스트' }, { name: '기차-둘' }]);
+    expect(renameSeat(s, 1, '   ')).toBeNull();
+    expect(renameSeat(s, 1, '')).toBeNull();
+  });
+
+  it('내 현재 이름 그대로(트림만) 저장은 허용', () => {
+    const s = seats([{ name: '호스트' }, { name: '기차-둘' }]);
+    expect(renameSeat(s, 1, ' 기차-둘 ')?.[1].name).toBe('기차-둘');
+  });
+});
 
 describe('assignSeatForClaim', () => {
   it('이미 착석한 clientId는 좌석 그대로 (같은 탭 새로고침)', () => {

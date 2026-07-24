@@ -53,8 +53,10 @@ import Toaster from '@/components/game/Toaster';
 import DebugPanel from '@/components/game/DebugPanel';
 import { POP_SPRING, useIsFirstRender, CROWN_GOLD, CROWN_INK } from '@/components/game/uiEffects';
 import TranscontinentalModal from '@/components/game/TranscontinentalModal';
+import BankruptcyModal from '@/components/game/BankruptcyModal';
 import BottomSheet from '@/components/game/BottomSheet';
 import HelpOverlay from '@/components/game/HelpOverlay';
+import TurboSwitch from '@/components/game/TurboSwitch';
 import HostTakeoverDialog from '@/components/game/HostTakeoverDialog';
 import { calculateTrackScore } from '@/utils/trackValidation';
 import { ArrowLeft, RotateCcw, Users, Zap, X, Bot, Crown, ChevronRight, ChevronLeft, HelpCircle } from 'lucide-react';
@@ -94,6 +96,8 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   const specialRules = getMapProfile(mapId).specialRules;
 
   const [showSetup, setShowSetup] = useState(true);
+  // 진행 중 게임 이어하기 배너 (일부러 나갔다 재입장한 경우 — 자동 복원 대신 선택권)
+  const [resumeAvailable, setResumeAvailable] = useState(false);
   const [setupTab, setSetupTab] = useState<'local' | 'online'>('local');
   const [playerCount, setPlayerCount] = useState(supportedPlayers[0]);
   const [playerNames, setPlayerNames] = useState<string[]>(DEFAULT_NAMES);
@@ -143,11 +147,53 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     Boolean(netRoom?.hostClientId) &&
     !netPresent.includes(netRoom?.hostClientId as string);
 
-  // 같은 탭 새로고침(F5) 후 마지막 방으로 자동 재입장 (Phase 2 재접속)
+  // F5/재입장 복원: ① 온라인 자동 재입장 시도 → ② 실패/기록 없음이면 오프라인 진행 중 게임 처리.
+  // - 같은 탭 F5(게임 화면에 있었음 = sessionStorage 'aos-ingame'): 자동으로 게임 화면 복원
+  // - 일부러 나갔다 재입장(뒤로/리셋으로 플래그 지워짐): 자동 복원하지 않고 셋업에
+  //   "이어하기" 배너만 표시 — 예전 게임이 강제로 뜨던 문제(2026-07-24 사용자 보고) 방지.
+  // 온라인 복원 성공 시엔 netRoom.status 효과가 화면을 전환하므로 여기선 손대지 않는다.
   useEffect(() => {
-    void autoRejoin();
+    void (async () => {
+      const rejoined = await autoRejoin().catch(() => false);
+      if (rejoined) return;
+      const s = useGameStore.getState();
+      // gameStarted가 없는 옛 저장본(플래그 도입 전 시작한 게임)은 진행 흔적으로 추정.
+      // ⚠️ persist 병합이 기본값 false를 채우므로 ?? 가 아니라 || 로 이어야 한다.
+      // ⚠️ 시작 단계는 맵마다 다르다 — Montréal은 issueShares가 아니라 governmentLink로
+      // 시작하므로, issueShares만 시작 단계로 보면 갓 리셋한 미시작 몬트리올 상태가
+      // "진행 중"으로 오판돼 종료 후에도 배너가 떴다 (2026-07-25 사용자 보고).
+      const isStartPhase =
+        s.currentPhase === 'issueShares' || s.currentPhase === 'governmentLink';
+      const inProgress =
+        s.gameStarted ||
+        s.currentTurn > 1 ||
+        !isStartPhase ||
+        s.board.trackTiles.length > 0 ||
+        Object.values(s.players).some((p) => p.issuedShares !== 2);
+      // 종료된 게임 제외 — winner(파산 종료)만 보면 턴 소진 종료(gameOver + finalScores,
+      // winner 없음)를 놓쳐 끝난 게임에 이어하기 배너가 떴다 (2026-07-24 사용자 보고).
+      const isOver = s.currentPhase === 'gameOver' || !!s.winner || !!s.finalScores;
+      if (!inProgress || s.mapId !== mapId || isOver) return;
+      let wasInGame = false;
+      try { wasInGame = window.sessionStorage.getItem('aos-ingame') === '1'; } catch { /* noop */ }
+      if (wasInGame) { setShowSetup(false); return; } // F5 — 이어서 진행
+      setResumeAvailable(true); // 재입장 — 이어하기/삭제 선택권 제공
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [mapId]);
+
+  // 게임 화면에 있는 동안 'aos-ingame' 마킹 (F5와 "화면을 떠남"을 구분하는 신호).
+  // 정리(cleanup)에서 지운다 — 앱 뒤로 버튼뿐 아니라 브라우저 뒤로가기·다른 링크 등
+  // 어떤 경로로든 게임 화면을 떠나면(언마운트/셋업 전환) 마킹이 사라져, 재입장 시
+  // 자동 복원 대신 셋업+이어하기 배너가 뜬다. F5(하드 리로드)는 cleanup이 실행되지
+  // 않아 마킹이 살아남고 자동 복원된다 (2026-07-24 사용자 보고 — 브라우저 백 경로 누락).
+  useEffect(() => {
+    if (showSetup) return;
+    try { window.sessionStorage.setItem('aos-ingame', '1'); } catch { /* noop */ }
+    return () => {
+      try { window.sessionStorage.removeItem('aos-ingame'); } catch { /* noop */ }
+    };
+  }, [showSetup]);
   const myPlayerId = isOnline && netMySeat !== null ? activePlayers[netMySeat] ?? null : null;
   // 지금 행동해야 하는 플레이어 — 경매 입찰 차례 포함 currentPlayer가 단일 진실
   // (auction.currentBidder는 갱신 안 되는 레거시 필드 — AuctionPanel.tsx:39 주석 참조)
@@ -257,14 +303,17 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     setShowSetup(false);
   };
 
-  // 게임 리셋
+  // 게임 리셋 — 의도적 새 시작이므로 F5 복원 마킹·이어하기 배너 해제
   const handleResetGame = () => {
+    try { window.sessionStorage.removeItem('aos-ingame'); } catch { /* noop */ }
+    setResumeAvailable(false);
     resetGame();
     setShowSetup(true);
   };
 
-  // 맵 페이지로 돌아가기 (온라인이면 방도 나감)
+  // 맵 페이지로 돌아가기 (온라인이면 방도 나감) — 의도적 이탈이므로 F5 복원 마킹 해제
   const handleBack = () => {
+    try { window.sessionStorage.removeItem('aos-ingame'); } catch { /* noop */ }
     if (isOnline) void leaveRoom();
     router.push('/maps');
   };
@@ -341,6 +390,38 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
             <p className="text-foreground-secondary mb-6">
               {mapConfig.name} - {playerCount}인 게임
             </p>
+
+            {/* 진행 중 게임 이어하기 — 나갔다 재입장한 경우에만 표시 (새 게임 시작하면 덮어씀) */}
+            {resumeAvailable && (
+              <div className="mb-6 rounded-xl border border-accent/40 bg-accent/5 p-4 relative">
+                <button
+                  onClick={() => {
+                    // X = 저장된 게임 삭제 — 기억해둘 것 없이 게임 자체를 지운다
+                    // (resetGame이 미시작 상태로 갈아끼워 gameStarted=false → 배너·F5 복원 모두 소멸)
+                    resetGame();
+                    setResumeAvailable(false);
+                  }}
+                  className="absolute top-2 right-2 p-1 text-foreground-secondary hover:text-foreground hover:bg-foreground/10 rounded transition-colors"
+                  title="저장된 게임 삭제"
+                  aria-label="저장된 게임 삭제"
+                >
+                  <X size={14} />
+                </button>
+                <div className="text-sm font-semibold text-foreground mb-1 pr-6">
+                  진행 중인 게임이 있습니다
+                </div>
+                <p className="text-xs text-foreground-secondary mb-3">
+                  {currentTurn}턴 · {activePlayers.length}인 — 이어서 하거나, X를 누르면
+                  저장된 게임이 삭제됩니다. 새 게임을 시작해도 기존 게임은 사라집니다.
+                </p>
+                <button
+                  onClick={() => { setResumeAvailable(false); setShowSetup(false); }}
+                  className="btn-primary w-full py-2 text-sm"
+                >
+                  이어하기
+                </button>
+              </div>
+            )}
 
             {/* 로컬 / 온라인 모드 탭 (Supabase 설정된 배포에서만) */}
             {isNetConfigured() && (
@@ -731,6 +812,9 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
               )}
             </button>
 
+            {/* 터보 스위치 — 봇/연출 딜레이 축소 (방장 전용 변경, 게스트는 상태 표시) */}
+            <TurboSwitch />
+
             {/* 도움말 (규칙/단계/특수행동/맵 특수룰) — 온라인·오프라인 공통 */}
             <button
               onClick={() => setShowHelp(true)}
@@ -890,6 +974,8 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
 
       {/* 대륙횡단 연결 팝업 (Western US) */}
       <TranscontinentalModal />
+      {/* 파산 알림 (사람·봇 공통, 온라인 스냅샷으로 전원 동일하게 표시) */}
+      <BankruptcyModal />
 
       {/* 단계 전환 1초 멈춤 오버레이 */}
       <PhaseTransition />

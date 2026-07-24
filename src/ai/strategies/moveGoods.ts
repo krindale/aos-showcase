@@ -134,7 +134,20 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
 
         // 선점 보너스: 상대도 같은 배달이 가능하면, 내가 먼저 옮겨 상대의 income 기회를 차단
         // (상대도 타인 철도를 쓸 수 있으므로 opponentExtra = 상대 엔진으로 판정 — 집합은 위에서 1회 계산)
-        if (oppReachSets.some(set => set.some(d => hexCoordsEqual(d.coord, destCity.coord)))) {
+        // ⚠️ "상납" 경로(내 수입 0인데 상대 링크에 수입을 주는 경로)엔 주지 않는다 —
+        // 2026-07-24 한국 실측(own0/opp1 배달 3건)에서 도입. 2026-07-25 게이트 분리 측정:
+        // 이 가드의 VP 비용 = Korea −1.2 (44.41→43.21), Germany/Rust Belt도 유사 폭 하락
+        // 추정 — 상납에도 선점 이득이 있어 데이터상으론 무조건이 우세하나, **사용자 선택으로
+        // 가드 유지**(봇이 상대에게 공짜 수입을 주는 수를 두지 않는 것을 우선). 몬트리올은
+        // 정밀 가드(aiPreemptZeroIncomeDenial → !isPureGift, 14.82/0.70) 별도 유지.
+        const isPureGift = ownTrackCount === 0 && opt.oppLinks > 0 && regionBonus === 0;
+        const preemptEligible = profile.aiPreemptZeroIncomeDenial
+          ? !isPureGift
+          : ownTrackCount > 0 || regionBonus > 0;
+        if (
+          preemptEligible &&
+          oppReachSets.some(set => set.some(d => hexCoordsEqual(d.coord, destCity.coord)))
+        ) {
           deltaVP += VP_PER_INCOME * opponentWeight(state);
         }
 
@@ -216,7 +229,11 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
     return { action: 'upgradeEngine' };
   }
 
-  if (best && bestMoveVP > 0) {
+  // 실행 문턱 훅 분기(사용자 지시로 몬트리올 전용): aiStrictDeliveryVP 맵은 routeScore를
+  // 뺀 순수 ΔVP>0 — tie-break가 문턱을 넘겨 "아무도 수입 안 받는 배달"(정부 링크 경유
+  // deltaVP=0)이 실행되던 것 차단(몬트리올 0수입 배달 11/38건). 그 외 맵은 기존 동작 유지.
+  const commitVP = best ? (profile.aiStrictDeliveryVP ? best.deltaVP : bestMoveVP) : -Infinity;
+  if (best && commitVP > 0) {
     debugLog.goodsMovement(
       `[Phase V: 물품 이동] ${player.name}: ${best.cubeColor} 물품 이동 (${best.sourceCityId} → ${best.destinationCityId}), 링크=${best.linksCount}(내쪽=${best.ownTrackCount}), ΔVP=${bestMoveVP.toFixed(2)}`
     );

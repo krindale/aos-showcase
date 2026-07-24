@@ -1,8 +1,9 @@
 // 보드 룰 순수 헬퍼 — 경계 변·마을 가닥·미완성 트랙 처리 (gameStore 스텝 3a 분리)
 
-import { BoardState, HexCoord, PlayerId, TrackTile, GameState, GAME_CONSTANTS } from '@/types/game';
+import { BoardState, HexCoord, PlayerId, TrackTile, GameState, GAME_CONSTANTS, TRACK_REPLACE_COSTS } from '@/types/game';
 import { hexCoordsEqual, getNeighborHex, getOppositeEdge, isBlockedEdge } from '@/utils/hexGrid';
 import { isTrackPartOfCompletedLink } from '@/utils/trackValidation';
+import { isSecondaryTrackPartOfCompletedLink } from '@/utils/hexGrid';
 import { getMapProfile } from '@/maps/getMapProfile';
 
 /**
@@ -175,13 +176,62 @@ export function getIncompleteNewTracks(
   );
 }
 
-/** 위 목록이 하나라도 있는지 (UI 게이팅용 boolean) */
+/** 이번 턴 내가 얹은 복합 secondary(교차/공존) 중 미완성인 타일 — 독일 미완성 제거 대상.
+ *  builtTurn/owner는 원 타일 것이라 primary 검출(getIncompleteNewTracks)에 안 걸리고,
+ *  완성 판정도 secondaryEdges 기준이어야 한다 (2026-07-24 독일 봇 게임 실측 버그). */
+export function getIncompleteNewSecondaries(
+  board: BoardState,
+  currentTurn: number,
+  playerId: PlayerId
+): TrackTile[] {
+  return board.trackTiles.filter(
+    t =>
+      t.secondaryOwner === playerId &&
+      t.secondaryBuiltTurn === currentTurn &&
+      !isSecondaryTrackPartOfCompletedLink(t.coord, board)
+  );
+}
+
+/** 가닥이 완성 링크의 일부인지 — 가닥의 변 너머 타일이 맞물려 있고 그 트랙이 완성 링크여야 한다.
+ *  (마을 자체가 정거장이므로, 변 너머 구간이 다른 정거장까지 닿으면 링크 완성) */
+function isSpurPartOfCompletedLink(
+  sp: { townCoord: HexCoord; edge: number },
+  board: BoardState
+): boolean {
+  const nb = getNeighborHex(sp.townCoord, sp.edge, board);
+  const opp = getOppositeEdge(sp.edge);
+  const t = board.trackTiles.find(x => hexCoordsEqual(x.coord, nb));
+  if (!t) return false;
+  if (t.edges.includes(opp)) return isTrackPartOfCompletedLink(nb, board);
+  if (t.secondaryEdges?.includes(opp)) return isSecondaryTrackPartOfCompletedLink(nb, board);
+  return false;
+}
+
+/** 이번 턴 내가 만든 마을 가닥 중 미완성인 것 — 독일 미완성 제거 대상.
+ *  (변 너머 타일이 없거나(고아 가닥) 그 구간이 다른 정거장에 닿지 않는 가닥.
+ *   기존 제거 조건은 removeKeys(삭제 트랙 좌표)에 townCoord를 대조해 사실상 죽은 코드였다
+ *   — 마을 헥스엔 타일이 없어 절대 매치 안 됨, 2026-07-24 독일 봇 게임 사용자 보고.) */
+export function getIncompleteNewSpurs(
+  board: BoardState,
+  currentTurn: number,
+  playerId: PlayerId
+): { townCoord: HexCoord; edge: number }[] {
+  return (board.townSpurs ?? []).filter(
+    sp => sp.owner === playerId && sp.builtTurn === currentTurn && !isSpurPartOfCompletedLink(sp, board)
+  );
+}
+
+/** 위 목록이 하나라도 있는지 (UI 게이팅용 boolean) — 이번 턴 교차 추가분(secondary)·마을 가닥 포함 */
 export function hasIncompleteNewTracks(
   board: BoardState,
   currentTurn: number,
   playerId: PlayerId
 ): boolean {
-  return getIncompleteNewTracks(board, currentTurn, playerId).length > 0;
+  return (
+    getIncompleteNewTracks(board, currentTurn, playerId).length > 0 ||
+    getIncompleteNewSecondaries(board, currentTurn, playerId).length > 0 ||
+    getIncompleteNewSpurs(board, currentTurn, playerId).length > 0
+  );
 }
 
 /**
@@ -261,12 +311,22 @@ function stationHasAnyTrack(board: BoardState, cityCoord: HexCoord): boolean {
 export function removeIncompleteNewTracks(
   board: BoardState,
   currentTurn: number,
-  playerId: PlayerId
-): { board: BoardState; refund: number } {
+  playerId: PlayerId,
+  spurCost: number = 1 // 마을 가닥 1개 환불액 (MapProfile.townSpurCost — 호출부가 전달)
+): { board: BoardState; refund: number; removed: { tiles: number; crossings: number; spurs: number } } {
   const k = (c: HexCoord) => `${c.col},${c.row}`;
   const incomplete = getIncompleteNewTracks(board, currentTurn, playerId);
-  if (incomplete.length === 0) return { board, refund: 0 };
+  // 이번 턴 얹은 미완성 교차/공존(secondary)도 되돌린다 — 타일 삭제가 아니라 원 단순
+  // 트랙으로 복원(원소유자 트랙 보존) + 교체비 환불 (2026-07-24 독일 봇 게임 실측:
+  // 미완성 링크 제거 때 교차 추가분만 보드에 남던 버그)
+  const incompleteSecondaries = getIncompleteNewSecondaries(board, currentTurn, playerId);
+  if (incomplete.length === 0 && incompleteSecondaries.length === 0) {
+    // 타일·교차가 없어도 고아 가닥만 남는 케이스가 가능 — 가닥 검사는 계속 진행
+    const lone = getIncompleteNewSpurs(board, currentTurn, playerId);
+    if (lone.length === 0) return { board, refund: 0, removed: { tiles: 0, crossings: 0, spurs: 0 } };
+  }
   const removeKeys = new Set(incomplete.map(t => k(t.coord)));
+  const revertKeys = new Set(incompleteSecondaries.map(t => k(t.coord)));
   let refund = 0;
   for (const t of incomplete) {
     const hex = board.hexTiles.find(h => hexCoordsEqual(h.coord, t.coord));
@@ -275,10 +335,42 @@ export function removeIncompleteNewTracks(
       : (hex?.terrain === 'river' || hex?.terrain === 'swamp') ? GAME_CONSTANTS.RIVER_TRACK_COST
       : GAME_CONSTANTS.PLAIN_TRACK_COST;
   }
-  const trackTiles = board.trackTiles.filter(t => !removeKeys.has(k(t.coord)));
-  // 제거된 트랙 좌표에 딸린 이번 턴 마을 가닥도 함께 제거 (미완성 노선의 일부)
+  for (const t of incompleteSecondaries) {
+    if (removeKeys.has(k(t.coord))) continue; // 타일 자체가 삭제되면 환불 중복 방지
+    refund += t.trackType === 'crossing'
+      ? TRACK_REPLACE_COSTS.simpleToCrossing
+      : TRACK_REPLACE_COSTS.default;
+  }
+  const trackTiles = board.trackTiles
+    .filter(t => !removeKeys.has(k(t.coord)))
+    .map(t =>
+      revertKeys.has(k(t.coord)) && !removeKeys.has(k(t.coord))
+        ? {
+            ...t,
+            trackType: 'simple' as const,
+            secondaryEdges: undefined,
+            secondaryOwner: undefined,
+            secondaryBuiltTurn: undefined,
+          }
+        : t
+    );
+  // 이번 턴 내 마을 가닥 중 (타일 제거 후 기준) 미완성인 것 제거 + 환불.
+  // 기존 조건(removeKeys에 townCoord 대조)은 마을 헥스엔 트랙 타일이 없어 절대 매치되지 않는
+  // 죽은 코드였다 — 미완성 노선의 가닥이 마을에 그대로 남았다 (2026-07-24 사용자 보고).
+  const interim: BoardState = { ...board, trackTiles };
+  const orphanSpurs = getIncompleteNewSpurs(interim, currentTurn, playerId);
+  const orphanSet = new Set(orphanSpurs.map(sp => `${k(sp.townCoord)}:${sp.edge}`));
+  refund += orphanSpurs.length * spurCost;
   const townSpurs = (board.townSpurs ?? []).filter(
-    sp => !(sp.owner === playerId && sp.builtTurn === currentTurn && removeKeys.has(k(sp.townCoord)))
+    sp => !(sp.owner === playerId && sp.builtTurn === currentTurn && orphanSet.has(`${k(sp.townCoord)}:${sp.edge}`))
   );
-  return { board: { ...board, trackTiles, townSpurs }, refund };
+  return {
+    board: { ...board, trackTiles, townSpurs },
+    refund,
+    removed: {
+      tiles: incomplete.length,
+      crossings: incompleteSecondaries.filter(t => !removeKeys.has(k(t.coord))).length,
+      spurs: orphanSpurs.length,
+    },
+  };
 }

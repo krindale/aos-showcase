@@ -9,7 +9,7 @@ import type { StoreApi } from 'zustand';
 import type { GameStore } from '../gameStore';
 import { HexCoord, PlayerId, GAME_CONSTANTS, MovingCubeContext } from '@/types/game';
 import { getMapProfile } from '@/maps/getMapProfile';
-import { hexCoordsEqual, findTrackCubeDeliveries } from '@/utils/hexGrid';
+import { hexCoordsEqual, findTrackCubeDeliveries, getConnectingEdge, trackOwnerForEntry, getNeighborHex } from '@/utils/hexGrid';
 import { logAction } from '@/utils/debugConfig';
 import { releaseAILock } from '../helpers/aiScheduler';
 import { captureUndo } from '../helpers/undo';
@@ -110,11 +110,16 @@ export function createMoveSlice(set: Set, get: Get): MoveSlice {
             currentLinkOwner = null;
             prevStopCoord = coord;
           } else {
-            // 트랙 구간: 소유자 확인 (한 링크는 한 소유자만 가짐)
+            // 트랙 구간: 소유자 확인 (한 링크는 한 소유자만 가짐).
+            // 교차/공존 타일은 화물이 들어온 edge에 맞는 트랙(primary/secondary)의 소유자를
+            // 봐야 한다 — getPathLinkOwners와 동일 (내 crossing을 지나는데 상대 owner로
+            // 카운트되던 버그 수정). i>0 보장(도시 다음 트랙부터).
             if (inLink && !currentLinkOwner) {
               const track = state.board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
-              if (track?.owner) {
-                currentLinkOwner = track.owner;
+              if (track) {
+                const entryEdge = i > 0 ? getConnectingEdge(coord, path[i - 1], state.board) : null;
+                const o = trackOwnerForEntry(track, entryEdge);
+                if (o) currentLinkOwner = o;
               }
             }
           }
@@ -122,6 +127,14 @@ export function createMoveSlice(set: Set, get: Get): MoveSlice {
 
         // 달(Moon) Low Gravitation: 상대 링크 1개의 수입을 내가 가져온다 (수송마다 1회)
         applyLowGravitation(state, state.currentPlayer, incomeChanges);
+
+        // 진단: 이 수송으로 각 플레이어 수입이 얼마 올랐는지 (수입 귀속 추적 — :3999)
+        logAction('goodsMovement', 'moveIncome', {
+          mover: state.currentPlayer,
+          selectedAction: state.players[state.currentPlayer]?.selectedAction,
+          gains: incomeChanges,
+          turn: state.currentTurn,
+        });
 
         const newPlayers = { ...state.players };
         for (const playerId of state.activePlayers) {
@@ -332,12 +345,19 @@ export function createMoveSlice(set: Set, get: Get): MoveSlice {
       // 룰북: "물품이 지나가는 각 완성된 철도 링크마다 해당 링크 소유자의 수입이 1 증가"
       for (let i = linkStartIndex + 1; i < path.length; i++) {
         if (isStopAt(path[i])) {
-          // 이 링크(linkStartIndex → i) 구간의 트랙 소유자 찾기
+          // 이 링크(linkStartIndex → i) 구간의 트랙 소유자 찾기.
+          // ⚠️ 교차/공존 타일은 화물이 들어온 edge에 맞는 트랙(primary/secondary)의 소유자를
+          // 봐야 한다 — 미리보기 getPathLinkOwners와 동일(trackOwnerForEntry). 이 수정이
+          // 레거시 moveGoods 정산에만 들어가고 실경로인 여기엔 빠져 있었다 (2026-07-24 로그
+          // 분석에서 발견 — "내 crossing인데 수입은 상대"가 실게임에서 재현되던 진짜 원인).
           let credited = false;
           for (let j = linkStartIndex + 1; j < i; j++) {
             const track = trackTiles.find(t => hexCoordsEqual(t.coord, path[j]));
-            if (track?.owner) {
-              incomeChanges[track.owner] = (incomeChanges[track.owner] || 0) + 1;
+            if (!track) continue;
+            const entryEdge = getConnectingEdge(path[j], path[j - 1], state.board);
+            const o = trackOwnerForEntry(track, entryEdge);
+            if (o) {
+              incomeChanges[o] = (incomeChanges[o] || 0) + 1;
               credited = true;
               break; // 링크당 한 번만 계산 (같은 링크 내 트랙은 같은 소유자)
             }
@@ -376,6 +396,32 @@ export function createMoveSlice(set: Set, get: Get): MoveSlice {
       const lowGravTarget = applyLowGravitation(state, movingPlayerId, incomeChanges);
       if (lowGravTarget) {
         console.log(`[Low Gravitation] ${state.players[movingPlayerId]?.name}이 ${state.players[lowGravTarget]?.name}의 링크 수입 1을 가져옴`);
+      }
+
+      // 진단: 이 수송으로 각 플레이어 수입이 얼마 올랐는지 (수입 귀속 추적 — :3999).
+      // 실정산 경로는 여기(completeCubeMove) — 레거시 moveGoods에만 로그가 있어 실게임
+      // 분석에서 moveIncome이 0건으로 나오던 것 교정.
+      logAction('goodsMovement', 'moveIncome', {
+        mover: movingPlayerId,
+        gains: incomeChanges,
+        turn: state.currentTurn,
+      });
+
+      // 분석용(달): 경로가 랩 어라운드를 건넜는지 — 연속 좌표가 자연 이웃(보드 미전달
+      // getNeighborHex)이 아니면 랩 점프다. wrapEdges 맵에서만 검사(타 맵 비용 0).
+      if (state.board.wrapEdges?.length) {
+        const jumps: { from: HexCoord; to: HexCoord }[] = [];
+        for (let i = 1; i < path.length; i++) {
+          const natural = [0, 1, 2, 3, 4, 5].some(ed =>
+            hexCoordsEqual(getNeighborHex(path[i - 1], ed), path[i])
+          );
+          if (!natural) jumps.push({ from: path[i - 1], to: path[i] });
+        }
+        if (jumps.length > 0) {
+          logAction('goodsMovement', 'wrapUsed', {
+            mover: movingPlayerId, jumps, turn: state.currentTurn,
+          });
+        }
       }
 
       const newPlayers = { ...state.players };

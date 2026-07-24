@@ -165,7 +165,10 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
         s.currentPhase !== 'issueShares' ||
         s.board.trackTiles.length > 0 ||
         Object.values(s.players).some((p) => p.issuedShares !== 2);
-      if (!inProgress || s.mapId !== mapId || s.winner) return;
+      // 종료된 게임 제외 — winner(파산 종료)만 보면 턴 소진 종료(gameOver + finalScores,
+      // winner 없음)를 놓쳐 끝난 게임에 이어하기 배너가 떴다 (2026-07-24 사용자 보고).
+      const isOver = s.currentPhase === 'gameOver' || !!s.winner || !!s.finalScores;
+      if (!inProgress || s.mapId !== mapId || isOver) return;
       let wasInGame = false;
       try { wasInGame = window.sessionStorage.getItem('aos-ingame') === '1'; } catch { /* noop */ }
       if (wasInGame) setShowSetup(false); // F5 — 이어서 진행

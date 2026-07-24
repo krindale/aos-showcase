@@ -159,10 +159,15 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       const s = useGameStore.getState();
       // gameStarted가 없는 옛 저장본(플래그 도입 전 시작한 게임)은 진행 흔적으로 추정.
       // ⚠️ persist 병합이 기본값 false를 채우므로 ?? 가 아니라 || 로 이어야 한다.
+      // ⚠️ 시작 단계는 맵마다 다르다 — Montréal은 issueShares가 아니라 governmentLink로
+      // 시작하므로, issueShares만 시작 단계로 보면 갓 리셋한 미시작 몬트리올 상태가
+      // "진행 중"으로 오판돼 종료 후에도 배너가 떴다 (2026-07-25 사용자 보고).
+      const isStartPhase =
+        s.currentPhase === 'issueShares' || s.currentPhase === 'governmentLink';
       const inProgress =
         s.gameStarted ||
         s.currentTurn > 1 ||
-        s.currentPhase !== 'issueShares' ||
+        !isStartPhase ||
         s.board.trackTiles.length > 0 ||
         Object.values(s.players).some((p) => p.issuedShares !== 2);
       // 종료된 게임 제외 — winner(파산 종료)만 보면 턴 소진 종료(gameOver + finalScores,

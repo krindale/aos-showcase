@@ -488,6 +488,13 @@ export interface GameState {
   transcontinentalEvent?: TranscontinentalEvent | null;
 
   /**
+   * 터보 모드 표시 상태 (방장이 토글, 스냅샷으로 전원 동기화 — 게스트는 버튼
+   * disabled + 이 값으로 라벨/토스트만). 실제 딜레이 축소는 방장 로컬의
+   * localStorage 'aos-turbo'(utils/turboMode)가 담당하고, 이 필드는 표시/알림 전용.
+   */
+  turboMode?: boolean;
+
+  /**
    * 파산(Phase VII)이 발생한 순간의 알림 이벤트 — 사람/봇 구분 없이 담는다.
    * 온라인 스냅샷으로 전파돼 게스트도 같은 팝업을 본다(호스트 전용 아님).
    * ⚠️ persist merge 리셋 목록에 넣지 말 것 — 게스트 적용 경로가 merge를 재사용하므로

@@ -52,6 +52,17 @@ export class MontrealMapProfile extends StandardMapProfile {
   override get newCitySetupCube(): boolean { return true; }
   // 물품 성장 단계 없음 (mapRegistry rules.skipGoodsGrowth와 이중 안전망)
   override get skipGoodsGrowth(): boolean { return true; }
+
+  // ── 몬트리올 AI 재무 훅 (달에서 실증된 훅 3종을 몬트리올 값으로, 2026-07-25) ──
+  // 진단(3봇 로그 wbmv): 전원 주식 만발행(14~15)·기차III 파산 VP −45 — 몬트리올은
+  // 언덕$3/도로$4에 income 성장이 느려(정부 링크 무수입·성장 없음) 후반 차입 회수가 안 된다.
+  // 달과 동일 병리(만성 저수입 차입 자기증폭)라 같은 처방. ⚠️ 100시드 게이트로 검증 예정.
+  /** 후반 4라운드(9라운드 중 T6~9)는 건설 계획 발행 금지 — 생존 발행은 허용 */
+  override get aiNoBuildIssueLastTurns(): number { return 4; }
+  /** 발행→비용↑→필요현금↑→또 발행의 자기증폭 차단 (달 최대 기여 훅) */
+  override get aiPlanExpensesNetOfIncome(): boolean { return true; }
+  /** 최대 발행으로도 파산 회피 불가면 발행 포기 — VP만 깎는 무의미 발행 방지 */
+  override get aiSkipHopelessSurvivalIssue(): boolean { return true; }
   // (지연 완성 페널티 11 오버라이드는 제거 — vp.ts가 배달 시작 지연의 현금 흐름 손실과
   //  엔진 증분 유지비를 직접 계산하게 되면서 기본값으로도 즉시 경로가 자연 우선됨. 2026-07-14)
 

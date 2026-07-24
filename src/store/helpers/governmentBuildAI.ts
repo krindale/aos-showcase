@@ -232,7 +232,12 @@ export function runGovernmentBuildAI(get: () => GameStore): void {
     }
     c.score = matches * 4 + (c.from.cubes + c.to.cubes) - c.path.length;
     if (firstLink && (c.from.id === 'berriUqam' || c.to.id === 'berriUqam')) c.score += 3;
-    // 네트워크 밖 정거장을 새로 잇는 확장 우선 (+1)
+    // 네트워크 밖 정거장을 새로 잇는 확장 우선 (+1).
+    // ⚠️ 확장 가중 스윕 (2026-07-25, 100시드 — "건설이 중심에만 몰린다" 사용자 관찰로 실험):
+    //   +1: VP 12.51·파산 0.74 / +2: 11.97·0.76 / +4: 10.79·0.76 / +10: 8.80·0.85 — 단조 악화.
+    // 몬트리올은 화물이 중심(Berri 6 등)에 몰려 있어 확장을 강제할수록 무수입 정부 링크가
+    // 저화물 외곽으로 빠지며 전체 수입이 죽는다. "중심 밀집"은 마스터 네트워크 룰(네트워크 밖
+    // 건설 불법) + 화물 분포가 만든 합리적 결과 — 미관을 위해 올리려면 VP 대가를 감수해야 한다.
     if (!firstLink && !stationInNetwork(board, c.to)) c.score += 1;
   }
   candidates = candidates.sort((a, b) => b.score - a.score);

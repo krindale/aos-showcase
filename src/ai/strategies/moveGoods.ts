@@ -134,11 +134,13 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
 
         // 선점 보너스: 상대도 같은 배달이 가능하면, 내가 먼저 옮겨 상대의 income 기회를 차단
         // (상대도 타인 철도를 쓸 수 있으므로 opponentExtra = 상대 엔진으로 판정 — 집합은 위에서 1회 계산)
-        // ⚠️ 내 수입 0(보너스 포함) 배달엔 주지 않는다 — 경로가 상대 링크뿐이면 화물을 옮겨도
-        // 그 상대가 어차피 같은 수입을 받으므로 "차단"이 아니라 상납이다 (2026-07-24 한국 4봇
-        // 로그 실측: own0/opp1 배달 3건 — 상대에게 공짜 +1만 주고 내 수송 기회를 버림).
+        // ⚠️ "상납" 경로(내 수입 0인데 상대 링크에 수입을 주는 경로)엔 주지 않는다 — 화물을
+        // 옮겨도 그 상대가 같은 수입을 받아 차단이 아니라 상납 (2026-07-24 한국 4봇 실측:
+        // own0/opp1 배달 3건). 반면 정부 링크 경유처럼 아무에게도 수입이 없는 경로의 차단
+        // (몬트리올 — 상대가 나중에 배달할 큐브를 0원으로 제거)은 정당한 선점이라 유지.
+        const isPureGift = ownTrackCount === 0 && opt.oppLinks > 0 && regionBonus === 0;
         if (
-          (ownTrackCount > 0 || regionBonus > 0) &&
+          !isPureGift &&
           oppReachSets.some(set => set.some(d => hexCoordsEqual(d.coord, destCity.coord)))
         ) {
           deltaVP += VP_PER_INCOME * opponentWeight(state);
@@ -222,7 +224,10 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
     return { action: 'upgradeEngine' };
   }
 
-  if (best && bestMoveVP > 0) {
+  // ⚠️ 실행 문턱은 routeScore를 뺀 순수 ΔVP — 전략 경로 tie-break(0.1~0.5)가 문턱을
+  // 넘겨 "아무도 수입 안 받는 배달"(정부 링크 경유 등 deltaVP=0)이 실행되던 것 차단
+  // (2026-07-24 몬트리올 3봇 로그: 자기수입 0 배달 11/38건 — 유한한 큐브를 공짜로 소진).
+  if (best && best.deltaVP > 0) {
     debugLog.goodsMovement(
       `[Phase V: 물품 이동] ${player.name}: ${best.cubeColor} 물품 이동 (${best.sourceCityId} → ${best.destinationCityId}), 링크=${best.linksCount}(내쪽=${best.ownTrackCount}), ΔVP=${bestMoveVP.toFixed(2)}`
     );

@@ -23,14 +23,29 @@ export function setTurboAllowed(allowed: boolean): void {
   turboAllowed = allowed;
 }
 
+/**
+ * URL ?turbo=1/0 은 **페이지 로드당 1회만** localStorage에 반영하고 주소창에서 제거한다.
+ * ⚠️ 매 호출마다 다시 읽으면 스위치 OFF·initGame의 디폴트 OFF 직후에도 주소창에 남은
+ * ?turbo=1 이 즉시 터보를 되켜서 토글이 무력화된다 (2026-07-24 코드리뷰 발견).
+ */
+let urlParamApplied = false;
+function applyUrlParamOnce(): void {
+  if (urlParamApplied) return;
+  urlParamApplied = true;
+  const url = new URL(window.location.href);
+  const q = url.searchParams.get('turbo');
+  if (q === null) return;
+  if (q === '1') window.localStorage?.setItem('aos-turbo', '1');
+  else if (q === '0') window.localStorage?.removeItem('aos-turbo');
+  url.searchParams.delete('turbo');
+  window.history.replaceState(null, '', url.toString());
+}
+
 /** 터보 모드 여부 (SSR/워커 등 window 없는 환경은 항상 false, 게스트는 항상 false) */
 export function isTurboMode(): boolean {
   try {
     if (typeof window === 'undefined' || !turboAllowed) return false;
-    // URL로도 토글 가능: ?turbo=1 켜기 / ?turbo=0 끄기 (localStorage에 저장돼 유지)
-    const q = new URLSearchParams(window.location.search).get('turbo');
-    if (q === '1') window.localStorage?.setItem('aos-turbo', '1');
-    else if (q === '0') window.localStorage?.removeItem('aos-turbo');
+    applyUrlParamOnce();
     return window.localStorage?.getItem('aos-turbo') === '1';
   } catch {
     return false; // localStorage 접근 불가(프라이빗 모드 등) — 안전하게 꺼짐

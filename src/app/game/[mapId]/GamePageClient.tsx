@@ -172,12 +172,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       let wasInGame = false;
       try { wasInGame = window.sessionStorage.getItem('aos-ingame') === '1'; } catch { /* noop */ }
       if (wasInGame) { setShowSetup(false); return; } // F5 — 이어서 진행
-      // 재입장 — X로 "이 게임은 다시 묻지 않기" 한 게임이면 배너 생략 (게임 id로 판별,
-      // 옛 저장본(gameId 없음)은 맵 기준 legacy 키). 새 게임을 시작하면 id가 바뀌어 다시 유효.
-      const dismissKey = s.gameId || `legacy:${s.mapId}`;
-      let dismissed = false;
-      try { dismissed = window.localStorage.getItem('aos-resume-dismissed') === dismissKey; } catch { /* noop */ }
-      if (!dismissed) setResumeAvailable(true);
+      setResumeAvailable(true); // 재입장 — 이어하기/삭제 선택권 제공
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapId]);
@@ -391,16 +386,14 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
               <div className="mb-6 rounded-xl border border-accent/40 bg-accent/5 p-4 relative">
                 <button
                   onClick={() => {
-                    // X = 이 게임은 다시 묻지 않기 (재입장 때마다 다시 뜨지 않게 영속 기억)
-                    try {
-                      const s = useGameStore.getState();
-                      window.localStorage.setItem('aos-resume-dismissed', s.gameId || `legacy:${s.mapId}`);
-                    } catch { /* noop */ }
+                    // X = 저장된 게임 삭제 — 기억해둘 것 없이 게임 자체를 지운다
+                    // (resetGame이 미시작 상태로 갈아끼워 gameStarted=false → 배너·F5 복원 모두 소멸)
+                    resetGame();
                     setResumeAvailable(false);
                   }}
                   className="absolute top-2 right-2 p-1 text-foreground-secondary hover:text-foreground hover:bg-foreground/10 rounded transition-colors"
-                  title="다시 묻지 않기"
-                  aria-label="이어하기 안내 닫기 (다시 묻지 않음)"
+                  title="저장된 게임 삭제"
+                  aria-label="저장된 게임 삭제"
                 >
                   <X size={14} />
                 </button>
@@ -408,8 +401,8 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                   진행 중인 게임이 있습니다
                 </div>
                 <p className="text-xs text-foreground-secondary mb-3">
-                  {currentTurn}턴 · {activePlayers.length}인 — 이어서 하거나, 아래에서 새 게임을
-                  시작하면 기존 게임은 사라집니다.
+                  {currentTurn}턴 · {activePlayers.length}인 — 이어서 하거나, X를 누르면
+                  저장된 게임이 삭제됩니다. 새 게임을 시작해도 기존 게임은 사라집니다.
                 </p>
                 <button
                   onClick={() => { setResumeAvailable(false); setShowSetup(false); }}

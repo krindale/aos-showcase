@@ -72,6 +72,49 @@ describe('독일 미완성 제거: 이번 턴 교차(secondary) 되돌림', () =
     expect(refund).toBe(0);
   });
 
+  it('마을 가닥: 딸린 타일이 제거되면 고아 가닥도 제거 + 환불 (죽은 조건 교정)', () => {
+    // 마을 T — (가닥 e0) — 타일 X(미완성, 이번 턴) 구조: 타일이 제거되면 가닥도 제거돼야 한다
+    const T = { col: 3, row: 3 };
+    const X = getNeighborHex(T, 0);
+    const b = {
+      cities: [],
+      towns: [{ id: 't1', coord: T, newCityColor: null, cubes: [] }],
+      hexTiles: [{ coord: X, terrain: 'plain' }],
+      trackTiles: [
+        { id: 'x2', coord: X, edges: [3, 0], owner: 'player1', builtTurn: TURN, trackType: 'simple' } as TrackTile,
+      ],
+      townSpurs: [{ id: 's1', townCoord: T, edge: 0, owner: 'player1', builtTurn: TURN }],
+    } as unknown as BoardState;
+
+    expect(hasIncompleteNewTracks(b, TURN, 'player1')).toBe(true);
+    const { board, refund } = removeIncompleteNewTracks(b, TURN, 'player1', 1);
+    expect(board.trackTiles).toHaveLength(0);       // 미완성 타일 제거
+    expect(board.townSpurs).toHaveLength(0);        // 고아 가닥도 제거 ❌ 수정 전: 남았음
+    expect(refund).toBe(2 + 1);                     // 평지 타일 $2 + 가닥 $1
+  });
+
+  it('마을 가닥: 변 너머 구간이 완성 링크면 가닥 유지', () => {
+    // 도시 CD — 타일 X — 마을 T (가닥) : X는 완성 링크(도시↔마을) → 가닥 유지
+    const T = { col: 3, row: 3 };
+    const X = getNeighborHex(T, 0);
+    const CD = getNeighborHex(X, 0);
+    const b = {
+      cities: [city('cd', CD)],
+      towns: [{ id: 't1', coord: T, newCityColor: null, cubes: [] }],
+      hexTiles: [{ coord: X, terrain: 'plain' }],
+      trackTiles: [
+        { id: 'x3', coord: X, edges: [3, 0], owner: 'player1', builtTurn: TURN, trackType: 'simple' } as TrackTile,
+      ],
+      townSpurs: [{ id: 's1', townCoord: T, edge: 0, owner: 'player1', builtTurn: TURN }],
+    } as unknown as BoardState;
+
+    expect(hasIncompleteNewTracks(b, TURN, 'player1')).toBe(false);
+    const { board, refund } = removeIncompleteNewTracks(b, TURN, 'player1', 1);
+    expect(board.townSpurs).toHaveLength(1);
+    expect(board.trackTiles).toHaveLength(1);
+    expect(refund).toBe(0);
+  });
+
   it('secondary가 완성 링크면 제거 대상이 아니다', () => {
     const b = makeBoard();
     // secondary 양끝(1,5 방향 이웃)에도 도시를 놓아 완성 링크로 만든다

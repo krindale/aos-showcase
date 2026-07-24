@@ -1118,7 +1118,7 @@ export const useGameStore = create<GameStore>()(
         let bwBoard = state.board;
         let bwPlayers = state.players;
         if (getMapProfile(state.mapId).requireCompleteLinks) {
-          const r = removeIncompleteNewTracks(state.board, state.currentTurn, state.currentPlayer);
+          const r = removeIncompleteNewTracks(state.board, state.currentTurn, state.currentPlayer, getMapProfile(state.mapId).townSpurCost);
           if (r.board !== state.board) {
             bwBoard = r.board;
             const p = state.players[state.currentPlayer];

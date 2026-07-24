@@ -645,12 +645,16 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   const isHumanSettlementPhase =
     HUD_SUPPRESSED_PHASES.includes(currentPhase) && !hudPlayer?.isAI;
   const isHumanSettlementHud = isHumanSettlementPhase && amIHost;
-  // 다른 사람(온라인) 또는 AI 차례일 때만 표시
-  const showTurnHud =
-    !fitOverlay && hudPlayer && !isHumanSettlementHud &&
-    (hudPlayer.isAI || (myPlayerId !== null && currentPlayer !== myPlayerId));
   // 게스트가 보는 정산 단계 HUD는 "누구 차례"가 아니라 "방장이 진행 중"이 진실이다.
   const hudIsHostProgress = isHumanSettlementPhase && !amIHost;
+  // 다른 사람(온라인)/AI 차례, 또는 게스트의 정산 단계(방장 진행 중 안내)일 때 표시.
+  // ⚠️ hudIsHostProgress를 빼면 "명목상 currentPlayer가 게스트 자신"인 정산 단계에서
+  // HUD가 통째로 사라져 화면이 멈춘 듯 보인다 (2026-07-24 코드리뷰에서 조건-주석 불일치 발견).
+  const showTurnHud =
+    !fitOverlay && hudPlayer && !isHumanSettlementHud &&
+    (hudIsHostProgress ||
+      hudPlayer.isAI ||
+      (myPlayerId !== null && currentPlayer !== myPlayerId));
 
   // 신도시 버튼 — 도시화 행동과 무관하게 게임 중 항상 표시(남은 신규 도시 타일을 미리 확인하고
   // 도시화 액션을 고를지 판단할 수 있게). 배치 모드(urbanizationMode) 중엔 숨긴다.

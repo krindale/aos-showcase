@@ -462,6 +462,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         trackType,
         secondaryEdges: newEdges,
         secondaryOwner: currentPlayer,
+        secondaryBuiltTurn: state.currentTurn, // 독일 미완성 제거의 "이번 턴 교차" 판별용
       };
 
       const updatedTrackTiles = state.board.trackTiles.map(t =>

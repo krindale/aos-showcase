@@ -1659,6 +1659,23 @@ export function isTrackPartOfCompletedLink(
   return connectsDir1 && connectsDir2;
 }
 
+/**
+ * 복합 타일의 secondary 트랙이 완성 링크의 일부인지 (isTrackPartOfCompletedLink의
+ * secondaryEdges 판. 독일 미완성 제거가 "이번 턴 얹은 교차"의 완성 여부를 볼 때 사용 —
+ * 기존 함수는 primary edges만 봐서 교차 추가분이 검출을 통째로 빠져나갔다, 2026-07-24).
+ */
+export function isSecondaryTrackPartOfCompletedLink(
+  trackCoord: HexCoord,
+  board: BoardState
+): boolean {
+  const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, trackCoord));
+  if (!track?.secondaryEdges || track.secondaryEdges.length !== 2) return false;
+  return (
+    checkConnectionToCity(trackCoord, track.secondaryEdges[0], board) &&
+    checkConnectionToCity(trackCoord, track.secondaryEdges[1], board)
+  );
+}
+
 
 /**
  * 물품 이동 전체 경로의 SVG path 생성

@@ -1,8 +1,9 @@
 // 보드 룰 순수 헬퍼 — 경계 변·마을 가닥·미완성 트랙 처리 (gameStore 스텝 3a 분리)
 
-import { BoardState, HexCoord, PlayerId, TrackTile, GameState, GAME_CONSTANTS } from '@/types/game';
+import { BoardState, HexCoord, PlayerId, TrackTile, GameState, GAME_CONSTANTS, TRACK_REPLACE_COSTS } from '@/types/game';
 import { hexCoordsEqual, getNeighborHex, getOppositeEdge, isBlockedEdge } from '@/utils/hexGrid';
 import { isTrackPartOfCompletedLink } from '@/utils/trackValidation';
+import { isSecondaryTrackPartOfCompletedLink } from '@/utils/hexGrid';
 import { getMapProfile } from '@/maps/getMapProfile';
 
 /**
@@ -175,13 +176,32 @@ export function getIncompleteNewTracks(
   );
 }
 
-/** 위 목록이 하나라도 있는지 (UI 게이팅용 boolean) */
+/** 이번 턴 내가 얹은 복합 secondary(교차/공존) 중 미완성인 타일 — 독일 미완성 제거 대상.
+ *  builtTurn/owner는 원 타일 것이라 primary 검출(getIncompleteNewTracks)에 안 걸리고,
+ *  완성 판정도 secondaryEdges 기준이어야 한다 (2026-07-24 독일 봇 게임 실측 버그). */
+export function getIncompleteNewSecondaries(
+  board: BoardState,
+  currentTurn: number,
+  playerId: PlayerId
+): TrackTile[] {
+  return board.trackTiles.filter(
+    t =>
+      t.secondaryOwner === playerId &&
+      t.secondaryBuiltTurn === currentTurn &&
+      !isSecondaryTrackPartOfCompletedLink(t.coord, board)
+  );
+}
+
+/** 위 목록이 하나라도 있는지 (UI 게이팅용 boolean) — 이번 턴 교차 추가분(secondary) 포함 */
 export function hasIncompleteNewTracks(
   board: BoardState,
   currentTurn: number,
   playerId: PlayerId
 ): boolean {
-  return getIncompleteNewTracks(board, currentTurn, playerId).length > 0;
+  return (
+    getIncompleteNewTracks(board, currentTurn, playerId).length > 0 ||
+    getIncompleteNewSecondaries(board, currentTurn, playerId).length > 0
+  );
 }
 
 /**
@@ -265,8 +285,13 @@ export function removeIncompleteNewTracks(
 ): { board: BoardState; refund: number } {
   const k = (c: HexCoord) => `${c.col},${c.row}`;
   const incomplete = getIncompleteNewTracks(board, currentTurn, playerId);
-  if (incomplete.length === 0) return { board, refund: 0 };
+  // 이번 턴 얹은 미완성 교차/공존(secondary)도 되돌린다 — 타일 삭제가 아니라 원 단순
+  // 트랙으로 복원(원소유자 트랙 보존) + 교체비 환불 (2026-07-24 독일 봇 게임 실측:
+  // 미완성 링크 제거 때 교차 추가분만 보드에 남던 버그)
+  const incompleteSecondaries = getIncompleteNewSecondaries(board, currentTurn, playerId);
+  if (incomplete.length === 0 && incompleteSecondaries.length === 0) return { board, refund: 0 };
   const removeKeys = new Set(incomplete.map(t => k(t.coord)));
+  const revertKeys = new Set(incompleteSecondaries.map(t => k(t.coord)));
   let refund = 0;
   for (const t of incomplete) {
     const hex = board.hexTiles.find(h => hexCoordsEqual(h.coord, t.coord));
@@ -275,7 +300,25 @@ export function removeIncompleteNewTracks(
       : (hex?.terrain === 'river' || hex?.terrain === 'swamp') ? GAME_CONSTANTS.RIVER_TRACK_COST
       : GAME_CONSTANTS.PLAIN_TRACK_COST;
   }
-  const trackTiles = board.trackTiles.filter(t => !removeKeys.has(k(t.coord)));
+  for (const t of incompleteSecondaries) {
+    if (removeKeys.has(k(t.coord))) continue; // 타일 자체가 삭제되면 환불 중복 방지
+    refund += t.trackType === 'crossing'
+      ? TRACK_REPLACE_COSTS.simpleToCrossing
+      : TRACK_REPLACE_COSTS.default;
+  }
+  const trackTiles = board.trackTiles
+    .filter(t => !removeKeys.has(k(t.coord)))
+    .map(t =>
+      revertKeys.has(k(t.coord)) && !removeKeys.has(k(t.coord))
+        ? {
+            ...t,
+            trackType: 'simple' as const,
+            secondaryEdges: undefined,
+            secondaryOwner: undefined,
+            secondaryBuiltTurn: undefined,
+          }
+        : t
+    );
   // 제거된 트랙 좌표에 딸린 이번 턴 마을 가닥도 함께 제거 (미완성 노선의 일부)
   const townSpurs = (board.townSpurs ?? []).filter(
     sp => !(sp.owner === playerId && sp.builtTurn === currentTurn && removeKeys.has(k(sp.townCoord)))

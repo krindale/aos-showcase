@@ -75,6 +75,9 @@ export interface TrackTile {
   trackType: TrackType;           // 트랙 유형 (기본: simple)
   secondaryEdges?: [number, number];  // 복합 트랙의 두 번째 경로 (crossing, coexist)
   secondaryOwner?: PlayerId | null;   // 두 번째 경로 소유자
+  /** 두 번째 경로(secondary)가 추가된 턴 — 독일 미완성 제거가 "이번 턴 추가된 교차"를
+   *  판별하는 데 쓴다 (builtTurn은 원 타일 것이라 교차 추가 시점을 담지 못함). */
+  secondaryBuiltTurn?: number;
   /** 트랙 위 물품 큐브 (St. Lucia — 미완성 링크여도 배달 가능) */
   cube?: CubeColor | null;
   /** 건설된 턴 (이번 턴에 지은 트랙 시각 표시용) */

@@ -4,6 +4,7 @@
 import { GamePhase, CapturedAIContext } from '@/types/game';
 import { isCurrentPlayerAI } from '@/ai';
 import { safeTimeout } from '@/utils/safeTimers';
+import { turboDelay } from '@/utils/turboMode';
 import type { GameStore } from '../gameStore';
 
 // ============================================================
@@ -128,5 +129,5 @@ export const scheduleAICheck = (get: () => GameStore): void => {
       console.log('[AI 스케줄러] 봇 자동 단계 진행 - runAIAutoPhase');
       state.runAIAutoPhase();
     }
-  }, AI_CHECK_DEBOUNCE);
+  }, turboDelay(AI_CHECK_DEBOUNCE));
 };

@@ -35,6 +35,7 @@ import {
   isLastPlayer,
 } from '@/utils/gameLogic';
 import { logAction, newLogSession } from '@/utils/debugConfig';
+import { turboDelay } from '@/utils/turboMode';
 // 모듈 헬퍼 (2026-07-03 스텝 3a 분리 — 로직 무변경, 파일만 이동)
 import { undoSnapshots, captureUndo, clearUndo } from './helpers/undo';
 import {
@@ -433,7 +434,7 @@ export const useGameStore = create<GameStore>()(
       // 행동 결과를 화면에 잠시 보여준 뒤 진행 — 락은 유지한 채 대기해 중복 실행 방지.
       // 딜레이는 "보여줄 행동이 있고(view) + 이 진행으로 단계가 끝날 때"만 (마지막 플레이어 전용)
       const proceedAfterView = (view: boolean) => {
-        const delay = view && endsPhaseNow() ? AI_ACTION_VIEW_DELAY : 0;
+        const delay = view && endsPhaseNow() ? turboDelay(AI_ACTION_VIEW_DELAY) : 0;
         safeTimeout(() => {
           get().nextPhase();
           releaseAILock(executionId, get, set);
@@ -645,7 +646,7 @@ export const useGameStore = create<GameStore>()(
           proceedAfterView(false);
           return;
       }
-    }, AI_TURN_DELAY);
+    }, turboDelay(AI_TURN_DELAY));
   },
 
   // ============================================================
@@ -1450,7 +1451,7 @@ export const useGameStore = create<GameStore>()(
           if (s.currentPhase === 'goodsGrowth' && s.players[s.currentPlayer]?.isAI) {
             get().nextPhase();
           }
-        }, AI_ACTION_VIEW_DELAY);
+        }, turboDelay(AI_ACTION_VIEW_DELAY));
         return;
       }
     }

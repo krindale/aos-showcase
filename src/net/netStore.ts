@@ -31,6 +31,7 @@ import { useGameStore } from '@/store/gameStore';
 import { scheduleAICheck } from '@/store/helpers/aiScheduler';
 import { clearUndo } from '@/store/helpers/undo';
 import { safeInterval, safeTimeout } from '@/utils/safeTimers';
+import { turboDelay, setTurboAllowed } from '@/utils/turboMode';
 
 export type NetMode = 'offline' | 'host' | 'guest';
 
@@ -231,7 +232,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
     const phaseChanged = lastBroadcastPhase !== null && phaseNow !== lastBroadcastPhase;
     const elapsed = Date.now() - lastBroadcastAt;
     const wanted = phaseChanged
-      ? Math.max(BROADCAST_DEBOUNCE, PHASE_CHANGE_HOLD - elapsed)
+      ? Math.max(BROADCAST_DEBOUNCE, turboDelay(PHASE_CHANGE_HOLD) - elapsed)
       : BROADCAST_DEBOUNCE;
 
     if (broadcastTimer !== null) {
@@ -1005,6 +1006,10 @@ export function getMyPlayerId(): string | null {
   const active = useGameStore.getState().activePlayers;
   return active[mySeat] ?? null;
 }
+
+// 터보 설정 권한: 온라인 게스트는 설정 자체 금지(방장 전용) — 모드 전환마다 게이트 갱신.
+// (버튼 숨김은 UI일 뿐이고, localStorage/?turbo=1 직접 세팅도 여기서 무효화된다)
+useNetStore.subscribe((s) => setTurboAllowed(s.mode !== 'guest'));
 
 // 디버깅용: 전역에 노출 (__GAME_STORE__와 동일 패턴)
 if (typeof window !== 'undefined') {

@@ -38,11 +38,16 @@ import { shadeColor, hexVertex } from './board/boardGeometry';
 import { useMyPlayerId } from '@/hooks/useMyPlayerId';
 import { useNetStore } from '@/net/netStore';
 import { safeTimeout } from '@/utils/safeTimers';
+import { turboDelay, isTurboMode } from '@/utils/turboMode';
 
 export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean } = {}) {
   // fitOverlay: 화물 이동 애니메이션을 전체 화면에 꽉 차게(fit) 보여주는 비인터랙티브 오버레이 모드
   // 디버그: 헥스 좌표 표시 토글 (우측 상단 버튼)
   const [showCoords, setShowCoords] = useState(false);
+  // 터보 모드 토글 (테스트용 — 봇 딜레이·연출 홀드 축소). 진실은 localStorage,
+  // 이 state는 버튼 라벨 리렌더용. 마운트 시 현재 값 동기화(SSR 불일치 방지).
+  const [turboOn, setTurboOn] = useState(false);
+  useEffect(() => { setTurboOn(isTurboMode()); }, []);
   const [showNewCityInfo, setShowNewCityInfo] = useState(false);
   // Zustand selector 최적화: useShallow로 불필요한 리렌더링 방지
   const {
@@ -345,7 +350,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     // 애니메이션 완료 후 처리 (1초)
     const cancel = safeTimeout(() => {
       completeCubeMove();
-    }, 1000);
+    }, turboDelay(1000));
 
     return cancel;
   }, [fitOverlay, ui.movingCube, completeCubeMove]);
@@ -706,6 +711,25 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
               {/* 라벨 = 누르면 실행될 동작 (상태는 배경색으로 구분) */}
               {showCoords ? '좌표 OFF' : '좌표 ON'}
             </button>
+            {/* 터보 토글 — 온라인에선 방장만. 설정 권한 자체가 방장 전용이며
+                (게스트는 turboMode의 setTurboAllowed 게이트로 플래그를 켜도 무효),
+                게임 중 언제든 온오프 가능 — 딜레이는 타이머 생성 시점마다 읽힌다 */}
+            {amIHost && (
+              <button
+                onClick={() => {
+                  try {
+                    if (turboOn) window.localStorage.removeItem('aos-turbo');
+                    else window.localStorage.setItem('aos-turbo', '1');
+                  } catch { /* localStorage 불가 환경 무시 */ }
+                  setTurboOn(v => !v);
+                }}
+                className={`px-2 py-0.5 text-xs rounded transition-colors ${turboOn ? 'bg-accent text-background' : 'bg-foreground/10 text-accent hover:bg-foreground/20'}`}
+                title="터보: 봇 딜레이·연출 홀드를 50ms로 축소 (게임 로직 무변경, 테스트용)"
+              >
+                {/* 라벨 = 누르면 실행될 동작 (상태는 배경색으로 구분 — 좌표 버튼과 동일 관례) */}
+                {turboOn ? '터보 OFF' : '터보 ON'}
+              </button>
+            )}
           </div>
         </div>
       </div>

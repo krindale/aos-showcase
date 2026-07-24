@@ -53,6 +53,7 @@ import Toaster from '@/components/game/Toaster';
 import DebugPanel from '@/components/game/DebugPanel';
 import { POP_SPRING, useIsFirstRender, CROWN_GOLD, CROWN_INK } from '@/components/game/uiEffects';
 import TranscontinentalModal from '@/components/game/TranscontinentalModal';
+import BankruptcyModal from '@/components/game/BankruptcyModal';
 import BottomSheet from '@/components/game/BottomSheet';
 import HelpOverlay from '@/components/game/HelpOverlay';
 import HostTakeoverDialog from '@/components/game/HostTakeoverDialog';
@@ -890,6 +891,8 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
 
       {/* 대륙횡단 연결 팝업 (Western US) */}
       <TranscontinentalModal />
+      {/* 파산 알림 (사람·봇 공통, 온라인 스냅샷으로 전원 동일하게 표시) */}
+      <BankruptcyModal />
 
       {/* 단계 전환 1초 멈춤 오버레이 */}
       <PhaseTransition />

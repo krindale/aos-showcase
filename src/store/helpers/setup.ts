@@ -364,5 +364,6 @@ export function createInitialGameState(
     incomeReductions: null,
     goodsGrowthEvent: null,
     deliveryIncomeEvent: null,
+    bankruptcyEvent: null,
   };
 }

@@ -127,6 +127,11 @@ export default function PhasePanel() {
     }))
   );
 
+  // 생존 좌석(파산자 제외) — "다음 차례" 안내 라벨 계산용. activePlayers 자체는 좌석
+  // 인덱스 매핑(netMySeat)에 쓰이므로 필터하지 않고, 라벨 계산에만 이 목록을 쓴다.
+  // (파산자는 playerOrder·playerMoves에서 빠져 라벨이 파산자 이름을 가리키던 버그 — 2026-07-24 E2E)
+  const alivePlayers = activePlayers.filter((p) => !players[p]?.eliminated);
+
   // AI 실행 중 여부 (버튼 비활성화에 사용)
   const isAIExecuting = aiExecution.pending;
   const { nextPhase, selectAction, upgradeEngine, cancelSelection, undoLastAction } = useGameStore();
@@ -689,13 +694,14 @@ export default function PhasePanel() {
                   title={incompleteBlocks ? '완성되지 않은 철도가 있어 넘어갈 수 없어요' : undefined}
                 >
                   {(() => {
-                    // 클릭 후 상태 예측
+                    // 클릭 후 상태 예측 (파산자 제외 — playerMoves에 파산자 키가 없어
+                    // 좌석 전체로 보면 라벨이 파산자 이름을 가리킨다)
                     const updatedMoves = { ...phaseState.playerMoves, [currentPlayer]: true };
-                    const willAllBuilt = activePlayers.every(p => updatedMoves[p]);
+                    const willAllBuilt = alivePlayers.every(p => updatedMoves[p]);
 
                     if (!willAllBuilt) {
                       // 아직 건설 안 한 플레이어 찾기
-                      const nextBuilder = activePlayers.find(p => !updatedMoves[p]);
+                      const nextBuilder = alivePlayers.find(p => !updatedMoves[p]);
                       if (nextBuilder) {
                         return `${players[nextBuilder].name} 건설 차례로`;
                       }
@@ -827,13 +833,16 @@ export default function PhasePanel() {
                     if (!currentPlayerData.isAI && !phaseState.playerMoves[currentPlayer]) {
                       return '이동 건너뛰기';
                     }
-                    // 클릭 후 상태 예측
+                    // 클릭 후 상태 예측 — 생존 좌석 전원 기준 (구현 초기 player1/player2
+                    // 하드코딩이 남아 3인+ 게임·파산자 존재 시 라벨이 틀리던 것 교정)
                     const updatedMoves = { ...phaseState.playerMoves, [currentPlayer]: true };
-                    const willBothMoved = updatedMoves.player1 && updatedMoves.player2;
+                    const willAllMoved = alivePlayers.every(p => updatedMoves[p]);
 
-                    if (!willBothMoved) {
-                      const otherPlayer = currentPlayer === 'player1' ? players.player2.name : players.player1.name;
-                      return `${otherPlayer} 이동 차례로`;
+                    if (!willAllMoved) {
+                      const nextMover = alivePlayers.find(p => !updatedMoves[p]);
+                      if (nextMover) {
+                        return `${players[nextMover].name} 이동 차례로`;
+                      }
                     }
                     if (phaseState.moveGoodsRound < 2) {
                       return '라운드 2로';

@@ -180,10 +180,34 @@ export function createSettlementSlice(set: Set, _get: Get): SettlementSlice {
           };
         }
 
+        // 파산자는 이후 모든 단계에서 차례를 받지 않는다 (룰북 VII: 게임에서 탈락).
+        // 차례 계산은 20곳 넘게 흩어져 있지만 전부 playerOrder를 순회하므로, 여기서 한 번
+        // 빼면 주식 발행·경매·행동 선택·건설·이동이 모두 자동으로 파산자를 건너뛴다.
+        // ⚠️ activePlayers(좌석)는 건드리지 않는다 — 온라인 mySeat 매핑이 좌석 인덱스 기준이라
+        // 여기서 빼면 남의 좌석으로 밀린다. 파산자는 좌석을 유지한 채 관전한다.
+        const survivingOrder = bankruptPlayers.length > 0
+          ? state.playerOrder.filter((pid) => !bankruptPlayers.includes(pid))
+          : state.playerOrder;
+
         return {
           players: newPlayers,
           board: newBoard,
           logs: newLogs,
+          playerOrder: survivingOrder,
+          // 파산 알림 팝업용 1회성 이벤트 (온라인 스냅샷으로 전파 — 게스트도 동일하게 본다).
+          // key로 중복 재생을 막는다 (BankruptcyModal이 "최초 관측 key는 스킵").
+          ...(bankruptPlayers.length > 0
+            ? {
+                bankruptcyEvent: {
+                  key: `${state.currentTurn}-${bankruptPlayers.join(',')}`,
+                  turn: state.currentTurn,
+                  players: bankruptPlayers.map((pid) => ({
+                    id: pid,
+                    name: newPlayers[pid]?.name ?? pid,
+                  })),
+                },
+              }
+            : {}),
         };
       });
     },

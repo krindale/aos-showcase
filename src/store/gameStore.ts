@@ -951,7 +951,13 @@ export const useGameStore = create<GameStore>()(
 
       const currentIndex = phases.indexOf(state.currentPhase);
       const playerOrder = state.playerOrder;
-      const { activePlayers } = state;
+      // ⚠️ 파산자(eliminated) 제외 — state.activePlayers는 좌석 전체라, 그대로 완료 판정
+      // (allPlayersSelectedAction/allPlayersMoved)에 쓰면 playerOrder에서 빠진 파산자가
+      // 영원히 "미완료"로 남아 단계가 진행되지 않는 교착이 된다 (2026-07-24).
+      // 좌석 자체(state.activePlayers)는 불변 — 여기 지역 변수만 생존자로 좁힌다.
+      const activePlayers = state.activePlayers.filter(
+        (p) => !state.players[p]?.eliminated
+      );
 
       // 빈 배열 방어 검증
       if (playerOrder.length === 0 || activePlayers.length === 0) {
@@ -1328,7 +1334,9 @@ export const useGameStore = create<GameStore>()(
       urbanizationUsed: false,
             locomotiveUsed: false,
           },
-          players: resetPlayerActions(state.players, activePlayers),
+          // 행동 리셋은 좌석 전체(파산자 포함) — 생존자만 리셋하면 파산자의 마지막
+          // selectedAction이 스테일로 남아 그 행동이 계속 "선택됨"으로 잠긴다.
+          players: resetPlayerActions(state.players, state.activePlayers),
         };
 
         // 교대 선공권 맵(St. Lucia): 새 턴은 선공권 제안으로 시작

@@ -488,6 +488,15 @@ export interface GameState {
   transcontinentalEvent?: TranscontinentalEvent | null;
 
   /**
+   * 파산(Phase VII)이 발생한 순간의 알림 이벤트 — 사람/봇 구분 없이 담는다.
+   * 온라인 스냅샷으로 전파돼 게스트도 같은 팝업을 본다(호스트 전용 아님).
+   * ⚠️ persist merge 리셋 목록에 넣지 말 것 — 게스트 적용 경로가 merge를 재사용하므로
+   * 넣으면 게스트에게 팝업이 뜨지 않는다 (deliveryIncomeEvent와 동일한 이유).
+   * 중복 재생은 BankruptcyModal의 "최초 관측 key 스킵" 가드가 막는다.
+   */
+  bankruptcyEvent?: BankruptcyEvent | null;
+
+  /**
    * 직전 수입 감소(Phase VIII)에서 각 플레이어가 잃은 수입량 (playerId → 감소량, >0만).
    * "수입이 갑자기 줄었다"를 PlayerPanel에 "-N (수익 감소)" 배지로 알리는 용도.
    * 다음 턴 수입 수집(collectIncome) 때 초기화된다.
@@ -529,6 +538,16 @@ export interface TranscontinentalEvent {
    * (deliveryIncomeEvent와 동일한 "key 최초 관측" 가드).
    */
   key: number;
+}
+
+/** 파산 알림 팝업용 1회성 이벤트 (사람·봇 공통). */
+export interface BankruptcyEvent {
+  /** 이번에 파산한 플레이어들 (동시 파산 가능 — payExpenses가 전원을 순회하므로). */
+  players: { id: PlayerId; name: string }[];
+  /** 파산이 일어난 턴 (팝업 문구용). */
+  turn: number;
+  /** 중복 재생 방지 키 — `${turn}-${파산자 id들}`. */
+  key: string;
 }
 
 // === 게임 액션 타입 ===

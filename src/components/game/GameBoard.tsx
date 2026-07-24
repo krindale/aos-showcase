@@ -36,6 +36,7 @@ import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId, TerrainTyp
 import { NewCityTilesModal } from './NewCityTilesModal';
 import { shadeColor, hexVertex } from './board/boardGeometry';
 import { useMyPlayerId } from '@/hooks/useMyPlayerId';
+import { useNetStore } from '@/net/netStore';
 import { safeTimeout } from '@/utils/safeTimers';
 
 export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean } = {}) {
@@ -61,6 +62,9 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   );
 
   const myPlayerId = useMyPlayerId();
+  // 진행 주체(방장/오프라인) 여부 — 정산 단계 HUD 억제 대상 판정에 쓴다 (PhasePanel과 동일 기준)
+  const netMode = useNetStore((s) => s.mode);
+  const amIHost = netMode === 'offline' || netMode === 'host';
   // 보드 조작은 "내 차례"일 때만 — 봇 차례나 남의 차례에 사람이 클릭해 봇/타인의 이동·건설을
   // 대신 실행해 버리는 것을 막는다(수입이 엉뚱하게 귀속되던 사용자 보고). AI는 store 액션을
   // 직접 호출해 이 게이트를 거치지 않으므로 자동 진행에는 영향이 없다.
@@ -633,14 +637,19 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   const hudPlayer = players[currentPlayer];
   // 정산 단계(수입·비용·수입감소·턴마커)는 방장이 '진행' 버튼으로 넘긴다 — 아무도 "플레이" 하지
   // 않는데 currentPlayer(playerOrder[0]) 이름으로 "○○ 플레이 중" HUD가 뜨면 방장은 "남 차례네"로
-  // 오해해 진행을 안 하고, 게스트는 "방장 진행 중" 안내를 봐 서로 대기하는 착시가 생긴다.
-  // 사람 currentPlayer인 정산 단계에선 HUD를 숨긴다 (봇이면 자동 진행 표시로 유지).
+  // 오해해 진행을 안 하고 서로 대기하는 착시가 생긴다.
+  // ⚠️ 억제는 진행 주체(방장/오프라인)에게만 — 게스트에게까지 숨기면 "화면이 멈춘 것 같다"가 된다
+  // (2026-07-24 사용자 보고). 게스트에겐 대신 "방장이 진행 중…" 중립 HUD를 띄운다.
   const HUD_SUPPRESSED_PHASES = ['collectIncome', 'payExpenses', 'incomeReduction', 'advanceTurn'];
-  const isHumanSettlementHud = HUD_SUPPRESSED_PHASES.includes(currentPhase) && !hudPlayer?.isAI;
+  const isHumanSettlementPhase =
+    HUD_SUPPRESSED_PHASES.includes(currentPhase) && !hudPlayer?.isAI;
+  const isHumanSettlementHud = isHumanSettlementPhase && amIHost;
   // 다른 사람(온라인) 또는 AI 차례일 때만 표시
   const showTurnHud =
     !fitOverlay && hudPlayer && !isHumanSettlementHud &&
     (hudPlayer.isAI || (myPlayerId !== null && currentPlayer !== myPlayerId));
+  // 게스트가 보는 정산 단계 HUD는 "누구 차례"가 아니라 "방장이 진행 중"이 진실이다.
+  const hudIsHostProgress = isHumanSettlementPhase && !amIHost;
 
   // 신도시 버튼 — 도시화 행동과 무관하게 게임 중 항상 표시(남은 신규 도시 타일을 미리 확인하고
   // 도시화 액션을 고를지 판단할 수 있게). 배치 모드(urbanizationMode) 중엔 숨긴다.
@@ -769,15 +778,26 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                 // 보이던 효과 — 제거해도 시각 차이는 없고 깜빡임만 사라진다. (sticky엔 translateZ
                 // 격리를 쓸 수 없어 — transform이 containing block을 만들어 sticky가 깨짐 — 제거가 정답)
                 className="flex items-center gap-2.5 px-4 py-2 rounded-full bg-background-secondary/95 border-2 shadow-xl self-start"
-                style={{ borderColor: `${PLAYER_COLORS[hudPlayer.color]}B3` }}
+                style={{
+                  // 정산 단계(게스트)는 특정 플레이어의 차례가 아니므로 중립 보더를 쓴다
+                  borderColor: hudIsHostProgress
+                    ? 'rgba(110,106,97,0.7)'
+                    : `${PLAYER_COLORS[hudPlayer.color]}B3`,
+                }}
               >
                 <span
                   className="w-3 h-3 rounded-full animate-pulse"
-                  style={{ backgroundColor: PLAYER_COLORS[hudPlayer.color] }}
+                  style={{
+                    backgroundColor: hudIsHostProgress
+                      ? '#6e6a61'
+                      : PLAYER_COLORS[hudPlayer.color],
+                  }}
                 />
                 {/* 텍스트 크기 = 기존(text-xs 12px)의 1.3배 */}
                 <span className="text-[15.6px] font-semibold text-foreground whitespace-nowrap">
-                  {hudPlayer.name} 플레이 중{hudPlayer.isAI ? ' (BOT)' : ''}…
+                  {hudIsHostProgress
+                    ? '방장이 진행 중…'
+                    : `${hudPlayer.name} 플레이 중${hudPlayer.isAI ? ' (BOT)' : ''}…`}
                 </span>
               </div>
             </div>

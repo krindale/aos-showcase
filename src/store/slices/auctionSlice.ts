@@ -222,10 +222,42 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
         const highestBidder = state.auction.highestBidder;
         const activePlayers = state.playerOrder.filter(p => !state.auction!.passedPlayers.includes(p));
         const currentIndex = activePlayers.indexOf(playerId);
-        let nextBidder = activePlayers[(currentIndex + 1) % activePlayers.length];
+
+        // 나·최고입찰자를 뺀 "더 부를 수 있는 사람"이 없으면 = 최고입찰자만 남음 → 경매 종료.
+        // Turn Order 패스는 탈락이 아니지만 여기서 더 부를 사람이 없으므로, 나를 마지막
+        // 포기자(=승자 다음 순서)로 넣어 경매를 끝낸다.
+        // ⚠️ 이 처리가 없으면 최고입찰자를 건너뛴 뒤 한 바퀴 돌아 "나 자신"이 다음 입찰자로
+        //    잡혀 "Turn Order 패스를 썼는데 계속 내 입찰 차례"가 된다 (실플레이 버그).
+        const othersCanBid = activePlayers.filter(p => p !== playerId && p !== highestBidder);
+        if (othersCanBid.length === 0) {
+          return {
+            auction: {
+              ...state.auction,
+              passedPlayers: [...state.auction.passedPlayers, playerId],
+              lastActedPlayer: playerId,
+            },
+            currentPlayer: highestBidder ?? playerId,
+            players: {
+              ...state.players,
+              [playerId]: { ...state.players[playerId], turnOrderPassUsed: true },
+            },
+            logs: [
+              ...state.logs,
+              {
+                turn: state.currentTurn,
+                phase: state.currentPhase,
+                player: playerId,
+                action: `Turn Order 패스 — 남은 입찰자가 없어 경매 종료`,
+                timestamp: Date.now(),
+              },
+            ],
+          };
+        }
+
+        let nextBidder = othersCanBid[0];
         for (let i = 1; i <= activePlayers.length; i++) {
           const cand = activePlayers[(currentIndex + i) % activePlayers.length];
-          if (cand !== highestBidder) { nextBidder = cand; break; }
+          if (cand !== highestBidder && cand !== playerId) { nextBidder = cand; break; }
         }
 
         return {
@@ -283,7 +315,11 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
         // highestBidder가 없으면 (모두 포기하거나 입찰 없이 완료된 경우)
         // 포기하지 않은 플레이어를 승자로 설정
         if (!highestBidder) {
-          const activePlayers = state.activePlayers.filter(p => !passedPlayers.includes(p));
+          // ⚠️ 파산자 제외 — activePlayers는 좌석 전체(탈락자 포함)라 그대로 쓰면
+          // 파산한 플레이어가 "포기하지 않은 사람"으로 잡혀 1번 순서가 된다 (2026-07-24 검증).
+          const activePlayers = state.activePlayers.filter(
+            p => !passedPlayers.includes(p) && !newPlayers[p]?.eliminated
+          );
           if (activePlayers.length > 0) {
             highestBidder = activePlayers[0];
             console.log(`[resolveAuction] 입찰 없이 완료 - 승자: ${highestBidder}`);
@@ -338,7 +374,11 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
         }
 
         // 모든 플레이어가 순서에 있는지 확인 (안전장치)
+        // ⚠️ 파산자(eliminated)는 제외 — payExpenses가 playerOrder에서 뺀 탈락자를 이 안전장치가
+        // activePlayers(좌석 전체)에서 다시 집어넣어 부활시키던 버그(2026-07-24 온라인 달 검증에서
+        // 파산한 게스트에게 행동 선택 차례가 돌아옴). 좌석은 유지하되 순서에는 넣지 않는다.
         for (const playerId of state.activePlayers) {
+          if (newPlayers[playerId]?.eliminated) continue;
           if (!newPlayerOrder.includes(playerId)) {
             newPlayerOrder.push(playerId);
           }

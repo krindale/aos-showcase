@@ -9,6 +9,7 @@ import type { StoreApi } from 'zustand';
 import type { GameStore } from '../gameStore';
 import { PlayerId, GamePhase, GAME_CONSTANTS } from '@/types/game';
 import { getMapProfile } from '@/maps/getMapProfile';
+import { logAction } from '@/utils/debugConfig';
 
 type Set = StoreApi<GameStore>['setState'];
 type Get = StoreApi<GameStore>['getState'];
@@ -255,6 +256,13 @@ export function createSettlementSlice(set: Set, _get: Get): SettlementSlice {
             });
           }
         }
+
+        // 분석용: 수입 감소 결과(배수 포함)를 :3999 미러에 기록 — Southern US 4턴 2배 검증용
+        logAction('turnEnd', 'incomeReduction', {
+          turn: state.currentTurn,
+          multiplier: incomeReductionMult,
+          reductions,
+        });
 
         return {
           players: newPlayers,

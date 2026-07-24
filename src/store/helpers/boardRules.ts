@@ -313,14 +313,18 @@ export function removeIncompleteNewTracks(
   currentTurn: number,
   playerId: PlayerId,
   spurCost: number = 1 // 마을 가닥 1개 환불액 (MapProfile.townSpurCost — 호출부가 전달)
-): { board: BoardState; refund: number } {
+): { board: BoardState; refund: number; removed: { tiles: number; crossings: number; spurs: number } } {
   const k = (c: HexCoord) => `${c.col},${c.row}`;
   const incomplete = getIncompleteNewTracks(board, currentTurn, playerId);
   // 이번 턴 얹은 미완성 교차/공존(secondary)도 되돌린다 — 타일 삭제가 아니라 원 단순
   // 트랙으로 복원(원소유자 트랙 보존) + 교체비 환불 (2026-07-24 독일 봇 게임 실측:
   // 미완성 링크 제거 때 교차 추가분만 보드에 남던 버그)
   const incompleteSecondaries = getIncompleteNewSecondaries(board, currentTurn, playerId);
-  if (incomplete.length === 0 && incompleteSecondaries.length === 0) return { board, refund: 0 };
+  if (incomplete.length === 0 && incompleteSecondaries.length === 0) {
+    // 타일·교차가 없어도 고아 가닥만 남는 케이스가 가능 — 가닥 검사는 계속 진행
+    const lone = getIncompleteNewSpurs(board, currentTurn, playerId);
+    if (lone.length === 0) return { board, refund: 0, removed: { tiles: 0, crossings: 0, spurs: 0 } };
+  }
   const removeKeys = new Set(incomplete.map(t => k(t.coord)));
   const revertKeys = new Set(incompleteSecondaries.map(t => k(t.coord)));
   let refund = 0;
@@ -360,5 +364,13 @@ export function removeIncompleteNewTracks(
   const townSpurs = (board.townSpurs ?? []).filter(
     sp => !(sp.owner === playerId && sp.builtTurn === currentTurn && orphanSet.has(`${k(sp.townCoord)}:${sp.edge}`))
   );
-  return { board: { ...board, trackTiles, townSpurs }, refund };
+  return {
+    board: { ...board, trackTiles, townSpurs },
+    refund,
+    removed: {
+      tiles: incomplete.length,
+      crossings: incompleteSecondaries.filter(t => !removeKeys.has(k(t.coord))).length,
+      spurs: orphanSpurs.length,
+    },
+  };
 }

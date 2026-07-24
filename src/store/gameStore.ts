@@ -1127,6 +1127,11 @@ export const useGameStore = create<GameStore>()(
             const p = state.players[state.currentPlayer];
             bwPlayers = { ...state.players, [state.currentPlayer]: { ...p, cash: p.cash + r.refund } };
             console.log(`[미완성 제거] ${state.currentPlayer}: 미완성 신설 트랙 제거, $${r.refund} 환불 (Germany 미완성 링크 금지)`);
+            // 분석용: 제거 내역(타일/교차/가닥)을 :3999 미러에 기록 — 교차·가닥 제거 실증용
+            logAction('trackBuilding', 'incompleteRemoved', {
+              player: state.currentPlayer, turn: state.currentTurn,
+              refund: r.refund, ...r.removed,
+            });
           }
         }
 

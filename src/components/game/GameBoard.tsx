@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useCallback, useEffect, useRef, useState } from 'react';
+import { useMemo, useCallback, useEffect, useState } from 'react';
 import BoardPulses from './BoardPulses';
 import BoardTracks from './board/BoardTracks';
 import BoardTowns from './board/BoardTowns';

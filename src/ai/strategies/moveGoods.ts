@@ -138,9 +138,14 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
         // 옮겨도 그 상대가 같은 수입을 받아 차단이 아니라 상납 (2026-07-24 한국 4봇 실측:
         // own0/opp1 배달 3건). 반면 정부 링크 경유처럼 아무에게도 수입이 없는 경로의 차단
         // (몬트리올 — 상대가 나중에 배달할 큐브를 0원으로 제거)은 정당한 선점이라 유지.
+        // 훅 분기(사용자 지시로 몬트리올 전용): 기본 = 상납 가드(내 수입 0이면 보너스 없음),
+        // aiPreemptZeroIncomeDenial 맵은 own0/opp0 순수 차단만 보너스 인정(상납은 계속 제외)
         const isPureGift = ownTrackCount === 0 && opt.oppLinks > 0 && regionBonus === 0;
+        const preemptEligible = profile.aiPreemptZeroIncomeDenial
+          ? !isPureGift
+          : ownTrackCount > 0 || regionBonus > 0;
         if (
-          !isPureGift &&
+          preemptEligible &&
           oppReachSets.some(set => set.some(d => hexCoordsEqual(d.coord, destCity.coord)))
         ) {
           deltaVP += VP_PER_INCOME * opponentWeight(state);
@@ -224,10 +229,11 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
     return { action: 'upgradeEngine' };
   }
 
-  // ⚠️ 실행 문턱은 routeScore를 뺀 순수 ΔVP — 전략 경로 tie-break(0.1~0.5)가 문턱을
-  // 넘겨 "아무도 수입 안 받는 배달"(정부 링크 경유 등 deltaVP=0)이 실행되던 것 차단
-  // (2026-07-24 몬트리올 3봇 로그: 자기수입 0 배달 11/38건 — 유한한 큐브를 공짜로 소진).
-  if (best && best.deltaVP > 0) {
+  // 실행 문턱 훅 분기(사용자 지시로 몬트리올 전용): aiStrictDeliveryVP 맵은 routeScore를
+  // 뺀 순수 ΔVP>0 — tie-break가 문턱을 넘겨 "아무도 수입 안 받는 배달"(정부 링크 경유
+  // deltaVP=0)이 실행되던 것 차단(몬트리올 0수입 배달 11/38건). 그 외 맵은 기존 동작 유지.
+  const commitVP = best ? (profile.aiStrictDeliveryVP ? best.deltaVP : bestMoveVP) : -Infinity;
+  if (best && commitVP > 0) {
     debugLog.goodsMovement(
       `[Phase V: 물품 이동] ${player.name}: ${best.cubeColor} 물품 이동 (${best.sourceCityId} → ${best.destinationCityId}), 링크=${best.linksCount}(내쪽=${best.ownTrackCount}), ΔVP=${bestMoveVP.toFixed(2)}`
     );

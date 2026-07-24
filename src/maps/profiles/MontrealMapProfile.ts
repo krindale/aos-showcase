@@ -63,6 +63,10 @@ export class MontrealMapProfile extends StandardMapProfile {
   override get aiPlanExpensesNetOfIncome(): boolean { return true; }
   /** 최대 발행으로도 파산 회피 불가면 발행 포기 — VP만 깎는 무의미 발행 방지 */
   override get aiSkipHopelessSurvivalIssue(): boolean { return true; }
+  /** 배달 실행 문턱 = 순수 ΔVP>0 (tie-break 제외) — 정부 링크 0수입 배달 차단 (100시드 VP 5.43→12.51) */
+  override get aiStrictDeliveryVP(): boolean { return true; }
+  /** own0/opp0 순수 차단(정부 링크 경유)에 선점 보너스 인정 */
+  override get aiPreemptZeroIncomeDenial(): boolean { return true; }
   // (지연 완성 페널티 11 오버라이드는 제거 — vp.ts가 배달 시작 지연의 현금 흐름 손실과
   //  엔진 증분 유지비를 직접 계산하게 되면서 기본값으로도 즉시 경로가 자연 우선됨. 2026-07-14)
 

@@ -270,6 +270,13 @@ export abstract class MapProfile {
   get aiPreemptZeroIncomeDenial(): boolean { return false; }
 
   /**
+   * 경매 상시 참여(사용자 지시, Montréal): 무입찰 패스 대신 감당 가능한 소액이라도 입찰해
+   * 입찰 기록을 남긴다 — 몬트리올 트윅에서 무입찰 패스는 행동 밴이지만, 입찰 후 첫 포기는
+   * 비용 무료라 행동권을 지킬 수 있다. 기본 false = 기존 가치 기반 참여 판단 그대로.
+   */
+  get aiAuctionAlwaysParticipate(): boolean { return false; }
+
+  /**
    * AI 턴 예산(turnPlan.cashNeeded)에서 **운영비를 income으로 상계**할지 (기본 false = 현재 동작).
    * 표준 맵은 운영비 전액을 예산에 넣어도 income이 커서 문제가 없지만, 달처럼 income이 낮고
    * 유지비가 큰 맵에서는 이것이 "발행 → issuedShares↑ → expenses↑ → cashNeeded↑ → 또 발행"의

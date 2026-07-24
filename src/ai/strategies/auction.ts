@@ -61,9 +61,15 @@ export function decideAuctionBid(state: GameState, playerId: PlayerId): AuctionD
   // 보너스는 cashCeiling(건설예산 보호) 밖에서 더하되, 보유 현금은 넘지 않게 가드(파산 방지).
   const maxBid = Math.min(baseCeiling + seatBonus, Math.max(0, player.cash - expenses));
 
-  // 경매가 시작되지 않았으면 가치가 있을 때만 $1로 시작
+  // 상시 참여 맵(Montréal, aiAuctionAlwaysParticipate): 무입찰 패스 대신 감당 가능한
+  // 소액 입찰로 기록을 남긴다 — 입찰 후 첫 포기는 무료라 행동 밴을 공짜로 면한다.
+  const alwaysJoin = getMapProfile(state.mapId).aiAuctionAlwaysParticipate;
+  const myBidSoFar = auction?.bids?.[playerId] ?? 0;
+  const cashAfterExpenses = Math.max(0, player.cash - expenses);
+
+  // 경매가 시작되지 않았으면 가치가 있을 때만 $1로 시작 (상시 참여 맵은 감당되면 무조건)
   if (!auction) {
-    if (maxBid >= 1 && player.cash >= 1) {
+    if ((maxBid >= 1 || alwaysJoin) && player.cash >= 1 && cashAfterExpenses >= 1) {
       debugLog.preparation(`[Phase II: 경매] ${player.name}: 경매 시작 $1 (절실함 ${desperation.toFixed(1)}VP → 상한 $${maxBid})`);
       return { action: 'bid', amount: 1 };
     }
@@ -72,6 +78,12 @@ export function decideAuctionBid(state: GameState, playerId: PlayerId): AuctionD
   }
 
   const currentBid = auction.highestBid;
+
+  // 상시 참여: 아직 무입찰인데 포기하게 될 상황이면 감당 한도 내에서 입찰 기록을 남긴다
+  if (alwaysJoin && myBidSoFar === 0 && currentBid >= maxBid && cashAfterExpenses >= currentBid + 1) {
+    debugLog.preparation(`[Phase II: 경매] ${player.name}: 참여 입찰 $${currentBid + 1} (무입찰 패스 방지)`);
+    return { action: 'bid', amount: currentBid + 1 };
+  }
 
   // Turn Order 패스 보유: 입찰 상한을 넘어선 경합에서 무료 잔류 패스 사용
   // (권한은 직전 턴 turnOrder 선택으로 부여된 turnOrderPassAvailable — selectedAction은 롤오버 때 지워짐)

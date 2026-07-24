@@ -96,6 +96,8 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   const specialRules = getMapProfile(mapId).specialRules;
 
   const [showSetup, setShowSetup] = useState(true);
+  // 진행 중 게임 이어하기 배너 (일부러 나갔다 재입장한 경우 — 자동 복원 대신 선택권)
+  const [resumeAvailable, setResumeAvailable] = useState(false);
   const [setupTab, setSetupTab] = useState<'local' | 'online'>('local');
   const [playerCount, setPlayerCount] = useState(supportedPlayers[0]);
   const [playerNames, setPlayerNames] = useState<string[]>(DEFAULT_NAMES);
@@ -145,10 +147,11 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     Boolean(netRoom?.hostClientId) &&
     !netPresent.includes(netRoom?.hostClientId as string);
 
-  // F5 복원: ① 온라인 자동 재입장 시도 → ② 실패/기록 없음이면 오프라인 진행 중 게임 복원.
-  // showSetup이 useState(true)라 새로고침하면 무조건 셋업이 떠서, persist로 살아 있는 게임이
-  // 셋업 뒤에서 봇만 계속 돌던 문제(2026-07-24 사용자 보고). 온라인 복원 성공 시엔
-  // netRoom.status 효과가 화면을 전환하므로 여기선 손대지 않는다.
+  // F5/재입장 복원: ① 온라인 자동 재입장 시도 → ② 실패/기록 없음이면 오프라인 진행 중 게임 처리.
+  // - 같은 탭 F5(게임 화면에 있었음 = sessionStorage 'aos-ingame'): 자동으로 게임 화면 복원
+  // - 일부러 나갔다 재입장(뒤로/리셋으로 플래그 지워짐): 자동 복원하지 않고 셋업에
+  //   "이어하기" 배너만 표시 — 예전 게임이 강제로 뜨던 문제(2026-07-24 사용자 보고) 방지.
+  // 온라인 복원 성공 시엔 netRoom.status 효과가 화면을 전환하므로 여기선 손대지 않는다.
   useEffect(() => {
     void (async () => {
       const rejoined = await autoRejoin().catch(() => false);
@@ -156,18 +159,28 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       const s = useGameStore.getState();
       // gameStarted가 없는 옛 저장본(플래그 도입 전 시작한 게임)은 진행 흔적으로 추정.
       // ⚠️ persist 병합이 기본값 false를 채우므로 ?? 가 아니라 || 로 이어야 한다.
-      // 흔적: 턴 진행 / 1단계 이탈 / 트랙 존재 / 주식 발행(시작값 2에서 변화 — 1턴 주식만
-      // 발행한 게임도 잡는다). 리셋 직후 미시작 상태(전부 초기값)는 어디에도 안 걸려 셋업 유지.
       const inProgress =
         s.gameStarted ||
         s.currentTurn > 1 ||
         s.currentPhase !== 'issueShares' ||
         s.board.trackTiles.length > 0 ||
         Object.values(s.players).some((p) => p.issuedShares !== 2);
-      if (inProgress && s.mapId === mapId && !s.winner) setShowSetup(false);
+      if (!inProgress || s.mapId !== mapId || s.winner) return;
+      let wasInGame = false;
+      try { wasInGame = window.sessionStorage.getItem('aos-ingame') === '1'; } catch { /* noop */ }
+      if (wasInGame) setShowSetup(false); // F5 — 이어서 진행
+      else setResumeAvailable(true);      // 재입장 — 선택권 제공
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapId]);
+
+  // 게임 화면에 있는 동안 'aos-ingame' 마킹 (F5와 "일부러 나감"을 구분하는 유일한 신호).
+  // 뒤로/리셋 등 의도적 이탈 경로에서 지운다.
+  useEffect(() => {
+    try {
+      if (!showSetup) window.sessionStorage.setItem('aos-ingame', '1');
+    } catch { /* noop */ }
+  }, [showSetup]);
   const myPlayerId = isOnline && netMySeat !== null ? activePlayers[netMySeat] ?? null : null;
   // 지금 행동해야 하는 플레이어 — 경매 입찰 차례 포함 currentPlayer가 단일 진실
   // (auction.currentBidder는 갱신 안 되는 레거시 필드 — AuctionPanel.tsx:39 주석 참조)
@@ -277,14 +290,17 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     setShowSetup(false);
   };
 
-  // 게임 리셋
+  // 게임 리셋 — 의도적 새 시작이므로 F5 복원 마킹·이어하기 배너 해제
   const handleResetGame = () => {
+    try { window.sessionStorage.removeItem('aos-ingame'); } catch { /* noop */ }
+    setResumeAvailable(false);
     resetGame();
     setShowSetup(true);
   };
 
-  // 맵 페이지로 돌아가기 (온라인이면 방도 나감)
+  // 맵 페이지로 돌아가기 (온라인이면 방도 나감) — 의도적 이탈이므로 F5 복원 마킹 해제
   const handleBack = () => {
+    try { window.sessionStorage.removeItem('aos-ingame'); } catch { /* noop */ }
     if (isOnline) void leaveRoom();
     router.push('/maps');
   };
@@ -361,6 +377,25 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
             <p className="text-foreground-secondary mb-6">
               {mapConfig.name} - {playerCount}인 게임
             </p>
+
+            {/* 진행 중 게임 이어하기 — 나갔다 재입장한 경우에만 표시 (새 게임 시작하면 덮어씀) */}
+            {resumeAvailable && (
+              <div className="mb-6 rounded-xl border border-accent/40 bg-accent/5 p-4">
+                <div className="text-sm font-semibold text-foreground mb-1">
+                  진행 중인 게임이 있습니다
+                </div>
+                <p className="text-xs text-foreground-secondary mb-3">
+                  {currentTurn}턴 · {activePlayers.length}인 — 이어서 하거나, 아래에서 새 게임을
+                  시작하면 기존 게임은 사라집니다.
+                </p>
+                <button
+                  onClick={() => { setResumeAvailable(false); setShowSetup(false); }}
+                  className="btn-primary w-full py-2 text-sm"
+                >
+                  이어하기
+                </button>
+              </div>
+            )}
 
             {/* 로컬 / 온라인 모드 탭 (Supabase 설정된 배포에서만) */}
             {isNetConfigured() && (

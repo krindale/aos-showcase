@@ -223,6 +223,26 @@ describe('파산 처리', () => {
     expect(s.players[P1].selectedAction).toBeNull();
   });
 
+  it('파산자의 마을 가닥은 삭제가 아니라 공용(owner null) 전환된다', () => {
+    setup([P1]);
+    const st = useGameStore.getState();
+    useGameStore.setState({
+      board: {
+        ...st.board,
+        townSpurs: [
+          { id: 'sp1', townCoord: { col: 3, row: 3 }, edge: 0, owner: P1, builtTurn: 1 },
+          { id: 'sp2', townCoord: { col: 4, row: 4 }, edge: 2, owner: P2, builtTurn: 1 },
+        ],
+      } as never,
+    });
+    useGameStore.getState().payExpenses();
+
+    const spurs = useGameStore.getState().board.townSpurs ?? [];
+    expect(spurs).toHaveLength(2);                       // ❌ 수정 전: 파산자 가닥 삭제
+    expect(spurs.find(s => s.id === 'sp1')!.owner).toBeNull();  // 공용 전환
+    expect(spurs.find(s => s.id === 'sp2')!.owner).toBe(P2);    // 생존자 가닥 무변경
+  });
+
   it('이미 탈락한 플레이어는 다시 파산 처리되지 않는다', () => {
     setup([P1]);
     useGameStore.getState().payExpenses();

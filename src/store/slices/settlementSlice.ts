@@ -141,8 +141,11 @@ export function createSettlementSlice(set: Set, _get: Get): SettlementSlice {
             if (t.secondaryOwner && bankruptPlayers.includes(t.secondaryOwner)) t = { ...t, secondaryOwner: null };
             return t;
           });
-          const updatedTownSpurs = (newBoard.townSpurs ?? []).filter(
-            sp => sp.owner === null || !bankruptPlayers.includes(sp.owner)
+          // 가닥도 타일과 동일하게 "공용 전환"(owner null) — 삭제하면 마을을 지나는 완성
+          // 링크가 물리적으로 끊겨 공용 철도로 남아야 할 노선이 사라진다 (2026-07-25 사용자
+          // 보고: 파산 후 마을에 건설한 철도 끝들이 소멸). 정부 가닥(owner null)과 동일 패턴.
+          const updatedTownSpurs = (newBoard.townSpurs ?? []).map(sp =>
+            sp.owner && bankruptPlayers.includes(sp.owner) ? { ...sp, owner: null } : sp
           );
           newBoard = {
             ...newBoard,

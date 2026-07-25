@@ -11,6 +11,7 @@ import {
   findRouteOptions,
   findLongestPath,
   findTrackCubeDeliveries,
+  findReachableDestinations,
   getPathLinkOwners,
   countOppPathLinks,
 } from '@/utils/hexGrid';
@@ -85,9 +86,9 @@ describe('findRouteOptions — 게이트/디폴트/중복 제거', () => {
     expect(options[1].owners).toEqual([]);
   });
 
-  it('타인 경유가 내 수입을 못 늘리면 본인 철도 후보만 노출된다 (요구 1)', () => {
+  it('타인 경유 동률은 선택지로 남고 디폴트는 본인 철도다 (2026-07-26 정책)', () => {
     // 윗길은 P→M만 내 것, M→N·N→T 전부 타인 → 윗길 내1+타2. 아랫길 내1.
-    // 내 수입이 본인-최선(1)을 초과하지 못하므로 타인 경유는 후보에서 제외.
+    // 내 수입 동률(1=1) — 과거엔 제외했으나 합법 경로이므로 비-디폴트 선택지로 노출.
     const b2 = board(
       [city('P', 'red', 0, 1), city('M', 'yellow', 2, 0), city('N', 'yellow', 4, 0), city('T', 'blue', 6, 1)],
       [
@@ -104,9 +105,13 @@ describe('findRouteOptions — 게이트/디폴트/중복 제거', () => {
       ]
     );
     const options = findRouteOptions(P_COORD, T_COORD, b2, P1, 4, 'blue');
-    expect(options).toHaveLength(1);
-    expect(options[0].oppLinks).toBe(0);
+    expect(options).toHaveLength(2);
+    expect(options[0].oppLinks).toBe(0); // 디폴트 = 본인 철도
     expect(options[0].ownLinks).toBe(1);
+    expect(options[1].ownLinks).toBe(1); // 동률 타인 경유는 비-디폴트 선택지
+    expect(options[1].oppLinks).toBe(2);
+    // 내 수입이 본인-최선 "미만"인 경로는 여전히 숨김 — 엔진을 줄여 윗길 내0(내 타일 미경유) 상황은
+    // 별도 케이스라 여기선 동률만 검증
   });
 
   it('본인 철도만으론 도달 불가한 목적지는 타인 경유 경로가 열린다 (2ⓑ)', () => {
@@ -185,11 +190,13 @@ describe('findRouteOptions — 달 저중력 크레딧 (수입 이전 반영)', 
     ]
   );
 
-  it('크레딧 없음: 내 수입이 같은 타인 경유는 후보에서 제외된다', () => {
+  it('크레딧 없음: 내 수입이 같은 타인 경유는 비-디폴트 선택지로만 남는다', () => {
     const options = findRouteOptions({ col: 0, row: 1 }, { col: 4, row: 1 }, lowGravBoard(), P1, 4, 'blue');
-    expect(options).toHaveLength(1);
-    expect(options[0].owners).toEqual([]);
+    expect(options[0].owners).toEqual([]); // 디폴트 = 본인 철도
     expect(options[0].ownLinks).toBe(1);
+    // 동률 타인 경유는 선택지로 노출되나 디폴트가 아니다 (2026-07-26 정책)
+    const mixed = options.find(o => o.oppLinks > 0);
+    expect(mixed?.ownLinks).toBe(1);
   });
 
   it('lowGravCredit: 빌린 링크 1개 수입 이전이 반영돼(own+1/opp−1) 경유 경로가 최선이 된다', () => {
@@ -246,5 +253,57 @@ describe('findLongestPath — 타인 링크 최소 tie-break', () => {
     const b = buildBoardA([trk(3, 0, [3, 0], P2)], false);
     const path = findLongestPath(P_COORD, T_COORD, b, P1, 4, 'blue', 0, 0);
     expect(path).toBeNull(); // 아랫길 없음 + 다리는 타인 → 도달 불가
+  });
+});
+
+describe('교차/공존 헥스 2회 통과 (2026-07-26 사용자 발견 — 한국 실전 재현)', () => {
+  // 실게임(Korea) 기하 축소 재현: D(6,5) 빨강 큐브 → T(10,5) 빨강 도시.
+  //   2링크 본인길: D─(7,5)나─MID(8,6)─(8,7)나─(9,6)#보조(나)─(10,6)나─T          (내2)
+  //   3링크 혼합길: D─MID─(9,6)#기본(남)─(9,5)#보조(남)─(10,4)남─NC(9,4)─(9,5)#기본(나)─T
+  //     → (9,5) 공존 헥스를 "남의 보조 트랙"과 "내 기본 트랙"으로 두 번 지난다 (내2+남1, 총3).
+  // 헥스 단위 visited는 두 번째 통과를 차단해 3링크 경로가 통째로 사라졌다.
+  const D = { col: 6, row: 5 };
+  const T = { col: 10, row: 5 };
+  const cities = () => [
+    city('D', 'blue', 6, 5, ['red']),
+    city('MID', 'purple', 8, 6),
+    city('NC', 'black', 9, 4),
+    city('T', 'red', 10, 5),
+  ];
+  const coexistTracks = () => [
+    trk(9, 6, [3, 5], P2, { secondaryEdges: [2, 0], secondaryOwner: P1, trackType: 'coexist' }),
+    trk(9, 5, [0, 4], P1, { secondaryEdges: [2, 5], secondaryOwner: P2, trackType: 'coexist' }),
+    trk(10, 4, [2, 3], P2),
+    trk(7, 5, [1, 3], P1),
+  ];
+
+  it('같은 공존 헥스의 독립된 두 트랙을 각각 한 번씩 지나는 3링크 경로를 찾는다', () => {
+    const b = board(cities(), [
+      ...coexistTracks(),
+      trk(8, 7, [4, 5], P1),  // 2링크 본인길
+      trk(10, 6, [3, 5], P1),
+    ]);
+    const options = findRouteOptions(D, T, b, P1, 4, 'red');
+    // 디폴트 = 본인 철도 2링크 (내 수입 최대·타인 0)
+    expect(options[0].ownLinks).toBe(2);
+    expect(options[0].oppLinks).toBe(0);
+    expect(options[0].totalLinks).toBe(2);
+    // 동률(내2) 3링크 혼합 경로도 선택지로 노출 — (9,5)를 두 번 지나는 경로
+    const mixed = options.find(o => o.oppLinks > 0);
+    expect(mixed).toBeDefined();
+    expect(mixed!.ownLinks).toBe(2);
+    expect(mixed!.oppLinks).toBe(1);
+    expect(mixed!.totalLinks).toBe(3);
+    expect(mixed!.owners).toEqual([P2]);
+    expect(mixed!.path.filter(c => c.col === 9 && c.row === 5)).toHaveLength(2);
+  });
+
+  it('공존 헥스 2회 통과가 유일한 길이어도 목적지가 누락되지 않는다 (findReachableDestinations)', () => {
+    const b = board(cities(), coexistTracks()); // 2링크 본인길 제거 — 혼합 3링크가 유일
+    const options = findRouteOptions(D, T, b, P1, 4, 'red');
+    expect(options).toHaveLength(1);
+    expect(options[0].totalLinks).toBe(3);
+    const reachable = findReachableDestinations(D, b, P1, 4, 'red', 0, 4);
+    expect(reachable.some(c => c.id === 'T')).toBe(true);
   });
 });

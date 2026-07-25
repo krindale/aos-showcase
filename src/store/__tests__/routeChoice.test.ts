@@ -176,8 +176,11 @@ describe('타인 철도 경로 선택 상태기계', () => {
     expect(ui.movingCube!.path.some(c => c.col === 3 && c.row === 0)).toBe(true); // 디폴트 윗길
   });
 
-  it('큐브 단위 게이트: 내 수입이 본인 철도 최선을 못 넘는 타인 경유 목적지는 사람에게 숨긴다', () => {
-    // T(6,1) = 본인 철도 own2 (P→Y→T) / T2(4,0) = 타인 경유 own1+opp1만 → 숨김 대상
+  it('큐브 단위 게이트: 본인 철도로 못 가는 목적지는 숨기지 않는다 (합법 목적지 보존, 2026-07-26)', () => {
+    // T(6,1) = 본인 철도 own2 (P→Y→T) / T2(4,0) = 타인 경유 own1+opp1이 유일한 길.
+    // 과거엔 T2를 통째로 숨겼으나(2026-07-22 게이트), 합법 배달 목적지가 UI에서 사라져
+    // "엔진상 더 긴 배달이 가능한데 짧은 가이드만 표시"되는 버그(사용자 발견) — 이제
+    // 본인 철도 단독 경로가 없는 목적지는 유일한 길(타인 경유)을 그대로 노출한다.
     const install = (meIsBot: boolean) => {
       const st = useGameStore.getState();
       useGameStore.setState({
@@ -210,10 +213,16 @@ describe('타인 철도 경로 선택 상태기계', () => {
     };
     install(false);
     useGameStore.getState().selectCube('P', 0);
-    let dests = useGameStore.getState().ui.reachableDestinations;
-    expect(dests.some(d => d.col === 6 && d.row === 1)).toBe(true);  // T 유지
-    expect(dests.some(d => d.col === 4 && d.row === 0)).toBe(false); // T2 숨김
-    // 봇은 미적용 (ΔVP가 같은 판단 — 결정/실행 일치 유지)
+    let ui = useGameStore.getState().ui;
+    let dests = ui.reachableDestinations;
+    expect(dests.some(d => d.col === 6 && d.row === 1)).toBe(true); // T 유지 (본인 철도 own2)
+    // T2는 본인 철도로 도달 불가 — 유일한 길(타인 경유 own1+opp1)을 숨기지 않는다
+    expect(dests.some(d => d.col === 4 && d.row === 0)).toBe(true);
+    const t2 = ui.routeOptions.find(r => r.dest.col === 4 && r.dest.row === 0)!;
+    expect(t2.options).toHaveLength(1);
+    expect(t2.options[0].ownLinks).toBe(1);
+    expect(t2.options[0].oppLinks).toBe(1);
+    // 봇도 동일하게 노출 (ΔVP가 같은 판단 — 결정/실행 일치 유지)
     useGameStore.getState().initGame('tutorial', ['사람1', '사람2']);
     install(true);
     useGameStore.getState().selectCube('P', 0);

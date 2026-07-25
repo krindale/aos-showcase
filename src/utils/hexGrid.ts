@@ -933,6 +933,22 @@ export function findAllConnectedHexes(
 }
 
 /**
+ * 경로 탐색 방문 키 — 정거장(도시/마을)은 헥스 단위(룰: 각 도시/마을은 경로당 한 번),
+ * 트랙 헥스는 "헥스 + 진입한 트랙(기본 P/보조 S)" 단위.
+ * 교차/공존(complex) 타일은 독립된 두 트랙이 한 헥스에 겹쳐 있으므로, 헥스 단위로 막으면
+ * 한 경로가 두 트랙을 각각 한 번씩 지나는 합법 경로가 통째로 사라진다 — 실전 사례(한국,
+ * 2026-07-26 사용자 발견): D→타이존→신도시→전주 3링크가 (9,5) 공존 헥스를 보조/기본
+ * 트랙으로 두 번 지나야 하는데 탐색이 못 찾아 2링크 가이드만 표시.
+ */
+function pathVisitKey(coord: HexCoord, entryEdge: number | undefined, board: BoardState): string {
+  const key = hexToKey(coord);
+  if (entryEdge === undefined) return key;
+  const tile = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
+  if (!tile?.secondaryEdges) return key;
+  return tile.secondaryEdges.includes(entryEdge) ? `${key}#S` : `${key}#P`;
+}
+
+/**
  * 출발 도시에서 목적지 도시까지의 모든 경로 찾기 (DFS)
  * 반환: 모든 유효한 경로 배열 (각 경로는 HexCoord 배열)
  */
@@ -1019,7 +1035,11 @@ function findAllPaths(
       const edgeFromCurrent = getConnectingEdge(current, neighbor, board);
       const neighborEntryEdge = edgeFromCurrent !== null ? getOppositeEdge(edgeFromCurrent) : undefined;
 
-      const neighborKey = hexToKey(neighbor);
+      // 방문 키: 정거장은 헥스 단위, 트랙 헥스는 (헥스+진입 트랙) 단위 — 교차/공존 타일의
+      // 두 독립 트랙은 각각 한 번씩 통과 가능. getConnectedNeighbors의 헥스 단위 visited
+      // 필터는 복합 키를 못 보므로(그 헥스는 안 걸러짐) 여기서 직접 검사한다.
+      const neighborKey = isStop ? hexToKey(neighbor) : pathVisitKey(neighbor, neighborEntryEdge, board);
+      if (visited.has(neighborKey)) continue;
       visited.add(neighborKey);
       path.push(neighbor);
 
@@ -1191,7 +1211,10 @@ export function countOppPathLinks(path: HexCoord[], board: BoardState, playerId:
  *
  * 정책(사용자 확정 요구사항):
  * - 본인 철도 우선: 본인(+공용) 철도만으로 낼 수 있는 최선의 "내 수입(내 귀속 링크 수)"이 기준.
- * - 타인 경유 경로는 내 수입이 그 기준을 **초과**할 때만 후보로 노출(2ⓐ).
+ * - 타인 경유 경로는 내 수입이 그 기준 **이상**일 때 후보로 노출(2ⓐ) — 동률도 합법 경로이므로
+ *   선택지로 남긴다(2026-07-26 사용자 요구: 3링크 이동 가능한데 2링크 가이드만 보이던 문제.
+ *   디폴트는 여전히 본인-철도-최선이라 동률 대안은 경로 선택 모드에서만 고른다).
+ *   내 수입이 기준 **미만**인 타인 경유는 숨김(수입만 헌납하는 열등 경로).
  *   본인 철도만으론 도달 불가한 목적지면 모든 경로가 후보 풀(2ⓑ).
  * - 같은 "빌린 소유자 집합"의 경로는 대표 1개만(중복 제거).
  * - 정렬(= [0]이 디폴트): 내 수입 ↓ → 빌린 소유자 중 최고 ownerScore 낮은 순(점수 낮은 주인에게
@@ -1254,10 +1277,10 @@ export function findRouteOptions(
   const bestOwnOnly = ownOnly[0] ?? null;
   const threshold = bestOwnOnly ? bestOwnOnly.ownLinks : -1;
 
-  // 타인 경유 후보: 내 수입이 본인-최선을 초과하는 경로만 → 빌린 소유자 집합 단위로 대표 1개
+  // 타인 경유 후보: 내 수입이 본인-최선 이상인 경로만 → 빌린 소유자 집합 단위로 대표 1개
   const bySet = new Map<string, RouteOption>();
   for (const o of scored) {
-    if (o.oppLinks === 0 || o.ownLinks <= threshold) continue;
+    if (o.oppLinks === 0 || o.ownLinks < threshold) continue;
     const key = [...o.owners].sort().join('|');
     const cur = bySet.get(key);
     if (!cur || cmp(o, cur) < 0) bySet.set(key, o);
@@ -1355,10 +1378,14 @@ export function findReachableDestinations(
 
       const edgeFromCurrent = getConnectingEdge(current, neighbor, board);
       const neighborEntryEdge = edgeFromCurrent !== null ? getOppositeEdge(edgeFromCurrent) : undefined;
-      visited.add(nbKey);
+      // 방문 키: 정거장은 헥스 단위, 트랙 헥스는 (헥스+진입 트랙) 단위 — findAllPaths와 동일.
+      // 교차/공존 타일을 두 번(각각 다른 트랙으로) 지나야 닿는 목적지가 누락되지 않게 한다.
+      const visitKey = isStop ? nbKey : pathVisitKey(neighbor, neighborEntryEdge, board);
+      if (visited.has(visitKey)) continue;
+      visited.add(visitKey);
       dfs(neighbor, visited, newLinkCount, neighborEntryEdge, newGovLinks, isStop ? undefined : nextLinkIsGov,
         newOppLinks, isStop ? undefined : nextLinkIsOpp);
-      visited.delete(nbKey);
+      visited.delete(visitKey);
     }
   }
 

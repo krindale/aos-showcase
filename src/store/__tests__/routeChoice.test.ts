@@ -213,7 +213,7 @@ describe('타인 철도 경로 선택 상태기계', () => {
     };
     install(false);
     useGameStore.getState().selectCube('P', 0);
-    let ui = useGameStore.getState().ui;
+    const ui = useGameStore.getState().ui;
     let dests = ui.reachableDestinations;
     expect(dests.some(d => d.col === 6 && d.row === 1)).toBe(true); // T 유지 (본인 철도 own2)
     // T2는 본인 철도로 도달 불가 — 유일한 길(타인 경유 own1+opp1)을 숨기지 않는다

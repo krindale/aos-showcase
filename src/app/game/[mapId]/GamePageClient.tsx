@@ -227,6 +227,11 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       setShowSetup(true);
       setSetupTab('online');
       setBooting(false);
+    } else {
+      // finished 등 그 외 상태(호스트가 닫은 방에 재입장 — DB 삭제가 실패하면 finished로
+      // 잔존): 진행할 화면이 없으므로 셋업으로. 안 하면 booting이 안 풀려 로딩 교착.
+      setShowSetup(true);
+      setBooting(false);
     }
   }, [isOnline, netRoom, netRoom?.status]);
 

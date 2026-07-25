@@ -1816,7 +1816,9 @@ export const useGameStore = create<GameStore>()(
       // 보드 구조가 바뀌면 버전을 올려 이전 저장 상태를 폐기
       // (v2: St. Lucia 공식 맵 재구성 — 옛 보드가 복원되어 화면이 깨지는 문제 방지)
       // (v3: 마을 허브 재설계 — 마을 헥스 안에 타일이 깔린 옛 보드 폐기)
-      version: 3,
+      // (v4: 경매 필드 개명 passedPlayers → droppedOutPlayers — 옛 auction 복원 시
+      //  droppedOutPlayers.includes 크래시. 마이그레이션 대신 저장본 폐기)
+      version: 4,
       migrate: () => ({}) as never,
       // rehydrate(새로고침) 후 1회성/실행 상태는 항상 초기화한다.
       // (저장본을 복원하면 닫지 않은 대륙횡단 모달·수입감소 배지가 다시 뜨거나,

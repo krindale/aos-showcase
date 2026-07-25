@@ -890,15 +890,19 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
               <div className="relative">
                 <GameBoard />
                 <GameChat />
+                {/* 온라인: 내 차례가 아니면 보드 클릭 차단 (호스트 검증의 UX 보강 — 최종 방어는
+                    applyGameIntent). 채팅·줌/신도시 버튼(z-30, 로컬 UI)은 GameBoard의
+                    motion.div(transform=스태킹 컨텍스트) 밖 형제 레이어라 오버레이(z-20) 위에서
+                    계속 사용 가능. 오버레이는 보드 래퍼 안에만 — 컬럼 전체를 덮으면 물품
+                    디스플레이의 가로 스크롤까지 막힌다(디스플레이는 생산 모드 = 본인 로컬 UI라
+                    관전자에겐 원래 클릭될 요소가 없어 덮을 필요 없음). */}
+                {isOnline && !canInteract && <div className="absolute inset-0 z-20" aria-hidden />}
               </div>
               {/* 물품 성장이 없는 맵(St. Lucia)은 물품 디스플레이가 무의미 → 숨김 */}
               {/* 물품 디스플레이 — 성장 생략 맵·슬롯 0칸 맵(달: 주사위→도시 직접 성장)은 숨김 */}
               {!isLandscape && !mapConfig.rules.skipGoodsGrowth
                 && mapConfig.columnMapping.some((c) => c.rowCount > 0)
                 && <GoodsDisplayPanel />}
-              {/* 온라인: 내 차례가 아니면 보드/디스플레이 클릭 차단 (호스트 검증의 UX 보강 — 최종
-                  방어는 applyGameIntent). 채팅(z-30)은 오버레이(z-20) 위라 계속 사용 가능. */}
-              {isOnline && !canInteract && <div className="absolute inset-0 z-20" aria-hidden />}
             </div>
 
             {/* 오른쪽: 패널들 (Desktop: always visible, Tablet: collapsible, Mobile: hidden) */}

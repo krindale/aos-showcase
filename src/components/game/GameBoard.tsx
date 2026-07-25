@@ -716,99 +716,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
       </div>
       )}
 
-      {/* SVG 보드 + 보드 위 호버링 HUD (SVG 영역에만 한정) */}
+      {/* SVG 보드 — 호버링 HUD(줌/신도시/차례 배지)는 motion.div 밖 형제 레이어로 분리 (아래 참조) */}
       <div className={fitOverlay ? undefined : 'relative'}>
-      {!fitOverlay && (
-        <div className="absolute inset-0 z-20 pointer-events-none">
-          {/* 줌 컨트롤: SVG 영역 안에서만 스크롤을 따라다님 (헤더/페이지 침범 없음) */}
-          <div className="sticky top-[70px] flex justify-end px-3 pt-3">
-            <div className="pointer-events-auto flex gap-1.5">
-              <motion.button
-                onClick={zoomIn}
-                className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
-                aria-label="확대"
-                title="확대"
-                whileTap={{ scale: 0.95 }}
-                transition={{ duration: 0.1 }}
-                style={{ WebkitTapHighlightColor: 'transparent' }}
-              >
-                <ZoomIn className="w-4 h-4 text-accent" />
-              </motion.button>
-              <motion.button
-                onClick={zoomOut}
-                className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
-                aria-label="축소"
-                title="축소"
-                whileTap={{ scale: 0.95 }}
-                transition={{ duration: 0.1 }}
-                style={{ WebkitTapHighlightColor: 'transparent' }}
-              >
-                <ZoomOut className="w-4 h-4 text-accent" />
-              </motion.button>
-              <motion.button
-                onClick={resetZoom}
-                className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
-                aria-label="원래 크기"
-                title="원래 크기"
-                whileTap={{ scale: 0.95 }}
-                transition={{ duration: 0.1 }}
-                style={{ WebkitTapHighlightColor: 'transparent' }}
-              >
-                <Maximize2 className="w-4 h-4 text-accent" />
-              </motion.button>
-            </div>
-          </div>
-          {/* 신도시 버튼 — 줌 아래. 도시화 행동과 무관하게 남은 신규 도시 타일을 확인(중앙 모달).
-              배치는 도시화 행동을 골랐을 때 별도 흐름(UrbanizationPanel)으로 진행한다 */}
-          {showNewCityBtn && (
-            <div className="sticky top-[116px] flex justify-end px-3 pt-2">
-              <button
-                onClick={() => setShowNewCityInfo(true)}
-                className="pointer-events-auto glass-card flex items-center gap-1.5 px-3 py-2 rounded-lg shadow-lg text-sm font-medium text-foreground hover:bg-accent/20 transition-colors"
-                title="남은 신규 도시 타일 확인"
-                aria-label="남은 신규 도시 타일 확인"
-              >
-                <Building2 className="w-4 h-4 text-accent" />
-                신도시
-              </button>
-            </div>
-          )}
-          {/* 다른 사람/AI 차례 표시 — 보드 중앙, 화면 위에서 100px 지점에 호버링(스크롤 추적).
-              SVG 영역(absolute 레이어) 안에서만 따라다닌다 */}
-          {showTurnHud && hudPlayer && (
-            <div className="sticky top-[100px] z-20 h-0 flex justify-center pointer-events-none">
-              <div
-                // backdrop-blur 제거: 이 배지는 sticky(스크롤 추적)라 스크롤 중 backdrop-filter가
-                // 매 프레임 재계산돼 화면 전체가 깜빡였다. 배경이 95% 불투명이라 blur는 거의 안
-                // 보이던 효과 — 제거해도 시각 차이는 없고 깜빡임만 사라진다. (sticky엔 translateZ
-                // 격리를 쓸 수 없어 — transform이 containing block을 만들어 sticky가 깨짐 — 제거가 정답)
-                className="flex items-center gap-2.5 px-4 py-2 rounded-full bg-background-secondary/95 border-2 shadow-xl self-start"
-                style={{
-                  // 정산 단계(게스트)는 특정 플레이어의 차례가 아니므로 중립 보더를 쓴다
-                  borderColor: hudIsHostProgress
-                    ? 'rgba(110,106,97,0.7)'
-                    : `${PLAYER_COLORS[hudPlayer.color]}B3`,
-                }}
-              >
-                <span
-                  className="w-3 h-3 rounded-full animate-pulse"
-                  style={{
-                    backgroundColor: hudIsHostProgress
-                      ? '#6e6a61'
-                      : PLAYER_COLORS[hudPlayer.color],
-                  }}
-                />
-                {/* 텍스트 크기 = 기존(text-xs 12px)의 1.3배 */}
-                <span className="text-[15.6px] font-semibold text-foreground whitespace-nowrap">
-                  {hudIsHostProgress
-                    ? '방장이 진행 중…'
-                    : `${hudPlayer.name} 플레이 중${hudPlayer.isAI ? ' (BOT)' : ''}…`}
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
       <svg
         width="100%"
         height={fitOverlay ? undefined : undefined}
@@ -1217,6 +1126,114 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
         </div>
       </div>
     </motion.div>
+    {/* 보드 위 호버링 HUD(줌/신도시/차례 배지) — 채팅 버튼(GameChat)과 동일 패턴: GamePageClient의
+        보드 래퍼(relative) 안에서 motion.div의 "형제" absolute 레이어(z-30)로 띄운다.
+        motion.div 안에 두면 transform/contain이 만드는 스태킹 컨텍스트에 갇혀, 온라인 상대 차례의
+        클릭 차단 오버레이(GamePageClient, z-20)를 내부 z-index로는 못 이긴다 — 줌/신도시는 로컬 UI
+        (게임 상태 무변경)라 관전 중에도 눌 수 있어야 하므로 밖에서 오버레이 위(z-30)에 올린다 */}
+    {!fitOverlay && (
+      <div
+        className="absolute inset-0 z-30 pointer-events-none"
+        // boardDisplayScale 맵(St. Lucia)은 보드(motion.div)가 maxWidth로 축소·중앙 정렬되므로
+        // 레이어도 같은 폭·정렬을 미러링 — 안 하면 버튼이 보드 밖 래퍼 여백에 뜬다.
+        // ⚠️ transform 중앙정렬 금지: transform은 sticky(줌/배지 스크롤 추적)를 깨뜨린다
+        style={
+          mapData.boardDisplayScale && mapData.boardDisplayScale !== 1
+            ? { maxWidth: `${mapData.boardDisplayScale * 100}%`, marginInline: 'auto' }
+            : undefined
+        }
+      >
+        {/* 레이어가 보드 헤더까지 덮으므로, 헤더 높이만큼 초기 위치를 내려 SVG 영역에서 시작 */}
+        <div className="h-[46px]" aria-hidden />
+        {/* 줌 컨트롤: 보드 영역 안에서만 스크롤을 따라다님 (페이지 침범 없음) */}
+        <div className="sticky top-[70px] flex justify-end px-3 pt-3">
+          <div className="pointer-events-auto flex gap-1.5">
+            <motion.button
+              onClick={zoomIn}
+              className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
+              aria-label="확대"
+              title="확대"
+              whileTap={{ scale: 0.95 }}
+              transition={{ duration: 0.1 }}
+              style={{ WebkitTapHighlightColor: 'transparent' }}
+            >
+              <ZoomIn className="w-4 h-4 text-accent" />
+            </motion.button>
+            <motion.button
+              onClick={zoomOut}
+              className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
+              aria-label="축소"
+              title="축소"
+              whileTap={{ scale: 0.95 }}
+              transition={{ duration: 0.1 }}
+              style={{ WebkitTapHighlightColor: 'transparent' }}
+            >
+              <ZoomOut className="w-4 h-4 text-accent" />
+            </motion.button>
+            <motion.button
+              onClick={resetZoom}
+              className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
+              aria-label="원래 크기"
+              title="원래 크기"
+              whileTap={{ scale: 0.95 }}
+              transition={{ duration: 0.1 }}
+              style={{ WebkitTapHighlightColor: 'transparent' }}
+            >
+              <Maximize2 className="w-4 h-4 text-accent" />
+            </motion.button>
+          </div>
+        </div>
+        {/* 신도시 버튼 — 줌 아래. 도시화 행동과 무관하게 남은 신규 도시 타일을 확인(중앙 모달).
+            배치는 도시화 행동을 골랐을 때 별도 흐름(UrbanizationPanel)으로 진행한다 */}
+        {showNewCityBtn && (
+          <div className="sticky top-[116px] flex justify-end px-3 pt-2">
+            <button
+              onClick={() => setShowNewCityInfo(true)}
+              className="pointer-events-auto glass-card flex items-center gap-1.5 px-3 py-2 rounded-lg shadow-lg text-sm font-medium text-foreground hover:bg-accent/20 transition-colors"
+              title="남은 신규 도시 타일 확인"
+              aria-label="남은 신규 도시 타일 확인"
+            >
+              <Building2 className="w-4 h-4 text-accent" />
+              신도시
+            </button>
+          </div>
+        )}
+        {/* 다른 사람/AI 차례 표시 — 보드 중앙, 화면 위에서 100px 지점에 호버링(스크롤 추적).
+            보드 영역(absolute 레이어) 안에서만 따라다닌다 */}
+        {showTurnHud && hudPlayer && (
+          <div className="sticky top-[100px] z-20 h-0 flex justify-center pointer-events-none">
+            <div
+              // backdrop-blur 제거: 이 배지는 sticky(스크롤 추적)라 스크롤 중 backdrop-filter가
+              // 매 프레임 재계산돼 화면 전체가 깜빡였다. 배경이 95% 불투명이라 blur는 거의 안
+              // 보이던 효과 — 제거해도 시각 차이는 없고 깜빡임만 사라진다. (sticky엔 translateZ
+              // 격리를 쓸 수 없어 — transform이 containing block을 만들어 sticky가 깨짐 — 제거가 정답)
+              className="flex items-center gap-2.5 px-4 py-2 rounded-full bg-background-secondary/95 border-2 shadow-xl self-start"
+              style={{
+                // 정산 단계(게스트)는 특정 플레이어의 차례가 아니므로 중립 보더를 쓴다
+                borderColor: hudIsHostProgress
+                  ? 'rgba(110,106,97,0.7)'
+                  : `${PLAYER_COLORS[hudPlayer.color]}B3`,
+              }}
+            >
+              <span
+                className="w-3 h-3 rounded-full animate-pulse"
+                style={{
+                  backgroundColor: hudIsHostProgress
+                    ? '#6e6a61'
+                    : PLAYER_COLORS[hudPlayer.color],
+                }}
+              />
+              {/* 텍스트 크기 = 기존(text-xs 12px)의 1.3배 */}
+              <span className="text-[15.6px] font-semibold text-foreground whitespace-nowrap">
+                {hudIsHostProgress
+                  ? '방장이 진행 중…'
+                  : `${hudPlayer.name} 플레이 중${hudPlayer.isAI ? ' (BOT)' : ''}…`}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+    )}
     {/* 신도시 확인 모달(중앙) — contain:paint인 motion.div 밖에 둬야 fixed가 뷰포트 기준이 된다.
         배경(모달 밖=보드 등) 클릭 시 onClose로 닫힌다 */}
     {!fitOverlay && (

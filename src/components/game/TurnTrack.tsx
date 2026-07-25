@@ -28,18 +28,18 @@ export default function TurnTrack({
   // auction은 온라인 스냅샷에 자동 포함되므로 게스트/관전도 동일하게 본다(순수 파생, store 무변경).
   const auction = useGameStore((s) => s.auction);
   const showNewOrder = currentPhase === 'determinePlayerOrder' && !!auction;
-  // 경매 완료(미포기 활성 ≤1명, AuctionPanel의 isAuctionComplete와 동일 조건)면 승자 확정 →
-  // 미정으로 남은 1등 자리도 채운다. 승자 = 최고입찰자, 없으면(전원 무입찰) 미포기 첫 명
-  // (resolveAuction의 승자 승격 규칙과 일치).
+  // 경매 완료(미포기 잔존 ≤1명, AuctionPanel의 isAuctionComplete와 동일 조건)면 승자 확정 →
+  // 미정으로 남은 1등 자리도 채운다. 승자 = 포기하지 않고 남은 유일한 플레이어
+  // (최고입찰자가 포기했을 수 있어 highestBidder로 단정 금지 — resolveAuction 승자 규칙과 일치).
   const activeBidders = auction
-    ? playerOrder.filter((p) => !auction.passedPlayers.includes(p))
+    ? playerOrder.filter((p) => !auction.droppedOutPlayers.includes(p))
     : [];
   const auctionWinner =
     auction && activeBidders.length <= 1
-      ? auction.highestBidder ?? activeBidders[0] ?? null
+      ? activeBidders[0] ?? auction.highestBidder ?? null
       : null;
   const newOrderSlots = showNewOrder
-    ? predictAuctionOrderSlots(playerOrder, auction!.passedPlayers, auctionWinner)
+    ? predictAuctionOrderSlots(playerOrder, auction!.droppedOutPlayers, auctionWinner)
     : null;
 
   // Montréal: 이번/다음 라운드 정부 링크 관리자 (셋업 순번 로테이션, 탈락자는 건너뜀)

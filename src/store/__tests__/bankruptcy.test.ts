@@ -135,7 +135,7 @@ describe('파산 처리', () => {
         highestBid: 0,
         highestBidder: null,
         currentBidder: P2,
-        passedPlayers: [P2, P3],
+        droppedOutPlayers: [P2, P3],
         bids: {},
         lastActedPlayer: P3,
       } as never,

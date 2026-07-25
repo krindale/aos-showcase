@@ -271,7 +271,11 @@ export interface AuctionState {
   currentBidder: PlayerId | null;
   highestBid: number;
   highestBidder: PlayerId | null;
-  passedPlayers: PlayerId[];
+  /** 포기(drop out)한 플레이어 — 포기 순서대로. Turn Order 패스는 포기가 아니므로
+   *  여기 들어가지 않는다 (패스 사용 여부는 PlayerState.turnOrderPassUsed가 별도 관리).
+   *  경매 종료 판정은 오직 이 목록 기준: 미포기 1명 남을 때까지 계속 (룰북
+   *  "Bidding continues until all but one player has dropped out"). */
+  droppedOutPlayers: PlayerId[];
   bids: Record<PlayerId, number>;
   lastActedPlayer: PlayerId | null;  // Turn Order 패스용 - 마지막 행동 플레이어
 }

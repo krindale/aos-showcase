@@ -316,12 +316,12 @@ export function resolveAuctionResult(
   auction: AuctionState,
   activePlayers: PlayerId[]
 ): { newOrder: PlayerId[]; payments: Record<PlayerId, number> } {
-  const { highestBidder, highestBid, bids, passedPlayers } = auction;
+  const { highestBidder, highestBid, bids, droppedOutPlayers } = auction;
   const payments: Partial<Record<PlayerId, number>> = {};
   const newOrder: PlayerId[] = [];
 
   // 포기 순서 복사
-  const passOrder = [...passedPlayers];
+  const passOrder = [...droppedOutPlayers];
   const lastDropoutIndex = passOrder.length - 1;
 
   // 최고 입찰자가 1번 (전액 지불)

@@ -1,12 +1,17 @@
-// Phase II 경매 + 교대 선공권 slice (2026-07-03 스텝 3c 분리 — 로직 무변경, 코드 그대로 이동)
+// Phase II 경매 + 교대 선공권 slice (2026-07-03 스텝 3c 분리)
 //
 // 자기완결적 상태(auction · turnOrderOffer)만 조작하고, 진행은 scheduleAICheck /
 // get().nextPhase() 위임으로 처리 — payExpenses류 게임 정산과 결합 없음 (로드맵 3순위 근거).
 // GameStore 타입은 순환을 피하기 위해 type-only import (uiSlice와 동일 패턴).
+//
+// 2026-07-25 룰북 정합 재작성:
+// - 패스(Turn Order)와 포기(drop out)는 별개 상태 — 패스는 droppedOutPlayers에 넣지 않는다.
+// - 종료 판정·차례 진행은 advanceAuctionTurn 한 곳에서만 수행 (액션별 휴리스틱 금지).
+// - 최고입찰자를 건너뛰는 룰은 없다 — 자기 차례엔 입찰(자기 최고가 위로) 또는 포기를 직접 선택.
 
 import type { StoreApi } from 'zustand';
 import type { GameStore } from '../gameStore';
-import { PlayerId } from '@/types/game';
+import { PlayerId, PlayerState } from '@/types/game';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { logAction } from '@/utils/debugConfig';
 import { scheduleAICheck } from '../helpers/aiScheduler';
@@ -20,56 +25,67 @@ export type AuctionSlice = Pick<
   'placeBid' | 'passBid' | 'skipBid' | 'resolveAuction' | 'respondTurnOrderOffer'
 >;
 
+/**
+ * 경매 차례 진행 — 종료 판정과 다음 입찰자 계산의 **유일한** 장소.
+ *
+ * 룰북: "Bidding continues until all but one player has dropped out of the bidding."
+ * - 종료는 포기(droppedOutPlayers)하지 않은 플레이어가 1명 남았을 때뿐이다.
+ *   Turn Order 패스는 포기가 아니므로 종료 판정에 영향을 주지 않는다.
+ * - 차례는 플레이어 순서대로 다음 미포기·미파산 플레이어에게 넘어간다. 예외 없음 —
+ *   최고입찰자도 동일하게 차례를 받아 입찰(자기 최고가 위로) 또는 포기를 직접 선택한다.
+ *   차례가 이전 행동자에게 되돌아오는 것은 정상이며 종료 신호가 아니다.
+ * - 종료 시 nextPlayer = 승자(유일 잔존자) — resolveAuction을 기다린다.
+ */
+function advanceAuctionTurn(
+  playerOrder: PlayerId[],
+  players: Record<PlayerId, PlayerState>,
+  droppedOutPlayers: PlayerId[],
+  actor: PlayerId,
+): { nextPlayer: PlayerId; auctionOver: boolean } {
+  const remaining = playerOrder.filter(
+    p => !droppedOutPlayers.includes(p) && !players[p]?.eliminated
+  );
+  if (remaining.length <= 1) {
+    return { nextPlayer: remaining[0] ?? playerOrder[0], auctionOver: true };
+  }
+  const start = playerOrder.indexOf(actor);
+  for (let i = 1; i <= playerOrder.length; i++) {
+    const cand = playerOrder[(start + i) % playerOrder.length];
+    if (remaining.includes(cand)) return { nextPlayer: cand, auctionOver: false };
+  }
+  return { nextPlayer: remaining[0], auctionOver: false }; // 도달 불가 (remaining ≥ 2)
+}
+
 export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
   return {
     placeBid: (playerId, amount) => {
       logAction('preparation', 'placeBid', { player: playerId, amount, turn: get().currentTurn });
       set((state) => {
-        if (!state.auction) {
-          // 경매 시작 - 다음 입찰자 계산
-          const activePlayers = state.playerOrder;
-          const currentIndex = activePlayers.indexOf(playerId);
-          const nextIndex = (currentIndex + 1) % activePlayers.length;
-          const nextBidder = activePlayers[nextIndex];
-
-          return {
-            auction: {
-              currentBidder: playerId,
-              highestBid: amount,
-              highestBidder: playerId,
-              passedPlayers: [],
-              bids: { [playerId]: amount } as Record<PlayerId, number>,
-              lastActedPlayer: playerId,
-            },
-            currentPlayer: nextBidder,
-          };
-        }
-
-        // 입찰
-        if (amount <= state.auction.highestBid) {
-          console.warn(`[WARN] placeBid: 입찰 금액 부족 - playerId: ${playerId}, 입찰: $${amount}, 현재 최고: $${state.auction.highestBid}`);
+        const highestSoFar = state.auction?.highestBid ?? 0;
+        // $0 입찰 불가, 기존 최고입찰액보다 높아야 함 (최고입찰자가 자기 최고가 위로 올리는 것 포함)
+        if (amount < 1 || amount <= highestSoFar) {
+          console.warn(`[WARN] placeBid: 입찰 금액 부족 - playerId: ${playerId}, 입찰: $${amount}, 현재 최고: $${highestSoFar}`);
           return state;
         }
 
-        // 다음 입찰자 계산 (패스한 플레이어 제외)
-        const activePlayers = state.playerOrder.filter(p => !state.auction!.passedPlayers.includes(p));
-        const currentIndex = activePlayers.indexOf(playerId);
-        const nextIndex = (currentIndex + 1) % activePlayers.length;
-        const nextBidder = activePlayers[nextIndex];
+        const droppedOutPlayers = state.auction?.droppedOutPlayers ?? [];
+        const { nextPlayer } = advanceAuctionTurn(
+          state.playerOrder, state.players, droppedOutPlayers, playerId
+        );
 
         return {
           auction: {
-            ...state.auction,
             currentBidder: playerId,
             highestBid: amount,
             highestBidder: playerId,
-            lastActedPlayer: playerId,
+            droppedOutPlayers,
             bids: {
-              ...state.auction.bids,
+              ...(state.auction?.bids ?? {}),
               [playerId]: amount,
-            },
+            } as Record<PlayerId, number>,
+            lastActedPlayer: playerId,
           },
-          currentPlayer: nextBidder,
+          currentPlayer: nextPlayer,
           logs: [
             ...state.logs,
             {
@@ -87,82 +103,31 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
       scheduleAICheck(get);
     },
 
+    // 포기(drop out): 경매에서 탈락 — 순서는 resolveAuction이 포기 역순으로 배치
     passBid: (playerId) => {
       logAction('preparation', 'passBid', { player: playerId, turn: get().currentTurn });
       set((state) => {
-        // 첫 번째 플레이어가 입찰 없이 포기하는 경우 (auction이 null)
-        if (!state.auction) {
-          console.log(`[passBid] 첫 번째 플레이어 포기 - playerId: ${playerId}`);
-          const newPassedPlayers = [playerId];
-          const activePlayers = state.playerOrder.filter(p => !newPassedPlayers.includes(p));
-
-          // 다음 입찰자 계산
-          let nextBidder: PlayerId;
-          if (activePlayers.length <= 1) {
-            // 경매 종료 (모두 포기 또는 1명 남음)
-            nextBidder = activePlayers[0] || state.playerOrder[0];
-          } else {
-            nextBidder = activePlayers[0];
-          }
-
-          return {
-            auction: {
-              currentBidder: nextBidder,
-              highestBid: 0,
-              highestBidder: null,
-              passedPlayers: newPassedPlayers,
-              bids: {} as Record<PlayerId, number>,
-              lastActedPlayer: playerId,
-            },
-            currentPlayer: nextBidder,
-            logs: [
-              ...state.logs,
-              {
-                turn: state.currentTurn,
-                phase: state.currentPhase,
-                player: playerId,
-                action: `입찰 포기 (첫 번째)`,
-                timestamp: Date.now(),
-              },
-            ],
-          };
+        // 중복 포기 방어 (재전송·중복 클릭)
+        if (state.auction?.droppedOutPlayers.includes(playerId)) {
+          console.warn(`[WARN] passBid: 이미 포기한 플레이어 - ${playerId}`);
+          return state;
         }
 
-        const newPassedPlayers = [...state.auction.passedPlayers, playerId];
-
-        // 다음 입찰자 계산 (패스한 플레이어 제외)
-        const activePlayers = state.playerOrder.filter(p => !newPassedPlayers.includes(p));
-
-        // 남은 플레이어가 1명 이하면 경매 종료 상태
-        let nextBidder: PlayerId;
-        if (activePlayers.length <= 1) {
-          // 경매 종료 - 승자가 현재 플레이어가 됨
-          nextBidder = state.auction.highestBidder || activePlayers[0] || state.playerOrder[0];
-        } else {
-          // 방금 포기한 playerId의 다음 순서부터 미포기 플레이어를 찾는다.
-          // (lastActedPlayer 기반 계산은 그 플레이어가 이미 포기했을 때 indexOf가 -1이 되어
-          //  첫 입찰자로 잘못 되돌아가는 버그 — 5인+ 경매에서 차례가 꼬임)
-          // ⚠️ 최고입찰자(highestBidder)는 건너뛴다 — 남이 자기 위로 올리기 전엔 다시 차례를
-          //  줄 이유가 없고, Turn Order 스킵(skipBid) 플레이어가 활성으로 남아 순환이
-          //  최고입찰자에게 되돌아가면 그가 (이미 1등인데) 포기를 눌러 스스로 순서를 무너뜨리는
-          //  버그가 난다. (passBid는 highestBidder를 갱신하지 않아 포기해도 1등으로 남는다)
-          const highestBidder = state.auction.highestBidder;
-          const order = state.playerOrder;
-          const start = order.indexOf(playerId);
-          nextBidder = activePlayers.find(p => p !== highestBidder) ?? activePlayers[0];
-          for (let i = 1; i <= order.length; i++) {
-            const cand = order[(start + i) % order.length];
-            if (activePlayers.includes(cand) && cand !== highestBidder) { nextBidder = cand; break; }
-          }
-        }
+        const droppedOutPlayers = [...(state.auction?.droppedOutPlayers ?? []), playerId];
+        const { nextPlayer } = advanceAuctionTurn(
+          state.playerOrder, state.players, droppedOutPlayers, playerId
+        );
 
         return {
           auction: {
-            ...state.auction,
-            passedPlayers: newPassedPlayers,
+            currentBidder: state.auction?.currentBidder ?? null,
+            highestBid: state.auction?.highestBid ?? 0,
+            highestBidder: state.auction?.highestBidder ?? null,
+            droppedOutPlayers,
+            bids: (state.auction?.bids ?? {}) as Record<PlayerId, number>,
             lastActedPlayer: playerId,
           },
-          currentPlayer: nextBidder,
+          currentPlayer: nextPlayer,
           logs: [
             ...state.logs,
             {
@@ -180,97 +145,40 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
       scheduleAICheck(get);
     },
 
-    // Turn Order 패스: 탈락 없이 다음 입찰자로 넘어가기
+    // Turn Order 패스: 포기 없이 이번 차례만 넘긴다 (룰북 "say 'pass' once to stay in the bidding").
+    // 입찰액·순위·droppedOutPlayers는 건드리지 않고 turnOrderPassUsed만 세운다.
+    // 종료 로직 없음 — 종료 판정은 advanceAuctionTurn 한 곳뿐.
     skipBid: (playerId) => {
       logAction('preparation', 'skipBid', { player: playerId, turn: get().currentTurn });
       set((state) => {
-        // 첫 순서 플레이어가 아직 아무도 입찰하지 않은 상태(auction=null)에서 Turn Order 패스를
-        // 쓰는 경우 — 탈락 없이 다음 플레이어로 넘기고, 자기는 경매 그룹에 남는다(passedPlayers에
-        // 넣지 않음). 이 케이스를 빼면 첫 플레이어의 Turn Order 패스가 무시돼 화면이 멈춘다.
-        if (!state.auction) {
-          const order = state.playerOrder;
-          const idx = order.indexOf(playerId);
-          const nextBidder = order[(idx + 1) % order.length];
-          return {
-            auction: {
-              currentBidder: nextBidder,
-              highestBid: 0,
-              highestBidder: null,
-              passedPlayers: [],
-              bids: {} as Record<PlayerId, number>,
-              lastActedPlayer: playerId,
-            },
-            currentPlayer: nextBidder,
-            players: {
-              ...state.players,
-              [playerId]: { ...state.players[playerId], turnOrderPassUsed: true },
-            },
-            logs: [
-              ...state.logs,
-              {
-                turn: state.currentTurn,
-                phase: state.currentPhase,
-                player: playerId,
-                action: `Turn Order 패스 사용 (첫 순서, 탈락 없음)`,
-                timestamp: Date.now(),
-              },
-            ],
-          };
+        const player = state.players[playerId];
+        // 권한 검증: 직전 턴 turnOrder 선택(available) + 미사용("once")일 때만
+        if (!player?.turnOrderPassAvailable || player.turnOrderPassUsed) {
+          console.warn(`[WARN] skipBid: Turn Order 패스 권한 없음 또는 이미 사용 - ${playerId}`);
+          return state;
         }
 
-        // 다음 입찰자 계산 (패스한 플레이어 제외, 최고입찰자는 건너뜀 — passBid와 동일 이유)
-        const highestBidder = state.auction.highestBidder;
-        const activePlayers = state.playerOrder.filter(p => !state.auction!.passedPlayers.includes(p));
-        const currentIndex = activePlayers.indexOf(playerId);
-
-        // 나·최고입찰자를 뺀 "더 부를 수 있는 사람"이 없으면 = 최고입찰자만 남음 → 경매 종료.
-        // Turn Order 패스는 탈락이 아니지만 여기서 더 부를 사람이 없으므로, 나를 마지막
-        // 포기자(=승자 다음 순서)로 넣어 경매를 끝낸다.
-        // ⚠️ 이 처리가 없으면 최고입찰자를 건너뛴 뒤 한 바퀴 돌아 "나 자신"이 다음 입찰자로
-        //    잡혀 "Turn Order 패스를 썼는데 계속 내 입찰 차례"가 된다 (실플레이 버그).
-        const othersCanBid = activePlayers.filter(p => p !== playerId && p !== highestBidder);
-        if (othersCanBid.length === 0) {
-          return {
-            auction: {
-              ...state.auction,
-              passedPlayers: [...state.auction.passedPlayers, playerId],
-              lastActedPlayer: playerId,
-            },
-            currentPlayer: highestBidder ?? playerId,
-            players: {
-              ...state.players,
-              [playerId]: { ...state.players[playerId], turnOrderPassUsed: true },
-            },
-            logs: [
-              ...state.logs,
-              {
-                turn: state.currentTurn,
-                phase: state.currentPhase,
-                player: playerId,
-                action: `Turn Order 패스 — 남은 입찰자가 없어 경매 종료`,
-                timestamp: Date.now(),
-              },
-            ],
-          };
-        }
-
-        let nextBidder = othersCanBid[0];
-        for (let i = 1; i <= activePlayers.length; i++) {
-          const cand = activePlayers[(currentIndex + i) % activePlayers.length];
-          if (cand !== highestBidder && cand !== playerId) { nextBidder = cand; break; }
-        }
+        const droppedOutPlayers = state.auction?.droppedOutPlayers ?? [];
+        const { nextPlayer } = advanceAuctionTurn(
+          state.playerOrder, state.players, droppedOutPlayers, playerId
+        );
 
         return {
+          // 첫 순서 패스(auction=null)면 빈 경매 셸을 만들어 차례만 넘긴다
           auction: {
-            ...state.auction,
-            lastActedPlayer: playerId,  // 마지막 행동자 업데이트 (passedPlayers에는 추가 안 함)
+            currentBidder: state.auction?.currentBidder ?? null,
+            highestBid: state.auction?.highestBid ?? 0,
+            highestBidder: state.auction?.highestBidder ?? null,
+            droppedOutPlayers, // 변경 없음 — 패스는 포기가 아니다
+            bids: (state.auction?.bids ?? {}) as Record<PlayerId, number>,
+            lastActedPlayer: playerId,
           },
-          currentPlayer: nextBidder,
+          currentPlayer: nextPlayer,
           // 패스 사용 처리를 여기서 중앙화한다 — AI/테스트도 skipBid를 직접 호출하므로
           // 외부(AuctionPanel/호스트 intent)에서만 세팅하면 봇이 플래그를 못 세워 매 라운드 무한 스킵.
           players: {
             ...state.players,
-            [playerId]: { ...state.players[playerId], turnOrderPassUsed: true },
+            [playerId]: { ...player, turnOrderPassUsed: true },
           },
           logs: [
             ...state.logs,
@@ -278,7 +186,7 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
               turn: state.currentTurn,
               phase: state.currentPhase,
               player: playerId,
-              action: `Turn Order 패스 사용 (탈락 없음)`,
+              action: `Turn Order 패스 사용 (포기 아님 — 경매에 남음)`,
               timestamp: Date.now(),
             },
           ],
@@ -296,53 +204,52 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
           return state;
         }
 
-        const { highestBid, bids, passedPlayers } = state.auction;
-        let { highestBidder } = state.auction;
+        const { bids, droppedOutPlayers } = state.auction;
 
         // 비용 지불 및 순서 결정
         const newPlayers = { ...state.players };
         const newPlayerOrder: PlayerId[] = [];
 
         // 다중 플레이어 경매 규칙 (룰북 기준):
-        // - 첫 번째로 포기한 플레이어: 마지막 순서, $0 지불
-        // - 마지막 2명 (승자 + 마지막 포기자): 각자 입찰액 전액 지불
-        // - 나머지 포기자들 (중간): 입찰액의 절반 (올림) 지불
+        // - 첫 번째로 포기한 플레이어: 마지막 순서, $0 지불 (입찰했어도)
+        // - 마지막 2명 (승자 + 마지막 포기자): 각자 "자기 입찰액" 전액 지불
+        // - 나머지 포기자들 (중간): 자기 입찰액의 절반 (올림) 지불
+        // - 입찰한 적 없는 플레이어(무입찰 포기·패스만 한 승자)는 $0
 
         // 포기 순서 복사 (원본 변경 방지)
-        const passOrder = [...passedPlayers];
-        const lastDropoutIndex = passOrder.length - 1;
+        const dropOrder = [...droppedOutPlayers];
+        const lastDropoutIndex = dropOrder.length - 1;
 
-        // highestBidder가 없으면 (모두 포기하거나 입찰 없이 완료된 경우)
-        // 포기하지 않은 플레이어를 승자로 설정
-        if (!highestBidder) {
-          // ⚠️ 파산자 제외 — activePlayers는 좌석 전체(탈락자 포함)라 그대로 쓰면
-          // 파산한 플레이어가 "포기하지 않은 사람"으로 잡혀 1번 순서가 된다 (2026-07-24 검증).
-          const activePlayers = state.activePlayers.filter(
-            p => !passedPlayers.includes(p) && !newPlayers[p]?.eliminated
-          );
-          if (activePlayers.length > 0) {
-            highestBidder = activePlayers[0];
-            console.log(`[resolveAuction] 입찰 없이 완료 - 승자: ${highestBidder}`);
-          }
+        // 승자 = 포기하지 않고 남은 유일한 플레이어 (최고입찰자가 포기했을 수도,
+        // 무입찰 패스만 한 플레이어일 수도 있다 — highestBidder로 단정하지 않는다).
+        // ⚠️ 파산자 제외 — activePlayers는 좌석 전체(탈락자 포함)라 그대로 쓰면
+        // 파산한 플레이어가 "포기하지 않은 사람"으로 잡혀 1번 순서가 된다 (2026-07-24 검증).
+        const remaining = state.activePlayers.filter(
+          p => !droppedOutPlayers.includes(p) && !newPlayers[p]?.eliminated
+        );
+        const winner = remaining[0] ?? state.auction.highestBidder ?? null;
+        if (winner && remaining.length === 0) {
+          console.warn(`[WARN] resolveAuction: 미포기 잔존자 없음 — highestBidder(${winner})로 폴백`);
         }
 
-        // 최고 입찰자가 1번 (전액 지불)
-        if (highestBidder) {
-          const bidderCash = newPlayers[highestBidder].cash - highestBid;
-          if (bidderCash < 0) {
-            console.warn(`[WARN] resolveAuction: 현금 부족 - ${highestBidder}, 입찰: $${highestBid}, 보유: $${newPlayers[highestBidder].cash}`);
+        // 승자가 1번 — 자기 입찰액 전액 지불 (입찰한 적 없으면 $0)
+        if (winner) {
+          const winnerBid = bids[winner] ?? 0;
+          const winnerCash = newPlayers[winner].cash - winnerBid;
+          if (winnerCash < 0) {
+            console.warn(`[WARN] resolveAuction: 현금 부족 - ${winner}, 입찰: $${winnerBid}, 보유: $${newPlayers[winner].cash}`);
           }
-          newPlayers[highestBidder] = {
-            ...newPlayers[highestBidder],
-            cash: Math.max(0, bidderCash),
+          newPlayers[winner] = {
+            ...newPlayers[winner],
+            cash: Math.max(0, winnerCash),
           };
-          newPlayerOrder.push(highestBidder);
+          newPlayerOrder.push(winner);
         }
 
         // 포기한 플레이어들 처리 (포기 역순으로 순서 결정)
         // 마지막 포기자부터 첫 번째 포기자까지 (1번 다음 순서부터)
         for (let i = lastDropoutIndex; i >= 0; i--) {
-          const player = passOrder[i];
+          const player = dropOrder[i];
           if (newPlayerOrder.includes(player)) continue;
 
           const playerBid = bids[player] || 0;
@@ -386,10 +293,10 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
 
         console.log(`[resolveAuction] 새 playerOrder: [${newPlayerOrder.join(', ')}], 1번: ${newPlayerOrder[0]} (isAI: ${newPlayers[newPlayerOrder[0]]?.isAI})`);
 
-        // Montréal 경매 트윅: 입찰 없이 패스한 플레이어가 2인 이상이면 그들은 이번 턴 특수 행동 선택 불가
+        // Montréal 경매 트윅: 입찰 없이 포기한 플레이어가 2인 이상이면 그들은 이번 턴 특수 행동 선택 불가
         const penaltyLogs: typeof state.logs = [];
         if (getMapProfile(state.mapId).auctionNoBidPassPenalty) {
-          const noBidPassers = passedPlayers.filter(p => !((bids[p] ?? 0) > 0));
+          const noBidPassers = droppedOutPlayers.filter(p => !((bids[p] ?? 0) > 0));
           if (noBidPassers.length >= 2) {
             for (const p of noBidPassers) {
               newPlayers[p] = { ...newPlayers[p], actionBanned: true };
@@ -404,6 +311,7 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
           }
         }
 
+        const winnerBidPaid = winner ? (bids[winner] ?? 0) : 0;
         return {
           players: newPlayers,
           playerOrder: newPlayerOrder,
@@ -414,9 +322,9 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
             {
               turn: state.currentTurn,
               phase: state.currentPhase,
-              player: highestBidder || state.playerOrder[0],
-              action: highestBidder
-                ? `경매 승리: ${newPlayers[highestBidder].name} ($${highestBid} 지불)`
+              player: winner || state.playerOrder[0],
+              action: winner
+                ? `경매 승리: ${newPlayers[winner].name} ($${winnerBidPaid} 지불)`
                 : '경매 없이 순서 유지',
               timestamp: Date.now(),
             },

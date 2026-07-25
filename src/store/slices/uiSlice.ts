@@ -51,8 +51,12 @@ function govExtraOf(state: GameStore): number {
  * 요구사항 1의 **큐브 단위** 게이트 (2026-07-22 사용자 피드백): 본인 철도 최선(모든 목적지
  * 통틀어 내 수입 최대)과 비교해, 내 수입이 **더 커지지 않는** 타인 경유 옵션은 숨긴다 —
  * 목적지가 달라도 내 수입이 같으면 상대에게 수입만 헌납하는 선택지다(예: 하노버 own2 본인
- * 철도가 있는데 뉘른베르크 own2+opp3 타인 경유가 노출되던 사례). findRouteOptions의
- * 목적지별 게이트(2ⓐ)만으론 "본인 불가 목적지(2ⓑ)"가 큐브 최선과 무관하게 열렸다.
+ * 철도가 있는데 뉘른베르크 own2+opp3 타인 경유가 노출되던 사례).
+ * ⚠️ 단, **본인 철도만으론 도달 불가한 목적지는 지우지 않는다** (2026-07-26 사용자 발견):
+ * 이 게이트가 그런 목적지의 유일한 길(타인 경유)까지 숨겨 "엔진상 3링크 배달이 합법인데
+ * 2링크 가이드만 표시"되는 버그가 났다. 목적지 선택은 수입 외 전략 가치(가는 큐브·색 수요·
+ * 견제)가 있으므로 합법 목적지는 남긴다 — CLAUDE.md 정책 "본인 철도로 도달 불가한 목적지에는
+ * 타인 경유 노출"(2ⓑ)과 일치. 숨김은 "본인 철도로도 갈 수 있는 목적지의 열등한 타인 경유"만.
  * 본인 철도 경로가 전무한 큐브는 전면 개방 유지(배달 가능성 보존).
  * ⚠️ 사람 전용 — 봇은 ΔVP(타인 수입 페널티)가 같은 판단을 하므로 미적용
  * (AI 결정 목적지가 여기서 숨겨지면 selectDestinationCity의 reachable 검사에 걸려 멈춘다).
@@ -68,10 +72,17 @@ function gateMixedByCubeBest(
   }
   if (globalOwnBest < 0) return routeOptions;
   return routeOptions
-    .map(r => ({
-      dest: r.dest,
-      options: r.options.filter(o => o.oppLinks === 0 || o.ownLinks > globalOwnBest),
-    }))
+    .map(r => {
+      // 본인 철도 단독 경로가 없는 목적지 = 타인 경유가 유일한 길 → 그대로 노출
+      const ownOnlyReachable = r.options.some(o => o.oppLinks === 0);
+      if (!ownOnlyReachable) return r;
+      return {
+        dest: r.dest,
+        // 내 수입이 큐브 최선 "미만"인 타인 경유만 숨김 — 동률은 합법 대안으로 남긴다
+        // (2026-07-26: 공존 헥스 경유 3링크 등 동률 경로가 통째로 사라지던 문제)
+        options: r.options.filter(o => o.oppLinks === 0 || o.ownLinks >= globalOwnBest),
+      };
+    })
     .filter(r => r.options.length > 0);
 }
 

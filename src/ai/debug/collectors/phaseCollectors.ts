@@ -131,7 +131,7 @@ function collectAuctionDecision(
 
   // 경매가 없거나 마지막 플레이어
   const playerIds = Object.keys(state.players) as PlayerId[];
-  const remainingPlayers = playerIds.filter(pid => !auction?.passedPlayers.includes(pid));
+  const remainingPlayers = playerIds.filter(pid => !auction?.droppedOutPlayers.includes(pid));
 
   if (!auction) {
     decision = 'complete';

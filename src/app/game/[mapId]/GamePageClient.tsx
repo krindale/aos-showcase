@@ -96,6 +96,11 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   const specialRules = getMapProfile(mapId).specialRules;
 
   const [showSetup, setShowSetup] = useState(true);
+  // 부팅 게이트: F5 복원 판정(온라인 자동 재입장/오프라인 이어하기)이 끝나기 전엔 셋업 화면
+  // 대신 "복원 중" 로딩을 보여준다 — 온라인 재접속(비동기 1~3초) 동안 셋업 화면이 먼저
+  // 그려졌다가 보드로 튀는 깜빡임 방지(2026-07-26 사용자 보고). 해제 지점: ① 온라인 복원은
+  // netRoom.status 효과(playing→보드/waiting→대기실), ② 오프라인·복원 없음은 autoRejoin 효과.
+  const [booting, setBooting] = useState(true);
   // 진행 중 게임 이어하기 배너 (일부러 나갔다 재입장한 경우 — 자동 복원 대신 선택권)
   const [resumeAvailable, setResumeAvailable] = useState(false);
   const [setupTab, setSetupTab] = useState<'local' | 'online'>('local');
@@ -155,29 +160,35 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   useEffect(() => {
     void (async () => {
       const rejoined = await autoRejoin().catch(() => false);
+      // 온라인 복원 성공: booting 해제는 netRoom.status 효과가 화면 전환과 함께 담당 —
+      // 여기서 풀면 status 효과가 setShowSetup(false)하기 전 한 프레임 셋업이 비친다
       if (rejoined) return;
-      const s = useGameStore.getState();
-      // gameStarted가 없는 옛 저장본(플래그 도입 전 시작한 게임)은 진행 흔적으로 추정.
-      // ⚠️ persist 병합이 기본값 false를 채우므로 ?? 가 아니라 || 로 이어야 한다.
-      // ⚠️ 시작 단계는 맵마다 다르다 — Montréal은 issueShares가 아니라 governmentLink로
-      // 시작하므로, issueShares만 시작 단계로 보면 갓 리셋한 미시작 몬트리올 상태가
-      // "진행 중"으로 오판돼 종료 후에도 배너가 떴다 (2026-07-25 사용자 보고).
-      const isStartPhase =
-        s.currentPhase === 'issueShares' || s.currentPhase === 'governmentLink';
-      const inProgress =
-        s.gameStarted ||
-        s.currentTurn > 1 ||
-        !isStartPhase ||
-        s.board.trackTiles.length > 0 ||
-        Object.values(s.players).some((p) => p.issuedShares !== 2);
-      // 종료된 게임 제외 — winner(파산 종료)만 보면 턴 소진 종료(gameOver + finalScores,
-      // winner 없음)를 놓쳐 끝난 게임에 이어하기 배너가 떴다 (2026-07-24 사용자 보고).
-      const isOver = s.currentPhase === 'gameOver' || !!s.winner || !!s.finalScores;
-      if (!inProgress || s.mapId !== mapId || isOver) return;
-      let wasInGame = false;
-      try { wasInGame = window.sessionStorage.getItem('aos-ingame') === '1'; } catch { /* noop */ }
-      if (wasInGame) { setShowSetup(false); return; } // F5 — 이어서 진행
-      setResumeAvailable(true); // 재입장 — 이어하기/삭제 선택권 제공
+      try {
+        const s = useGameStore.getState();
+        // gameStarted가 없는 옛 저장본(플래그 도입 전 시작한 게임)은 진행 흔적으로 추정.
+        // ⚠️ persist 병합이 기본값 false를 채우므로 ?? 가 아니라 || 로 이어야 한다.
+        // ⚠️ 시작 단계는 맵마다 다르다 — Montréal은 issueShares가 아니라 governmentLink로
+        // 시작하므로, issueShares만 시작 단계로 보면 갓 리셋한 미시작 몬트리올 상태가
+        // "진행 중"으로 오판돼 종료 후에도 배너가 떴다 (2026-07-25 사용자 보고).
+        const isStartPhase =
+          s.currentPhase === 'issueShares' || s.currentPhase === 'governmentLink';
+        const inProgress =
+          s.gameStarted ||
+          s.currentTurn > 1 ||
+          !isStartPhase ||
+          s.board.trackTiles.length > 0 ||
+          Object.values(s.players).some((p) => p.issuedShares !== 2);
+        // 종료된 게임 제외 — winner(파산 종료)만 보면 턴 소진 종료(gameOver + finalScores,
+        // winner 없음)를 놓쳐 끝난 게임에 이어하기 배너가 떴다 (2026-07-24 사용자 보고).
+        const isOver = s.currentPhase === 'gameOver' || !!s.winner || !!s.finalScores;
+        if (!inProgress || s.mapId !== mapId || isOver) return;
+        let wasInGame = false;
+        try { wasInGame = window.sessionStorage.getItem('aos-ingame') === '1'; } catch { /* noop */ }
+        if (wasInGame) { setShowSetup(false); return; } // F5 — 이어서 진행
+        setResumeAvailable(true); // 재입장 — 이어하기/삭제 선택권 제공
+      } finally {
+        setBooting(false); // 오프라인/복원 없음 — 셋업(또는 복원된 보드) 표시
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapId]);
@@ -206,12 +217,21 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     !isOnline || isMyTurn || (netMode === 'host' && !PLAYER_PHASES.includes(currentPhase));
 
   // 온라인 방 상태 → 화면 전환 (호스트 initGame / 게스트 스냅샷 수신 후 status가 playing)
+  // booting 해제도 여기서 — F5 자동 재입장 성공 시 셋업을 거치지 않고 곧장 보드/대기실로
   useEffect(() => {
     if (!isOnline || !netRoom) return;
-    if (netRoom.status === 'playing') setShowSetup(false);
-    else if (netRoom.status === 'waiting') {
+    if (netRoom.status === 'playing') {
+      setShowSetup(false);
+      setBooting(false);
+    } else if (netRoom.status === 'waiting') {
       setShowSetup(true);
       setSetupTab('online');
+      setBooting(false);
+    } else {
+      // finished 등 그 외 상태(호스트가 닫은 방에 재입장 — DB 삭제가 실패하면 finished로
+      // 잔존): 진행할 화면이 없으므로 셋업으로. 안 하면 booting이 안 풀려 로딩 교착.
+      setShowSetup(true);
+      setBooting(false);
     }
   }, [isOnline, netRoom, netRoom?.status]);
 
@@ -348,6 +368,19 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       window.removeEventListener('orientationchange', handleResize);
     };
   }, []);
+
+  // 부팅(복원 판정) 중 — 셋업 화면을 먼저 그렸다가 보드로 튀는 깜빡임 방지.
+  // showSetup이 이미 false면(복원 완료) 아래 게임 화면으로 바로 내려간다.
+  if (booting && showSetup) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="glass-card px-8 py-6 rounded-2xl flex items-center gap-3">
+          <span className="w-5 h-5 rounded-full border-2 border-accent border-t-transparent animate-spin" aria-hidden />
+          <span className="text-sm text-foreground-secondary">게임 복원 중…</span>
+        </div>
+      </div>
+    );
+  }
 
   // 셋업 화면
   if (showSetup) {

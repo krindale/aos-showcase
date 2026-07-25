@@ -665,7 +665,9 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
               </div>
             )}
 
-            <div className="space-y-3 my-6 max-h-[400px] overflow-y-auto">
+            {/* 승자 카드의 ring-2는 요소 바깥에 그려져 overflow 컨테이너에 잘린다 →
+                안쪽 여백(px/py-1)으로 링 자리를 만들고 음수 마진으로 원래 위치를 유지 */}
+            <div className="space-y-3 my-5 -mx-1 px-1 py-1 max-h-[400px] overflow-y-auto">
               {playerScores.map(({ playerId, player, trackScore, totalScore }, rank) => {
                 const isWinner = totalScore === highestScore;
                 const colorHex = PLAYER_COLORS[player.color];

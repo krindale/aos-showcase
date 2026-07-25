@@ -23,8 +23,8 @@ import {
   getNeighborHex,
   getOppositeEdge,
   HEX_SIZE,
-  HEX_WIDTH,
-  HEX_HEIGHT,
+  HEX_HORIZONTAL_RADIUS,
+  HEX_VERTICAL_RADIUS,
   findCompletedLinks,
   isTrackPartOfCompletedLink,
 } from '@/utils/hexGrid';
@@ -265,12 +265,46 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     () => calculateBoardDimensions(mapData.cols, mapData.rows, undefined, undefined, isFlat),
     [mapData, isFlat]
   );
-  // viewBox 보정 — 맵별 빈 가장자리 트림. 내부 좌표 계산엔 원래 boardWidth를 그대로 쓰고,
-  // 표시 viewBox만 줄여 과대 여백을 없앤다 (콘텐츠는 클립되지 않는 범위에서).
-  // 한 행(좌우) 폭: flat 맵은 화면 가로가 row 방향(HEX_HEIGHT*0.75), pointy 맵은 HEX_WIDTH.
-  const rowPitch = isFlat ? HEX_HEIGHT * 0.75 : HEX_WIDTH;
-  const trimLeft = (mapData.trimLeftHexes ?? 0) * rowPitch; // 좌측 빈 열 가림 (Korea: row 0)
-  const viewWidth = boardWidth - (mapData.trimRightHexes ?? 0) * HEX_WIDTH - trimLeft;
+  // viewBox 자동 맞춤 (전 맵 공통) — calculateBoardDimensions는 사방 고정 여백 50px에 더해
+  // 빈 가장자리 행/열까지 치수에 포함한다. 그래서 세로는 14~20%가 낭비되고, 가로는 빈 열이
+  // 한쪽에만 있는 맵(달 좌133/우50, 튜토리얼 좌50/우145)이 한쪽으로 쏠려 보였다.
+  // 실제로 그려지는 것(헥스·도시·마을)의 상하좌우 끝을 구해 viewBox를 그 범위 + 여백 30으로
+  // 맞춘다 → 항상 중앙 정렬. 좌표계·게임 로직은 무변경(표시 영역만 조정).
+  // (맵별 수동 보정이던 trimLeftHexes/trimRightHexes를 이 계산이 대체한다)
+  const { viewTop, viewHeight, viewLeft, viewWidth } = useMemo(() => {
+    // 헥스 반지름: pointy는 꼭짓점이 위아래(세로=HEX_SIZE, 가로=apothem), flat 전치는 그 반대
+    const halfV = isFlat ? HEX_HORIZONTAL_RADIUS : HEX_VERTICAL_RADIUS;
+    const halfH = isFlat ? HEX_SIZE : HEX_HORIZONTAL_RADIUS;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    const add = (coord: HexCoord) => {
+      const { x, y } = hexToPixel(coord.col, coord.row, undefined, undefined, undefined, isFlat);
+      minX = Math.min(minX, x - halfH);
+      maxX = Math.max(maxX, x + halfH);
+      minY = Math.min(minY, y - halfV);
+      maxY = Math.max(maxY, y + halfV);
+    };
+    board.hexTiles.forEach(h => {
+      // 안 그리는 바다 헥스는 콘텐츠가 아니다 (그리는 맵이면 지도의 일부이므로 포함)
+      if (h.terrain === 'lake' && mapData.hideLakeHexes) return;
+      add(h.coord);
+    });
+    board.cities.forEach(c => add(c.coord));
+    board.towns.forEach(t => add(t.coord));
+    if (!Number.isFinite(minY) || !Number.isFinite(minX)) {
+      return { viewTop: 0, viewHeight: boardHeight, viewLeft: 0, viewWidth: boardWidth };
+    }
+    // 사방 여백 30씩. 달(랩 어라운드) 번호 박스가 변 바깥으로 최대 ~25px 튀어나오는 것도
+    // 이 안에 들어와 잘리지 않는다.
+    const pad = 30;
+    const top = Math.max(0, minY - pad);
+    const bottom = Math.min(boardHeight, maxY + pad);
+    const left = Math.max(0, minX - pad);
+    const right = Math.min(boardWidth, maxX + pad);
+    return { viewTop: top, viewHeight: bottom - top, viewLeft: left, viewWidth: right - left };
+  }, [board.hexTiles, board.cities, board.towns, mapData.hideLakeHexes, isFlat, boardHeight, boardWidth]);
 
   // 지형색 → 건설비용 범례 (hexCostMode: 'legend' 맵 — Western US). 지도에 헥스마다 숫자를
   // 찍지 않고 모서리에 한 번만 표시. 비용은 보드 hexTiles에서 직접 추출(맵 하드코딩 없음).
@@ -312,7 +346,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     minScale: 0.5,
     maxScale: 3.0,
     contentWidth: viewWidth,
-    contentHeight: boardHeight,
+    contentHeight: viewHeight,
   });
 
   // 완성된 링크 계산 (소유 마커 표시용)
@@ -721,7 +755,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
       <svg
         width="100%"
         height={fitOverlay ? undefined : undefined}
-        viewBox={`${trimLeft} ${!fitOverlay && scale < 1 ? (boardHeight * (1 - scale)) / 2 : 0} ${viewWidth} ${!fitOverlay && scale < 1 ? boardHeight * scale : boardHeight}`}
+        viewBox={`${viewLeft} ${viewTop + (!fitOverlay && scale < 1 ? (viewHeight * (1 - scale)) / 2 : 0)} ${viewWidth} ${!fitOverlay && scale < 1 ? viewHeight * scale : viewHeight}`}
         preserveAspectRatio="xMidYMid meet"
         className="block"
         onTouchStart={fitOverlay ? undefined : handleTouchStart}
@@ -746,7 +780,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
               ? undefined
               // 보드 중심(viewBox 중앙) 기준으로 스케일 → 축소해도 화면 밖으로 쏠리지 않고
               // 중앙에서 균일하게 작아진다. (SVG는 CSS transform-origin이 안 먹으므로 좌표로 직접 계산)
-              : `translate(${position.x}, ${position.y}) translate(${trimLeft + viewWidth / 2}, ${boardHeight / 2}) scale(${scale}) translate(${-(trimLeft + viewWidth / 2)}, ${-(boardHeight / 2)})`
+              : `translate(${position.x}, ${position.y}) translate(${viewLeft + viewWidth / 2}, ${viewTop + viewHeight / 2}) scale(${scale}) translate(${-(viewLeft + viewWidth / 2)}, ${-(viewTop + viewHeight / 2)})`
           }
         >
         {/* 배경 헥스 그리드 */}
@@ -1057,8 +1091,9 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           const a = hexToPixel(0, 13, undefined, undefined, undefined, isFlat);
           const pad = 12, rowH = 30, swatch = 22, w = 168;
           const h = 36 + costLegend.length * rowH + 8;
-          const x0 = Math.max(10, a.x - 66);
-          const y0 = Math.min(boardHeight - h - 10, Math.max(10, a.y - 96));
+          // 자동 맞춤된 표시 범위 안에 가두어 잘리지 않게
+          const x0 = Math.min(viewLeft + viewWidth - w - 10, Math.max(viewLeft + 10, a.x - 66));
+          const y0 = Math.min(viewTop + viewHeight - h - 10, Math.max(viewTop + 10, a.y - 96));
           return (
             <g style={{ pointerEvents: 'none' }}>
               <rect x={x0} y={y0} width={w} height={h} rx={10}

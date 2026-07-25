@@ -69,6 +69,33 @@ export { createInitialGameState, TUTORIAL_GAME_CONFIG } from './helpers/setup';
 export type { AIPlayerConfig } from './helpers/setup';
 
 /**
+ * store 코드 버전 — slice/helpers/store 로직을 수정할 때 +1 할 것.
+ * zustand store는 Fast Refresh(HMR)로 slice 함수가 갈아끼워지지 않아, 소스를 고쳐도
+ * 실행 중인 페이지에선 옛 로직이 계속 돈다(CLAUDE.md "HMR을 의심할 것").
+ * 아래 가드가 "페이지 로드 이후 store 모듈이 다시 평가됨"을 감지해 콘솔 경고를 띄운다.
+ */
+export const STORE_CODE_VERSION = 2;
+
+// HMR 스테일 가드 (dev 브라우저 전용 — SSR/vitest 제외).
+// window에 최초 로드 시점 버전을 박아두고, 이 모듈이 다시 평가되면(= store 관련 소스 변경)
+// 실행 중인 store가 스테일일 수 있음을 경고한다. 강력 새로고침하면 window가 초기화돼 사라진다.
+if (process.env.NODE_ENV !== 'production' && typeof window !== 'undefined') {
+  const g = window as typeof window & { __aosStoreCodeVersion?: number };
+  if (g.__aosStoreCodeVersion === undefined) {
+    g.__aosStoreCodeVersion = STORE_CODE_VERSION;
+  } else {
+    const running = g.__aosStoreCodeVersion;
+    console.warn(
+      running !== STORE_CODE_VERSION
+        ? `[HMR] gameStore 코드 버전 불일치: 실행 중 v${running} ≠ 코드 v${STORE_CODE_VERSION} — ` +
+          `zustand slice는 HMR로 교체되지 않습니다. 강력 새로고침(Cmd+Shift+R) 필요.`
+        : `[HMR] store 모듈이 재평가되었습니다 (v${STORE_CODE_VERSION}) — 실행 중인 store는 ` +
+          `옛 로직일 수 있습니다. 강력 새로고침(Cmd+Shift+R) 권장.`
+    );
+  }
+}
+
+/**
  * AI 행동 결과 확인 딜레이 (ms) — 봇이 행동한 뒤 바로 다음 플레이어/단계로 넘어가면
  * "마지막 플레이어가 뭘 했는지" 볼 수 없다는 피드백(2026-07-04)으로, 행동이 화면에 머문 뒤
  * 진행한다. 시뮬/테스트(VITEST)에선 0 — 게임 로직·베이스라인에 영향 없음.

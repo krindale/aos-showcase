@@ -234,7 +234,7 @@ function executeAuctionStep(): boolean {
   if (afterState.auction) {
     // 남은 활성 플레이어가 1명 이하인지 확인
     const activeBidders = afterState.playerOrder.filter(
-      p => !afterState.auction!.passedPlayers.includes(p)
+      p => !afterState.auction!.droppedOutPlayers.includes(p)
     );
     if (activeBidders.length <= 1) {
       useGameStore.getState().resolveAuction();

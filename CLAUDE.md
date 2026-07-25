@@ -527,9 +527,15 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
   `selectedAction`은 턴 롤오버 때 지워지므로 그대로 판정하면 표준 맵에선 패스가 절대 안 뜬다 → `resetPlayerActions`가
   롤오버 시 "직전 턴에 turnOrder를 골랐는지"를 `PlayerState.turnOrderPassAvailable`로 넘겨받아 다음 턴
   경매에서 판정한다(사람 `AuctionPanel` `canUseTurnOrderPass` · AI `strategies/auction.ts` 공통).
-- 패스 사용 플래그(`turnOrderPassUsed`) 세팅은 **`skipBid` 액션 내부에서 중앙 처리** — AI·테스트도
+- 패스 사용 플래그(`turnOrderPassUsed`) 세팅은 **`skipBid` 액션 내부에서 중앙 처리**(+권한 가드) — AI·테스트도
   `skipBid`를 직접 호출하므로 외부(패널/호스트 intent)에서만 세우면 봇이 매 라운드 무한 스킵한다. 롤오버 때
   `turnOrderPassUsed`도 리셋. St.Lucia(교대 선공권)는 경매/skipBid를 안 써 turnOrderPassAvailable이 무해.
+- **패스 ≠ 포기 (2026-07-25 룰북 정합)**: 패스는 `droppedOutPlayers`(포기 전용)에 안 들어가고 경매에 남는다.
+  종료 판정·차례 진행은 `advanceAuctionTurn`(auctionSlice) **한 곳** — 미포기 1명 남을 때까지 계속, 차례는
+  순서대로 예외 없이(최고입찰자 건너뛰기·자동 통과·액션별 종료 휴리스틱 금지). 최고입찰자도 자기 차례에
+  입찰(자기 최고가 위로) or 포기를 직접 선택하므로 **승자 = 미포기 유일 잔존자**(highestBidder로 단정 금지 —
+  resolveAuction·AuctionPanel·TurnTrack 공통). 승자는 자기 입찰액 전액 지불(무입찰 승자 $0). 회귀:
+  `src/store/__tests__/auctionTurnOrderPass.test.ts` 9종. 이력: [docs/issue-log.md](docs/issue-log.md).
 
 **엔진 업그레이드 (수송 단계, 턴당 1회 — 룰북)**
 - 룰: Move Goods는 2라운드. **두 번의 수송(물품 이동) 기회 중 1번**을 물품 이동 대신 엔진 트랙 1칸
@@ -657,6 +663,9 @@ node scripts/log-server.mjs  # :3999 로그 서버 — 앱과 항상 함께 띄�
 **⚠️ store 로직(slice/hexGrid 등)을 고쳤는데 화면 동작이 그대로면 HMR을 의심할 것** — zustand
 store는 HMR로 slice 함수가 갈아끼워지지 않아 **옛 로직이 계속 돈다**(미리보기는 바뀌었는데 정산은
 옛 코드가 도는 식). `.next` 삭제 + dev 재시작 + 브라우저 강력 새로고침으로 강제 반영.
+스테일 감지 가드: `gameStore.ts`의 `STORE_CODE_VERSION` — **store/slice/helpers 로직 수정 시 +1**
+하면 dev 콘솔에 `[HMR] 버전 불일치` 경고가 뜬다(버전을 안 올려도 모듈 재평가 경고는 뜸).
+강력 새로고침하면 사라진다.
 
 ### 브라우저 테스트 규칙 (터보 모드 + 왕복 최소화)
 

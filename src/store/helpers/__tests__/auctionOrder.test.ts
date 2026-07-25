@@ -48,14 +48,14 @@ describe('predictAuctionOrderSlots — 경매 진행 중 예상 순서 슬롯', 
     useGameStore.setState(s);
     const st = () => useGameStore.getState();
 
-    // player1이 $3 입찰(최고), 나머지는 순서대로 포기 → passedPlayers = [p2,p3,p4,p5]
+    // player1이 $3 입찰(최고), 나머지는 순서대로 포기 → droppedOutPlayers = [p2,p3,p4,p5]
     st().placeBid('player1', 3);
     st().passBid('player2');
     st().passBid('player3');
     st().passBid('player4');
     st().passBid('player5');
 
-    const passed = st().auction!.passedPlayers;
+    const passed = st().auction!.droppedOutPlayers;
     const slots = predictAuctionOrderSlots(order, passed);
 
     st().resolveAuction();

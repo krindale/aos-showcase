@@ -23,7 +23,7 @@ function makeAuction(overrides?: Partial<AuctionState>): AuctionState {
     currentBidder: 'player1',
     highestBid: 0,
     highestBidder: null,
-    passedPlayers: [],
+    droppedOutPlayers: [],
     bids: { player1: 0, player2: 0, player3: 0, player4: 0, player5: 0, player6: 0 },
     lastActedPlayer: null,
     ...overrides,
@@ -66,7 +66,7 @@ describe('auction.ts — ΔVP 기반 경매', () => {
     const state = createMockGameState({
       currentPhase: 'determinePlayerOrder',
       playerOrder: ['player1', 'player2'],
-      auction: makeAuction({ passedPlayers: ['player2'], highestBid: 1, highestBidder: 'player1' }),
+      auction: makeAuction({ droppedOutPlayers: ['player2'], highestBid: 1, highestBidder: 'player1' }),
     });
 
     const decision = decideAuctionBid(state, 'player1');

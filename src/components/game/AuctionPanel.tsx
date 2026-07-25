@@ -56,14 +56,19 @@ export default function AuctionPanel() {
     netMode === 'offline' || netMySeat === null ? null : activePlayers[netMySeat] ?? null;
   const isMyBid = myPlayerId === null || myPlayerId === currentBidder;
 
-  // 경매 종료 조건 확인
+  // 경매 종료 조건 확인 — 룰북: 미포기(drop out 안 한) 플레이어가 1명 남을 때까지 계속.
+  // Turn Order 패스는 포기가 아니므로 종료 판정에 영향 없음.
+  const remainingBidders = auction
+    ? playerOrder.filter(p => !auction.droppedOutPlayers.includes(p) && !players[p]?.eliminated)
+    : [];
   const isAuctionComplete = () => {
     if (!auction) return false;
-
-    // 모든 플레이어가 패스했거나 1명만 남았으면 종료
-    const activePlayers = playerOrder.filter(p => !auction.passedPlayers.includes(p));
-    return activePlayers.length <= 1;
+    return remainingBidders.length <= 1;
   };
+  // 승자 = 포기하지 않고 남은 유일한 플레이어 (최고입찰자가 포기했을 수도 있어 highestBidder로 단정 금지)
+  const auctionWinner = isAuctionComplete()
+    ? remainingBidders[0] ?? auction?.highestBidder ?? null
+    : null;
 
   // Turn Order 패스 사용 가능 여부 (직전 턴 turnOrder 선택으로 부여된 권한 — 이번 경매에 유효)
   const canUseTurnOrderPass = () => {
@@ -153,7 +158,7 @@ export default function AuctionPanel() {
           {playerOrder.map((playerId) => {
             const player = players[playerId];
             const isCurrentBidder = currentBidder === playerId;
-            const hasPassed = auction?.passedPlayers.includes(playerId);
+            const hasPassed = auction?.droppedOutPlayers.includes(playerId); // 포기(drop out)자 — Turn Order 패스는 여기 안 잡힘
             const playerBid = auction?.bids[playerId] || 0;
             const pColor = PLAYER_COLORS[player.color];
 
@@ -254,16 +259,18 @@ export default function AuctionPanel() {
                 >
                   <Crown size={34} fill={CROWN_GOLD} strokeWidth={1.8} style={{ color: CROWN_INK }} />
                 </motion.span>
-                {auction?.highestBidder ? (
+                {auctionWinner ? (
                   <>
                     <p className="text-lg font-bold text-foreground">
-                      <span style={{ color: PLAYER_COLORS[players[auction.highestBidder].color] }}>
-                        {players[auction.highestBidder].name}
+                      <span style={{ color: PLAYER_COLORS[players[auctionWinner].color] }}>
+                        {players[auctionWinner].name}
                       </span>{' '}
                       승리!
                     </p>
                     <p className="text-sm font-medium text-foreground-secondary">
-                      ${auction.highestBid} 지불
+                      {(auction?.bids[auctionWinner] ?? 0) > 0
+                        ? `$${auction!.bids[auctionWinner]} 지불`
+                        : '입찰 없이 1등 ($0)'}
                     </p>
                   </>
                 ) : (

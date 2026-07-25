@@ -39,7 +39,7 @@ export function decideAuctionBid(state: GameState, playerId: PlayerId): AuctionD
 
   // 경매 완료 조건 체크 - 혼자 남았으면 경매 완료
   if (auction) {
-    const activePlayers = state.playerOrder.filter(p => !auction.passedPlayers.includes(p));
+    const activePlayers = state.playerOrder.filter(p => !auction.droppedOutPlayers.includes(p));
     if (activePlayers.length <= 1) {
       debugLog.preparation(`[Phase II: 경매] ${player.name}: 경매 완료 대기 (혼자 남음)`);
       return { action: 'complete' };

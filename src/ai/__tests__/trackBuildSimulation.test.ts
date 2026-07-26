@@ -104,7 +104,7 @@ describe('AI 트랙 건설 경로 안정성', () => {
 
     // 큐브 배치: P에 yellow(→O), C에 red(→P)
     state = addCubesToCity(state, 'P', ['blue', 'yellow']);
-    state = addCubesToCity(state, 'C', ['red', 'purple']);
+    state = addCubesToCity(state, 'CLE', ['red', 'purple']);
     state = addCubesToCity(state, 'O', ['black', 'blue']);
     state = addCubesToCity(state, 'W', ['red', 'yellow']);
     state = addCubesToCity(state, 'I', ['purple', 'red']);
@@ -218,7 +218,7 @@ describe('AI 트랙 건설 경로 안정성', () => {
 
     // P→O 경로 (거리 3, 2개 트랙으로 완성 가능)
     state = addCubesToCity(state, 'P', ['yellow', 'blue']);
-    state = addCubesToCity(state, 'C', ['red']);
+    state = addCubesToCity(state, 'CLE', ['red']);
     state = addCubesToCity(state, 'O', ['black']);
     state = addCubesToCity(state, 'W', ['red']);
     state = addCubesToCity(state, 'I', ['purple']);

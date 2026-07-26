@@ -57,7 +57,18 @@ function RingPulse({ x, y, color }: { x: number; y: number; color: string }) {
   );
 }
 
-function BoardPulsesInner({ isFlat }: { isFlat: boolean }) {
+/**
+ * 떠오르는 스택(큐브 유입·수익)의 방향 — 기본은 위(-1)지만, 헥스 위쪽에 스택이 들어갈
+ * 공간이 없으면(가장자리 도시) 아래(+1)로 뒤집어 viewBox에 잘리지 않게 한다.
+ * viewBox는 콘텐츠에 자동으로 맞춰져 여백이 30뿐이므로, 스택이 위로 100px 넘게
+ * 올라가는 경우(2줄 이상) 가장자리에서 반드시 잘린다.
+ */
+function stackDir(y: number, rows: number, viewTop: number): 1 | -1 {
+  const needed = HEX_SIZE * 1.15 + (rows - 1) * 20 + 20; // 최상단 행 + 글자 높이 여유
+  return y - needed < viewTop ? 1 : -1;
+}
+
+function BoardPulsesInner({ isFlat, viewTop }: { isFlat: boolean; viewTop: number }) {
   const { logs, cities, towns, deliveryEvent } = useGameStore(
     useShallow((s) => ({ logs: s.logs, cities: s.board.cities, towns: s.board.towns, deliveryEvent: s.deliveryIncomeEvent }))
   );
@@ -185,8 +196,9 @@ function BoardPulsesInner({ isFlat }: { isFlat: boolean }) {
             const startX = p.x - rowW / 2;
             // 기존 +n 텍스트와 동일한 모션 패턴(요소별 x/y 모션 값) — motion.g transform은
             // SVG에서 미동작해 안 보였음. 텍스트 baseline 기준이라 rect는 -12로 광학 정렬.
-            const yFrom = p.y - HEX_SIZE * 0.9 - i * 20;
-            const yTo = p.y - HEX_SIZE * 1.15 - i * 20;
+            const dir = stackDir(p.y, p.items.length, viewTop);
+            const yFrom = p.y + dir * (HEX_SIZE * 0.9 + i * 20);
+            const yTo = p.y + dir * (HEX_SIZE * 1.15 + i * 20);
             const rowTransition = { duration: 2.0, times: [0, 0.15, 0.75, 1], delay: i * 0.15, ease: 'easeOut' as const };
             return (
               <g key={item.color}>
@@ -238,8 +250,9 @@ function BoardPulsesInner({ isFlat }: { isFlat: boolean }) {
             const gap = 5;
             const rowW = disc + gap + textW;
             const startX = p.x - rowW / 2;
-            const yFrom = p.y - HEX_SIZE * 0.9 - i * 20;
-            const yTo = p.y - HEX_SIZE * 1.15 - i * 20;
+            const dir = stackDir(p.y, p.rows.length, viewTop);
+            const yFrom = p.y + dir * (HEX_SIZE * 0.9 + i * 20);
+            const yTo = p.y + dir * (HEX_SIZE * 1.15 + i * 20);
             const rowTransition = { duration: 2.0, times: [0, 0.15, 0.75, 1], delay: i * 0.15, ease: 'easeOut' as const };
             return (
               <g key={row.name + i}>

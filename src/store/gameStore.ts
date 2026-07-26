@@ -74,7 +74,7 @@ export type { AIPlayerConfig } from './helpers/setup';
  * 실행 중인 페이지에선 옛 로직이 계속 돈다(CLAUDE.md "HMR을 의심할 것").
  * 아래 가드가 "페이지 로드 이후 store 모듈이 다시 평가됨"을 감지해 콘솔 경고를 띄운다.
  */
-export const STORE_CODE_VERSION = 3;
+export const STORE_CODE_VERSION = 4;
 
 // HMR 스테일 가드 (dev 브라우저 전용 — SSR/vitest 제외).
 // window에 최초 로드 시점 버전을 박아두고, 이 모듈이 다시 평가되면(= store 관련 소스 변경)
@@ -1766,6 +1766,14 @@ export const useGameStore = create<GameStore>()(
       },
       newCityTiles: updatedNewCityTiles,
       goodsDisplay: updatedGoodsDisplay, // 한국: 디스플레이 보충 / Western: 마을 큐브 주머니 반환 (그 외 맵 무변경)
+      // 신도시 배치 연출 이벤트 — BoardPulses 펄스 + MoveCubeOverlay 미니맵 팝업 (스냅샷으로 전원 동기화)
+      newCityEvent: {
+        coord: townCoord,
+        tileId: selectedTileId,
+        color: tile.color,
+        player: state.currentPlayer,
+        key: Date.now(),
+      },
       undoCount: undoSnapshots.length,
       ui: {
         ...state.ui,

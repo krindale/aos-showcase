@@ -364,8 +364,10 @@ export function createInitialGameState(
     incomeReductions: null,
     goodsGrowthEvent: null,
     deliveryIncomeEvent: null,
+    newCityEvent: null,
     bankruptcyEvent: null,
     turboMode: false,
+    moveGuideAllowed: true,
     gameStarted: false,
   };
 }

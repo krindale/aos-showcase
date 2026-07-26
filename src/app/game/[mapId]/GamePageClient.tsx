@@ -848,6 +848,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
             </button>
 
             {/* 터보 스위치 — 봇/연출 딜레이 축소 (방장 전용 변경, 게스트는 상태 표시) */}
+            {/* (운송 가이드·운송 확인·좌표 토글은 보드 헤더 ⚙ 설정 창 — GameBoard) */}
             <TurboSwitch />
 
             {/* 도움말 (규칙/단계/특수행동/맵 특수룰) — 온라인·오프라인 공통 */}

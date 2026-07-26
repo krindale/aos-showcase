@@ -93,6 +93,8 @@ export default function MoveCubeOverlay() {
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: 24 }}
           transition={{ duration: 0.2 }}
+          // ⚠️ max-h-[70vh]를 바꾸면 GameBoard fitOverlay svg의 maxHeight(calc(70vh - 44px))도
+          // 함께 맞출 것 — svg가 컨테이너보다 크면 세로로 긴 맵의 미니맵 하단이 잘린다
           className="fixed bottom-4 right-3 z-40 w-[clamp(280px,30vw,440px)] max-h-[70vh] rounded-2xl border border-accent/40 shadow-2xl overflow-hidden bg-background-secondary"
         >
           <div className="px-3 py-1.5 bg-accent/15 border-b border-accent/30 text-center">

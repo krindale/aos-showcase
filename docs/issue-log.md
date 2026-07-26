@@ -8,6 +8,48 @@
 
 ---
 
+## 2026-07-26 — 세로로 긴 맵(독일·한국·St.Lucia)의 미니맵 하단 잘림
+
+- **증상(사용자 발견)**: 독일·한국에서 우측 하단 미니맵(MoveCubeOverlay)의 보드 아래쪽이
+  잘려서 표시.
+- **원인**: 미니맵 컨테이너는 `max-h-[70vh] + overflow-hidden`인데 내부 GameBoard fitOverlay
+  svg는 `maxHeight: 74vh`로 **컨테이너보다 크게 허용** + 헤더 바(~33px)도 미계산. 화면상
+  세로/가로 비율이 큰 맵(St.Lucia ~1.8 > 독일 ~1.4 ≈ 한국 ~1.4)은 svg 박스가 컨테이너를
+  넘어 하단이 클리핑. 비율 ≤0.9인 나머지 맵(Rust Belt·Southern·Western·Moon·몬트리올·
+  튜토리얼)은 무증상.
+- **수정**: fitOverlay svg `maxHeight: '74vh'` → `'calc(70vh - 44px)'` (컨테이너 70vh −
+  헤더 33px − 여유). preserveAspectRatio meet라 세로 긴 맵은 잘리는 대신 좌우 여백을 두고
+  전체가 보인다. 양쪽 파일에 커플링 주석 추가.
+- **검증**: 맵별 종횡비 계산으로 대상 맵 전수 확인, 사용자 실화면 확인.
+
+## 2026-07-26 — 튜토리얼 신도시 타일 C 배치 거부 (맵 도시 id 충돌) + 도시화 취소 버튼 부재
+
+- **증상(사용자 발견, 실플레이)**: 튜토리얼 맵 내 차례에 마을 W(Wheeling)로 신도시 타일
+  C를 배치하려 하자 아무 반응 없음(H·G는 됨). :3999 로그에
+  `[placeNewCity] 이미 배치된 신규 도시 타일: C` 반복. 게다가 타일을 고른 상태에선
+  취소 버튼도 없어 그대로 갇힘.
+- **원인**: ① `placeNewCity`의 중복 배치 방어가 `board.cities.some(c => c.id === 타일id)`로
+  **모든 도시**의 id를 비교 — 튜토리얼 **Cleveland의 id가 'C'**라 신도시 타일 C가 영구
+  오탐 거부(React 중복 key 프리즈 방어 자체는 정당, 판별 범위가 문제). 단일 문자 도시 id를
+  쓰는 맵은 튜토리얼뿐이라 다른 맵은 무영향. ② PhasePanel의 "선택 취소" 버튼 조건
+  `hasActiveSelection`이 buildMode·selectedCube 등만 보고 **urbanizationMode /
+  selectedNewCityTile을 누락** — `cancelSelection`은 이미 도시화 상태를 정리하는데 버튼만
+  안 떴다.
+- **수정**: ① `City.isUrbanizedNewCity`(optional) 추가 — placeNewCity가 만든 신도시에만
+  세팅하고 중복 검사는 이 플래그가 있는 도시만 비교(구버전 저장본 신도시엔 없어도
+  `NewCityTile.used`가 중복을 막음). ② `hasActiveSelection`에 도시화 두 상태 추가.
+- **후속(같은 날, 사용자 지적 "모든 도시 id와 충돌 아닌가?")**: ①만으로는 배치 후
+  **Cleveland('C')와 신도시 C('C')가 공존** — `cities.find(c => c.id === ...)` 첫 매치가
+  Cleveland를 잡아 큐브 선택/이동 혼선 + React `key={city-<id>}` 중복 위험이 남는다.
+  전 맵 id 전수 조사 결과 단일 문자 A~H 충돌은 튜토리얼 'C' 하나뿐(타 맵은 2~3글자 약어)
+  → **Cleveland id 'C' → 'CLE' 개명**으로 원천 제거(columnMapping·fullGameSimulation 동기
+  수정. 구버전 튜토리얼 저장본은 열2 성장 매칭만 어긋남 — 새 게임으로 해소).
+  재발 방지: `src/utils/__tests__/mapCityIdCollision.test.ts` — 전 맵 도시·마을 id가
+  신도시 타일 id(A~H)와 겹치면 실패하는 무결성 가드(새 맵 추가 시 자동 검사).
+- **검증**: 회귀 테스트 `src/store/__tests__/newCityTileIdCollision.test.ts` 3종
+  (C 배치 성공·used 중복 거부 유지·실전 로그 재현 H→undo→G→undo→C) + 무결성 가드
+  + 튜토리얼 기반 AI 시뮬/store/utils 335개 통과.
+
 ## 2026-07-26 — 온라인 F5 재접속 때 셋업 화면이 먼저 떴다가 보드로 전환 (부팅 게이트 부재)
 
 - **증상(사용자 반복 보고)**: 온라인 게임 중 F5하면 방 셋업 화면이 1~3초 보였다가 게임

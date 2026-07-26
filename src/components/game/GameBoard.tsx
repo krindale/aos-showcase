@@ -460,6 +460,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   // (오버레이 모드 GameBoard는 표시만 담당 — 메인 GameBoard가 completeCubeMove를 호출하므로 중복 방지)
   // safeTimeout: 창이 백그라운드여도 스로틀 없이 정산 — 온라인에서 호스트 창이 가려지면
   // 이동 정산이 멈춰 게임 전체가 서던 문제 방지
+  // (화물 출발음은 제거 — 도착 정산 income 사운드(BoardPulses)와 이중이라 불필요, 2026-07-26)
   useEffect(() => {
     if (fitOverlay || !ui.movingCube) return;
 
@@ -851,8 +852,11 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           touchAction: 'none',
           // 데스크톱: 확대(scale>1) 상태에서만 드래그로 이동 가능 → grab 커서
           ...(fitOverlay ? {} : { cursor: scale > 1 ? 'grab' : 'default' }),
-          // 오버레이: 우측 팝업 폭(100%)에 맞춰 비율 유지, 세로 제한
-          ...(fitOverlay ? { maxHeight: '74vh', display: 'block' } : {}),
+          // 오버레이: 우측 팝업 폭(100%)에 맞춰 비율 유지, 세로 제한.
+          // ⚠️ 미니맵 컨테이너(MoveCubeOverlay)가 max-h-[70vh] + overflow-hidden이므로
+          // svg 최대 높이는 반드시 "70vh − 헤더 바(~33px)" 안에 들어와야 한다 — 이전 74vh는
+          // 컨테이너보다 커서 세로로 긴 맵(독일·한국·St.Lucia)의 하단이 잘렸다 (2026-07-26).
+          ...(fitOverlay ? { maxHeight: 'calc(70vh - 44px)', display: 'block' } : {}),
         }}
         shapeRendering="geometricPrecision" // 벡터 품질 우선 (확대 시 선명)
       >
@@ -1145,7 +1149,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
         />
         {/* 인플레이스 펄스 레이어 (건설/큐브 유입) — memo 자식으로 분리, 미니 오버레이에서도 표시 */}
         {/* viewTop: 가장자리 도시에서 떠오르는 스택이 viewBox에 잘리지 않게 방향을 뒤집는 기준 */}
-        <BoardPulses isFlat={isFlat} viewTop={viewTop} />
+        <BoardPulses isFlat={isFlat} viewTop={viewTop} silent={fitOverlay} />
         {/* 좌표 오버레이 — 모든 요소 위(그룹 내 최상위). 줌/팬 변환 그룹 안에 있어야
             +/- 확대·축소 시에도 헥스와 좌표가 함께 움직인다 (밖에 두면 좌표가 어긋나는 버그).
             hexTiles에는 도시 헥스가 없으므로(generateHexTiles의 !isCity) 도시·마을 좌표를 합쳐 렌더 */}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 import { useNetStore } from '@/net/netStore';
@@ -9,6 +9,8 @@ import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { citiesConnectedToSeed, isNightCity } from '@/utils/hexGrid';
 import DiceRoller from './DiceRoller';
+import { playSfx } from '@/utils/sfx';
+import { safeTimeout } from '@/utils/safeTimers';
 import { Sparkles, Package, Check, ArrowRight } from 'lucide-react';
 
 export default function GoodsGrowthPanel() {
@@ -34,6 +36,28 @@ export default function GoodsGrowthPanel() {
   // 보여줘야 성장 결과(주사위/도시별 추가 큐브)를 잠시 확인할 수 있다("그냥 넘어감" 방지).
   const currentIsBot = players[currentPlayer]?.isAI ?? false;
   const showSpectatorView = !amIHost || currentIsBot;
+
+  // 성장 결과 효과음 — 봇 자동 굴림·게스트 스냅샷 수신도 커버한다.
+  // 사람이 DiceRoller로 직접 굴린 경우 diceLand는 이미 났지만 sfx 스로틀이 이중 재생을 거른다.
+  // 첫 관측(마운트 직후·rehydrate)은 기록만 하고 재생하지 않음 (BoardPulses 가드 패턴).
+  // ⚠️ 참조 비교 금지: 게스트는 스냅샷 재적용마다 goodsGrowthEvent 객체 참조가 새로 생기므로
+  // (같은 성장 결과인데 반복 재생) 내용 키(주사위+도시별 큐브)로 비교한다.
+  const growthKey = goodsGrowthEvent
+    ? `${goodsGrowthEvent.dice.join(',')}|${goodsGrowthEvent.results.map((r) => r.cityName + r.cubes.join('')).join(';')}`
+    : null;
+  const prevGrowthKeyRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    const first = prevGrowthKeyRef.current === undefined;
+    const prev = prevGrowthKeyRef.current;
+    prevGrowthKeyRef.current = growthKey;
+    if (first || !growthKey || growthKey === prev) return;
+    playSfx('diceLand');
+    if (goodsGrowthEvent && goodsGrowthEvent.results.length > 0) {
+      // 도시에 실제로 큐브가 도착한 경우만 — 착지음과 겹치지 않게 한 박자 뒤
+      return safeTimeout(() => playSfx('goodsGrowth'), 350);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- goodsGrowthEvent는 growthKey로 대변됨
+  }, [growthKey]);
 
   const [diceResults, setDiceResults] = useState<number[]>([]);
   const [growthApplied, setGrowthApplied] = useState(false);

@@ -65,7 +65,7 @@ function SettingRow({
 
 export default function GameSettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const moveGuideAllowed = useGameStore((s) => s.moveGuideAllowed ?? true);
-  const { moveGuideEnabled, transportConfirmEnabled, showCoords, toggleMoveGuide, toggleTransportConfirm, toggleShowCoords } =
+  const { moveGuideEnabled, transportConfirmEnabled, sfxEnabled, showCoords, toggleMoveGuide, toggleTransportConfirm, toggleSfx, toggleShowCoords } =
     useGameSettingsStore();
 
   // 스크롤락 + ESC 닫기 (ConfirmDialog 패턴)
@@ -126,6 +126,12 @@ export default function GameSettingsDialog({ open, onClose }: { open: boolean; o
               description="목적지 클릭 시 경로와 수익 배분을 확인한 뒤 운송합니다 (끄면 즉시 운송)"
               on={transportConfirmEnabled}
               onToggle={toggleTransportConfirm}
+            />
+            <SettingRow
+              label="효과음"
+              description="건설·운송·주사위 등 게임 액션에 짧은 효과음을 재생합니다"
+              on={sfxEnabled}
+              onToggle={toggleSfx}
             />
             <SettingRow
               label="좌표 표시"

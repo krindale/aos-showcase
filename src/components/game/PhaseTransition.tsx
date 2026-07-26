@@ -12,6 +12,7 @@ import { useGameStore } from '@/store/gameStore';
 import { GamePhase, PHASE_INFO } from '@/types/game';
 import { ChevronRight } from 'lucide-react';
 import { safeTimeout } from '@/utils/safeTimers';
+import { playSfx } from '@/utils/sfx';
 
 /**
  * 팝업 유지 시간 (ms) — 스르르 등장(0.4s) → 1.2초 유지 → 스르르 퇴장(0.5s).
@@ -46,6 +47,7 @@ export default function PhaseTransition() {
     if (!GAME_PHASES.includes(from) || !GAME_PHASES.includes(currentPhase)) return;
 
     setShow({ from, to: currentPhase });
+    playSfx('phase');
     // safeTimeout: 숨김 탭에선 setTimeout이 스로틀돼 팝업이 안 사라진 채
     // 화면 클릭을 계속 막는 버그가 있었다 (탭 복귀 시 최대 1분 잔존)
     const cancel = safeTimeout(() => setShow(null), PAUSE_MS);

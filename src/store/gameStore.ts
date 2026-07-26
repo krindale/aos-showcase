@@ -38,6 +38,7 @@ import {
 import { calculateTrackScore } from '@/utils/trackValidation';
 import { logAction, newLogSession } from '@/utils/debugConfig';
 import { turboDelay, resetTurboFlag } from '@/utils/turboMode';
+import { playSfx } from '@/utils/sfx';
 // 모듈 헬퍼 (2026-07-03 스텝 3a 분리 — 로직 무변경, 파일만 이동)
 import { undoSnapshots, captureUndo, clearUndo } from './helpers/undo';
 import {
@@ -74,7 +75,7 @@ export type { AIPlayerConfig } from './helpers/setup';
  * 실행 중인 페이지에선 옛 로직이 계속 돈다(CLAUDE.md "HMR을 의심할 것").
  * 아래 가드가 "페이지 로드 이후 store 모듈이 다시 평가됨"을 감지해 콘솔 경고를 띄운다.
  */
-export const STORE_CODE_VERSION = 4;
+export const STORE_CODE_VERSION = 6;
 
 // HMR 스테일 가드 (dev 브라우저 전용 — SSR/vitest 제외).
 // window에 최초 로드 시점 버전을 박아두고, 이 모듈이 다시 평가되면(= store 관련 소스 변경)
@@ -743,6 +744,7 @@ export const useGameStore = create<GameStore>()(
         },
       ],
     });
+    playSfx('share');
   },
 
   // ============================================================
@@ -891,6 +893,8 @@ export const useGameStore = create<GameStore>()(
 
       return newState as GameState;
     });
+    // 효과음 — 모든 검증을 통과해 실제로 선택됐을 때만 (set 후 상태로 성공 판정)
+    if (get().players[playerId]?.selectedAction === action) playSfx('actionSelect');
   },
 
   // ============================================================
@@ -1639,6 +1643,7 @@ export const useGameStore = create<GameStore>()(
         reachableDestinations: [],
       },
     });
+    playSfx('undo');
   },
 
   // === 트랙 방향 전환(redirectTrack)은 건설 액션과 함께 slices/buildSlice.ts로 분리 (스텝 3e) ===
@@ -1662,7 +1667,9 @@ export const useGameStore = create<GameStore>()(
     if (!tile) return false;
     // 이미 사용된 타일/이미 배치된 신규 도시는 거부.
     // (cities에 같은 id가 중복 추가되면 GameBoard에서 React 중복 key → 무한 리렌더 freeze)
-    if (tile.used || state.board.cities.some(c => c.id === selectedTileId)) {
+    // ⚠️ 신도시(isUrbanizedNewCity)만 검사 — 맵 원본 도시 id가 타일 id와 겹치는 맵
+    // (튜토리얼 Cleveland='C')에서 멀쩡한 타일이 "이미 배치됨"으로 오탐 거부되던 버그.
+    if (tile.used || state.board.cities.some(c => c.isUrbanizedNewCity && c.id === selectedTileId)) {
       console.warn(`[placeNewCity] 이미 배치된 신규 도시 타일: ${selectedTileId}`);
       return false;
     }
@@ -1732,6 +1739,7 @@ export const useGameStore = create<GameStore>()(
       coord: townCoord,
       color: tile.color,
       cubes: newCityCubes,  // 한국: 디스플레이에서 옮긴 큐브(수요색 결정). 그 외 맵: 빈 배열
+      isUrbanizedNewCity: true, // 중복 배치 검사용 구분자 (맵 원본 도시와 id 충돌 방지)
       ...(newCityRegion ? { region: newCityRegion } : {}),
     };
 

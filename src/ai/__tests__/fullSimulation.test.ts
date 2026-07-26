@@ -224,7 +224,7 @@ const SCENARIOS: CubeScenario[] = [
     name: '시나리오 1: P→O 단거리 배달 (yellow 큐브)',
     cubes: {
       P: ['yellow', 'blue'],   // yellow→O, blue→C
-      C: ['red', 'purple'],
+      CLE: ['red', 'purple'],
       O: ['black', 'blue'],
       W: ['red', 'yellow'],
       I: ['yellow', 'red'],
@@ -237,7 +237,7 @@ const SCENARIOS: CubeScenario[] = [
     name: '시나리오 2: 양쪽 AI 경쟁 (동일 출발)',
     cubes: {
       P: ['yellow', 'black'],  // yellow→O, black→W
-      C: ['purple', 'red'],
+      CLE: ['purple', 'red'],
       O: ['blue', 'red'],
       W: ['purple', 'yellow'],
       I: ['blue', 'black'],
@@ -250,7 +250,7 @@ const SCENARIOS: CubeScenario[] = [
     name: '시나리오 3: 장거리 경로 (P→W = 2링크)',
     cubes: {
       P: ['black'],            // black→W (2링크: P→O→W)
-      C: ['red'],
+      CLE: ['red'],
       O: ['blue'],
       W: ['red', 'yellow'],
       I: ['purple'],
@@ -263,7 +263,7 @@ const SCENARIOS: CubeScenario[] = [
     name: '시나리오 4: 다양한 큐브 (첫 턴 배달 기회 없음)',
     cubes: {
       P: ['blue', 'purple'],   // blue→C (2링크), purple→I (2링크)
-      C: ['yellow', 'red'],
+      CLE: ['yellow', 'red'],
       O: ['red', 'purple'],
       W: ['blue', 'yellow'],
       I: ['black', 'red'],
@@ -381,7 +381,7 @@ describe('AI 트랙 건설 전체 시뮬레이션', () => {
   it('2인 동시 시뮬레이션 (player1 + player2 교대 건설)', () => {
     let state = createTutorialState();
     state = addCubesToCity(state, 'P', ['yellow', 'blue']);
-    state = addCubesToCity(state, 'C', ['red', 'purple']);
+    state = addCubesToCity(state, 'CLE', ['red', 'purple']);
     state = addCubesToCity(state, 'O', ['black', 'blue']);
     state = addCubesToCity(state, 'W', ['red', 'yellow']);
     state = addCubesToCity(state, 'I', ['yellow', 'red']);
@@ -614,7 +614,7 @@ function evaluateDeliveries(
   deliverableCount: number;
 } {
   const COLOR_TO_CITY: Record<string, string> = {
-    red: 'P', blue: 'C', yellow: 'O', black: 'W', purple: 'I',
+    red: 'P', blue: 'CLE', yellow: 'O', black: 'W', purple: 'I',
   };
 
   const deliverable: Array<{ from: string; to: string; cube: string; income: number }> = [];
@@ -647,7 +647,7 @@ function countTheoreticalDeliverables(
     'P-C': 2, 'P-W': 2, 'C-I': 2, 'W-I': 2,
   };
   const COLOR_TO_CITY: Record<string, string> = {
-    red: 'P', blue: 'C', yellow: 'O', black: 'W', purple: 'I',
+    red: 'P', blue: 'CLE', yellow: 'O', black: 'W', purple: 'I',
   };
 
   let count = 0;
@@ -670,9 +670,9 @@ function countTheoreticalDeliverables(
 describe('랜덤 큐브 + 수익 평가 시뮬레이션 (10회)', () => {
   const CUBE_COLORS: CubeColor[] = ['red', 'blue', 'yellow', 'purple', 'black'];
   const CITY_COLORS: Record<string, CubeColor> = {
-    P: 'red', C: 'blue', O: 'yellow', W: 'black', I: 'purple',
+    P: 'red', CLE: 'blue', O: 'yellow', W: 'black', I: 'purple',
   };
-  const CITY_IDS = ['P', 'C', 'O', 'W', 'I'];
+  const CITY_IDS = ['P', 'CLE', 'O', 'W', 'I'];
 
   /** 재현 가능한 시드 난수 */
   function seededRandom(seed: number) {
@@ -899,9 +899,9 @@ describe('랜덤 큐브 + 수익 평가 시뮬레이션 (10회)', () => {
 describe('2인 화물 수송 우선순위 시뮬레이션 (10회)', () => {
   const CUBE_COLORS: CubeColor[] = ['red', 'blue', 'yellow', 'purple', 'black'];
   const CITY_COLORS: Record<string, CubeColor> = {
-    P: 'red', C: 'blue', O: 'yellow', W: 'black', I: 'purple',
+    P: 'red', CLE: 'blue', O: 'yellow', W: 'black', I: 'purple',
   };
-  const CITY_IDS = ['P', 'C', 'O', 'W', 'I'];
+  const CITY_IDS = ['P', 'CLE', 'O', 'W', 'I'];
 
   /** 재현 가능한 시드 난수 */
   function seededRandom(seed: number) {

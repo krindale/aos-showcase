@@ -15,6 +15,7 @@ import { PlayerId, PlayerState } from '@/types/game';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { logAction } from '@/utils/debugConfig';
 import { scheduleAICheck } from '../helpers/aiScheduler';
+import { playSfx } from '@/utils/sfx';
 
 type Set = StoreApi<GameStore>['setState'];
 type Get = StoreApi<GameStore>['getState'];
@@ -60,6 +61,8 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
   return {
     placeBid: (playerId, amount) => {
       logAction('preparation', 'placeBid', { player: playerId, amount, turn: get().currentTurn });
+      // 효과음용 성공 판정 미러 (set 콜백은 순수 유지 — 실패 시 무음)
+      const okBid = amount >= 1 && amount > (get().auction?.highestBid ?? 0);
       set((state) => {
         const highestSoFar = state.auction?.highestBid ?? 0;
         // $0 입찰 불가, 기존 최고입찰액보다 높아야 함 (최고입찰자가 자기 최고가 위로 올리는 것 포함)
@@ -98,6 +101,7 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
           ],
         };
       });
+      if (okBid) playSfx('bid');
 
       // AI 턴 트리거 (중앙 집중식 스케줄러 사용)
       scheduleAICheck(get);
@@ -106,6 +110,7 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
     // 포기(drop out): 경매에서 탈락 — 순서는 resolveAuction이 포기 역순으로 배치
     passBid: (playerId) => {
       logAction('preparation', 'passBid', { player: playerId, turn: get().currentTurn });
+      const okPass = !get().auction?.droppedOutPlayers.includes(playerId);
       set((state) => {
         // 중복 포기 방어 (재전송·중복 클릭)
         if (state.auction?.droppedOutPlayers.includes(playerId)) {
@@ -140,6 +145,7 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
           ],
         };
       });
+      if (okPass) playSfx('pass');
 
       // AI 턴 트리거 (중앙 집중식 스케줄러 사용)
       scheduleAICheck(get);
@@ -198,6 +204,7 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
     },
 
     resolveAuction: () => {
+      const hadAuction = !!get().auction;
       set((state) => {
         if (!state.auction) {
           console.warn('[WARN] resolveAuction: 경매 없음');
@@ -331,6 +338,7 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
           ],
         };
       });
+      if (hadAuction) playSfx('auctionWin');
     },
 
     // ============================================================

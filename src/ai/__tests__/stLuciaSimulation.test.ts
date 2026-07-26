@@ -145,7 +145,6 @@ function runStLuciaGame(seed: number): GameResult {
         const tracks = s.board.trackTiles.filter(t => t.owner === pid).length;
         return `${pid}: cash$${p?.cash} inc${p?.income} sh${p?.issuedShares} eng${p?.engineLevel} trk${tracks}${p?.eliminated ? ' ☠' : ''}`;
       };
-      // eslint-disable-next-line no-console
       (console.info as (...a: unknown[]) => void)(`[T${s.currentTurn}] ${fmt('player1')} | ${fmt('player2')}`);
     }
 

@@ -275,6 +275,7 @@ export const SFX_CATALOG: Record<SfxName, SfxDef> = {
 // ── 엔진 (모듈 싱글턴) ─────────────────────────────────────────────────────
 
 let ctx: AudioContext | null = null;
+let ctxFailed = false; // AudioContext 생성 실패(jsdom·미지원) — 매 호출 throw 반복 방지
 let unlockBound = false;
 
 /**
@@ -283,7 +284,7 @@ let unlockBound = false;
  * resume하는 리스너를 한 번 등록한다 (GameChat엔 없던 보강 — 게임 첫 소리 유실 방지).
  */
 function ensureCtx(): AudioContext | null {
-  if (typeof window === 'undefined') return null;
+  if (typeof window === 'undefined' || ctxFailed) return null;
   try {
     if (!ctx) ctx = new AudioContext();
     if (ctx.state === 'suspended') void ctx.resume();
@@ -297,6 +298,7 @@ function ensureCtx(): AudioContext | null {
     }
     return ctx;
   } catch {
+    ctxFailed = true; // 이후 호출은 즉시 무음 (시뮬 테스트의 수만 회 throw 반복 방지)
     return null; // 오디오 미지원 환경 (jsdom 등) — 무음
   }
 }

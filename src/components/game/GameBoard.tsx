@@ -292,8 +292,15 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
       selectDestinationCity(coord); // 경로 선택 모드로 진입 (커밋 아님)
       return;
     }
-    // 커밋될 경로 = 단일 후보 or (트랙 큐브 등 routeOptions 미사용 케이스) 최적 경로 미리보기
-    const path = options[0]?.path ?? (s.ui.movePath.length > 1 ? s.ui.movePath : null);
+    // 커밋될 경로 = 단일 후보 or (트랙 큐브 등 routeOptions 미사용 케이스) 최적 경로 미리보기.
+    // ⚠️ movePath 폴백은 "최선 목적지 하나"의 경로다 — St.Lucia 트랙 큐브처럼 목적지가 여럿인데
+    // 다른 목적지를 클릭한 경우 끝점이 어긋나므로, 일치할 때만 확인 창을 띄우고 아니면 즉시 커밋
+    // (엉뚱한 경로·수익을 보여주는 것보다 확인 생략이 안전).
+    const fallbackPath =
+      s.ui.movePath.length > 1 && hexCoordsEqual(s.ui.movePath[s.ui.movePath.length - 1], coord)
+        ? s.ui.movePath
+        : null;
+    const path = options[0]?.path ?? fallbackPath;
     if (!path) {
       selectDestinationCity(coord);
       return;

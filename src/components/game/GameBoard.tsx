@@ -296,13 +296,18 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     if (!Number.isFinite(minY) || !Number.isFinite(minX)) {
       return { viewTop: 0, viewHeight: boardHeight, viewLeft: 0, viewWidth: boardWidth };
     }
-    // 사방 여백 30씩. 달(랩 어라운드) 번호 박스가 변 바깥으로 최대 ~25px 튀어나오는 것도
-    // 이 안에 들어와 잘리지 않는다.
+    // 여백: 좌·우·하 30, 상단은 100 — 우상단 호버링 버튼(줌 ±·신도시)이 보드 위에 떠 있어
+    // 그만큼 비워야 헥스를 가리지 않는다. 달(랩 어라운드) 번호 박스가 변 바깥으로 최대
+    // ~25px 튀어나오는 것도 30 안에 들어와 잘리지 않는다.
+    // ⚠️ 0/boardWidth로 클램프하지 말 것 — 콘텐츠가 y=50~98에서 시작하는 맵이 많아
+    //    Math.max(0, ...)에 걸리면 상단 100이 확보되지 않는다. viewBox는 음수/보드 밖
+    //    좌표를 허용하며, 그 영역은 컨테이너 배경색으로 채워진다.
     const pad = 30;
-    const top = Math.max(0, minY - pad);
-    const bottom = Math.min(boardHeight, maxY + pad);
-    const left = Math.max(0, minX - pad);
-    const right = Math.min(boardWidth, maxX + pad);
+    const padTop = 100;
+    const top = minY - padTop;
+    const bottom = maxY + pad;
+    const left = minX - pad;
+    const right = maxX + pad;
     return { viewTop: top, viewHeight: bottom - top, viewLeft: left, viewWidth: right - left };
   }, [board.hexTiles, board.cities, board.towns, mapData.hideLakeHexes, isFlat, boardHeight, boardWidth]);
 

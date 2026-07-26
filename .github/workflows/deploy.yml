@@ -39,7 +39,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_sJiHGhjH_qy_TR8S1Bvh6A_gVAZUfZY
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: ./out
 
@@ -52,4 +52,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

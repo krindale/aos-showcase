@@ -37,6 +37,13 @@ interface BoardCitiesProps {
   // ui 상태 (필요한 필드만)
   sourceHex: HexCoord | null;
   reachableDestinations: HexCoord[];
+  /**
+   * 화물 이동 가이드 표시 여부 (방 설정 AND 개인 토글 — GameBoard가 계산).
+   * false면 목적지 골드 링만 숨긴다 — 클릭 판정(selectDestinationCity)은 그대로 살아
+   * 가이드 없이도 수송이 가능하고, Repopulation 배치 골드 링은 가이드가 아니라 기능이라 유지.
+   * 미지정(NewCityTileHex 등 reachableDestinations가 빈 재사용처)은 true.
+   */
+  showMoveGuide?: boolean;
   selectedCube: { cityId: string; cubeIndex: number } | null;
   // 액션 (store·부모 콜백)
   onHexClick: (coord: HexCoord) => void;
@@ -61,6 +68,7 @@ export default function BoardCities({
   isCityNumberBoxBlack,
   sourceHex,
   reachableDestinations,
+  showMoveGuide = true,
   selectedCube,
   onHexClick,
   selectDestinationCity,
@@ -105,6 +113,9 @@ export default function BoardCities({
         )
           // Repopulation 배치 중엔 모든 도시를 골드 링으로 표시
           || !!repopPlacing;
+        // 골드 링 표시 — 가이드 off면 배달 목적지 링만 숨김 (Repopulation 링은 기능이라 유지,
+        // 클릭 판정은 isReachableDestination 그대로 — 가이드 없이도 수송 가능)
+        const showDestRing = (showMoveGuide && isReachableDestination) || !!repopPlacing;
         const isMoveGoodsPhase = currentPhase === 'moveGoods';
 
         // 도시 클릭 핸들러
@@ -125,7 +136,7 @@ export default function BoardCities({
               points={getHexPoints(x, y, HEX_SIZE, isFlat)}
               fill={cityColor}
               stroke={
-                isReachableDestination
+                showDestRing
                   ? '#e6c77a'  // 골드 악센트 (accent-light)
                   : isSourceSelected
                   ? '#ffffff'

@@ -13,7 +13,7 @@ import { useNetStore } from '@/net/netStore';
 import { uniqueSeatName } from '@/net/roomLogic';
 import { getMapData } from '@/utils/mapRegistry';
 import {
-  ArrowLeftRight, Bot, Check, Copy, Crown, Globe, Loader2, LogOut, Pencil, Play, RefreshCw, Send, Star, User, UserX, Wifi, WifiOff, X, Zap,
+  ArrowLeftRight, Bot, Check, Copy, Crown, Globe, Loader2, LogOut, Pencil, Play, RefreshCw, Route, Send, Star, User, UserX, Wifi, WifiOff, X, Zap,
 } from 'lucide-react';
 import { CROWN_GOLD, CROWN_INK } from './uiEffects';
 import { ChatSenderIcon } from './ChatSenderIcon';
@@ -38,6 +38,7 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
     publicRooms, publicRoomsLoading,
     hostRoom, joinRoom, leaveRoom, sendChat, updateSeats, startOnlineGame,
     refreshPublicRooms, quickMatch, renameSeat,
+    moveGuideAllowed, setMoveGuideAllowed,
   } = useNetStore();
 
   // 대기실 본인 이름 편집
@@ -153,6 +154,32 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
       setNameError(res.reason ?? '변경에 실패했어요');
     }
   };
+
+  // 방 설정: 화물 이동 가이드 토글 (방 만들기 폼 + 대기실 방장 공용).
+  // off로 시작한 게임은 참가자 전원이 게임 중에도 켤 수 없다 (GameState.moveGuideAllowed 잠김).
+  const moveGuideToggle = (
+    <div className="flex items-center justify-between gap-2">
+      <div className="min-w-0">
+        <div className="text-xs font-semibold text-foreground flex items-center gap-1">
+          <Route size={12} className="text-foreground-secondary" /> 운송 가이드
+        </div>
+        <p className="text-[10px] text-foreground-secondary leading-snug">
+          화물 선택 시 배달 가능 도시·최적 경로 표시 — 끄면 게임 중 아무도 켤 수 없어요
+        </p>
+      </div>
+      <button
+        onClick={() => setMoveGuideAllowed(!moveGuideAllowed)}
+        className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-xs transition-colors ${
+          moveGuideAllowed
+            ? 'bg-positive/15 text-positive'
+            : 'bg-background-tertiary text-foreground-secondary hover:bg-foreground/10'
+        }`}
+        title={moveGuideAllowed ? '가이드 허용 (각자 게임 중 on/off 가능)' : '가이드 금지 (게임 중 변경 불가)'}
+      >
+        {moveGuideAllowed ? '허용' : '금지'}
+      </button>
+    </div>
+  );
 
   // ---------- 대기실 ----------
   if (room) {
@@ -363,6 +390,14 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
           </div>
         </div>
 
+        {/* 방 설정 (방장 전용, 시작 전) — 게스트에겐 미표시 (room 동기화 없음, 게임 시작 후
+            스냅샷·헤더 스위치 잠김으로 전달) */}
+        {isHost && room.status === 'waiting' && (
+          <div className="p-3 rounded-lg border border-foreground/10 bg-background-secondary">
+            {moveGuideToggle}
+          </div>
+        )}
+
         {/* 시작/나가기 */}
         {isHost ? (
           <button
@@ -491,6 +526,7 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
             </div>
           ))}
         </div>
+        {moveGuideToggle}
         <button
           onClick={handleCreate}
           disabled={busy}

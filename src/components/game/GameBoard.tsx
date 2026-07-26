@@ -7,8 +7,9 @@ import BoardTowns from './board/BoardTowns';
 import BoardCities from './board/BoardCities';
 import BoardOverlays from './board/BoardOverlays';
 import { motion } from 'framer-motion';
-import { ZoomIn, ZoomOut, Maximize2, Building2 } from 'lucide-react';
+import { ZoomIn, ZoomOut, Maximize2, Building2, Settings } from 'lucide-react';
 import { useGameStore } from '@/store/gameStore';
+import { useGameSettingsStore } from '@/store/gameSettingsStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useTouchGestures } from '@/hooks/useTouchGestures';
 import {
@@ -27,6 +28,7 @@ import {
   HEX_VERTICAL_RADIUS,
   findCompletedLinks,
   isTrackPartOfCompletedLink,
+  getPathLinkOwners,
 } from '@/utils/hexGrid';
 import { getMapData } from '@/utils/mapRegistry';
 import { getMoonSide } from '@/utils/moonMap';
@@ -34,6 +36,8 @@ import { getMapProfile } from '@/maps/getMapProfile';
 import { isValidConnectionPoint as isValidConnectionPointUtil, getRedirectTargetHexes } from '@/utils/trackValidation';
 import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId, TerrainType } from '@/types/game';
 import { NewCityTilesModal } from './NewCityTilesModal';
+import GameSettingsDialog from './GameSettingsDialog';
+import TransportConfirmDialog, { TransportPreview } from './TransportConfirmDialog';
 import { shadeColor, hexVertex } from './board/boardGeometry';
 import { useMyPlayerId } from '@/hooks/useMyPlayerId';
 import { useNetStore } from '@/net/netStore';
@@ -42,9 +46,13 @@ import { turboDelay } from '@/utils/turboMode';
 
 export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean } = {}) {
   // fitOverlay: 화물 이동 애니메이션을 전체 화면에 꽉 차게(fit) 보여주는 비인터랙티브 오버레이 모드
-  // 디버그: 헥스 좌표 표시 토글 (우측 상단 버튼)
-  const [showCoords, setShowCoords] = useState(false);
+  // 디버그: 헥스 좌표 표시 토글 — 설정 창(⚙)의 스위치 (gameSettingsStore)
+  const showCoords = useGameSettingsStore((s) => s.showCoords);
   const [showNewCityInfo, setShowNewCityInfo] = useState(false);
+  // 설정 창 (운송 가이드/운송 확인/좌표 스위치)
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  // 화물 운송 확인 창 대기 상태 — 확인 시 selectDestinationCity(coord)로 실제 커밋
+  const [transportConfirm, setTransportConfirm] = useState<{ coord: HexCoord; preview: TransportPreview } | null>(null);
   // Zustand selector 최적화: useShallow로 불필요한 리렌더링 방지
   const {
     board,
@@ -74,6 +82,11 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     !!players[currentPlayer]?.isAI || (myPlayerId !== null && currentPlayer !== myPlayerId);
   const mapId = useGameStore((state) => state.mapId);
   const currentTurn = useGameStore((state) => state.currentTurn);
+  // 화물 이동 가이드 실효값 — 방 설정(moveGuideAllowed, 스냅샷 동기화) AND 개인 토글(로컬).
+  // 표시만 게이팅한다: 목적지 클릭·경로 선택 모드·이동 애니메이션은 가이드와 무관하게 동작.
+  const moveGuideAllowed = useGameStore((s) => s.moveGuideAllowed ?? true);
+  const moveGuideEnabled = useGameSettingsStore((s) => s.moveGuideEnabled);
+  const moveGuideOn = moveGuideAllowed && moveGuideEnabled;
   // Montréal Repopulation: 배치 대기 큐브가 있는지 (boolean 셀렉터 — 값 변화시만 리렌더)
   const repopPending = useGameStore((s) => (s.phaseState.repopulationCubes?.length ?? 0) > 0);
   // 맵 데이터(그리드 크기/지형 색): mapRegistry에서 주입 — 튜토리얼 하드코딩 금지
@@ -260,6 +273,74 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     buildTownSpur,
     buildDirectLink,
   } = useGameStore();
+
+  // 화물 운송 확인 창(설정 on일 때) — 목적지 클릭을 가로채 "출발→도착·수익 귀속"을 보여주고
+  // [운송] 확인 시에만 selectDestinationCity로 커밋한다. 기본 off = 기존처럼 즉시 운송.
+  // 후보 경로가 여럿이면(타인 철도) 경로 선택 모드 자체가 확인 단계라 가로채지 않는다.
+  const handleSelectDestination = useCallback((coord: HexCoord) => {
+    const s = useGameStore.getState();
+    if (
+      !useGameSettingsStore.getState().transportConfirmEnabled ||
+      s.players[s.currentPlayer]?.isAI || // 봇 커밋 경로는 그대로 (표시 인스턴스 경유 방지)
+      s.ui.routeChoice // 경로 선택 모드의 목적지 재클릭 = 확정 — 이미 명시적 확인
+    ) {
+      selectDestinationCity(coord);
+      return;
+    }
+    const options = s.ui.routeOptions.find((r) => hexCoordsEqual(r.dest, coord))?.options ?? [];
+    if (options.length > 1) {
+      selectDestinationCity(coord); // 경로 선택 모드로 진입 (커밋 아님)
+      return;
+    }
+    // 커밋될 경로 = 단일 후보 or (트랙 큐브 등 routeOptions 미사용 케이스) 최적 경로 미리보기.
+    // ⚠️ movePath 폴백은 "최선 목적지 하나"의 경로다 — St.Lucia 트랙 큐브처럼 목적지가 여럿인데
+    // 다른 목적지를 클릭한 경우 끝점이 어긋나므로, 일치할 때만 확인 창을 띄우고 아니면 즉시 커밋
+    // (엉뚱한 경로·수익을 보여주는 것보다 확인 생략이 안전).
+    const fallbackPath =
+      s.ui.movePath.length > 1 && hexCoordsEqual(s.ui.movePath[s.ui.movePath.length - 1], coord)
+        ? s.ui.movePath
+        : null;
+    const path = options[0]?.path ?? fallbackPath;
+    if (!path) {
+      selectDestinationCity(coord);
+      return;
+    }
+    const stopName = (c: HexCoord): string | null => {
+      const city = s.board.cities.find((x) => hexCoordsEqual(x.coord, c));
+      if (city) return city.name;
+      const town = s.board.towns.find((x) => hexCoordsEqual(x.coord, c));
+      if (town) return town.newCityColor ? '신도시' : '마을';
+      return null;
+    };
+    // 수익 귀속 = 정산(completeCubeMove)과 같은 미러(getPathLinkOwners) — 링크 소유자별 +1
+    const owners = getPathLinkOwners(path, s.board);
+    const tally = new Map<PlayerId, number>();
+    let noIncomeLinks = 0;
+    owners.forEach((o) => {
+      if (o) tally.set(o, (tally.get(o) ?? 0) + 1);
+      else noIncomeLinks++;
+    });
+    const gains: TransportPreview['gains'] = [];
+    tally.forEach((n, pid) => {
+      gains.push({
+        name: s.players[pid]?.name ?? pid,
+        color: PLAYER_COLORS[s.players[pid]?.color] ?? '#888888',
+        amount: n,
+        isMe: pid === s.currentPlayer,
+      });
+    });
+    gains.sort((a, b) => (b.isMe ? 1 : 0) - (a.isMe ? 1 : 0)); // 내 수입 먼저
+    setTransportConfirm({
+      coord,
+      preview: {
+        from: stopName(path[0]) ?? '트랙',
+        to: stopName(path[path.length - 1]) ?? '목적지',
+        linkCount: owners.length,
+        gains,
+        noIncomeLinks,
+      },
+    });
+  }, [selectDestinationCity]);
 
   const { width: boardWidth, height: boardHeight } = useMemo(
     () => calculateBoardDimensions(mapData.cols, mapData.rows, undefined, undefined, isFlat),
@@ -732,7 +813,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             {currentPhase === 'buildTrack' && !ui.urbanizationMode && ui.buildMode === 'target_selected' && '트랙이 나갈 방향을 클릭하세요 (곡선/직선 선택)'}
             {currentPhase === 'buildTrack' && !ui.urbanizationMode && ui.buildMode === 'redirect_selected' && '방향 전환 패널에서 새 방향을 선택하세요'}
             {currentPhase === 'moveGoods' && !ui.selectedCube && !ui.movingCube && '물품 큐브를 클릭하세요'}
-            {currentPhase === 'moveGoods' && ui.selectedCube && '금색 테두리의 목적지 도시를 클릭하세요'}
+            {/* 가이드 off면 금색 테두리가 안 그려지므로 문구도 일반형으로 */}
+            {currentPhase === 'moveGoods' && ui.selectedCube && (moveGuideOn ? '금색 테두리의 목적지 도시를 클릭하세요' : '배달할 목적지 도시를 클릭하세요')}
             {currentPhase === 'moveGoods' && ui.movingCube && '물품 이동 중...'}
             {currentPhase === 'governmentLink' && ui.buildMode === 'idle' && '정부 링크: 도시를 클릭해 무료 중립 링크를 건설하세요'}
             {currentPhase === 'governmentLink' && ui.buildMode === 'source_selected' && '노란색 헥스를 클릭하여 정부 트랙을 건설하세요'}
@@ -743,13 +825,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             <span className="text-xs text-accent whitespace-nowrap">
               {players[currentPlayer].name}의 차례
             </span>
-            <button
-              onClick={() => setShowCoords(v => !v)}
-              className={`px-2 py-0.5 text-xs rounded transition-colors ${showCoords ? 'bg-accent text-background' : 'bg-foreground/10 text-accent hover:bg-foreground/20'}`}
-            >
-              {/* 라벨 = 누르면 실행될 동작 (상태는 배경색으로 구분) */}
-              {showCoords ? '좌표 OFF' : '좌표 ON'}
-            </button>
+            {/* 게임 설정(⚙)은 줌 컨트롤 옆 호버링 HUD에 — 헤더(motion.div 안)에 두면 온라인
+                상대 차례의 클릭 차단 오버레이(z-20)에 덮여 관전 중 설정을 못 연다 */}
           </div>
         </div>
       </div>
@@ -1037,9 +1114,10 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           isCityNumberBoxBlack={(cityId, demandColor) => mapProfile.isCityNumberBoxBlack(cityId, demandColor)}
           sourceHex={ui.sourceHex}
           reachableDestinations={ui.reachableDestinations}
+          showMoveGuide={moveGuideOn}
           selectedCube={ui.selectedCube}
           onHexClick={handleHexClick}
-          selectDestinationCity={selectDestinationCity}
+          selectDestinationCity={handleSelectDestination}
           onCubeClick={handleCubeClick}
           buildDirectLink={buildDirectLink}
         />
@@ -1057,7 +1135,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           borderColor={mapData.colors.border}
           previewTrack={ui.previewTrack}
           selectedCubeCityId={ui.selectedCube?.cityId ?? null}
-          movePath={ui.movePath}
+          movePath={moveGuideOn ? ui.movePath : []}
           movingCube={ui.movingCube}
           routeChoice={ui.routeChoice}
           players={players}
@@ -1222,6 +1300,19 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             >
               <Maximize2 className="w-4 h-4 text-accent" />
             </motion.button>
+            {/* 게임 설정 창 (운송 가이드·운송 확인·좌표) — 전부 로컬 개인 설정(게임 상태 무변경)이라
+                줌과 마찬가지로 다른 사람/봇 차례(관전 중)에도 열 수 있어야 함 → 오버레이 위 z-30 레이어 */}
+            <motion.button
+              onClick={() => setSettingsOpen(true)}
+              className="glass-card p-2 hover:bg-accent/20 transition-colors rounded-lg shadow-lg"
+              aria-label="게임 설정"
+              title="게임 설정 (운송 가이드 · 운송 확인 창 · 좌표 표시)"
+              whileTap={{ scale: 0.95 }}
+              transition={{ duration: 0.1 }}
+              style={{ WebkitTapHighlightColor: 'transparent' }}
+            >
+              <Settings className="w-4 h-4 text-accent" />
+            </motion.button>
           </div>
         </div>
         {/* 신도시 버튼 — 줌 아래. 도시화 행동과 무관하게 남은 신규 도시 타일을 확인(중앙 모달).
@@ -1286,6 +1377,17 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
         onClose={() => setShowNewCityInfo(false)}
       />
     )}
+    {/* 게임 설정 창 (⚙ — 운송 가이드·운송 확인·좌표) + 화물 운송 확인 창.
+        운송 확인은 미니맵(fitOverlay) 클릭에서도 뜰 수 있게 조건 없이 렌더 (fixed 중앙 표시) */}
+    {!fitOverlay && <GameSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />}
+    <TransportConfirmDialog
+      preview={transportConfirm?.preview ?? null}
+      onConfirm={() => {
+        if (transportConfirm) selectDestinationCity(transportConfirm.coord);
+        setTransportConfirm(null);
+      }}
+      onCancel={() => setTransportConfirm(null)}
+    />
     </>
   );
 }

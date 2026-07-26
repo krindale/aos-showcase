@@ -60,6 +60,15 @@ export interface NetStore {
    */
   hostTakeoverPrompt: { status: 'waiting' | 'playing'; canTakeover: boolean } | null;
 
+  /**
+   * 방 설정: 화물 이동 가이드 허용 (호스트 로컬 — 방 만들기/대기실에서 토글, 기본 true).
+   * startOnlineGame이 GameState.moveGuideAllowed로 주입해 스냅샷으로 전원 동기화한다.
+   * rooms 테이블/RoomInfo에는 싣지 않으므로(스키마 무변경) 대기실 게스트에겐 안 보이고,
+   * 게임 시작 후 스냅샷·헤더 스위치 잠김으로 알게 된다.
+   */
+  moveGuideAllowed: boolean;
+  setMoveGuideAllowed: (allowed: boolean) => void;
+
   /** 방 생성 (호스트). seats의 seat 0이 호스트 좌석 — clientId는 자동 주입 */
   hostRoom: (opts: {
     mapId: string;
@@ -655,6 +664,9 @@ export const useNetStore = create<NetStore>()((set, get) => {
     publicRoomsLoading: false,
     disconnectedSeat: null,
     hostTakeoverPrompt: null,
+    moveGuideAllowed: true,
+
+    setMoveGuideAllowed: (allowed) => set({ moveGuideAllowed: allowed }),
 
     acceptHostTakeover: async () => {
       const prompt = get().hostTakeoverPrompt;
@@ -988,6 +1000,8 @@ export const useNetStore = create<NetStore>()((set, get) => {
         .map((s) => ({ playerIndex: s.seat, name: s.name }));
       // 좌석은 유지, 첫 턴 순서만 무작위 (호스트 권위 → 스냅샷으로 게스트에 전파)
       useGameStore.getState().initGame(room.mapId, names, aiPlayers, { randomizeStartOrder: true });
+      // 방 설정: 이동 가이드 허용 여부 주입 — 스냅샷으로 게스트까지 동기화 (false면 전원 잠김)
+      useGameStore.setState({ moveGuideAllowed: get().moveGuideAllowed });
       try {
         await conn.updateRoom({ status: 'playing' });
         await conn.broadcastRoom();

@@ -509,6 +509,15 @@ export interface GameState {
   turboMode?: boolean;
 
   /**
+   * 화물 이동 가이드(목적지 골드 링·최적 경로 점선 미리보기) 허용 여부 — 방 설정.
+   * 온라인은 방장이 방 만들기/대기실에서 정하고 시작 시 주입(스냅샷으로 전원 동기화),
+   * 오프라인은 항상 true. false면 개인 토글(gameSettingsStore)과 무관하게 전원 강제 off이며
+   * 게임 중 변경 불가(설정 창 스위치 잠김). 표시 계층만 게이팅 — 목적지 클릭·수송·
+   * 경로 선택 모드(routeChoice)·이동 애니메이션은 그대로 동작한다.
+   */
+  moveGuideAllowed?: boolean;
+
+  /**
    * 파산(Phase VII)이 발생한 순간의 알림 이벤트 — 사람/봇 구분 없이 담는다.
    * 온라인 스냅샷으로 전파돼 게스트도 같은 팝업을 본다(호스트 전용 아님).
    * ⚠️ persist merge 리셋 목록에 넣지 말 것 — 게스트 적용 경로가 merge를 재사용하므로
@@ -545,6 +554,19 @@ export interface GameState {
    * 새로고침 rehydrate·스냅샷 재적용에 중복 재생 없음(persist merge 리셋 불요).
    */
   deliveryIncomeEvent?: { dest: HexCoord; gains: { player: PlayerId; amount: number }[]; key: number } | null;
+
+  /**
+   * 도시화로 신도시가 배치된 순간의 1회성 표시 상태 (placeNewCity가 기록).
+   * BoardPulses가 배치 헥스 위에 "신도시!" 펄스를, MoveCubeOverlay가 잠시 미니맵 팝업을
+   * 띄운다 — 스냅샷에 실려 온라인 참가자 전원이 같은 연출을 본다(사람·봇 배치 공통).
+   * ⚠️ persist merge 리셋 목록에 넣지 말 것 — 게스트 적용 경로가 merge를 재사용하므로
+   * 넣으면 게스트 표시가 죽는다. 재생 중복은 표시 계층의 "key 최초 관측 스킵" 가드가 방지.
+   * ⚠️ key는 결정론(타일ID@좌표) — placeNewCity는 optimistic 인텐트라 게스트 로컬 실행과
+   * 호스트 스냅샷이 각각 이벤트를 만드는데, Date.now()면 key가 달라져 이중 재생된다.
+   * at = 발생 시각: 신도시 플래시로 새로 마운트되는 미니맵의 BoardPulses가 "첫 관측"이어도
+   * 방금(5초 내) 이벤트는 재생하기 위한 신선도 판정용 — key 가드(중복 차단)와 역할이 다르다.
+   */
+  newCityEvent?: { coord: HexCoord; tileId: NewCityTileId; color: CityColor; player: PlayerId; key: string; at: number } | null;
 }
 
 /** 대륙횡단 연결 순간을 사람 플레이어에게 알리는 팝업 데이터. */

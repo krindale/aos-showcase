@@ -806,7 +806,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             {currentPhase === 'buildTrack' && !ui.urbanizationMode && ui.buildMode === 'target_selected' && '트랙이 나갈 방향을 클릭하세요 (곡선/직선 선택)'}
             {currentPhase === 'buildTrack' && !ui.urbanizationMode && ui.buildMode === 'redirect_selected' && '방향 전환 패널에서 새 방향을 선택하세요'}
             {currentPhase === 'moveGoods' && !ui.selectedCube && !ui.movingCube && '물품 큐브를 클릭하세요'}
-            {currentPhase === 'moveGoods' && ui.selectedCube && '금색 테두리의 목적지 도시를 클릭하세요'}
+            {/* 가이드 off면 금색 테두리가 안 그려지므로 문구도 일반형으로 */}
+            {currentPhase === 'moveGoods' && ui.selectedCube && (moveGuideOn ? '금색 테두리의 목적지 도시를 클릭하세요' : '배달할 목적지 도시를 클릭하세요')}
             {currentPhase === 'moveGoods' && ui.movingCube && '물품 이동 중...'}
             {currentPhase === 'governmentLink' && ui.buildMode === 'idle' && '정부 링크: 도시를 클릭해 무료 중립 링크를 건설하세요'}
             {currentPhase === 'governmentLink' && ui.buildMode === 'source_selected' && '노란색 헥스를 클릭하여 정부 트랙을 건설하세요'}

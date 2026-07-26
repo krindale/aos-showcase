@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useCallback, useEffect, useState } from 'react';
+import { useMemo, useCallback, useEffect, useRef, useState } from 'react';
 import BoardPulses from './BoardPulses';
 import BoardTracks from './board/BoardTracks';
 import BoardTowns from './board/BoardTowns';
@@ -461,12 +461,27 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   // (오버레이 모드 GameBoard는 표시만 담당 — 메인 GameBoard가 completeCubeMove를 호출하므로 중복 방지)
   // safeTimeout: 창이 백그라운드여도 스로틀 없이 정산 — 온라인에서 호스트 창이 가려지면
   // 이동 정산이 멈춰 게임 전체가 서던 문제 방지
+  // 화물 출발 효과음 — 게스트도 스냅샷(netMovingCube)으로 movingCube가 세팅되므로 전원 재생.
+  // ⚠️ 참조 비교 금지: 게스트는 스냅샷 재적용마다 movingCube 객체 참조가 새로 생기므로
+  // (같은 이동인데 재실행) 내용 키(색+출발→도착)로 같은 이동의 중복 재생을 막는다.
+  const movingCubeSfxKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (fitOverlay) return;
+    const mc = ui.movingCube;
+    if (!mc) {
+      movingCubeSfxKeyRef.current = null;
+      return;
+    }
+    const from = mc.path[0];
+    const to = mc.path[mc.path.length - 1];
+    const key = `${mc.color}|${from?.col},${from?.row}->${to?.col},${to?.row}`;
+    if (movingCubeSfxKeyRef.current === key) return;
+    movingCubeSfxKeyRef.current = key;
+    playSfx('cubeStart');
+  }, [fitOverlay, ui.movingCube]);
+
   useEffect(() => {
     if (fitOverlay || !ui.movingCube) return;
-
-    // 화물 출발 효과음 — 게스트도 스냅샷(netMovingCube)으로 movingCube가 세팅되므로 전원 재생.
-    // 같은 이동 중 effect 재실행은 sfx 스로틀이 걸러준다.
-    playSfx('cubeStart');
 
     // 애니메이션 완료 후 처리 (1초)
     const cancel = safeTimeout(() => {

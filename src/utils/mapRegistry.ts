@@ -168,10 +168,6 @@ export interface GameMapData {
   /** 보드 위에 그릴 도로 라인 (Montréal — 검정 도로 + 노란 점선 중앙선, 원본 시트 재현).
    *  각 라인 = 데이터 좌표 + 화면 px 오프셋(HEX_SIZE 기준)의 폴리라인. 순수 시각 요소. */
   roads?: { coord: { col: number; row: number }; dx?: number; dy?: number }[][];
-  /** viewBox 우측 여백을 헥스 N개 폭만큼 줄임 (calculateBoardDimensions가 우측을 약 1헥스 과대 산정 — 맵별 보정). */
-  trimRightHexes?: number;
-  /** viewBox 좌측 빈 열을 헥스 N개 폭만큼 가림 (Korea: 좌측 row 0이 비어 있어 1). */
-  trimLeftHexes?: number;
   /** 게임 화면 보드 표시 배율 (1=기본=폭 100%). 세로로 긴 맵이 화면을 꽉 채워 과대해 보일 때
    *  컨테이너 폭을 줄여 보드를 축소한다 (예: St. Lucia 0.8 = 20% 축소). 미지정=1. */
   boardDisplayScale?: number;
@@ -321,7 +317,6 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     hideLakeHexes: true,         // 태평양/멕시코만 외곽은 안 그려 대륙 윤곽 표현
     orientation: 'pointy',       // pointy-top 네이티브 — 전치 없음 (St.Lucia/Rust Belt/Germany와 다름)
     hexCostMode: 'legend',       // 지형별 균일 비용(늪/강 $4·산 $5) → 헥스 숫자 대신 좌하단 범례
-    trimRightHexes: 1,           // 우측 과대 여백 1헥스 트림 (좌측과 대칭)
     colors: {
       terrain: WESTERN_US_COLORS.terrain,
       background: WESTERN_US_COLORS.background,
@@ -349,7 +344,6 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     townNames: SOUTHERN_US_TOWN_NAMES,
     hideLakeHexes: true,         // 멕시코만/대서양 외곽은 안 그려 해안 윤곽 표현
     orientation: 'flat',         // flat-top 보드 — 전치 저장 + 렌더 전치 (Germany 등과 동일)
-    trimLeftHexes: 1,            // 좌측 row 0이 빈 열이라 viewBox에서 가려 보드 확대 (Korea와 동일 기법)
     colors: {
       terrain: SOUTHERN_US_COLORS.terrain,
       background: SOUTHERN_US_COLORS.background,
@@ -440,7 +434,6 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     hideLakeHexes: true,         // 맵 밖(lake) 헥스는 안 그려 한반도 윤곽 표현
     orientation: 'flat',         // flat-top 보드 — 전치 저장 + 렌더 전치 (Germany 등과 동일)
     hexCostMode: 'legend',       // 산 단일 비용($3) → 헥스마다 숫자 대신 범례
-    trimLeftHexes: 1,            // 좌측 row 0이 빈 열이라 viewBox에서 가려 보드 확대
     colors: {
       terrain: KOREA_COLORS.terrain,
       background: KOREA_COLORS.background,

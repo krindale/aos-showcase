@@ -30,6 +30,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Next 14 빌드 내장 lint는 ESLint 9 flat config를 인식 못 해 껐다
+      # (next.config.mjs ignoreDuringBuilds) — 대신 여기서 lint 게이트 유지
+      - name: Lint
+        run: npm run lint
+
       - name: Build
         run: npm run build
         env:

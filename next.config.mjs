@@ -2,6 +2,9 @@
 const isProd = process.env.NODE_ENV === 'production';
 
 const nextConfig = {
+  // ESLint 9 flat config(eslint.config.mjs)는 Next 14 내장 빌드 lint가 인식 못 함 —
+  // 빌드 중 lint를 끄고, lint는 `npm run lint`(eslint CLI) + CI(deploy.yml) 스텝이 담당
+  eslint: { ignoreDuringBuilds: true },
   output: 'export',
   basePath: isProd ? '/aos-showcase' : '',
   assetPrefix: isProd ? '/aos-showcase/' : '',

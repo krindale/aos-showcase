@@ -1775,6 +1775,7 @@ export const useGameStore = create<GameStore>()(
         color: tile.color,
         player: state.currentPlayer,
         key: `${selectedTileId}@${townCoord.col},${townCoord.row}`,
+        at: Date.now(), // 신선도 판정용 (미니맵 새 마운트 재생 허용) — 중복 차단은 key가 담당
       },
       undoCount: undoSnapshots.length,
       ui: {

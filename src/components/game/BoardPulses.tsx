@@ -172,12 +172,17 @@ function BoardPulsesInner({ isFlat, viewTop }: { isFlat: boolean; viewTop: numbe
     }]);
   }, [deliveryEvent, isFlat, addIncome]);
 
-  // 신도시 배치 → 배치 헥스 위 도시색 확산 링 + "신도시!" 라벨 (deliveryIncomeEvent와 동일 가드)
+  // 신도시 배치 → 배치 헥스 위 도시색 확산 링 + "신도시!" 라벨.
+  // 가드는 deliveryIncomeEvent와 동일하되 "첫 관측 스킵"을 신선도(at 5초 내)로 완화 —
+  // 신도시 플래시로 MoveCubeOverlay(미니맵)가 새로 마운트되면 그 안의 BoardPulses는 항상
+  // 첫 관측이라, 무조건 스킵하면 미니맵 안에 펄스가 안 보인다. 옛 이벤트(F5 rehydrate)는
+  // at이 과거라 여전히 스킵되고, 재적용 중복은 key 가드가 막는다.
   useEffect(() => {
     const first = newCityKeyRef.current === undefined;
     const prevKey = newCityKeyRef.current;
     newCityKeyRef.current = newCityEvent?.key ?? null;
-    if (first || !newCityEvent || newCityEvent.key === prevKey) return;
+    if (!newCityEvent || newCityEvent.key === prevKey) return;
+    if (first && Date.now() - (newCityEvent.at ?? 0) > 5000) return;
     if (isRecentUndoLog(useGameStore.getState().logs)) return; // 실행 취소 복원은 재생하지 않음
     const players = useGameStore.getState().players;
     const placer = players[newCityEvent.player];

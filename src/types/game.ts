@@ -563,8 +563,10 @@ export interface GameState {
    * 넣으면 게스트 표시가 죽는다. 재생 중복은 표시 계층의 "key 최초 관측 스킵" 가드가 방지.
    * ⚠️ key는 결정론(타일ID@좌표) — placeNewCity는 optimistic 인텐트라 게스트 로컬 실행과
    * 호스트 스냅샷이 각각 이벤트를 만드는데, Date.now()면 key가 달라져 이중 재생된다.
+   * at = 발생 시각: 신도시 플래시로 새로 마운트되는 미니맵의 BoardPulses가 "첫 관측"이어도
+   * 방금(5초 내) 이벤트는 재생하기 위한 신선도 판정용 — key 가드(중복 차단)와 역할이 다르다.
    */
-  newCityEvent?: { coord: HexCoord; tileId: NewCityTileId; color: CityColor; player: PlayerId; key: string } | null;
+  newCityEvent?: { coord: HexCoord; tileId: NewCityTileId; color: CityColor; player: PlayerId; key: string; at: number } | null;
 }
 
 /** 대륙횡단 연결 순간을 사람 플레이어에게 알리는 팝업 데이터. */

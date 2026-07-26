@@ -46,7 +46,10 @@ export const TUTORIAL_CITIES: City[] = [
     cubes: [],
   },
   {
-    id: 'C',
+    // ⚠️ 단일 문자 'C'였으나 신도시 타일 id(A~H)와 충돌해 'CLE'로 변경 (2026-07-26) —
+    // 타일 C 배치 거부 오탐 + 배치 후 cities.find 첫 매치가 Cleveland로 잡히는 혼선의 원천.
+    // 도시 id는 신도시 타일 id와 절대 겹치면 안 된다 (mapCityIdCollision.test가 전 맵 가드).
+    id: 'CLE',
     name: 'Cleveland',
     coord: { col: 4, row: 0 },
     color: 'blue',
@@ -81,14 +84,14 @@ export const TUTORIAL_TOWNS: Town[] = [
 // 튜토리얼 물품 디스플레이: 1~6 열은 칸 3개, 신도시(A~D) 열은 칸 2개 (좁은 튜토리얼 맵에 맞춘 축소 구성)
 export const TUTORIAL_COLUMN_MAPPING: GoodsColumnMapping[] = [
   { columnId: '1' as GoodsColumnId, cityId: 'P', isNewCity: false, rowCount: 3 }, // Pittsburgh
-  { columnId: '2' as GoodsColumnId, cityId: 'C', isNewCity: false, rowCount: 3 }, // Cleveland
+  { columnId: '2' as GoodsColumnId, cityId: 'CLE', isNewCity: false, rowCount: 3 }, // Cleveland
   { columnId: '3' as GoodsColumnId, cityId: 'O', isNewCity: false, rowCount: 3 }, // Columbus
   { columnId: '4' as GoodsColumnId, cityId: '', isNewCity: false, rowCount: 3 }, // Wheeling(마을) — 물품 생산 없음, 빈 열
   { columnId: '5' as GoodsColumnId, cityId: 'I', isNewCity: false, rowCount: 3 }, // Cincinnati
   { columnId: '6' as GoodsColumnId, cityId: 'P', isNewCity: false, rowCount: 3 }, // Pittsburgh (다시)
   { columnId: 'A' as GoodsColumnId, cityId: 'A', isNewCity: true, rowCount: 2 },  // New City A
   { columnId: 'B' as GoodsColumnId, cityId: 'B', isNewCity: true, rowCount: 2 },  // New City B
-  { columnId: 'C' as GoodsColumnId, cityId: 'C', isNewCity: true, rowCount: 2 },  // New City C (중복 주의)
+  { columnId: 'C' as GoodsColumnId, cityId: 'C', isNewCity: true, rowCount: 2 },  // New City C (신도시 타일 id)
   { columnId: 'D' as GoodsColumnId, cityId: 'D', isNewCity: true, rowCount: 2 },  // New City D
 ];
 

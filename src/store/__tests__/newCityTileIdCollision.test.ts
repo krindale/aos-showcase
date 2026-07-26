@@ -2,8 +2,10 @@
  * 신도시 타일 id ↔ 맵 원본 도시 id 충돌 회귀 (2026-07-26 사용자 발견)
  *
  * placeNewCity의 중복 배치 방어가 board.cities 전체에서 id만 비교해, 튜토리얼 맵의
- * Cleveland(id 'C') 때문에 신도시 타일 'C'가 "이미 배치됨"으로 오탐 거부되던 버그.
- * 수정: 신도시로 배치된 도시(isUrbanizedNewCity)만 검사 + 같은 타일 재배치는 여전히 거부.
+ * Cleveland(당시 id 'C') 때문에 신도시 타일 'C'가 "이미 배치됨"으로 오탐 거부되던 버그.
+ * 수정 2단: ① 검사를 신도시(isUrbanizedNewCity)만 보게 교정 ② Cleveland를 'CLE'로 개명해
+ * 충돌 원천 제거 (find 첫 매치 혼선·React 중복 key까지 차단 — mapCityIdCollision.test가
+ * 전 맵 가드). 이 테스트는 배치/undo/재배치 동작 회귀를 지킨다.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useGameStore } from '../gameStore';
@@ -28,16 +30,17 @@ describe('신도시 타일 id와 맵 도시 id 충돌', () => {
     useGameStore.getState().initGame('tutorial', ['Player1', 'Player2']);
   });
 
-  it("타일 'C'는 Cleveland(id 'C')가 있어도 배치된다", () => {
+  it("타일 'C'가 정상 배치된다 (Cleveland는 'CLE'로 개명되어 id 유일)", () => {
     enterUrbanization('C');
     const ok = useGameStore.getState().placeNewCity(WHEELING);
     expect(ok).toBe(true);
 
     const state = useGameStore.getState();
     const placed = state.board.cities.filter((c) => c.id === 'C');
-    // Cleveland + 신도시 C — 신도시 쪽만 isUrbanizedNewCity
-    expect(placed).toHaveLength(2);
-    expect(placed.filter((c) => c.isUrbanizedNewCity)).toHaveLength(1);
+    // 신도시 C만 — 맵 원본 도시와 id가 겹치지 않는다
+    expect(placed).toHaveLength(1);
+    expect(placed[0].isUrbanizedNewCity).toBe(true);
+    expect(state.board.cities.some((c) => c.id === 'CLE')).toBe(true); // Cleveland 건재
     expect(state.newCityTiles.find((t) => t.id === 'C')?.used).toBe(true);
   });
 

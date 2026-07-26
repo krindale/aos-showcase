@@ -99,19 +99,19 @@ function createSeededRng(seed: number): () => number {
 /** 기본 물품 배치 (테스트용 known-good) */
 function getDefaultCubeMap(): Record<string, CubeColor[]> {
   return {
-    P: ['blue', 'yellow'],    // Pittsburgh(red): blue→C, yellow→O
-    C: ['red', 'purple'],     // Cleveland(blue): red→P, purple→I
-    O: ['blue', 'red'],       // Columbus(yellow): blue→C, red→P
-    I: ['red', 'blue'],       // Cincinnati(purple): red→P, blue→C
+    P: ['blue', 'yellow'],    // Pittsburgh(red): blue→CLE, yellow→O
+    CLE: ['red', 'purple'],   // Cleveland(blue): red→P, purple→I
+    O: ['blue', 'red'],       // Columbus(yellow): blue→CLE, red→P
+    I: ['red', 'blue'],       // Cincinnati(purple): red→P, blue→CLE
   };
 }
 
 /** 시드 기반 랜덤 물품 배치 */
 function getRandomCubeMap(rng: () => number): Record<string, CubeColor[]> {
   const colors: CubeColor[] = ['red', 'blue', 'yellow', 'purple']; // black 제외 (배달 가능한 색만)
-  const cityIds = ['P', 'C', 'O', 'I'];
+  const cityIds = ['P', 'CLE', 'O', 'I'];
   const cityColors: Record<string, CubeColor> = {
-    P: 'red', C: 'blue', O: 'yellow', I: 'purple',
+    P: 'red', CLE: 'blue', O: 'yellow', I: 'purple',
   };
   const map: Record<string, CubeColor[]> = {};
 
@@ -1071,7 +1071,7 @@ describe('AI 전체 게임 시뮬레이션 (gameStore 기반 통합 테스트)',
         console.log(`${'!'.repeat(60)}`);
         console.log(`\n큐브 배치:`);
         for (const [cityId, cubes] of Object.entries(cubeMap)) {
-          const cityColor = { P: 'red', C: 'blue', O: 'yellow', I: 'purple' }[cityId];
+          const cityColor = { P: 'red', CLE: 'blue', O: 'yellow', I: 'purple' }[cityId];
           console.log(`  ${cityId}(${cityColor}): ${cubes.join(', ')}`);
         }
 

@@ -38,8 +38,17 @@
 - **수정**: ① `City.isUrbanizedNewCity`(optional) 추가 — placeNewCity가 만든 신도시에만
   세팅하고 중복 검사는 이 플래그가 있는 도시만 비교(구버전 저장본 신도시엔 없어도
   `NewCityTile.used`가 중복을 막음). ② `hasActiveSelection`에 도시화 두 상태 추가.
+- **후속(같은 날, 사용자 지적 "모든 도시 id와 충돌 아닌가?")**: ①만으로는 배치 후
+  **Cleveland('C')와 신도시 C('C')가 공존** — `cities.find(c => c.id === ...)` 첫 매치가
+  Cleveland를 잡아 큐브 선택/이동 혼선 + React `key={city-<id>}` 중복 위험이 남는다.
+  전 맵 id 전수 조사 결과 단일 문자 A~H 충돌은 튜토리얼 'C' 하나뿐(타 맵은 2~3글자 약어)
+  → **Cleveland id 'C' → 'CLE' 개명**으로 원천 제거(columnMapping·fullGameSimulation 동기
+  수정. 구버전 튜토리얼 저장본은 열2 성장 매칭만 어긋남 — 새 게임으로 해소).
+  재발 방지: `src/utils/__tests__/mapCityIdCollision.test.ts` — 전 맵 도시·마을 id가
+  신도시 타일 id(A~H)와 겹치면 실패하는 무결성 가드(새 맵 추가 시 자동 검사).
 - **검증**: 회귀 테스트 `src/store/__tests__/newCityTileIdCollision.test.ts` 3종
-  (C 배치 성공 + Cleveland 공존, used 중복 거부 유지, 실전 로그 재현 H→undo→G→undo→C).
+  (C 배치 성공·used 중복 거부 유지·실전 로그 재현 H→undo→G→undo→C) + 무결성 가드
+  + 튜토리얼 기반 AI 시뮬/store/utils 335개 통과.
 
 ## 2026-07-26 — 온라인 F5 재접속 때 셋업 화면이 먼저 떴다가 보드로 전환 (부팅 게이트 부재)
 

@@ -288,10 +288,11 @@ src/
     ├── debugConfig.ts          # 디버그 설정 (로그 카테고리 토글 + logAction 종합 액션 로깅)
     ├── pwaUtils.ts             # Service Worker 등록/관리 유틸리티
     ├── safeTimers.ts           # Web Worker 기반 타이머 (백그라운드 탭 스로틀 회피, Worker 불가 시 setTimeout 폴백)
-    ├── sfx.ts                  # 게임 액션 효과음 (Web Audio 합성, 파일/라이브러리 0개) — SFX_CATALOG 17종 레시피
+    ├── sfx.ts                  # 게임 액션 효과음 (Web Audio 합성, 파일/라이브러리 0개) — SFX_CATALOG 16종 레시피
     │                           #   + playSfx(터보 무음·설정 게이트·150ms 스로틀·오디오 미지원 무해화). 미리듣기 = /sfx 숨은 라우트.
+    │                           #   화물 이동은 도착 정산 income만(출발음은 이중이라 제거 — 사용자 피드백).
     │                           #   ⚠️ 이벤트 관측 재생은 참조 비교 금지(게스트 스냅샷 재적용마다 객체가 새로 생겨 반복 재생)
-    │                           #   — key 필드나 내용 키로 비교(GoodsGrowthPanel growthKey·GameBoard movingCube 키 참조).
+    │                           #   — key 필드나 내용 키로 비교(GoodsGrowthPanel growthKey 참조).
     │                           #   봇/원격의 store 액션 소리(경매·주식)는 호스트만 들림(관측 기반인 건설/수입/신도시/성장은 전원).
     └── testHelpers.ts          # 단위 테스트 헬퍼 함수
 

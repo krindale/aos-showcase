@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useCallback, useEffect, useRef, useState } from 'react';
+import { useMemo, useCallback, useEffect, useState } from 'react';
 import BoardPulses from './BoardPulses';
 import BoardTracks from './board/BoardTracks';
 import BoardTowns from './board/BoardTowns';
@@ -43,7 +43,6 @@ import { useMyPlayerId } from '@/hooks/useMyPlayerId';
 import { useNetStore } from '@/net/netStore';
 import { safeTimeout } from '@/utils/safeTimers';
 import { turboDelay } from '@/utils/turboMode';
-import { playSfx } from '@/utils/sfx';
 
 export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean } = {}) {
   // fitOverlay: 화물 이동 애니메이션을 전체 화면에 꽉 차게(fit) 보여주는 비인터랙티브 오버레이 모드
@@ -461,25 +460,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   // (오버레이 모드 GameBoard는 표시만 담당 — 메인 GameBoard가 completeCubeMove를 호출하므로 중복 방지)
   // safeTimeout: 창이 백그라운드여도 스로틀 없이 정산 — 온라인에서 호스트 창이 가려지면
   // 이동 정산이 멈춰 게임 전체가 서던 문제 방지
-  // 화물 출발 효과음 — 게스트도 스냅샷(netMovingCube)으로 movingCube가 세팅되므로 전원 재생.
-  // ⚠️ 참조 비교 금지: 게스트는 스냅샷 재적용마다 movingCube 객체 참조가 새로 생기므로
-  // (같은 이동인데 재실행) 내용 키(색+출발→도착)로 같은 이동의 중복 재생을 막는다.
-  const movingCubeSfxKeyRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (fitOverlay) return;
-    const mc = ui.movingCube;
-    if (!mc) {
-      movingCubeSfxKeyRef.current = null;
-      return;
-    }
-    const from = mc.path[0];
-    const to = mc.path[mc.path.length - 1];
-    const key = `${mc.color}|${from?.col},${from?.row}->${to?.col},${to?.row}`;
-    if (movingCubeSfxKeyRef.current === key) return;
-    movingCubeSfxKeyRef.current = key;
-    playSfx('cubeStart');
-  }, [fitOverlay, ui.movingCube]);
-
+  // (화물 출발음은 제거 — 도착 정산 income 사운드(BoardPulses)와 이중이라 불필요, 2026-07-26)
   useEffect(() => {
     if (fitOverlay || !ui.movingCube) return;
 

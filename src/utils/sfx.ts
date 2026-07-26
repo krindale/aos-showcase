@@ -22,7 +22,6 @@ import { useGameSettingsStore } from '@/store/gameSettingsStore';
 
 export type SfxName =
   | 'build'
-  | 'cubeStart'
   | 'income'
   | 'dice'
   | 'diceLand'
@@ -128,15 +127,7 @@ export const SFX_CATALOG: Record<SfxName, SfxDef> = {
       tone(ctx, out, t, { type: 'triangle', freq: 90, dur: 0.09, vol: 0.9 });
     },
   },
-  cubeStart: {
-    label: '화물 출발',
-    situation: '화물 큐브가 철도를 따라 이동을 시작할 때',
-    render: (ctx, t, out) => {
-      // 기적 "뿌—" — 단3도 화음(기차 경적 느낌)
-      tone(ctx, out, t, { type: 'triangle', freq: 233, dur: 0.28, vol: 0.75 });
-      tone(ctx, out, t, { type: 'triangle', freq: 311, dur: 0.28, vol: 0.6 });
-    },
-  },
+  // (화물 출발음 cubeStart는 제거 — 도착 정산 income과 이중이라 불필요, 2026-07-26 사용자 피드백)
   income: {
     label: '수입 정산',
     situation: '화물이 목적지에 도착해 링크 소유자 수입이 오를 때',

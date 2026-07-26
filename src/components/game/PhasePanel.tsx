@@ -172,7 +172,11 @@ export default function PhasePanel() {
       s.ui.buildMode !== 'idle' ||
       s.ui.selectedCube !== null ||
       s.ui.complexTrackSelection !== null ||
-      s.ui.redirectTrackSelection !== null
+      s.ui.redirectTrackSelection !== null ||
+      // 도시화 진행 중(타일 선택/마을 고르기)도 취소 대상 — 빠져 있으면 배치가 거부될 때
+      // 취소 버튼 없이 갇힌다 (2026-07-26 튜토리얼 타일 C 오탐 거부에서 드러남)
+      s.ui.urbanizationMode ||
+      s.ui.selectedNewCityTile !== null
   );
 
   // 독일(완성 링크만): 이번 턴 미완성 신설 트랙이 있으면 넘어갈 때 삭제·환불된다 → 실수로 잃지

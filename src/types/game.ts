@@ -105,6 +105,11 @@ export interface City {
   /** 색·수요 없는 도시 (Moon: Moon Base) — 어떤 큐브도 여기서 배달이 끝나지 않고 출발/통과만
    *  가능하다 (cityAcceptsCube가 항상 false). color 필드는 타입 충족용일 뿐 수요에 쓰이지 않는다. */
   noDemand?: boolean;
+  /** 도시화(Urbanization)로 배치된 신도시 (placeNewCity가 세팅). 중복 배치 검사가 신도시만
+   *  보게 하는 구분자 — 맵 원본 도시 id가 신도시 타일 id(A~H)와 겹치는 맵(튜토리얼 Cleveland='C')에서
+   *  타일 배치가 오탐 거부되던 버그(2026-07-26) 방지. 구버전 저장본의 신도시엔 없을 수 있으나
+   *  그 경우도 NewCityTile.used가 중복을 막는다. */
+  isUrbanizedNewCity?: boolean;
 }
 
 // 마을

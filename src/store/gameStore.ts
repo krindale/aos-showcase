@@ -1766,13 +1766,15 @@ export const useGameStore = create<GameStore>()(
       },
       newCityTiles: updatedNewCityTiles,
       goodsDisplay: updatedGoodsDisplay, // 한국: 디스플레이 보충 / Western: 마을 큐브 주머니 반환 (그 외 맵 무변경)
-      // 신도시 배치 연출 이벤트 — BoardPulses 펄스 + MoveCubeOverlay 미니맵 팝업 (스냅샷으로 전원 동기화)
+      // 신도시 배치 연출 이벤트 — BoardPulses 펄스 + MoveCubeOverlay 미니맵 팝업 (스냅샷으로 전원 동기화).
+      // key는 결정론(타일@좌표): optimistic 게스트 로컬 실행과 호스트 스냅샷이 같은 key가 되어
+      // "key 최초 관측" 가드가 이중 재생을 막는다 (Date.now()면 양쪽 key가 달라 두 번 재생).
       newCityEvent: {
         coord: townCoord,
         tileId: selectedTileId,
         color: tile.color,
         player: state.currentPlayer,
-        key: Date.now(),
+        key: `${selectedTileId}@${townCoord.col},${townCoord.row}`,
       },
       undoCount: undoSnapshots.length,
       ui: {

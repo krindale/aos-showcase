@@ -36,7 +36,7 @@ export default function MoveCubeOverlay() {
   // key 변화를 관측해 전원(호스트·게스트, 사람·봇 배치 공통)이 같은 팝업을 본다.
   // "key 최초 관측 스킵" 가드로 새로고침 rehydrate/스냅샷 재적용 재생을 방지 (BoardPulses와 동일).
   const [newCityFlash, setNewCityFlash] = useState<NonNullable<GameState['newCityEvent']> | null>(null);
-  const newCityKeyRef = useRef<number | null | undefined>(undefined);
+  const newCityKeyRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     const first = newCityKeyRef.current === undefined;
     const prevKey = newCityKeyRef.current;

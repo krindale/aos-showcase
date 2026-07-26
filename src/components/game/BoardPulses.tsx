@@ -82,7 +82,7 @@ function BoardPulsesInner({ isFlat, viewTop }: { isFlat: boolean; viewTop: numbe
   const cubeCountsRef = useRef<Record<string, Partial<Record<CubeColor, number>>> | null>(null);
   // undefined = 미관측(마운트 직후) — 첫 관측은 기록만 하고 재생하지 않음 (rehydrate/스냅샷 재적용 중복 방지)
   const incomeKeyRef = useRef<number | null | undefined>(undefined);
-  const newCityKeyRef = useRef<number | null | undefined>(undefined);
+  const newCityKeyRef = useRef<string | null | undefined>(undefined);
 
   // 건설 이벤트 → 로그 기반 펄스
   useEffect(() => {

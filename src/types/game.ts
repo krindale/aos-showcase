@@ -561,8 +561,10 @@ export interface GameState {
    * 띄운다 — 스냅샷에 실려 온라인 참가자 전원이 같은 연출을 본다(사람·봇 배치 공통).
    * ⚠️ persist merge 리셋 목록에 넣지 말 것 — 게스트 적용 경로가 merge를 재사용하므로
    * 넣으면 게스트 표시가 죽는다. 재생 중복은 표시 계층의 "key 최초 관측 스킵" 가드가 방지.
+   * ⚠️ key는 결정론(타일ID@좌표) — placeNewCity는 optimistic 인텐트라 게스트 로컬 실행과
+   * 호스트 스냅샷이 각각 이벤트를 만드는데, Date.now()면 key가 달라져 이중 재생된다.
    */
-  newCityEvent?: { coord: HexCoord; tileId: NewCityTileId; color: CityColor; player: PlayerId; key: number } | null;
+  newCityEvent?: { coord: HexCoord; tileId: NewCityTileId; color: CityColor; player: PlayerId; key: string } | null;
 }
 
 /** 대륙횡단 연결 순간을 사람 플레이어에게 알리는 팝업 데이터. */

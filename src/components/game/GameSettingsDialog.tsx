@@ -33,8 +33,9 @@ function SettingRow({
   return (
     <div className="flex items-center justify-between gap-3 py-3 border-b border-foreground/10 last:border-b-0">
       <div className="min-w-0">
-        <div className="text-sm font-semibold text-foreground">{label}</div>
-        <p className="text-xs text-foreground-secondary leading-snug mt-0.5">
+        {/* 잠김(방 설정 금지)이면 라벨/설명도 disabled 색으로 — 스위치만 흐리면 잠김이 안 읽힘 */}
+        <div className={`text-sm font-semibold ${disabled ? 'text-foreground-muted' : 'text-foreground'}`}>{label}</div>
+        <p className={`text-xs leading-snug mt-0.5 ${disabled ? 'text-foreground-muted' : 'text-foreground-secondary'}`}>
           {disabled && disabledNote ? disabledNote : description}
         </p>
       </div>

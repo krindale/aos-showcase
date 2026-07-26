@@ -7,6 +7,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { HEX_SIZE, hexToPixel } from '@/utils/hexGrid';
 import { CITY_COLORS, CUBE_COLORS, CubeColor, HexCoord, PLAYER_COLORS } from '@/types/game';
 import { GAME_ACCENT, GAME_INK, GAME_PAPER, isRecentUndoLog } from './uiEffects';
+import { playSfx } from '@/utils/sfx';
 
 /**
  * 보드 위 인플레이스 펄스 레이어 (표시 전용) — GameBoard의 줌 <g> 안에서 렌더된다.
@@ -70,7 +71,9 @@ function stackDir(y: number, rows: number, viewTop: number): 1 | -1 {
   return y - needed < viewTop ? 1 : -1;
 }
 
-function BoardPulsesInner({ isFlat, viewTop }: { isFlat: boolean; viewTop: number }) {
+// silent: 미니맵(fitOverlay) 인스턴스는 효과음을 내지 않는다 — 메인 보드와 이중 재생 방지
+// (sfx 유틸의 150ms 스로틀이 2차 방어)
+function BoardPulsesInner({ isFlat, viewTop, silent = false }: { isFlat: boolean; viewTop: number; silent?: boolean }) {
   const { logs, cities, towns, deliveryEvent, newCityEvent } = useGameStore(
     useShallow((s) => ({ logs: s.logs, cities: s.board.cities, towns: s.board.towns, deliveryEvent: s.deliveryIncomeEvent, newCityEvent: s.newCityEvent }))
   );
@@ -119,7 +122,8 @@ function BoardPulsesInner({ isFlat, viewTop }: { isFlat: boolean; viewTop: numbe
       });
     });
     addBuild(batch);
-  }, [logs, isFlat, addBuild, clearBuild, clearCube]);
+    if (batch.length > 0 && !silent) playSfx('build');
+  }, [logs, isFlat, addBuild, clearBuild, clearCube, silent]);
 
   // 큐브 유입 → 색상별 "+n" 세로 스택 펄스
   useEffect(() => {
@@ -170,7 +174,8 @@ function BoardPulsesInner({ isFlat, viewTop }: { isFlat: boolean; viewTop: numbe
         amount: g.amount,
       })),
     }]);
-  }, [deliveryEvent, isFlat, addIncome]);
+    if (!silent) playSfx('income');
+  }, [deliveryEvent, isFlat, addIncome, silent]);
 
   // 신도시 배치 → 배치 헥스 위 도시색 확산 링 + "신도시!" 라벨.
   // 가드는 deliveryIncomeEvent와 동일하되 "첫 관측 스킵"을 신선도(at 5초 내)로 완화 —
@@ -196,7 +201,8 @@ function BoardPulsesInner({ isFlat, viewTop }: { isFlat: boolean; viewTop: numbe
       tileId: newCityEvent.tileId,
       k: `nc-${newCityEvent.key}`,
     }]);
-  }, [newCityEvent, isFlat, addNewCity]);
+    if (!silent) playSfx('newCity');
+  }, [newCityEvent, isFlat, addNewCity, silent]);
 
   return (
     <g style={{ pointerEvents: 'none' }}>

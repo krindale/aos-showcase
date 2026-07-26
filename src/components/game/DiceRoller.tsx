@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Dice1, Dice2, Dice3, Dice4, Dice5, Dice6 } from 'lucide-react';
+import { playSfx } from '@/utils/sfx';
 
 interface DiceRollerProps {
   diceCount: number;
@@ -31,6 +32,7 @@ export default function DiceRoller({ diceCount, onRoll, disabled = false, showCo
     if (disabled || isRolling) return;
 
     setIsRolling(true);
+    playSfx('dice');
 
     // 굴리는 애니메이션 효과
     let rollCount = 0;
@@ -50,6 +52,7 @@ export default function DiceRoller({ diceCount, onRoll, disabled = false, showCo
           .map(() => Math.floor(Math.random() * 6) + 1);
         setResults(finalResults);
         setIsRolling(false);
+        playSfx('diceLand');
         onRoll(finalResults);
       }
     }, 100);

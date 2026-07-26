@@ -2,6 +2,7 @@
 // 분리한다. 온라인에서 방장 토스트가 게스트에게 새지 않는다.
 
 import { create } from 'zustand';
+import { playSfx } from '@/utils/sfx';
 
 export interface Toast {
   id: number;
@@ -22,6 +23,7 @@ export const useToastStore = create<ToastStore>((set, get) => ({
   showToast: (text, kind = 'error') => {
     // 같은 문구가 이미 떠 있으면 중복 방지(연타 스팸 억제)
     if (get().toasts.some((t) => t.text === text)) return;
+    playSfx(kind === 'error' ? 'error' : 'notify');
     const id = ++seq;
     set((s) => ({ toasts: [...s.toasts, { id, text, kind }].slice(-3) }));
   },

@@ -13,6 +13,7 @@ import { hexCoordsEqual, findTrackCubeDeliveries, getConnectingEdge, trackOwnerF
 import { logAction } from '@/utils/debugConfig';
 import { releaseAILock } from '../helpers/aiScheduler';
 import { captureUndo } from '../helpers/undo';
+import { playSfx } from '@/utils/sfx';
 
 type Set = StoreApi<GameStore>['setState'];
 type Get = StoreApi<GameStore>['getState'];
@@ -173,6 +174,9 @@ export function createMoveSlice(set: Set, get: Get): MoveSlice {
     },
 
     upgradeEngine: (targetPlayerId?: PlayerId) => {
+      // 효과음용 성공 판정 — set 전후 engineLevel 비교 (set 콜백은 순수 유지)
+      const sfxPid = targetPlayerId || get().currentPlayer;
+      const levelBefore = get().players[sfxPid]?.engineLevel;
       set((state) => {
         // targetPlayerId가 제공되면 사용, 아니면 currentPlayer 사용
         const playerId = targetPlayerId || state.currentPlayer;
@@ -240,6 +244,7 @@ export function createMoveSlice(set: Set, get: Get): MoveSlice {
           ],
         };
       });
+      if (get().players[sfxPid]?.engineLevel !== levelBefore) playSfx('engine');
     },
 
     // ============================================================

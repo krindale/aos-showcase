@@ -9,6 +9,7 @@ import { create } from 'zustand';
  *   이 값과 무관하게 강제 off — 실효 판정은 소비처가 `moveGuideAllowed && enabled`로 한다.
  * - transportConfirmEnabled: 화물 운송 확인 창(목적지 클릭 시 출발→도착·수익 귀속을 보여주고
  *   [운송/취소]). 기본 on — 끄면 확인 없이 즉시 운송. localStorage로 유지.
+ * - sfxEnabled: 게임 액션 효과음 (utils/sfx.ts). 기본 on, localStorage로 유지.
  * - showCoords: 헥스 좌표 표시 (디버그용 세션 토글 — 저장 안 함).
  *
  * gameStore ui가 아닌 별도 스토어인 이유: ui는 slice 곳곳에서 통째로 재생성되고
@@ -17,6 +18,7 @@ import { create } from 'zustand';
 
 const GUIDE_OFF_KEY = 'aos-move-guide-off'; // 존재('1')하면 off — 기본(미저장)은 on
 const TRANSPORT_CONFIRM_OFF_KEY = 'aos-transport-confirm-off'; // 존재('1')하면 off — 기본(미저장)은 on
+const SFX_OFF_KEY = 'aos-sfx-off'; // 존재('1')하면 off — 기본(미저장)은 on
 
 function readFlag(key: string): boolean {
   if (typeof window === 'undefined') return false; // SSR — 클라이언트 초기화 시 재평가됨
@@ -41,16 +43,20 @@ interface GameSettingsStore {
   moveGuideEnabled: boolean;
   /** 화물 운송 확인 창 — 기본 on (끄면 즉시 운송) */
   transportConfirmEnabled: boolean;
+  /** 게임 액션 효과음 — 기본 on */
+  sfxEnabled: boolean;
   /** 헥스 좌표 표시 (디버그) */
   showCoords: boolean;
   toggleMoveGuide: () => void;
   toggleTransportConfirm: () => void;
+  toggleSfx: () => void;
   toggleShowCoords: () => void;
 }
 
 export const useGameSettingsStore = create<GameSettingsStore>((set, get) => ({
   moveGuideEnabled: !readFlag(GUIDE_OFF_KEY),
   transportConfirmEnabled: !readFlag(TRANSPORT_CONFIRM_OFF_KEY),
+  sfxEnabled: !readFlag(SFX_OFF_KEY),
   showCoords: false,
   toggleMoveGuide: () => {
     const next = !get().moveGuideEnabled;
@@ -61,6 +67,11 @@ export const useGameSettingsStore = create<GameSettingsStore>((set, get) => ({
     const next = !get().transportConfirmEnabled;
     writeFlag(TRANSPORT_CONFIRM_OFF_KEY, !next); // off일 때만 저장 (기본 on)
     set({ transportConfirmEnabled: next });
+  },
+  toggleSfx: () => {
+    const next = !get().sfxEnabled;
+    writeFlag(SFX_OFF_KEY, !next); // off일 때만 저장 (기본 on)
+    set({ sfxEnabled: next });
   },
   toggleShowCoords: () => set({ showCoords: !get().showCoords }),
 }));

@@ -105,8 +105,10 @@ src/
 │   │   └── page.tsx            # 특수 행동 페이지 (7개 3D 플립 카드)
 │   ├── maps/
 │   │   └── page.tsx            # 맵 갤러리 (7개 맵 슬라이더)
-│   └── calculator/
-│       └── page.tsx            # 계산기 (트랙 비용, 승점, 수입 시뮬레이터)
+│   ├── calculator/
+│   │   └── page.tsx            # 계산기 (트랙 비용, 승점, 수입 시뮬레이터)
+│   └── sfx/
+│       └── page.tsx            # 효과음 미리듣기 (숨은 라우트 — SFX_CATALOG 순회 카드+재생 버튼, 게이트 무시 previewSfx)
 │
 ├── ai/                         # AI 엔진 시스템 (객체 지향 아키텍처)
 │   ├── index.ts                # AI 메인 엔트리포인트 (bridge)
@@ -213,7 +215,7 @@ src/
 │       ├── DebugPanel.tsx      # 디버그 패널 UI
 │       ├── TranscontinentalModal.tsx  # 대륙횡단 연결 팝업 (Western US: 보너스 수령자·연속성 해제 안내)
 │       ├── MoveCubeOverlay.tsx # 화물 이동·건설 관전·신도시 배치 중 보드 미니맵 (모든 맵, 우측 하단 fit). 표시: 화물 이동(전원), 봇/온라인 타인 차례 건설(관전), 내 도시화 마을 고르기, 신도시 배치 직후 플래시(전원, newCityEvent 3.5초). 이동 중엔 헤더에 "출발→도착 (N링크)" 경로 표시
-│       ├── GameSettingsDialog.tsx  # 게임 설정 창 (줌 옆 ⚙, z-30 HUD 레이어 = 관전 중에도 열림) — 운송 가이드/운송 확인/좌표 스위치 (gameSettingsStore, 전부 로컬 개인 설정)
+│       ├── GameSettingsDialog.tsx  # 게임 설정 창 (줌 옆 ⚙, z-30 HUD 레이어 = 관전 중에도 열림) — 운송 가이드/운송 확인/효과음/좌표 스위치 (gameSettingsStore, 전부 로컬 개인 설정)
 │       ├── TransportConfirmDialog.tsx  # 화물 운송 확인 창 (기본 on) — 목적지 클릭 시 "출발→도착·링크별 수익 귀속(getPathLinkOwners 미러)" 확인 후 커밋. GameBoard가 selectDestinationCity를 래핑해 인터셉트(봇·경로 선택 모드는 통과)
 │       ├── Toaster.tsx         # 화면 상단 토스트 렌더러 (toastStore 구독, safeTimeout 자동 사라짐)
 │       ├── PhaseTransition.tsx # 단계 전환 안내 팝업 (마지막 플레이어 행동 확인용, pointer-events-none 순수 안내)
@@ -246,7 +248,7 @@ src/
 │   │                           #   executeAITurn·issueShare·selectAction·nextPhase/endTurn·undoLastAction·
 │   │                           #   placeNewCity·addLog·persist 설정 + slice 합성(...createXxxSlice(set, get))
 │   ├── toastStore.ts           # 화면 상단 토스트(별도 zustand — gameStore와 분리, 스냅샷 미동기화 = 로컬 UI)
-│   ├── gameSettingsStore.ts    # 게임 개인 설정(별도 zustand, localStorage) — 운송 가이드(기본 on)/운송 확인 창(기본 on)/좌표(세션). 방 설정 GameState.moveGuideAllowed=false면 가이드는 개인 설정 무관 강제 off(잠김)
+│   ├── gameSettingsStore.ts    # 게임 개인 설정(별도 zustand, localStorage) — 운송 가이드(기본 on)/운송 확인 창(기본 on)/효과음(기본 on)/좌표(세션). 방 설정 GameState.moveGuideAllowed=false면 가이드는 개인 설정 무관 강제 off(잠김)
 │   ├── helpers/                # 모듈 레벨 헬퍼 (set/get 클로저 밖 순수 함수)
 │   │   ├── undo.ts             # 실행 취소 스냅샷 스택(undoSnapshots 싱글턴)·captureUndo·getUndoLabel
 │   │   ├── boardRules.ts       # crossesBlockedEdge·findMissingTownSpurs·releaseUnextendedTrack·removeIncompleteNewTracks·hasIncompleteNewTracks
@@ -286,6 +288,11 @@ src/
     ├── debugConfig.ts          # 디버그 설정 (로그 카테고리 토글 + logAction 종합 액션 로깅)
     ├── pwaUtils.ts             # Service Worker 등록/관리 유틸리티
     ├── safeTimers.ts           # Web Worker 기반 타이머 (백그라운드 탭 스로틀 회피, Worker 불가 시 setTimeout 폴백)
+    ├── sfx.ts                  # 게임 액션 효과음 (Web Audio 합성, 파일/라이브러리 0개) — SFX_CATALOG 17종 레시피
+    │                           #   + playSfx(터보 무음·설정 게이트·150ms 스로틀·오디오 미지원 무해화). 미리듣기 = /sfx 숨은 라우트.
+    │                           #   ⚠️ 이벤트 관측 재생은 참조 비교 금지(게스트 스냅샷 재적용마다 객체가 새로 생겨 반복 재생)
+    │                           #   — key 필드나 내용 키로 비교(GoodsGrowthPanel growthKey·GameBoard movingCube 키 참조).
+    │                           #   봇/원격의 store 액션 소리(경매·주식)는 호스트만 들림(관측 기반인 건설/수입/신도시/성장은 전원).
     └── testHelpers.ts          # 단위 테스트 헬퍼 함수
 
 public/

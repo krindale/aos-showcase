@@ -193,3 +193,43 @@ describe('미완성 구간 동시 1개 제한', () => {
     expect(store.canBuildTrack({ col: 6, row: 8 }, [0, 4])).toBe(true);
   });
 });
+
+describe('국유화 대상 소진 — 초과가 굳지 않는다 (사람 경로 교착 방지)', () => {
+  /**
+   * 리뷰 S7 회귀 가드. 사람이 국유화를 한 번 한 뒤에도 초과인데 **남은 대상이 전부 당턴
+   * 건설**이면 checkDiscLimitAfterBuild가 null을 돌려 대기가 풀린다 — 그때 안전망이 없으면
+   * 5단위가 굳어 이후 건설이 영영 막히고, PhasePanel은 선택 버튼도 '다음 단계로'도 없는
+   * 교착이 된다(같은 구멍의 봇 버전은 S5에서 수정).
+   */
+  it('국유화 후 대상이 소진돼도 소유 단위가 상한(4) 이내로 복원된다', () => {
+    // 완성 링크 5개 중 4개는 당턴(=국유화 불가), 1개만 이전 턴(=유일한 대상)
+    const s = createInitialGameState('southern-china', ['A', 'B', 'C', 'D'], []);
+    const trackTiles: TrackTile[] = [
+      tile(4, 8, [3, 0], P1, 1), tile(5, 8, [3, 5], P1, 1),          // L1 (이전 턴 = 대상)
+      tile(6, 8, [0, 4], P1, 2),                                      // L2 (당턴)
+      tile(9, 8, [3, 2], P1, 2),                                      // L3 (당턴)
+      tile(1, 1, [4, 2], P1, 2), tile(1, 2, [5, 1], P1, 2),           // L4 (당턴)
+      tile(10, 6, [3, 0], P1, 2), tile(9, 6, [0, 5], P1, 2), tile(9, 5, [2, 4], P1, 2), // L5 (당턴)
+    ];
+    const townSpurs: TownSpur[] = [spur(5, 7, 2), spur(5, 7, 1), spur(9, 4, 1)];
+    // 미완성 구간 1개 추가 — 안전망이 해제할 대상(무보상)
+    trackTiles.push(tile(2, 5, [0, 3], P1, 2));
+    useGameStore.setState({
+      ...s, currentTurn: 2, currentPhase: 'buildTrack', currentPlayer: P1,
+      board: { ...s.board, trackTiles, townSpurs },
+    });
+
+    const before = countOwnershipUnits(useGameStore.getState().board, P1);
+    expect(before).toBeGreaterThan(4); // 전제: 초과 상태
+
+    const targets = eligibleNationalizationTargets(useGameStore.getState().board, P1, 2);
+    expect(targets.length).toBe(1); // 전제: 이전 턴 링크 1개만 대상
+
+    useGameStore.setState({ nationalizationPending: { playerId: P1 } });
+    useGameStore.getState().nationalizeLink(P1, targets[0].id);
+
+    const after = useGameStore.getState();
+    expect(after.nationalizationPending).toBeNull();          // 대기 해제
+    expect(countOwnershipUnits(after.board, P1)).toBeLessThanOrEqual(4); // 불변식 복원
+  });
+});

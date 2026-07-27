@@ -27,6 +27,7 @@ import { captureUndo, undoSnapshots } from '../helpers/undo';
 import { crossesBlockedEdge, findMissingTownSpurs, touchesMasterNetwork, findClaimableSectionKeys } from '../helpers/boardRules';
 import {
   checkDiscLimitAfterBuild,
+  releaseUnfinishedOwnership,
   canStartSectionHere,
   countOwnershipUnits,
   eligibleNationalizationTargets,
@@ -52,40 +53,14 @@ export type BuildSlice = Pick<
   | 'redirectTrack'
 >;
 
-/**
- * 디스크 초과인데 국유화할 링크가 없을 때의 안전망 — 미완성 구간의 소유 마커를 해제해
- * (무보상, 룰북 "미완성 트랙 마커 제거는 보상 없음·국유화 아님") 한도를 복원한다.
- * ⚠️ **초과를 그냥 방치하면 안 된다** — 디스크 상한은 불변식이고, 방치하면 5개 이상 보유
- * 상태가 굳는다 (리뷰 S5 시뮬 실패로 발견: 봇 루프의 "대상 소진" 탈출이 여기를 건너뛰었다).
- */
+/** 디스크 초과 안전망(helpers/nationalization.releaseUnfinishedOwnership)의 store 래퍼.
+ *  사람 경로(gameStore.nationalizeLink)와 판정을 공유한다 — 미러 금지. */
 function releaseUnfinishedForOverflow(set: Set, get: Get, playerId: PlayerId, limit: number): void {
   const s = get();
-  if (countOwnershipUnits(s.board, playerId) <= limit) return;
-  // ⚠️ **복합 타일의 secondary 소유도 해제 대상** — 디스크 회계(countUnfinishedSections)가
-  // secondary 구간을 세므로, primary만 풀면 "내 primary 타일 0개인데 5단위" 상태가 굳는다
-  // (리뷰 S5 진단 실측: units=5인데 내 primary 타일 0·직결 0 = 전부 공존/교차 secondary).
-  const isPrimaryMine = (t: TrackTile) =>
-    t.owner === playerId && !isTrackPartOfCompletedLink(t.coord, s.board);
-  const isSecondaryMine = (t: TrackTile) =>
-    t.secondaryOwner === playerId && !!t.secondaryEdges &&
-    !isSecondaryTrackPartOfCompletedLink(t.coord, s.board);
-  const released = s.board.trackTiles.filter((t) => isPrimaryMine(t) || isSecondaryMine(t)).length;
-  if (released === 0) {
-    console.warn(`[nationalization] 디스크 초과인데 해제할 미완성 구간도 없음 - ${playerId}`);
-    return;
-  }
-  logAction('trackBuilding', 'discOverflowReleaseSections', { player: playerId, tiles: released, turn: s.currentTurn });
-  set({
-    board: {
-      ...s.board,
-      trackTiles: s.board.trackTiles.map((t) => {
-        let nt = t;
-        if (isPrimaryMine(t)) nt = { ...nt, owner: null };
-        if (isSecondaryMine(t)) nt = { ...nt, secondaryOwner: null };
-        return nt;
-      }),
-    },
-  });
+  const result = releaseUnfinishedOwnership(s.board, playerId, limit);
+  if (!result) return;
+  logAction('trackBuilding', 'discOverflowReleaseSections', { player: playerId, tiles: result.released, turn: s.currentTurn });
+  set({ board: result.board });
 }
 
 function afterBuildDiscCheck(set: Set, get: Get): void {

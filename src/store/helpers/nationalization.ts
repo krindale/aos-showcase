@@ -10,7 +10,7 @@
 //  - isNationalized는 구분 마커: Hong Kong 배달 경유 금지 판정 + 렌더 색 구분 전용.
 // 보상: 지지 토큰 1 + 트랙 구간(타일)당 $1. 이번 턴 지은/완성한 링크는 국유화 불가.
 
-import { BoardState, GameState, HexCoord, PlayerId } from '@/types/game';
+import { BoardState, GameState, HexCoord, PlayerId, TrackTile } from '@/types/game';
 import {
   findCompletedLinks,
   CompletedLink,
@@ -247,4 +247,50 @@ export function checkDiscLimitAfterBuild(
     return null;
   }
   return { playerId };
+}
+
+/**
+ * 디스크 초과인데 국유화할 링크가 없을 때의 안전망 — 미완성 구간의 소유 마커를 해제해
+ * (무보상, 룰북 "미완성 트랙 마커 제거는 보상 없음 · 국유화가 아님") 한도를 복원한다.
+ *
+ * ⚠️ **초과를 방치하면 안 된다** — 디스크 상한은 불변식이라, 방치하면 5단위 이상 보유 상태가
+ * 그대로 굳고 그 플레이어는 이후 건설이 계속 막힌다. 두 진입점이 모두 이 함수를 거쳐야 한다:
+ *   ① 건설 직후 대상이 아예 없을 때 (buildSlice.afterBuildDiscCheck)
+ *   ② 국유화를 한 번 한 뒤에도 초과인데 남은 대상이 소진됐을 때 (gameStore.nationalizeLink)
+ * ①만 막았을 때 봇이 5단위로 굳는 실패를 시뮬이 잡았고(리뷰 S5), ②는 같은 구멍의 사람 버전이다.
+ *
+ * @returns 해제된 타일이 있으면 새 board, 해제할 것이 없거나 초과가 아니면 null
+ */
+export function releaseUnfinishedOwnership(
+  board: BoardState,
+  playerId: PlayerId,
+  limit: number | null
+): { board: BoardState; released: number } | null {
+  if (limit === null) return null;
+  if (countOwnershipUnits(board, playerId) <= limit) return null;
+
+  // ⚠️ **복합 타일의 secondary 소유도 해제 대상** — 디스크 회계(countUnfinishedSections)가
+  // secondary 구간을 세므로, primary만 풀면 "내 primary 타일 0개인데 5단위"가 굳는다
+  // (리뷰 S5 진단 실측: units=5인데 내 primary 타일 0·직결 0 = 전부 공존/교차 secondary).
+  const isPrimaryMine = (t: TrackTile) =>
+    t.owner === playerId && !isTrackPartOfCompletedLink(t.coord, board);
+  const isSecondaryMine = (t: TrackTile) =>
+    t.secondaryOwner === playerId && !!t.secondaryEdges &&
+    !isSecondaryTrackPartOfCompletedLink(t.coord, board);
+
+  const released = board.trackTiles.filter((t) => isPrimaryMine(t) || isSecondaryMine(t)).length;
+  if (released === 0) return null;
+
+  return {
+    released,
+    board: {
+      ...board,
+      trackTiles: board.trackTiles.map((t) => {
+        let nt = t;
+        if (isPrimaryMine(t)) nt = { ...nt, owner: null };
+        if (isSecondaryMine(t)) nt = { ...nt, secondaryOwner: null };
+        return nt;
+      }),
+    },
+  };
 }

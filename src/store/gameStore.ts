@@ -27,6 +27,7 @@ import { hexCoordsEqual } from '@/utils/hexGrid';
 import {
   eligibleNationalizationTargets,
   checkDiscLimitAfterBuild,
+  releaseUnfinishedOwnership,
   applyNationalization,
 } from './helpers/nationalization';
 import {
@@ -1036,11 +1037,19 @@ export const useGameStore = create<GameStore>()(
         },
       };
       // 아직도 초과면 대기 유지 (한 턴 4건설로 2개 초과 가능)
+      let nextBoard = board;
       const still = checkDiscLimitAfterBuild(
         { board, currentTurn: state.currentTurn }, playerId, limit
       );
+      // ⚠️ still=null인데 여전히 초과 = "남은 국유화 대상이 소진" — 대기만 풀면 초과가 굳어
+      // 이후 건설이 영영 막힌다(리뷰 S5에서 봇 경로에 넣은 안전망의 사람 버전). 미완성 구간
+      // 소유를 무보상 해제해 한도를 복원한다. 판정은 buildSlice와 같은 헬퍼 한 곳.
+      if (!still) {
+        const released = releaseUnfinishedOwnership(nextBoard, playerId, limit);
+        if (released) nextBoard = released.board;
+      }
       return {
-        board,
+        board: nextBoard,
         players: newPlayers,
         nationalizationPending: still,
         logs: [

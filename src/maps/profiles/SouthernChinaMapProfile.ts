@@ -75,13 +75,17 @@ export class SouthernChinaMapProfile extends StandardMapProfile {
     return true;
   }
 
-  // Hong Kong 렌더는 City.acceptsAllColors가 직접 구동한다 (BoardCities: 화물 5색 부채꼴,
-  // 폐쇄 시 회색). grayRenderCityId(Germany Berlin 단색 회색 훅)는 쓰지 않는다.
+  // Hong Kong 렌더는 City.acceptsAllColors가 직접 구동한다 — 회색 헥스 + 헥스 **바깥**
+  // 우하단의 5색 원 그래프(폐쇄 시 그 위에 X), 숫자 박스는 상2색/하3색 세로 분할(BoardCities).
+  // grayRenderCityId(Germany Berlin 단색 회색 훅)는 쓰지 않는다.
 
   /**
    * Gain Support AI 선호 ΔVP — 토큰은 미사용 시 확정 3 VP인데, 행동 슬롯 기회비용과
-   * "지금이 아니어도 나중에 얻을 수 있음"을 감안해 3보다 약간 낮은 기본값에서 시작한다.
-   * 후반(회수 턴이 없는 시점)일수록 확정 3 VP의 상대 가치가 올라간다. 100시드로 조율 예정.
+   * "지금이 아니어도 나중에 얻을 수 있음"을 감안해 3보다 약간 낮은 값을 쓴다.
+   * 후반(회수 턴이 없는 시점)일수록 확정 3 VP의 상대 가치가 올라간다.
+   * 100시드 실측: 이 값으로 게임당 8.0회 선택 · 잔여 토큰 3.5개(≈10.5 VP)로 종료.
+   * ⚠️ 봇의 **토큰 반납**은 전 변형이 베이스라인 미달로 기각됐다(반납 없음 = 최선) —
+   * docs/ai-auction-baseline-100seed.md 2026-07-27c. 이 값은 "모으기만" 전제의 튜닝값이다.
    */
   override aiExtraActionVP(action: SpecialAction, state: GameState, _playerId: PlayerId): number {
     if (action !== 'gainSupport') return 0;

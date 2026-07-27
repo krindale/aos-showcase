@@ -200,7 +200,7 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
   let bestTrackCube: { trackId: string; destCityId: string; deltaVP: number } | null = null;
   for (const track of board.trackTiles) {
     if (!track.cube) continue;
-    for (const delivery of findTrackCubeDeliveries(board, track.id, effectiveEngineLevel(state.players, playerId), playerId)) {
+    for (const delivery of findTrackCubeDeliveries(board, track.id, myEngine, playerId)) {
       const vp = deliveryDeltaVP(state, playerId, delivery.ownIncome, delivery.oppIncome);
       if (!bestTrackCube || vp > bestTrackCube.deltaVP) {
         bestTrackCube = { trackId: track.id, destCityId: delivery.city.id, deltaVP: vp };

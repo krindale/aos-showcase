@@ -1013,7 +1013,9 @@ export const useGameStore = create<GameStore>()(
       return;
     }
     logAction('trackBuilding', 'nationalizeLink', {
-      player: playerId, linkId, segments: link.trackTiles.length, turn: pre.currentTurn,
+      // 직결 링크 의사 타깃은 trackTiles가 비어 있고 보상은 1구간 취급 — 로그도 실제 보상과 맞춘다
+      player: playerId, linkId, segments: Math.max(1, link.trackTiles.length),
+      kind: link.trackTiles.length === 0 ? 'directLink' : 'tiles', turn: pre.currentTurn,
     });
     captureUndo(pre, '링크 국유화');
 

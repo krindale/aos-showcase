@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { useGameStore, createInitialGameState } from '@/store/gameStore';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { maxTracksForBuilder } from '@/store/helpers/boardRules';
-import { effectiveEngineLevel, playerBonusVP, resetPlayerActions } from '@/utils/gameLogic';
+import { calculateVictoryPoints, effectiveEngineLevel, playerBonusVP, resetPlayerActions } from '@/utils/gameLogic';
 import { City } from '@/types/game';
 
 function setupChina() {
@@ -116,6 +116,16 @@ describe('지지 토큰 반납', () => {
   it('미사용 토큰 보너스 VP = 토큰×3 + 페리×1', () => {
     expect(playerBonusVP({ supportTokens: 2, ferriesBuilt: 1 })).toBe(7);
     expect(playerBonusVP({})).toBe(0);
+  });
+
+  it('최종 VP 계산에 보너스가 포함된다 (종료 화면과 같은 공식)', () => {
+    // 리뷰 S4 회귀 가드: 종료 화면이 VP 공식을 자체 계산하며 보너스를 빠뜨려
+    // 승자 판정이 틀리던 버그. calculateVictoryPoints의 4번째 인자로 반드시 전달돼야 한다.
+    const income = 10, track = 6, shares = 8;
+    const base = calculateVictoryPoints(income, track, shares);
+    const withBonus = calculateVictoryPoints(income, track, shares, playerBonusVP({ supportTokens: 3, ferriesBuilt: 1 }));
+    expect(base).toBe(10 * 3 + 6 - 8 * 3);
+    expect(withBonus).toBe(base + 10); // 토큰 3×3 + 페리 1
   });
 });
 

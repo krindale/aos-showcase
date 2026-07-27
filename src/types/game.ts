@@ -109,9 +109,10 @@ export interface City {
   /** 색·수요 없는 도시 (Moon: Moon Base) — 어떤 큐브도 여기서 배달이 끝나지 않고 출발/통과만
    *  가능하다 (cityAcceptsCube가 항상 false). color 필드는 타입 충족용일 뿐 수요에 쓰이지 않는다. */
   noDemand?: boolean;
-  /** 모든 색 화물을 받는 도시 (Southern China: Hong Kong) — cityAcceptsCube가 항상 true.
-   *  색 큐브가 들어오면 즉시 배달 종료라 통과도 불가. color 필드는 타입 충족용(렌더는 회색 특례).
-   *  홍콩의 "마지막 2턴 수령 불가"는 여기가 아니라 MapProfile 훅이 턴을 보고 게이팅한다. */
+  /** 모든 색 화물을 받는 도시 (Southern China: Hong Kong) — cityAcceptsCube가 색과 무관하게
+   *  수용을 허용한다(어떤 색이든 여기서 배달 종료라 통과는 불가). color 필드는 타입 충족용.
+   *  ⚠️ 단 `BoardState.allAcceptClosed`(마지막 2턴 폐쇄)가 서면 cityAcceptsCube가 false를
+   *  돌려준다 — 폐쇄 판정은 이 플래그와 함께 **cityAcceptsCube 한 곳**에서 이뤄진다. */
   acceptsAllColors?: boolean;
   /** 도시화(Urbanization)로 배치된 신도시 (placeNewCity가 세팅). 중복 배치 검사가 신도시만
    *  보게 하는 구분자 — 맵 원본 도시 id가 신도시 타일 id(A~H)와 겹치는 맵(튜토리얼 Cleveland='C')에서
@@ -229,7 +230,10 @@ export interface BoardState {
   ferryEdges?: FerryEdge[];
 }
 
-/** Southern China: 구매식 페리 변 연결 — $8, 건설 1회 카운트, 건설자 +1 VP (ferriesBuilt) */
+/** 구매식 페리 변 연결 — $8, 건설 1회 카운트, 건설자 +1 VP (ferriesBuilt).
+ *  ⚠️ **현재 이 배열을 채우는 맵은 없다** (남부 중국 서안↔홍콩 페리는 정본 확인 후 제거).
+ *  기계(getNeighborHex 인접 활성화 + buildFerryEdge + BoardCities 렌더)는 그대로 두어
+ *  "변 대 변" 페리가 필요한 맵이 생기면 데이터만 채우면 되게 남겨둔 것. */
 export interface FerryEdge {
   id: string;
   a: { coord: HexCoord; edge: number };

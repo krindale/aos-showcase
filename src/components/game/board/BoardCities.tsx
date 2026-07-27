@@ -383,7 +383,11 @@ export default function BoardCities({
         const ms = dl.faces ? edgeMidM(pa, dl.faces[0]) : pa;
         const mt = dl.faces ? edgeMidM(pb, dl.faces[1]) : pb;
         const mx = (ms.x + mt.x) / 2;
-        const my = (ms.y + mt.y) / 2;
+        // 마커 y: 인접 쌍은 두 중심의 중점 = 공유 변 중점. 단 **가로 인접**(같은 행)은 그 지점이
+        // 도시 이름 밴드와 정확히 겹치므로 밴드 아래로 내린다. 대각 인접(선전↔홍콩)·faces(페리)에
+        // 같은 보정을 걸면 마커가 상대 도시 헥스 안으로 밀려 들어간다 (2026-07-27 사용자 발견).
+        const sameRowAdjacent = !dl.faces && Math.abs(pa.y - pb.y) < 1;
+        const my = (ms.y + mt.y) / 2 + (sameRowAdjacent ? 26 : 0);
         const buildable = currentPhase === 'buildTrack' && dl.owner === null && !dl.isNationalized;
         const ownerColor = dl.owner ? PLAYER_COLORS[players[dl.owner].color] : null;
         // 국유화 직결: 중립 그레이 디스크 (인접 쌍은 선이 도시에 가려 보이지 않으므로 마커가 유일한 표시)
@@ -391,8 +395,8 @@ export default function BoardCities({
           return (
             <circle
               key={`directlink-${i}`}
-              cx={mx} cy={dl.faces ? my : my + 26} r="10"
-              fill="#4E4D46" stroke="rgba(0,0,0,0.65)" strokeWidth="2"
+              cx={mx} cy={my} r="10"
+              fill="#4E4D46" stroke="#ffffff" strokeWidth="2.5"
               style={{ pointerEvents: 'none' }}
             />
           );
@@ -405,10 +409,10 @@ export default function BoardCities({
           >
             {buildable && <circle cx={mx} cy={my} r="22" fill="transparent" />}
             {dl.owner ? (
-              // 건설됨: 소유색 소형 디스크 — 인접 쌍은 밴드 아래로 내려 이름을 가리지 않음
+              // 건설됨: 소유색 디스크 (흰 테두리 — 도시색/바다 어느 배경에서도 식별)
               <circle
-                cx={mx} cy={dl.faces ? my : my + 26} r="10"
-                fill={ownerColor!} stroke="rgba(0,0,0,0.65)" strokeWidth="2"
+                cx={mx} cy={my} r="10"
+                fill={ownerColor!} stroke="#ffffff" strokeWidth="2.5"
                 style={{ pointerEvents: 'none' }}
               />
             ) : (

@@ -307,18 +307,9 @@ export default function BoardOverlays({
         </g>
       )}
 
-      {/* 지도 바깥 외곽선 — 헥스 실루엣의 바깥 변(이웃 없는 변)을 두꺼운 실선으로 연결 (맵 테두리색) */}
-      {mapOutlinePath && (
-        <path
-          d={mapOutlinePath}
-          fill="none"
-          stroke={borderColor}
-          strokeWidth={4}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          style={{ pointerEvents: 'none' }}
-        />
-      )}
+      {/* 지도 바깥 외곽선은 여기서 그리지 않는다 — GameBoard가 **배경 직후 최하단 레이어**에서
+          렌더한다 (2026-07-27 사용자 요청). 오버레이(최상단)에 있으면 굵은 테두리가 가장자리
+          도시의 색 테두리·트랙 위를 덮어 가린다 (홍콩 5색 링에서 발견). */}
 
       {/* 달(Moon): 랩 어라운드 엣지 번호 — 원본 시트처럼 외곽 변에 딱 붙은 갈색 박스,
           변과 평행하게 회전 (하단 번호가 뒤집혀 보이는 것까지 원본 레이아웃 그대로) */}

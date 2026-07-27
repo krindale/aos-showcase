@@ -1102,6 +1102,21 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             );
           })}
 
+        {/* 지도 바깥 외곽선 — 헥스 실루엣의 바깥 변을 두꺼운 실선으로 (맵 테두리색).
+            ⚠️ **최하단 레이어**(배경 직후, 마을/트랙/도시보다 아래): 오버레이에 두면 굵은
+            테두리가 가장자리 도시의 색 테두리·트랙 위를 덮는다 (2026-07-27 사용자 요청). */}
+        {mapOutlinePath && (
+          <path
+            d={mapOutlinePath}
+            fill="none"
+            stroke={mapData.colors.border}
+            strokeWidth={4}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ pointerEvents: 'none' }}
+          />
+        )}
+
         {/* 마을 레이어 — 흰 디스크·이름 띠·마을 트랙/가닥·도시화 하이라이트·큐브 (board/BoardTowns) */}
         <BoardTowns
           towns={board.towns}

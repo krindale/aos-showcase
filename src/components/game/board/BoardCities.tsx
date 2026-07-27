@@ -202,7 +202,7 @@ export default function BoardCities({
         // 화물 5색 **동심 헥스 테두리** — 바깥에서 안으로 겹겹이 쌓아 "모든 색을 받는 도시"를
         // 표현한다 (2026-07-27 사용자 요청). 중앙은 비워 이름 밴드·숫자·큐브 가독성 유지 —
         // 앞선 시도(방사형 부채꼴·가로/세로 띠)는 중앙을 덮어 색이 조각나 보였다.
-        const RING_W = 4; // 각 링 두께
+        const RING_W = 6; // 각 링 두께 (4 → 6, 사용자 요청 50% 증가)
         const rainbowRings = allColorCity && !allColorClosed
           ? (['red', 'blue', 'yellow', 'purple', 'black'] as const).map((c, idx) => ({
               color: CITY_COLORS[c],

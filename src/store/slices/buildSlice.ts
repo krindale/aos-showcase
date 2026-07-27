@@ -8,7 +8,7 @@
 
 import type { StoreApi } from 'zustand';
 import type { GameStore } from '../gameStore';
-import { HexCoord, TrackTile, GAME_CONSTANTS, TRACK_REPLACE_COSTS } from '@/types/game';
+import { HexCoord, PlayerId, TrackTile, GAME_CONSTANTS, TRACK_REPLACE_COSTS } from '@/types/game';
 import { getMapProfile } from '@/maps/getMapProfile';
 import {
   validateFirstTrackRule,
@@ -21,7 +21,7 @@ import {
   isTrackPartOfCompletedLink,
   touchesClaimableUnownedTrack,
 } from '@/utils/trackValidation';
-import { hexCoordsEqual, getNeighborHex } from '@/utils/hexGrid';
+import { hexCoordsEqual, getNeighborHex, isSecondaryTrackPartOfCompletedLink } from '@/utils/hexGrid';
 import { debugLog, logAction } from '@/utils/debugConfig';
 import { captureUndo, undoSnapshots } from '../helpers/undo';
 import { crossesBlockedEdge, findMissingTownSpurs, touchesMasterNetwork, findClaimableSectionKeys } from '../helpers/boardRules';
@@ -52,36 +52,51 @@ export type BuildSlice = Pick<
   | 'redirectTrack'
 >;
 
-/** Southern China 디스크 상한 — 건설 커밋 직후 소유 단위(링크+구간+직결)를 세어 초과면
- *  국유화 대기 설정 (다른 맵 = ownershipDiscLimit null 항등, 호출 비용 무시 가능) */
+/**
+ * 디스크 초과인데 국유화할 링크가 없을 때의 안전망 — 미완성 구간의 소유 마커를 해제해
+ * (무보상, 룰북 "미완성 트랙 마커 제거는 보상 없음·국유화 아님") 한도를 복원한다.
+ * ⚠️ **초과를 그냥 방치하면 안 된다** — 디스크 상한은 불변식이고, 방치하면 5개 이상 보유
+ * 상태가 굳는다 (리뷰 S5 시뮬 실패로 발견: 봇 루프의 "대상 소진" 탈출이 여기를 건너뛰었다).
+ */
+function releaseUnfinishedForOverflow(set: Set, get: Get, playerId: PlayerId, limit: number): void {
+  const s = get();
+  if (countOwnershipUnits(s.board, playerId) <= limit) return;
+  // ⚠️ **복합 타일의 secondary 소유도 해제 대상** — 디스크 회계(countUnfinishedSections)가
+  // secondary 구간을 세므로, primary만 풀면 "내 primary 타일 0개인데 5단위" 상태가 굳는다
+  // (리뷰 S5 진단 실측: units=5인데 내 primary 타일 0·직결 0 = 전부 공존/교차 secondary).
+  const isPrimaryMine = (t: TrackTile) =>
+    t.owner === playerId && !isTrackPartOfCompletedLink(t.coord, s.board);
+  const isSecondaryMine = (t: TrackTile) =>
+    t.secondaryOwner === playerId && !!t.secondaryEdges &&
+    !isSecondaryTrackPartOfCompletedLink(t.coord, s.board);
+  const released = s.board.trackTiles.filter((t) => isPrimaryMine(t) || isSecondaryMine(t)).length;
+  if (released === 0) {
+    console.warn(`[nationalization] 디스크 초과인데 해제할 미완성 구간도 없음 - ${playerId}`);
+    return;
+  }
+  logAction('trackBuilding', 'discOverflowReleaseSections', { player: playerId, tiles: released, turn: s.currentTurn });
+  set({
+    board: {
+      ...s.board,
+      trackTiles: s.board.trackTiles.map((t) => {
+        let nt = t;
+        if (isPrimaryMine(t)) nt = { ...nt, owner: null };
+        if (isSecondaryMine(t)) nt = { ...nt, secondaryOwner: null };
+        return nt;
+      }),
+    },
+  });
+}
+
 function afterBuildDiscCheck(set: Set, get: Get): void {
   const s = get();
   const limit = getMapProfile(s.mapId).ownershipDiscLimit;
   if (limit === null || s.nationalizationPending) return;
-  const pending = checkDiscLimitAfterBuild(s, s.currentPlayer, limit);
+  const me = s.currentPlayer;
+  const pending = checkDiscLimitAfterBuild(s, me, limit);
   if (!pending) {
-    // 초과인데 국유화 대상이 없는 희귀 케이스(보유 링크가 전부 당턴 건설): 룰상 놓을 디스크가
-    // 없다 — 미완성 구간의 소유 마커를 해제(무보상, 룰북 "미완성 제거는 보상 없음")해 한도 복원.
-    // (봇 구매 가드·buildDirectLink 거부가 선제 차단하므로 실제로는 타일 경로의 안전망)
-    if (countOwnershipUnits(s.board, s.currentPlayer) > limit) {
-      const me = s.currentPlayer;
-      const released = s.board.trackTiles.filter(
-        (t) => t.owner === me && !isTrackPartOfCompletedLink(t.coord, s.board)
-      ).length;
-      if (released > 0) {
-        logAction('trackBuilding', 'discOverflowReleaseSections', { player: me, tiles: released, turn: s.currentTurn });
-        set({
-          board: {
-            ...s.board,
-            trackTiles: s.board.trackTiles.map((t) =>
-              t.owner === me && !isTrackPartOfCompletedLink(t.coord, s.board)
-                ? { ...t, owner: null }
-                : t
-            ),
-          },
-        });
-      }
-    }
+    // 초과인데 국유화 대상이 없는 케이스(보유 링크가 전부 당턴 건설) — 안전망
+    releaseUnfinishedForOverflow(set, get, me, limit);
     return;
   }
   logAction('trackBuilding', 'discLimitExceeded', { player: pending.playerId, turn: s.currentTurn });
@@ -99,11 +114,19 @@ function afterBuildDiscCheck(set: Set, get: Get): void {
           (a.trackTiles.length || 99) - (b.trackTiles.length || 99)
         );
       if (targets.length === 0) {
-        console.warn('[nationalization] 봇 국유화 대상 소진 — 대기 해제 (방어)');
+        // 대상 소진 — 대기만 풀면 **초과가 굳는다**. 안전망으로 한도를 복원한 뒤 해제한다.
+        releaseUnfinishedForOverflow(set, get, pending.playerId, limit);
         set({ nationalizationPending: null });
         break;
       }
       get().nationalizeLink(pending.playerId, targets[0].id);
+    }
+    // 봇 루프가 가드 소진으로 끝났는데도 초과가 남았다면 안전망으로 마무리
+    if (get().nationalizationPending?.playerId === pending.playerId) {
+      releaseUnfinishedForOverflow(set, get, pending.playerId, limit);
+      if (countOwnershipUnits(get().board, pending.playerId) <= limit) {
+        set({ nationalizationPending: null });
+      }
     }
   }
 }

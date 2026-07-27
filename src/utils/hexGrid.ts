@@ -989,6 +989,7 @@ function findAllPaths(
   // Southern China: 전색 수용 도시(Hong Kong)행 배달은 국유화(중립·isGovernment) 링크 경유 금지
   // — 목적지가 acceptsAllColors면 정부/국유화 링크가 낀 경로를 버린다 (룰북 Move Goods).
   const banGovToEnd = board.cities.find(c => hexCoordsEqual(c.coord, end))?.acceptsAllColors === true;
+  const hasDirectLinks = (board.directLinks?.length ?? 0) > 0;
 
   function dfs(
     current: HexCoord,
@@ -1030,8 +1031,10 @@ function findAllPaths(
         }
       }
       // 직결 링크 스텝 (도시→도시, 사이 타일 없음): 소유/중립을 directLink에서 판정 —
-      // 국유화 직결(isNationalized)은 정부 링크 취급 (홍콩행 금지 판정에 포함)
-      if (isStop && (nextLinkIsGov === undefined || nextLinkIsOpp === undefined)) {
+      // 국유화 직결(isNationalized)은 정부 링크 취급 (홍콩행 금지 판정에 포함).
+      // ⚠️ directLinks가 없는 맵에서 도시 배열을 뒤지지 않도록 길이부터 본다 — DFS가 정거장에
+      //    도착할 때마다 도는 자리라 무조건 find를 하면 전 맵 탐색이 느려진다 (리뷰 S5).
+      if (hasDirectLinks && isStop && (nextLinkIsGov === undefined || nextLinkIsOpp === undefined)) {
         const curCity = board.cities.find(c => hexCoordsEqual(c.coord, current));
         if (curCity && neighborCity) {
           const dlStep = (board.directLinks ?? []).find(d =>
@@ -1372,6 +1375,7 @@ export function findReachableDestinations(
   // (그 도시를 지나 더 먼 같은 색 도시로 가는 경로는 차단 — 과거엔 신규 도시를 통과하던 버그).
   const reachable: City[] = [];
   const foundKeys = new Set<string>();
+  const hasDirectLinks = (board.directLinks?.length ?? 0) > 0;
 
   function dfs(current: HexCoord, visited: Set<string>, linkCount: number, entryEdge?: number, govLinks = 0, linkIsGov?: boolean, oppLinks = 0, linkIsOpp?: boolean) {
     // 이동은 자기 철도 + 파산 공용(owner null) 철도 (저중력이면 타인 철도도 opponentExtra 링크까지)
@@ -1397,7 +1401,8 @@ export function findReachableDestinations(
         }
       }
       // 직결 링크 스텝 (도시→도시) — findAllPaths와 동일: 국유화 직결은 정부 링크 취급
-      if (isStop && (nextLinkIsGov === undefined || nextLinkIsOpp === undefined)) {
+      // (directLinks 없는 맵은 길이 체크로 즉시 통과 — 리뷰 S5)
+      if (hasDirectLinks && isStop && (nextLinkIsGov === undefined || nextLinkIsOpp === undefined)) {
         const curCity = board.cities.find(c => hexCoordsEqual(c.coord, current));
         if (curCity && cityAt) {
           const dlStep = (board.directLinks ?? []).find(d =>

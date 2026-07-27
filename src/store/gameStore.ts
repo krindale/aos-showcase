@@ -21,6 +21,7 @@ import { getAIDecision, AI_TURN_DELAY, aiPlayerManager } from '@/ai';
 import { clearUrbanizationPlanCache } from '@/ai/strategies/urbanization';
 import { clearDesperationCache } from '@/ai/strategies/auction';
 import { addFailedBuildCoord, hasPendingFreeSpur } from '@/ai/strategies/buildTrack';
+import { shouldSpendSupportForLoco } from '@/ai/strategies/supportToken';
 import { getDisplaySlotRange } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { hexCoordsEqual } from '@/utils/hexGrid';
@@ -683,6 +684,16 @@ export const useGameStore = create<GameStore>()(
         }
 
         case 'moveGoods': {
+          // 지지 토큰(Southern China) 'loco' 반납 — 이번 턴 실효 엔진 +1로 더 깊은 배달이
+          // 열릴 때만. 유지비가 안 붙는 1회용 엔진이라 생존 게이트 없이 증분 ΔVP만 본다.
+          // 반납 후 재결정해야 늘어난 엔진이 경로 선택에 반영된다(플래그가 서므로 재진입 1회 한정).
+          if (shouldSpendSupportForLoco(get(), capturedContext.currentPlayer)) {
+            store.spendSupportToken(capturedContext.currentPlayer, 'loco');
+            releaseAILock(executionId, get, set);
+            scheduleAICheck(get);
+            return;
+          }
+
           const { decision: moveDecision } = decision;
           if (moveDecision.action === 'move') {
             // 큐브 선택 및 이동 (completeCubeMove에서 nextPhase 호출됨)

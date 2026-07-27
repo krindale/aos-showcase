@@ -6,6 +6,7 @@ import { getMapProfile } from '@/maps/getMapProfile';
 import { maxTracksForBuilder } from '@/store/helpers/boardRules';
 import { calculateVictoryPoints, effectiveEngineLevel, playerBonusVP, resetPlayerActions } from '@/utils/gameLogic';
 import { City } from '@/types/game';
+import { shouldSpendSupportForLoco } from '@/ai/strategies/supportToken';
 
 function setupChina() {
   const s = createInitialGameState('southern-china', ['A', 'B', 'C', 'D'], []);
@@ -141,5 +142,44 @@ describe('추가비용 헥스 — 복합 타일 전 단순 타일 선행 (룰북
       expect(useGameStore.getState().canBuildComplexTrack(coord, [0, 3], 'crossing')).toBe(false);
       expect(useGameStore.getState().canBuildComplexTrack(coord, [0, 3], 'coexist')).toBe(false);
     }
+  });
+});
+
+describe('봇 지지 토큰 loco 반납 판단 (shouldSpendSupportForLoco)', () => {
+  // 채택 근거는 300시드 측정(VP 동률·파산 20%↓, baseline 문서 2026-07-27c).
+  // 여기서는 "다른 맵 항등"과 기본 가드만 박제한다 — 이 훅은 gameStore의 AI moveGoods
+  // 진입에서 매번 호출되므로, supportTokensRule이 아닌 맵에서 새는 순간 전 맵이 영향받는다.
+  it('supportTokensRule이 아닌 맵에서는 항상 false (전 맵 항등)', () => {
+    const s = createInitialGameState('rust-belt', ['A', 'B', 'C', 'D'], []);
+    useGameStore.setState({
+      ...s, currentPhase: 'moveGoods', currentPlayer: 'player1',
+      players: { ...s.players, player1: { ...s.players.player1, supportTokens: 3 } },
+    });
+    expect(shouldSpendSupportForLoco(useGameStore.getState(), 'player1')).toBe(false);
+  });
+
+  it('토큰이 없거나 이미 이번 턴 반납했으면 false', () => {
+    setupChina();
+    useGameStore.setState({ currentPhase: 'moveGoods', currentPlayer: 'player1' });
+    // 토큰 0
+    expect(shouldSpendSupportForLoco(useGameStore.getState(), 'player1')).toBe(false);
+    // 토큰은 있으나 이미 반납해 효과가 켜진 상태
+    useGameStore.setState((st) => ({
+      players: {
+        ...st.players,
+        player1: { ...st.players.player1, supportTokens: 2, supportLocoActive: true },
+      },
+    }));
+    expect(shouldSpendSupportForLoco(useGameStore.getState(), 'player1')).toBe(false);
+  });
+
+  it('토큰이 있어도 배달할 게 없는 초기 보드에서는 반납하지 않는다', () => {
+    setupChina();
+    useGameStore.setState((st) => ({
+      currentPhase: 'moveGoods', currentPlayer: 'player1',
+      players: { ...st.players, player1: { ...st.players.player1, supportTokens: 2 } },
+    }));
+    // 트랙이 하나도 없어 엔진을 올려도 열리는 배달이 없음 → 확정 3 VP를 팔 이유가 없다
+    expect(shouldSpendSupportForLoco(useGameStore.getState(), 'player1')).toBe(false);
   });
 });

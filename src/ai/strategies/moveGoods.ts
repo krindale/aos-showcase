@@ -404,6 +404,46 @@ function findBestUnlockedDelivery(
 }
 
 /**
+ * 엔진 +1의 **증분** 가치: (엔진 +1 최선 배달 ΔVP) − (현재 엔진 최선 배달 ΔVP).
+ *
+ * ⚠️ 해금 배달의 **총 ΔVP**가 아니다 — 지지 토큰 'loco' 판단에 총액을 쓰면 "엔진 없이도
+ * 거의 같은 값의 짧은 배달이 가능한" 상황까지 반납으로 오판한다(100시드 실측 VP −4.31).
+ * 엔진이 없을 때의 차선을 빼야 토큰 3 VP와 옳게 비교된다.
+ *
+ * 두 값을 한 번의 전수 탐색으로 함께 구한다(탐색이 비싸 두 번 도는 것을 피함).
+ */
+export function engineUpgradeDeliveryGain(
+  state: GameState,
+  playerId: PlayerId,
+  baseEngine: number,
+): number {
+  const player = state.players[playerId];
+  if (!player) return -Infinity;
+  const { board } = state;
+  const upEngine = baseEngine + 1;
+  let bestBase = 0;   // 배달을 아예 안 해도 손해는 없으므로 하한 0
+  let bestUp = 0;
+
+  for (const city of board.cities) {
+    for (let ci = 0; ci < city.cubes.length; ci++) {
+      const cubeColor = city.cubes[ci];
+      const reachable = findReachableDestinations(city.coord, board, playerId, upEngine, cubeColor, 0, upEngine);
+
+      for (const destCity of reachable) {
+        const opt = findRouteOptions(city.coord, destCity.coord, board, playerId, upEngine, cubeColor)[0];
+        if (!opt || opt.path.length < 2 || opt.ownLinks < 1) continue;
+
+        const value = deliveryDeltaVP(state, playerId, opt.ownLinks, opt.oppLinks);
+        if (value > bestUp) bestUp = value;
+        if (opt.totalLinks <= baseEngine && value > bestBase) bestBase = value;
+      }
+    }
+  }
+
+  return bestUp - bestBase;
+}
+
+/**
  * trackCubes 맵: 엔진+1로 "해금"되는(현재 엔진으론 불가) 최선의 트랙 큐브 배달 ΔVP.
  *
  * 현재 엔진 레벨에선 도달 못 하지만 +1이면 배달 가능해지는 트랙 큐브를 찾는다.

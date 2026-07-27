@@ -11,6 +11,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useGameStore } from '@/store/gameStore';
 import { getAIDecision } from '@/ai';
 import { addFailedBuildCoord } from '../strategies/buildTrack';
+import { shouldSpendSupportForLoco } from '../strategies/supportToken';
 import { calculateVictoryPoints, playerBonusVP } from '@/utils/gameLogic';
 import { isTrackPartOfCompletedLink, hexCoordsEqual } from '@/utils/hexGrid';
 import { countOwnershipUnits } from '@/store/helpers/nationalization';
@@ -25,6 +26,11 @@ function createSeededRng(seed: number): () => number {
 }
 
 const PLAYERS: PlayerId[] = ['player1', 'player2', 'player3', 'player4'];
+
+// 시드 수는 환경변수로 올릴 수 있다 — `AOS_SEEDS=300 npx vitest run ...`
+// ⚠️ **1 VP 미만의 차이는 100시드로 판별할 수 없다**(표준오차 ±1.15). 아래 출력의 표준오차를
+// 보고, 비교하려는 차이보다 오차가 크면 시드를 300+로 올려 다시 잴 것 (2026-07-27c 교훈).
+const SEEDS = Number(process.env.AOS_SEEDS ?? 100);
 
 const AUTO_PHASES = new Set([
   'collectIncome', 'payExpenses', 'incomeReduction', 'advanceTurn',
@@ -45,6 +51,7 @@ interface CResult {
   nationalizations: number;       // 국유화 발생 횟수 (중립화된 타일 그룹 관측)
   gainSupportPicks: number;       // gainSupport 행동 선택 횟수
   ferryBuys: number;              // 인터어반/페리($8) 구매 횟수
+  tokenLocoSpends: number;        // 지지 토큰 'loco' 반납 (실효 엔진 +1)
   hkDeliveriesOpen: number;       // 폐쇄 전 홍콩 배달
   hkDeliveriesClosed: number;     // 폐쇄 후 홍콩 배달 (불변식: 0)
   maxUnitsSeen: number;           // 관측된 최대 소유 단위 (불변식: ≤4, 국유화 대기 순간 제외)
@@ -63,7 +70,7 @@ function runChinaGame(seed: number): CResult {
 
   let deliveries = 0, builds = 0, urbanizations = 0;
   let gainSupportPicks = 0, hkDeliveriesOpen = 0, hkDeliveriesClosed = 0;
-  let maxUnitsSeen = 0, ferryBuys = 0;
+  let maxUnitsSeen = 0, ferryBuys = 0, tokenLocoSpends = 0;
   const MAX_ITER = 80000;
   let iter = 0, stale = 0, lastSig = '';
   let reachedEnd = false;
@@ -166,6 +173,12 @@ function runChinaGame(seed: number): CResult {
       }
 
       case 'moveGoods': {
+        // 지지 토큰 'loco' 반납 (executeAITurn과 동일 판단) — 반납 후 재결정
+        if (shouldSpendSupportForLoco(useGameStore.getState(), cp)) {
+          useGameStore.getState().spendSupportToken(cp, 'loco');
+          tokenLocoSpends++;
+          break;
+        }
         const d = decision.decision;
         if (d.action === 'move') {
           store.selectCube(d.sourceCityId, d.cubeIndex);
@@ -217,7 +230,8 @@ function runChinaGame(seed: number): CResult {
   return {
     accurateVP, income, shares, tokens, completedTracks, bankruptcies,
     finalTurn: f.currentTurn, reachedEnd, deliveries, builds, urbanizations,
-    nationalizations, gainSupportPicks, ferryBuys, hkDeliveriesOpen, hkDeliveriesClosed,
+    nationalizations, gainSupportPicks, ferryBuys, tokenLocoSpends,
+    hkDeliveriesOpen, hkDeliveriesClosed,
     maxUnitsSeen,
   };
 }
@@ -269,6 +283,10 @@ describe('Southern China 4 AI 전체 게임 — 특수룰 실동작 + 베이스�
       avgNationalized: sum(r => r.nationalizations) / seeds,
       avgGainSupport: sum(r => r.gainSupportPicks) / seeds,
       avgFerryBuys: sum(r => r.ferryBuys) / seeds,
+      avgTokenLoco: sum(r => r.tokenLocoSpends) / seeds,
+      totalBankrupt,
+      // 판별용 산포: VP 표준편차와 평균의 표준오차 (노이즈 범위 판단)
+      sdVP: Math.sqrt(allVPs.reduce((a, v) => a + (v - allVPs.reduce((x, y) => x + y, 0) / allVPs.length) ** 2, 0) / allVPs.length),
       avgHkOpen: sum(r => r.hkDeliveriesOpen) / seeds,
       totalHkClosed: sum(r => r.hkDeliveriesClosed),
       maxUnitsSeen: Math.max(...results.map(r => r.maxUnitsSeen)),
@@ -280,13 +298,15 @@ describe('Southern China 4 AI 전체 게임 — 특수룰 실동작 + 베이스�
   }
 
   it('4인 게임 완주 + 특수룰 불변식 + 베이스라인 측정 (100 시드)', () => {
-    const m = measure(100);
+    const m = measure(SEEDS);
     logSpy.mockRestore();
-    console.log('\n===== Southern China 4인 VP 통계 (100 시드) =====');
+    console.log(`\n===== Southern China 4인 VP 통계 (${SEEDS} 시드) =====`);
     console.log(`평균 accurateVP: ${m.avgVP.toFixed(2)} (min ${m.minVP}, max ${m.maxVP})`);
     console.log(`평균 발행주식: ${m.avgShares.toFixed(2)}, 평균 income: ${m.avgIncome.toFixed(2)}, 평균 잔여토큰: ${m.avgTokens.toFixed(2)}`);
     console.log(`건설/배달/도시화: 건설 ${m.avgBuilds.toFixed(1)}, 배달 ${m.avgDeliveries.toFixed(1)}, 도시화 ${m.avgUrban.toFixed(1)}`);
     console.log(`국유화 타일: ${m.avgNationalized.toFixed(1)}개/게임, gainSupport 선택: ${m.avgGainSupport.toFixed(1)}회/게임, 인터어반/페리 구매: ${m.avgFerryBuys.toFixed(1)}회/게임`);
+    console.log(`VP 표준편차 ${m.sdVP.toFixed(1)} → 평균의 표준오차 ±${(m.sdVP / Math.sqrt(SEEDS * 4)).toFixed(2)}`);
+    console.log(`지지 토큰 loco 반납: ${m.avgTokenLoco.toFixed(1)}회/게임, 파산 총계 ${m.totalBankrupt}명 / ${SEEDS}게임`);
     console.log(`홍콩 배달: 개방 중 ${m.avgHkOpen.toFixed(1)}회/게임, 폐쇄 후 ${m.totalHkClosed}회(불변식 0)`);
     console.log(`관측 최대 소유 단위: ${m.maxUnitsSeen} (상한 4)`);
     console.log(`파산: ${m.avgBankruptPerGame.toFixed(2)}명/게임, 평균 완주턴 ${m.avgTurns.toFixed(1)} (최대 8)`);

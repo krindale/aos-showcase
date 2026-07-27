@@ -70,6 +70,57 @@ export function countUnfinishedSections(board: BoardState, playerId: PlayerId): 
   return components;
 }
 
+/**
+ * 미완성 구간 상한(unfinishedSectionLimit) 게이트 — "이 타일을 놓아도 되는가".
+ * canBuildTrack(buildSlice)과 실패 사유(buildReason)가 **같은 함수를 공유**한다
+ * (미러 복제 금지 — 리뷰 S3에서 두 곳이 어긋날 위험을 제거).
+ *
+ * 새 타일이 ① 내 미완성 구간에 이어지거나 ② 양 끝이 정거장(1타일 즉시 완성)이면 허용,
+ * 그 외에는 이미 상한만큼 구간을 가진 경우 거부한다.
+ * ⚠️ 이웃 타일의 **복합 secondary 경로**로 이어지는 경우 완성 여부도 secondary 기준으로
+ *    판정해야 한다 — primary만 보면 "primary는 완성 링크, 내 secondary는 미완성"인 타일에
+ *    이어 지을 때 잘못 거부된다 (리뷰 S3).
+ */
+export function canStartSectionHere(
+  board: BoardState,
+  playerId: PlayerId,
+  coord: HexCoord,
+  edges: [number, number],
+  limit: number
+): boolean {
+  const joinsMySection = edges.some((e) => {
+    const nb = getNeighborHex(coord, e, board);
+    const opp = getOppositeEdge(e);
+    return board.trackTiles.some((tt) => {
+      if (!hexCoordsEqual(tt.coord, nb)) return false;
+      if (tt.owner === playerId && tt.edges.includes(opp) && !isTrackPartOfCompletedLink(nb, board)) {
+        return true;
+      }
+      if (
+        tt.secondaryOwner === playerId &&
+        tt.secondaryEdges?.includes(opp) &&
+        !isSecondaryTrackPartOfCompletedLink(nb, board)
+      ) {
+        return true;
+      }
+      return false;
+    });
+  });
+  if (joinsMySection) return true;
+
+  // 양 끝이 정거장인 1타일 건설 — 구간으로 남지 않는다 (마을 끝점은 가닥이 곧 따라붙는 근사)
+  const bothEndsStations = edges.every((e) => {
+    const nb = getNeighborHex(coord, e, board);
+    return (
+      board.cities.some((c) => hexCoordsEqual(c.coord, nb)) ||
+      board.towns.some((t) => hexCoordsEqual(t.coord, nb))
+    );
+  });
+  if (bothEndsStations) return true;
+
+  return countUnfinishedSections(board, playerId) < limit;
+}
+
 /** 내 소유 단위(디스크 사용) 수 = 완성 링크 + 미완성 구간 + 구매한 직결 링크(인터어반/페리) */
 export function countOwnershipUnits(board: BoardState, playerId: PlayerId): number {
   const completed = findCompletedLinks(board).filter((l) => l.owner === playerId).length;

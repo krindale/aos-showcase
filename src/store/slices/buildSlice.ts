@@ -21,13 +21,13 @@ import {
   isTrackPartOfCompletedLink,
   touchesClaimableUnownedTrack,
 } from '@/utils/trackValidation';
-import { hexCoordsEqual, getNeighborHex, getOppositeEdge } from '@/utils/hexGrid';
+import { hexCoordsEqual, getNeighborHex } from '@/utils/hexGrid';
 import { debugLog, logAction } from '@/utils/debugConfig';
 import { captureUndo, undoSnapshots } from '../helpers/undo';
 import { crossesBlockedEdge, findMissingTownSpurs, touchesMasterNetwork, findClaimableSectionKeys } from '../helpers/boardRules';
 import {
   checkDiscLimitAfterBuild,
-  countUnfinishedSections,
+  canStartSectionHere,
   countOwnershipUnits,
   eligibleNationalizationTargets,
 } from '../helpers/nationalization';
@@ -219,36 +219,13 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         return false;
       }
 
-      // Southern China: 미완성 트랙 구간 동시 1개 — 새 타일이 내 미완성 구간에 이어지지 않고
-      // (도시/완성 링크에서) 새 구간을 시작하는 건설은, 이미 구간이 상한만큼 있으면 금지.
-      // 양 변이 모두 정거장에 닿는 1타일 건설(즉시 링크 완성 의도 — 마을은 가닥이 곧 따라붙는
-      // 관대한 근사)은 구간으로 남지 않으므로 허용.
+      // Southern China: 미완성 트랙 구간 동시 1개 — 판정은 buildReason과 공유하는 헬퍼 한 곳
       const sectionLimit = profile.unfinishedSectionLimit;
-      if (sectionLimit !== null && !existingTrack) {
-        const joinsMySection = edges.some((e) => {
-          const nb = getNeighborHex(coord, e, board);
-          const t = board.trackTiles.find(
-            (tt) =>
-              hexCoordsEqual(tt.coord, nb) &&
-              ((tt.owner === currentPlayer && tt.edges.includes(getOppositeEdge(e))) ||
-                (tt.secondaryOwner === currentPlayer && tt.secondaryEdges?.includes(getOppositeEdge(e))))
-          );
-          return !!t && !isTrackPartOfCompletedLink(nb, board);
-        });
-        const bothEndsStations = edges.every((e) => {
-          const nb = getNeighborHex(coord, e, board);
-          return (
-            board.cities.some((c) => hexCoordsEqual(c.coord, nb)) ||
-            board.towns.some((t) => hexCoordsEqual(t.coord, nb))
-          );
-        });
-        if (
-          !joinsMySection &&
-          !bothEndsStations &&
-          countUnfinishedSections(board, currentPlayer) >= sectionLimit
-        ) {
-          return false;
-        }
+      if (
+        sectionLimit !== null && !existingTrack &&
+        !canStartSectionHere(board, currentPlayer, coord, edges, sectionLimit)
+      ) {
+        return false;
       }
 
       return true;

@@ -13,9 +13,9 @@ import {
   canRedirectTrack,
   isTrackPartOfCompletedLink,
 } from '@/utils/trackValidation';
-import { hexCoordsEqual, getNeighborHex, getOppositeEdge } from '@/utils/hexGrid';
+import { hexCoordsEqual } from '@/utils/hexGrid';
 import { crossesBlockedEdge, touchesMasterNetwork } from './boardRules';
-import { countUnfinishedSections } from './nationalization';
+import { canStartSectionHere } from './nationalization';
 import { applyEngineerDiscount, hasEngineerDiscount } from './engineerDiscount';
 
 /** 신규 타일 건설 예상 비용 (buildTrack의 비용 계산 미러 — 지형/고정비용/Engineer 절반). */
@@ -115,29 +115,13 @@ export function getBuildBlockReason(
       : '모든 트랙은 하나의 네트워크로 이어져야 해요 (정부 링크와 연결)';
   }
 
-  // Southern China 미완성 구간 동시 1개 — canBuildTrack 미러 (같은 판정식)
+  // Southern China 미완성 구간 동시 1개 — canBuildTrack과 **같은 헬퍼**를 호출 (미러 복제 금지)
   const sectionLimit = profile.unfinishedSectionLimit;
-  if (sectionLimit !== null && !existingTrack) {
-    const joinsMySection = edges.some((e) => {
-      const nb = getNeighborHex(coord, e, board);
-      const t = board.trackTiles.find(
-        (tt) =>
-          hexCoordsEqual(tt.coord, nb) &&
-          ((tt.owner === currentPlayer && tt.edges.includes(getOppositeEdge(e))) ||
-            (tt.secondaryOwner === currentPlayer && tt.secondaryEdges?.includes(getOppositeEdge(e))))
-      );
-      return !!t && !isTrackPartOfCompletedLink(nb, board);
-    });
-    const bothEndsStations = edges.every((e) => {
-      const nb = getNeighborHex(coord, e, board);
-      return (
-        board.cities.some((c) => hexCoordsEqual(c.coord, nb)) ||
-        board.towns.some((t) => hexCoordsEqual(t.coord, nb))
-      );
-    });
-    if (!joinsMySection && !bothEndsStations && countUnfinishedSections(board, currentPlayer) >= sectionLimit) {
-      return '미완성 구간은 한 번에 1개만 — 기존 구간을 먼저 완성하세요';
-    }
+  if (
+    sectionLimit !== null && !existingTrack &&
+    !canStartSectionHere(board, currentPlayer, coord, edges, sectionLimit)
+  ) {
+    return '미완성 구간은 한 번에 1개만 — 기존 구간을 먼저 완성하세요';
   }
 
   // 여기까지 통과 = canBuildTrack OK → 남은 실패 원인은 현금.

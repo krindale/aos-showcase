@@ -202,12 +202,13 @@ export default function BoardCities({
         // 화물 5색 **동심 헥스 테두리** — 바깥에서 안으로 겹겹이 쌓아 "모든 색을 받는 도시"를
         // 표현한다 (2026-07-27 사용자 요청). 중앙은 비워 이름 밴드·숫자·큐브 가독성 유지 —
         // 앞선 시도(방사형 부채꼴·가로/세로 띠)는 중앙을 덮어 색이 조각나 보였다.
-        const RING_W = 6; // 각 링 두께 (4 → 6, 사용자 요청 50% 증가)
+        const RING_W = 6;   // 각 링 두께
+        const RING_GAP = 2; // 링 사이 흰 간격 — 헥스 채움(흰색)이 이 틈으로 비친다
         const rainbowRings = allColorCity && !allColorClosed
           ? (['red', 'blue', 'yellow', 'purple', 'black'] as const).map((c, idx) => ({
               color: CITY_COLORS[c],
-              // 링 중심선 반지름 — 바깥 테두리 안쪽부터 한 겹씩 좁혀 들어간다
-              size: HEX_SIZE - 2 - idx * RING_W,
+              // 링 중심선 반지름 — 바깥 테두리 안쪽부터 (두께+간격)씩 좁혀 들어간다
+              size: HEX_SIZE - 2 - idx * (RING_W + RING_GAP),
             }))
           : null;
 
@@ -216,7 +217,8 @@ export default function BoardCities({
             {/* 도시 헥사곤 (검은 테두리 0.5px) */}
             <polygon
               points={getHexPoints(x, y, HEX_SIZE, isFlat)}
-              fill={allColorClosed ? '#9aa0a6' : allColorCity ? '#d2d6da' : cityColor}
+              // 전색 수용 도시는 흰 바탕 — 5색 링 사이 간격이 흰색으로 비쳐 층이 분리돼 보인다
+              fill={allColorClosed ? '#9aa0a6' : allColorCity ? '#ffffff' : cityColor}
               stroke={
                 showDestRing
                   ? '#e6c77a'  // 골드 악센트 (accent-light)

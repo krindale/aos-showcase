@@ -1173,6 +1173,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           buildDirectLink={buildDirectLink}
           ferryEdges={board.ferryEdges}
           buildFerryEdge={buildFerryEdge}
+          allAcceptClosed={board.allAcceptClosed}
         />
 
         {/* 오버레이 레이어 — 미리보기·트랙 위 큐브·이동 경로/큐브·외곽선·경계·터미널 테두리 (board/BoardOverlays) */}

@@ -75,10 +75,8 @@ export class SouthernChinaMapProfile extends StandardMapProfile {
     return true;
   }
 
-  /** Hong Kong은 회색 헥스로 렌더 (모든 색 수용 항구 — Germany Berlin 렌더 훅 재사용) */
-  override get grayRenderCityId(): string | null {
-    return 'hongkong';
-  }
+  // Hong Kong 렌더는 City.acceptsAllColors가 직접 구동한다 (BoardCities: 화물 5색 부채꼴,
+  // 폐쇄 시 회색). grayRenderCityId(Germany Berlin 단색 회색 훅)는 쓰지 않는다.
 
   /**
    * Gain Support AI 선호 ΔVP — 토큰은 미사용 시 확정 3 VP인데, 행동 슬롯 기회비용과

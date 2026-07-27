@@ -57,6 +57,8 @@ interface BoardCitiesProps {
   /** Southern China: 구매식 페리 변 (서안 헥스 ↔ Hong Kong) — 직결 링크와 같은 표현/클릭 */
   ferryEdges?: FerryEdge[];
   buildFerryEdge?: (ferryId: string) => void;
+  /** Southern China: 전색 수용 도시(홍콩) 폐쇄 여부 — 폐쇄되면 5색 부채꼴 대신 회색 */
+  allAcceptClosed?: boolean;
 }
 
 export default function BoardCities({
@@ -80,6 +82,7 @@ export default function BoardCities({
   buildDirectLink,
   ferryEdges,
   buildFerryEdge,
+  allAcceptClosed,
   repopPlacing,
   onRepopCityClick,
 }: BoardCitiesProps) {
@@ -191,12 +194,29 @@ export default function BoardCities({
           }
         };
 
+        // 전색 수용 도시(Southern China 홍콩): 단색 대신 화물 5색을 부채꼴로 나눠 칠해
+        // "모든 색을 받는 항구"임을 한눈에 보이게 한다 (2026-07-27 사용자 요청).
+        // 폐쇄(마지막 2턴)되면 색을 잃고 회색 — 더 이상 받지 않음을 같은 자리에서 표현.
+        const allColorCity = !!city.acceptsAllColors;
+        const allColorClosed = allColorCity && !!allAcceptClosed;
+        // 화물 5색 **동심 헥스 테두리** — 바깥에서 안으로 겹겹이 쌓아 "모든 색을 받는 도시"를
+        // 표현한다 (2026-07-27 사용자 요청). 중앙은 비워 이름 밴드·숫자·큐브 가독성 유지 —
+        // 앞선 시도(방사형 부채꼴·가로/세로 띠)는 중앙을 덮어 색이 조각나 보였다.
+        const RING_W = 4; // 각 링 두께
+        const rainbowRings = allColorCity && !allColorClosed
+          ? (['red', 'blue', 'yellow', 'purple', 'black'] as const).map((c, idx) => ({
+              color: CITY_COLORS[c],
+              // 링 중심선 반지름 — 바깥 테두리 안쪽부터 한 겹씩 좁혀 들어간다
+              size: HEX_SIZE - 2 - idx * RING_W,
+            }))
+          : null;
+
         return (
           <g key={`city-${city.id}`}>
             {/* 도시 헥사곤 (검은 테두리 0.5px) */}
             <polygon
               points={getHexPoints(x, y, HEX_SIZE, isFlat)}
-              fill={cityColor}
+              fill={allColorClosed ? '#9aa0a6' : allColorCity ? '#d2d6da' : cityColor}
               stroke={
                 showDestRing
                   ? '#e6c77a'  // 골드 악센트 (accent-light)
@@ -212,6 +232,21 @@ export default function BoardCities({
               }
               onClick={handleCityClick}
             />
+
+            {/* 전색 수용 도시(홍콩): 화물 5색 동심 헥스 테두리 — 바깥에서 안으로 겹겹이 */}
+            {rainbowRings && (
+              <g style={{ pointerEvents: 'none' }}>
+                {rainbowRings.map((r, ri) => (
+                  <polygon
+                    key={`allcolor-ring-${city.id}-${ri}`}
+                    points={getHexPoints(x, y, r.size, isFlat)}
+                    fill="none"
+                    stroke={r.color}
+                    strokeWidth={RING_W}
+                  />
+                ))}
+              </g>
+            )}
 
             {/* 헥스 테두리 안쪽 얇은 inset 라인 (회색 도시=어두운 회색, 컬러 도시=흰색, 거의 안 보임) */}
             <polygon
@@ -417,15 +452,16 @@ export default function BoardCities({
               />
             ) : (
               <>
-                {/* 미건설: 점선 아웃라인 원 (원본 시트의 인터어반 표기 — 반투명이라 글자가 비침) */}
+                {/* 미건설: 흰 원 + 검은 숫자 — 반투명 점선 원은 도시색·철도 위에서 묻혀
+                    잘 안 보였다 (2026-07-27 사용자 피드백). 불투명 흰 배경으로 대비 확보. */}
                 <circle
-                  cx={mx} cy={my} r="15"
-                  fill="rgba(255,255,255,0.18)" stroke="#ffffff" strokeWidth="3" strokeDasharray="5 4"
+                  cx={mx} cy={my} r="14"
+                  fill="#ffffff" stroke="#1a1a1a" strokeWidth="2"
                   style={{ pointerEvents: 'none' }}
                 />
                 <text
                   x={mx} y={my + 5} textAnchor="middle" fill="#1a1a1a" fontSize="15" fontWeight="bold"
-                  fontFamily="system-ui, sans-serif" stroke="#ffffff" strokeWidth="3.5" paintOrder="stroke"
+                  fontFamily="system-ui, sans-serif"
                   style={{ pointerEvents: 'none' }}
                 >
                   {dl.cost}

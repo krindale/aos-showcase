@@ -32,6 +32,7 @@ import {
   eligibleNationalizationTargets,
 } from '../helpers/nationalization';
 import { applyEngineerDiscount, hasEngineerDiscount } from '../helpers/engineerDiscount';
+import { useToastStore } from '../toastStore';
 import { computeTranscontinental } from '../helpers/transcontinental';
 
 type Set = StoreApi<GameStore>['setState'];
@@ -769,19 +770,24 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       if (link.owner !== null) return false; // 이미 건설됨
       if (link.isNationalized) return false; // 국유화된 링크는 재구매 불가 (중립으로 존속)
       if (state.currentPhase !== 'buildTrack') return false;
-      // 건설 제한 (타일 1개 카운트)
-      if (state.phaseState.builtTracksThisTurn >= state.phaseState.maxTracksThisTurn) {
-        console.warn('[buildDirectLink] 건설 제한 초과');
-        return false;
-      }
       const currentPlayer = state.currentPlayer;
       const player = state.players[currentPlayer];
       if (!player) return false;
+      // 실패 사유 안내 — 사람 클릭에만 (봇은 조용히 false. uiSlice 토스트와 동일 원칙:
+      // 조용한 거부는 "클릭이 안 먹는다"로 오인된다 — 2026-07-27 사용자 보고)
+      const deny = (reason: string): false => {
+        console.warn(`[buildDirectLink] ${reason}`);
+        if (!player.isAI) useToastStore.getState().showToast(reason);
+        return false;
+      };
+      // 건설 제한 (타일 1개 카운트)
+      if (state.phaseState.builtTracksThisTurn >= state.phaseState.maxTracksThisTurn) {
+        return deny(`이번 턴 건설 제한에 도달했어요 (${state.phaseState.builtTracksThisTurn}/${state.phaseState.maxTracksThisTurn})`);
+      }
       // Southern China 인터어반/페리: 플레이어당 턴 1개 (페리 변 구매와 공유 카운트)
       const ferryRule = getMapProfile(state.mapId).interurbanFerryRule;
       if (ferryRule && ferryBuiltThisTurn(state, currentPlayer)) {
-        console.warn('[buildDirectLink] 인터어반/페리는 턴당 1개');
-        return false;
+        return deny('인터어반·페리는 한 턴에 하나만 건설할 수 있어요');
       }
       // 디스크 상한: 구매로 상한을 넘기는데 국유화 대상(당턴 제외 완성 링크)도 없으면
       // 물리적으로 놓을 디스크가 없다 — 구매 거부 (사람·봇 공통 가드)
@@ -792,14 +798,12 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
           countOwnershipUnits(state.board, currentPlayer) + 1 > discLimit &&
           eligibleNationalizationTargets(state.board, currentPlayer, state.currentTurn).length === 0
         ) {
-          console.warn('[buildDirectLink] 디스크 부족 + 국유화 대상 없음 — 구매 불가');
-          return false;
+          return deny(`소유 디스크가 부족해요 (상한 ${discLimit}개) — 국유화할 링크도 없습니다`);
         }
       }
       // 직결 링크는 두 도시를 직접 잇는 완성 링크 — 항상 도시에 붙으므로 첫 트랙 규칙 자동 충족
       if (player.cash < link.cost) {
-        console.warn(`[buildDirectLink] 현금 부족 ($${player.cash} < $${link.cost})`);
-        return false;
+        return deny(`현금이 부족해요 (필요 $${link.cost}, 보유 $${player.cash})`);
       }
 
       captureUndo(state, `직결 링크 건설 (${link.cityA}↔${link.cityB})`);

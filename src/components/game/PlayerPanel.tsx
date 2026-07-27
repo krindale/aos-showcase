@@ -11,8 +11,6 @@ import {
   Train,
   FileText,
   Handshake,
-  Plus,
-  Minus,
   Skull,
   Bot,
   User,
@@ -124,9 +122,6 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
   const isMe = isMyPlayer(playerId, isAI, myPlayerId);
   const isAICurrentlyThinking = isAI && isActive && aiExecution.pending;
 
-  // 다중 주식 발행을 위한 상태
-  const [shareAmount, setShareAmount] = useState(1);
-
   // 스탯 변화 하이라이트 (현금/수입/엔진/주식 — 값이 바뀐 그 자리에서 증감 표시)
   const cashDelta = useStatDelta(player.cash);
   const incomeDelta = useStatDelta(player.income);
@@ -146,20 +141,10 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
   // 발행 가능한 최대 주식 수
   const maxIssuable = GAME_CONSTANTS.MAX_SHARES - player.issuedShares;
 
-  // 주식 발행량 조절 핸들러
-  const handleDecreaseAmount = () => {
-    setShareAmount(prev => Math.max(1, prev - 1));
-  };
-
-  const handleIncreaseAmount = () => {
-    setShareAmount(prev => Math.min(maxIssuable, prev + 1));
-  };
-
-  // 주식 발행 핸들러
+  // 주식 발행 핸들러 — 항상 1주씩 (여러 주는 버튼을 여러 번 누른다)
   const handleIssueShare = () => {
-    if (currentPhase === 'issueShares' && isActive && shareAmount > 0) {
-      issueShare(playerId, shareAmount);
-      setShareAmount(1); // 발행 후 초기화
+    if (currentPhase === 'issueShares' && isActive && maxIssuable > 0) {
+      issueShare(playerId, 1);
     }
   };
 
@@ -378,42 +363,20 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
       {/* 주식 발행 UI (해당 단계에서만, 탈락하지 않은 경우, AI가 아닌 경우) - 반응형 */}
       {currentPhase === 'issueShares' && isActive && !isEliminated && !isAI && (
         <div className="px-2 md:px-3 pb-2 md:pb-3 space-y-2 border-t border-foreground/10 pt-2">
-          {/* 발행량 선택 - 터치 친화적인 버튼 크기 */}
-          <div className="flex items-center justify-between p-2 rounded-lg bg-background/50">
-            <span className="text-xs md:text-sm text-foreground-secondary">발행할 주식</span>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleDecreaseAmount}
-                disabled={shareAmount <= 1}
-                className="p-2 md:p-1 min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0 rounded hover:bg-foreground/10 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center"
-                aria-label="주식 수량 감소"
-              >
-                <Minus className="w-4 h-4 text-foreground-secondary" />
-              </button>
-              <span className="w-8 md:w-10 text-center font-bold text-sm md:text-base text-foreground">{shareAmount}</span>
-              <button
-                onClick={handleIncreaseAmount}
-                disabled={shareAmount >= maxIssuable}
-                className="p-2 md:p-1 min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-0 rounded hover:bg-foreground/10 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center"
-                aria-label="주식 수량 증가"
-              >
-                <Plus className="w-4 h-4 text-foreground-secondary" />
-              </button>
-            </div>
-          </div>
-
-          {/* 예상 결과 - 반응형 텍스트 */}
+          {/* 발행량 스테퍼는 제거 — 여러 주가 필요하면 버튼을 여러 번 누른다 (사용자 요청 2026-07-27).
+              누를 때마다 아래 예상 결과가 갱신되므로 한 주씩 확인하며 늘리는 흐름이 오히려 명확. */}
+          {/* 예상 결과 (1주 기준) - 반응형 텍스트 */}
           <div className="flex items-center justify-between px-2 text-[10px] md:text-xs text-foreground-secondary">
             <span>받는 금액</span>
-            <span className="text-positive font-medium">+${shareAmount * GAME_CONSTANTS.SHARE_VALUE}</span>
+            <span className="text-positive font-medium">+${GAME_CONSTANTS.SHARE_VALUE}</span>
           </div>
           <div className="flex items-center justify-between px-2 text-[10px] md:text-xs text-foreground-secondary">
             <span>발행 후 총 주식</span>
-            <span className="text-foreground">{player.issuedShares + shareAmount}주</span>
+            <span className="text-foreground">{player.issuedShares + 1}주</span>
           </div>
           <div className="flex items-center justify-between px-2 text-[10px] md:text-xs text-foreground-secondary">
             <span>발행 후 턴 비용</span>
-            <span className="text-red-400">${player.issuedShares + shareAmount + player.engineLevel + dgel}</span>
+            <span className="text-red-400">${player.issuedShares + 1 + player.engineLevel + dgel}</span>
           </div>
 
           {/* 발행 버튼 - 터치 친화적인 크기 (min 44px) */}
@@ -423,9 +386,9 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
             className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium transition-colors
               bg-accent hover:bg-accent-light text-background
               disabled:opacity-50 disabled:cursor-not-allowed"
-            aria-label={`${shareAmount}주 발행`}
+            aria-label="1주 발행"
           >
-            {shareAmount}주 발행 (+${shareAmount * GAME_CONSTANTS.SHARE_VALUE})
+            1주 발행 (+${GAME_CONSTANTS.SHARE_VALUE})
           </button>
 
           {maxIssuable <= 0 && (

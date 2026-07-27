@@ -233,3 +233,51 @@ describe('국유화 대상 소진 — 초과가 굳지 않는다 (사람 경로 
     expect(countOwnershipUnits(after.board, P1)).toBeLessThanOrEqual(4); // 불변식 복원
   });
 });
+
+describe('국유화와 실행 취소(undo) — 대기 상태도 함께 되돌아간다', () => {
+  /**
+   * 사용자 발견 버그의 회귀 가드. `nationalizationPending`이 undo 스냅샷에 없으면 양방향으로
+   * 어긋난다 — ① 국유화를 취소하면 링크는 복구되는데(=다시 디스크 초과) 대기가 안 서서
+   * 하이라이트도 게이트도 없는 초과 상태가 굳고, ② 초과를 유발한 건설을 취소하면 초과가
+   * 아닌데 대기만 남아 '다음 단계로'가 막힌다.
+   */
+  it('국유화를 취소하면 링크가 복구되고 대기(하이라이트 조건)도 다시 선다', () => {
+    setupWithFiveLinks(2);
+    const before = countOwnershipUnits(useGameStore.getState().board, P1);
+    expect(before).toBe(5); // 전제: 디스크 초과
+
+    const targets = eligibleNationalizationTargets(useGameStore.getState().board, P1, 2);
+    expect(targets.length).toBeGreaterThan(0);
+    useGameStore.setState({ nationalizationPending: { playerId: P1 } });
+    useGameStore.getState().nationalizeLink(P1, targets[0].id);
+
+    // 국유화 직후: 한도 이내 + 대기 해제
+    expect(countOwnershipUnits(useGameStore.getState().board, P1)).toBe(4);
+    expect(useGameStore.getState().nationalizationPending).toBeNull();
+
+    useGameStore.getState().undoLastAction();
+
+    // 취소 후: 링크가 내 것으로 복구되었으므로 **다시 초과 = 대기도 복원**되어야 한다
+    const after = useGameStore.getState();
+    expect(countOwnershipUnits(after.board, P1)).toBe(5);
+    expect(after.nationalizationPending).toEqual({ playerId: P1 });
+    // 보드에서 다시 고를 후보가 있어야 함 (하이라이트 = 이 목록이 소스)
+    expect(eligibleNationalizationTargets(after.board, P1, 2).length).toBeGreaterThan(0);
+  });
+
+  it('국유화 보상(토큰·현금)도 취소로 되돌아간다', () => {
+    setupWithFiveLinks(2);
+    const cashBefore = useGameStore.getState().players[P1].cash;
+    const tokensBefore = useGameStore.getState().players[P1].supportTokens ?? 0;
+
+    const targets = eligibleNationalizationTargets(useGameStore.getState().board, P1, 2);
+    useGameStore.setState({ nationalizationPending: { playerId: P1 } });
+    useGameStore.getState().nationalizeLink(P1, targets[0].id);
+    expect(useGameStore.getState().players[P1].supportTokens).toBe(tokensBefore + 1);
+
+    useGameStore.getState().undoLastAction();
+    const p = useGameStore.getState().players[P1];
+    expect(p.cash).toBe(cashBefore);
+    expect(p.supportTokens ?? 0).toBe(tokensBefore);
+  });
+});

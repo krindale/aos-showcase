@@ -12,6 +12,7 @@ import { useGameStore } from '@/store/gameStore';
 import { useGameSettingsStore } from '@/store/gameSettingsStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useTouchGestures } from '@/hooks/useTouchGestures';
+import { eligibleNationalizationTargets } from '@/store/helpers/nationalization';
 import {
   hexToPixel,
   getHexPoints,
@@ -89,6 +90,29 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   const moveGuideOn = moveGuideAllowed && moveGuideEnabled;
   // Montréal Repopulation: 배치 대기 큐브가 있는지 (boolean 셀렉터 — 값 변화시만 리렌더)
   const repopPending = useGameStore((s) => (s.phaseState.repopulationCubes?.length ?? 0) > 0);
+  // Southern China 국유화 선택 모드 — 대기 중인 플레이어(사람)만 보드에서 링크를 고른다.
+  // PhasePanel 목록과 **같은 헬퍼**(eligibleNationalizationTargets)를 쓴다 — 미러 금지.
+  const nationalizationPending = useGameStore((s) => s.nationalizationPending ?? null);
+  const nationalizeLink = useGameStore((s) => s.nationalizeLink);
+  const natSelecting =
+    !!nationalizationPending &&
+    nationalizationPending.playerId === currentPlayer &&
+    !players[currentPlayer]?.isAI &&
+    !boardInteractionBlocked;
+  const natTargets = useMemo(
+    () => (natSelecting ? eligibleNationalizationTargets(board, currentPlayer, currentTurn) : []),
+    [natSelecting, board, currentPlayer, currentTurn]
+  );
+  /** 국유화 후보 타일 좌표 → 링크 id (보드 클릭·하이라이트가 공유하는 인덱스) */
+  const natTileIndex = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const link of natTargets) {
+      for (const c of link.trackTiles) m.set(`${c.col},${c.row}`, link.id);
+    }
+    return m;
+  }, [natTargets]);
+  // 마우스가 올라간 후보 링크 — 그 링크 **전체**를 강조해 "어디까지가 한 링크인지" 보여준다
+  const [hoveredNatLinkId, setHoveredNatLinkId] = useState<string | null>(null);
   // 맵 데이터(그리드 크기/지형 색): mapRegistry에서 주입 — 튜토리얼 하드코딩 금지
   const mapData = useMemo(() => getMapData(mapId), [mapId]);
 
@@ -643,6 +667,19 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     (coord: HexCoord) => {
       if (boardInteractionBlocked) return; // 내 차례가 아니면 무시 (봇/타인 차례 보호)
       if (isMousePanning()) return; // 마우스 드래그(팬) 직후의 클릭은 무시
+
+      // Southern China 국유화 선택 — 대기 중엔 **다른 건설 조작보다 먼저** 가로챈다.
+      // 대기가 풀릴 때까지 건설이 어차피 막혀 있으므로(buildSlice), 여기서 잡지 않으면
+      // 후보 트랙 클릭이 "연결점 선택"으로 새어 혼란만 준다.
+      if (natSelecting) {
+        const linkId = natTileIndex.get(`${coord.col},${coord.row}`);
+        if (linkId) {
+          nationalizeLink(currentPlayer, linkId);
+          setHoveredNatLinkId(null);
+        }
+        return;
+      }
+
       if (currentPhase === 'buildTrack' || currentPhase === 'governmentLink') {
         // 미연결 가닥 완성: 내 트랙이 변에 닿아 있으나 가닥이 없는 마을 클릭 → 가닥 건설.
         // buildMode와 무관하게 최우선 — 같은 턴에 이미 일부 연결된 마을의 추가 변도 연결 가능.
@@ -740,11 +777,16 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   // 헥스 호버 핸들러
   const handleHexHover = useCallback(
     (coord: HexCoord) => {
+      // 국유화 선택 중: 후보 타일에 올리면 그 링크 전체를 강조 (링크 경계를 눈으로 확인)
+      if (natSelecting) {
+        setHoveredNatLinkId(natTileIndex.get(`${coord.col},${coord.row}`) ?? null);
+        return;
+      }
       if ((currentPhase === 'buildTrack' || currentPhase === 'governmentLink') && (ui.buildMode === 'source_selected' || ui.buildMode === 'target_selected')) {
         updateTrackPreview(coord);
       }
     },
-    [currentPhase, ui.buildMode, updateTrackPreview]
+    [natSelecting, natTileIndex, currentPhase, ui.buildMode, updateTrackPreview]
   );
 
   // 큐브 클릭 핸들러
@@ -942,9 +984,13 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             );
 
             // 클릭 가능 여부: 트랙 건설 단계 = 하이라이트/내 트랙, 정부 링크 단계 = 하이라이트/정부 트랙
+            // 국유화 선택 중엔 **후보 링크 타일만** 클릭 대상 — 나머지 클릭은 어차피
+            // handleHexClick이 무시하므로, 커서(pointer)도 후보에만 뜨게 맞춘다.
             const isClickable = !isLake && (
-              (currentPhase === 'buildTrack' && (isHighlighted || hasPlayerTrack)) ||
-              (currentPhase === 'governmentLink' && (isHighlighted || hasGovTrack))
+              natSelecting
+                ? natTileIndex.has(`${col},${row}`)
+                : (currentPhase === 'buildTrack' && (isHighlighted || hasPlayerTrack)) ||
+                  (currentPhase === 'governmentLink' && (isHighlighted || hasGovTrack))
             );
 
             return (
@@ -1213,6 +1259,43 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           selectRouteOption={selectRouteOption}
           confirmRouteChoice={confirmRouteChoice}
         />
+        {/* Southern China 국유화 선택 — 후보 링크 타일 하이라이트 (트랙·도시 위 레이어).
+            호버한 링크는 그 **전체**가 진하게 = 국유화되면 어디까지 중립이 되는지 보여준다.
+            클릭 판정은 handleHexClick이 같은 natTileIndex로 하므로 표시=판정이 항상 일치. */}
+        {natSelecting && natTargets.length > 0 && (
+          <g style={{ pointerEvents: 'none' }}>
+            {natTargets.map((link) => {
+              const isHot = hoveredNatLinkId === link.id;
+              return (
+                <g key={link.id}>
+                  {link.trackTiles.map((c) => {
+                    const { x, y } = hexToPixel(c.col, c.row, undefined, undefined, undefined, isFlat);
+                    return (
+                      <polygon
+                        key={`${c.col},${c.row}`}
+                        points={getHexPoints(x, y, HEX_SIZE - 1, isFlat)}
+                        fill={isHot ? 'rgba(192,74,43,0.28)' : 'rgba(192,74,43,0.12)'}
+                        stroke="#c04a2b"
+                        strokeWidth={isHot ? 4 : 2.5}
+                        strokeDasharray={isHot ? undefined : '6 4'}
+                      >
+                        {!isHot && (
+                          <animate
+                            attributeName="stroke-opacity"
+                            values="1;0.45;1"
+                            dur="1.8s"
+                            repeatCount="indefinite"
+                          />
+                        )}
+                      </polygon>
+                    );
+                  })}
+                </g>
+              );
+            })}
+          </g>
+        )}
+
         {/* 인플레이스 펄스 레이어 (건설/큐브 유입) — memo 자식으로 분리, 미니 오버레이에서도 표시 */}
         {/* viewTop: 가장자리 도시에서 떠오르는 스택이 viewBox에 잘리지 않게 방향을 뒤집는 기준 */}
         <BoardPulses isFlat={isFlat} viewTop={viewTop} silent={fitOverlay} />

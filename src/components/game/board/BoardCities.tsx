@@ -195,46 +195,21 @@ export default function BoardCities({
           }
         };
 
-        // 전색 수용 도시(Southern China 홍콩): 단색 대신 화물 5색을 부채꼴로 나눠 칠해
-        // "모든 색을 받는 항구"임을 한눈에 보이게 한다 (2026-07-27 사용자 요청).
-        // 폐쇄(마지막 2턴)되면 색을 잃고 회색 — 더 이상 받지 않음을 같은 자리에서 표현.
+        // 전색 수용 도시(Southern China 홍콩): 원본 시트대로 **회색 헥스**로 두고, "모든 색을
+        // 받는다"는 숫자 박스의 색 분할(상 red·blue / 하 yellow·purple·black)로만 표현한다.
+        // 기각된 시도들: 5색 채움·동심 링 테두리·방사형 부채꼴(이름 밴드/숫자와 경쟁해 어수선),
+        // 헥스 바깥 우하단 원 그래프(위치를 여러 번 조정해도 겉돌아 2026-07-27 사용자 요청으로 제거).
         const allColorCity = !!city.acceptsAllColors;
+        // 폐쇄(마지막 2턴)되면 색 분할이 사라지고 헥스가 짙은 회색 + 빨간 테두리 — 색이
+        // "없어진" 것은 비교 대상이 없으면 못 알아채므로, 테두리로 명시적 신호를 남긴다.
         const allColorClosed = allColorCity && !!allAcceptClosed;
-        // 화물 5색 **동심 헥스 테두리** — 바깥에서 안으로 겹겹이 쌓아 "모든 색을 받는 도시"를
-        // 표현한다 (2026-07-27 사용자 요청). 중앙은 비워 이름 밴드·숫자·큐브 가독성 유지 —
-        // 앞선 시도(방사형 부채꼴·가로/세로 띠)는 중앙을 덮어 색이 조각나 보였다.
-        // 헥스 우하단 빈 공간의 **원 그래프** — 받을 수 있는 화물색을 균등 분할로 표시해
-        // "모든 색이 다 된다"를 한눈에 (2026-07-27 사용자 요청). 헥스 자체는 회색 유지 —
-        // 앞선 시도(5색 채움·동심 링)는 이름 밴드·숫자와 경쟁해 어수선했다.
-        // 폐쇄(마지막 2턴)되면 받을 색이 없으므로 그래프도 숨긴다.
-        // 헥스 **바깥** 우하단에 살짝 띄워 배치 (사용자 조정) — 도시 내부 요소(큐브·숫자·
-        // 이름 밴드)와 완전히 분리돼 "이 도시가 받는 색" 배지로 읽힌다. 0.62 = 우하단 변에서
-        // 파이 가장자리가 ~3px 떨어지는 값. 홍콩 우하단은 바다라 다른 헥스와 겹치지 않는다.
-        const PIE_R = HEX_SIZE * 0.16;
-        const pieCx = x + HEX_SIZE * 0.8;
-        const pieCy = y + HEX_SIZE * 0.8;
-        // 폐쇄(마지막 2턴)에도 그래프는 남기고 X를 덧그린다 — "원래 다 받지만 지금은 닫힘"
-        const acceptedColors = allColorCity
-          ? (['red', 'blue', 'yellow', 'purple', 'black'] as const)
-          : null;
-        const pieSlices = acceptedColors
-          ? acceptedColors.map((c, i) => {
-              const a0 = (i / acceptedColors.length) * Math.PI * 2 - Math.PI / 2;
-              const a1 = ((i + 1) / acceptedColors.length) * Math.PI * 2 - Math.PI / 2;
-              return {
-                color: CITY_COLORS[c],
-                d: `M ${pieCx} ${pieCy} L ${pieCx + PIE_R * Math.cos(a0)} ${pieCy + PIE_R * Math.sin(a0)} `
-                  + `A ${PIE_R} ${PIE_R} 0 0 1 ${pieCx + PIE_R * Math.cos(a1)} ${pieCy + PIE_R * Math.sin(a1)} Z`,
-              };
-            })
-          : null;
 
         return (
           <g key={`city-${city.id}`}>
             {/* 도시 헥사곤 (검은 테두리 0.5px) */}
             <polygon
               points={getHexPoints(x, y, HEX_SIZE, isFlat)}
-              // 전색 수용 도시(홍콩)는 원본 시트대로 회색 — 수용 색은 우하단 원 그래프로 표시
+              // 전색 수용 도시(홍콩)는 원본 시트대로 회색 — 수용 색은 숫자 박스 분할로 표시
               // (폐쇄 시 더 짙은 회색으로 "이제 안 받음"을 구분)
               fill={allColorClosed ? '#9aa0a6' : allColorCity ? '#d2d6da' : cityColor}
               stroke={
@@ -242,9 +217,11 @@ export default function BoardCities({
                   ? '#e6c77a'  // 골드 악센트 (accent-light)
                   : isSourceSelected
                   ? '#ffffff'
+                  : allColorClosed
+                  ? '#c0392b'  // 폐쇄된 전색 도시(홍콩 마지막 2턴) — 빨간 테두리로 명시
                   : '#1a1a1a'  // 터미널 수용색은 아래 안쪽 폴리곤으로 별도 표시
               }
-              strokeWidth={0.5}
+              strokeWidth={allColorClosed ? 2.5 : 0.5}
               className={
                 (isCityClickable || isReachableDestination)
                   ? 'cursor-pointer hover:opacity-90 transition-opacity'
@@ -253,37 +230,6 @@ export default function BoardCities({
               onClick={handleCityClick}
             />
 
-            {/* 전색 수용 도시(홍콩): 헥스 바깥 우하단 원 그래프 — 받는 화물색 균등 분할.
-                폐쇄(마지막 2턴)면 흐리게 + X를 덧그려 "지금은 안 받음"을 표시 */}
-            {pieSlices && (
-              <g style={{ pointerEvents: 'none' }}>
-                <g opacity={allColorClosed ? 0.45 : 1}>
-                  {pieSlices.map((s, si) => (
-                    <path key={`allcolor-pie-${city.id}-${si}`} d={s.d} fill={s.color} />
-                  ))}
-                  {/* 흰 테두리 — 바다/지형 위에서 그래프 경계를 또렷하게 */}
-                  <circle cx={pieCx} cy={pieCy} r={PIE_R} fill="none" stroke="#ffffff" strokeWidth={1.5} />
-                </g>
-                {allColorClosed && (() => {
-                  const d = PIE_R * 1.05;
-                  const cross = [
-                    { x1: pieCx - d, y1: pieCy - d, x2: pieCx + d, y2: pieCy + d },
-                    { x1: pieCx - d, y1: pieCy + d, x2: pieCx + d, y2: pieCy - d },
-                  ];
-                  return (
-                    <>
-                      {/* 흰 밑선 → 빨간 X (어느 배경에서도 대비 확보) */}
-                      {cross.map((c, ci) => (
-                        <line key={`closed-x-bg-${city.id}-${ci}`} {...c} stroke="#ffffff" strokeWidth={5} strokeLinecap="round" />
-                      ))}
-                      {cross.map((c, ci) => (
-                        <line key={`closed-x-${city.id}-${ci}`} {...c} stroke="#c0392b" strokeWidth={3} strokeLinecap="round" />
-                      ))}
-                    </>
-                  );
-                })()}
-              </g>
-            )}
 
             {/* 헥스 테두리 안쪽 얇은 inset 라인 (회색 도시=어두운 회색, 컬러 도시=흰색, 거의 안 보임) */}
             <polygon

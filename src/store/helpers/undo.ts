@@ -14,6 +14,11 @@ interface UndoSnapshot {
   newCityTiles: GameState['newCityTiles'];
   goodsDisplay: GameState['goodsDisplay'];
   logs: GameState['logs'];
+  /** Southern China 국유화 대기 — 보드를 되돌리면 초과 여부도 함께 되돌아가야 한다.
+   *  빠뜨리면 양방향으로 어긋난다: ① 국유화를 취소하면 링크는 복구되는데(=다시 디스크 초과)
+   *  대기가 안 서서 하이라이트도 게이트도 없는 초과 상태가 굳고, ② 초과를 유발한 건설을
+   *  취소하면 초과가 아닌데 대기만 남아 '다음 단계로'가 막힌다. (사용자 발견) */
+  nationalizationPending: GameState['nationalizationPending'];
 }
 export const undoSnapshots: UndoSnapshot[] = [];
 
@@ -29,6 +34,7 @@ export function captureUndo(state: GameState, label: string) {
     newCityTiles: structuredClone(state.newCityTiles),
     goodsDisplay: structuredClone(state.goodsDisplay), // 한국 도시화는 디스플레이를 변경하므로 복원 대상
     logs: state.logs, // 로그 배열은 불변 갱신이므로 참조 보관으로 충분
+    nationalizationPending: state.nationalizationPending ?? null,
   });
   if (undoSnapshots.length > 30) undoSnapshots.shift();
 }

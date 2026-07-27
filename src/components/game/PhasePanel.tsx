@@ -736,6 +736,9 @@ export default function PhasePanel() {
                     <p className="text-[10px] md:text-xs text-foreground-secondary">
                       국유화된 링크는 누구나 쓰지만 수입·승점이 없습니다. 보상: 지지 토큰 1 + 구간당 $1.
                     </p>
+                    <p className="text-[10px] md:text-xs text-accent">
+                      보드에서 <b>깜빡이는 철도를 직접 클릭</b>해도 됩니다 (마우스를 올리면 그 링크 전체가 강조).
+                    </p>
                     {eligibleNationalizationTargets(routeBoard, currentPlayer, currentTurnForNat).map((l) => (
                       <button
                         key={l.id}

@@ -118,3 +118,18 @@ describe('지지 토큰 반납', () => {
     expect(playerBonusVP({})).toBe(0);
   });
 });
+
+describe('추가비용 헥스 — 복합 타일 전 단순 타일 선행 (룰북)', () => {
+  // 이 엔진의 복합(교차/공존)은 항상 "기존 단순 트랙 위 교체"라 빈 헥스 복합 배치가
+  // 전 맵에서 불가능 = 룰이 구조적으로 충족된다. 이 테스트는 그 전제를 박제하는 회귀 가드 —
+  // 훗날 빈 헥스 복합 배치가 허용되면 여기가 깨져 추가비용 헥스($4/$5) 제약을 상기시킨다.
+  it('빈 추가비용 헥스($4/$5)에는 복합 트랙(교차/공존)을 바로 놓을 수 없다', () => {
+    setupChina();
+    useGameStore.setState({ currentPhase: 'buildTrack', currentPlayer: 'player1' });
+    // (7,7)·(9,8) $5, (4,10) $4 — 트랙이 없는 상태에서는 어떤 복합도 불가 (단순 선행 필수)
+    for (const coord of [{ col: 7, row: 7 }, { col: 9, row: 8 }, { col: 4, row: 10 }]) {
+      expect(useGameStore.getState().canBuildComplexTrack(coord, [0, 3], 'crossing')).toBe(false);
+      expect(useGameStore.getState().canBuildComplexTrack(coord, [0, 3], 'coexist')).toBe(false);
+    }
+  });
+});

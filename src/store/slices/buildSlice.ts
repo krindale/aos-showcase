@@ -21,10 +21,16 @@ import {
   isTrackPartOfCompletedLink,
   touchesClaimableUnownedTrack,
 } from '@/utils/trackValidation';
-import { hexCoordsEqual, getNeighborHex } from '@/utils/hexGrid';
+import { hexCoordsEqual, getNeighborHex, getOppositeEdge } from '@/utils/hexGrid';
 import { debugLog, logAction } from '@/utils/debugConfig';
 import { captureUndo, undoSnapshots } from '../helpers/undo';
 import { crossesBlockedEdge, findMissingTownSpurs, touchesMasterNetwork, findClaimableSectionKeys } from '../helpers/boardRules';
+import {
+  checkDiscLimitAfterBuild,
+  countUnfinishedSections,
+  countOwnershipUnits,
+  eligibleNationalizationTargets,
+} from '../helpers/nationalization';
 import { applyEngineerDiscount, hasEngineerDiscount } from '../helpers/engineerDiscount';
 import { computeTranscontinental } from '../helpers/transcontinental';
 
@@ -41,9 +47,80 @@ export type BuildSlice = Pick<
   GameStore,
   | 'canBuildTrack' | 'buildTrack' | 'applyTranscontinental' | 'dismissTranscontinental'
   | 'canBuildComplexTrack' | 'buildComplexTrack'
-  | 'canBuildTownSpur' | 'buildTownSpur' | 'buildDirectLink'
+  | 'canBuildTownSpur' | 'buildTownSpur' | 'buildDirectLink' | 'buildFerryEdge'
   | 'redirectTrack'
 >;
+
+/** Southern China 디스크 상한 — 건설 커밋 직후 소유 단위(링크+구간+직결)를 세어 초과면
+ *  국유화 대기 설정 (다른 맵 = ownershipDiscLimit null 항등, 호출 비용 무시 가능) */
+function afterBuildDiscCheck(set: Set, get: Get): void {
+  const s = get();
+  const limit = getMapProfile(s.mapId).ownershipDiscLimit;
+  if (limit === null || s.nationalizationPending) return;
+  const pending = checkDiscLimitAfterBuild(s, s.currentPlayer, limit);
+  if (!pending) {
+    // 초과인데 국유화 대상이 없는 희귀 케이스(보유 링크가 전부 당턴 건설): 룰상 놓을 디스크가
+    // 없다 — 미완성 구간의 소유 마커를 해제(무보상, 룰북 "미완성 제거는 보상 없음")해 한도 복원.
+    // (봇 구매 가드·buildDirectLink 거부가 선제 차단하므로 실제로는 타일 경로의 안전망)
+    if (countOwnershipUnits(s.board, s.currentPlayer) > limit) {
+      const me = s.currentPlayer;
+      const released = s.board.trackTiles.filter(
+        (t) => t.owner === me && !isTrackPartOfCompletedLink(t.coord, s.board)
+      ).length;
+      if (released > 0) {
+        logAction('trackBuilding', 'discOverflowReleaseSections', { player: me, tiles: released, turn: s.currentTurn });
+        set({
+          board: {
+            ...s.board,
+            trackTiles: s.board.trackTiles.map((t) =>
+              t.owner === me && !isTrackPartOfCompletedLink(t.coord, s.board)
+                ? { ...t, owner: null }
+                : t
+            ),
+          },
+        });
+      }
+    }
+    return;
+  }
+  logAction('trackBuilding', 'discLimitExceeded', { player: pending.playerId, turn: s.currentTurn });
+  set({ nationalizationPending: pending });
+
+  // 봇은 선택 UI가 없으므로 즉시 해소 — 타일 수 최소(=VP·수입 손실 최소) 링크부터 국유화.
+  // (호스트에서만 실행 — 게스트는 봇 빌드 자체가 돌지 않는다. 가드 5회 = 이론상 최대 초과분)
+  if (s.players[pending.playerId]?.isAI) {
+    let guard = 0;
+    while (get().nationalizationPending?.playerId === pending.playerId && guard++ < 5) {
+      const st = get();
+      // 타일 수 최소 링크부터 — 직결 링크(타일 0 = $8 자산)는 최후순위(가중 99)로 보호
+      const targets = eligibleNationalizationTargets(st.board, pending.playerId, st.currentTurn)
+        .sort((a, b) =>
+          (a.trackTiles.length || 99) - (b.trackTiles.length || 99)
+        );
+      if (targets.length === 0) {
+        console.warn('[nationalization] 봇 국유화 대상 소진 — 대기 해제 (방어)');
+        set({ nationalizationPending: null });
+        break;
+      }
+      get().nationalizeLink(pending.playerId, targets[0].id);
+    }
+  }
+}
+
+/** Southern China: 이 플레이어가 이번 턴 이미 인터어반/페리를 건설했는가 (턴당 1개 제한) */
+function ferryBuiltThisTurn(
+  state: Pick<GameStore, 'board' | 'currentTurn'>,
+  playerId: string
+): boolean {
+  return (
+    (state.board.directLinks ?? []).some(
+      (d) => d.owner === playerId && d.builtTurn === state.currentTurn
+    ) ||
+    (state.board.ferryEdges ?? []).some(
+      (f) => f.owner === playerId && f.builtTurn === state.currentTurn
+    )
+  );
+}
 
 export function createBuildSlice(set: Set, get: Get): BuildSlice {
   return {
@@ -139,6 +216,38 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       // 새 타일은 기존 네트워크(아무 트랙, 트랙이 닿은 정거장)에 닿아야 한다
       if (profile.masterNetwork && !touchesMasterNetwork(board, coord, edges, profile.masterNetworkSeedCityId)) {
         return false;
+      }
+
+      // Southern China: 미완성 트랙 구간 동시 1개 — 새 타일이 내 미완성 구간에 이어지지 않고
+      // (도시/완성 링크에서) 새 구간을 시작하는 건설은, 이미 구간이 상한만큼 있으면 금지.
+      // 양 변이 모두 정거장에 닿는 1타일 건설(즉시 링크 완성 의도 — 마을은 가닥이 곧 따라붙는
+      // 관대한 근사)은 구간으로 남지 않으므로 허용.
+      const sectionLimit = profile.unfinishedSectionLimit;
+      if (sectionLimit !== null && !existingTrack) {
+        const joinsMySection = edges.some((e) => {
+          const nb = getNeighborHex(coord, e, board);
+          const t = board.trackTiles.find(
+            (tt) =>
+              hexCoordsEqual(tt.coord, nb) &&
+              ((tt.owner === currentPlayer && tt.edges.includes(getOppositeEdge(e))) ||
+                (tt.secondaryOwner === currentPlayer && tt.secondaryEdges?.includes(getOppositeEdge(e))))
+          );
+          return !!t && !isTrackPartOfCompletedLink(nb, board);
+        });
+        const bothEndsStations = edges.every((e) => {
+          const nb = getNeighborHex(coord, e, board);
+          return (
+            board.cities.some((c) => hexCoordsEqual(c.coord, nb)) ||
+            board.towns.some((t) => hexCoordsEqual(t.coord, nb))
+          );
+        });
+        if (
+          !joinsMySection &&
+          !bothEndsStations &&
+          countUnfinishedSections(board, currentPlayer) >= sectionLimit
+        ) {
+          return false;
+        }
       }
 
       return true;
@@ -363,6 +472,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
 
       // Western US: 이 건설로 대륙횡단(서부↔동부)이 완성됐는지 확인 → 연속성 해제 + 보너스
       get().applyTranscontinental();
+      afterBuildDiscCheck(set, get);
       return true;
     },
 
@@ -527,6 +637,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       console.log(`[PLAY] T${state.currentTurn} ${currentPlayer} 복합건설(${trackType}) (${coord.col},${coord.row}) edges[${newEdges}] [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`);
       // Western US: 복합 트랙으로 서부↔동부가 이어졌는지 확인 (보너스/연속성 해제)
       get().applyTranscontinental();
+      afterBuildDiscCheck(set, get);
       return true;
     },
 
@@ -645,6 +756,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
 
       // Western US: 가닥 연결로 대륙횡단이 완성됐는지 확인
       get().applyTranscontinental();
+      afterBuildDiscCheck(set, get);
       return true;
     },
 
@@ -655,6 +767,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       );
       if (!link) return false;
       if (link.owner !== null) return false; // 이미 건설됨
+      if (link.isNationalized) return false; // 국유화된 링크는 재구매 불가 (중립으로 존속)
       if (state.currentPhase !== 'buildTrack') return false;
       // 건설 제한 (타일 1개 카운트)
       if (state.phaseState.builtTracksThisTurn >= state.phaseState.maxTracksThisTurn) {
@@ -664,6 +777,25 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       const currentPlayer = state.currentPlayer;
       const player = state.players[currentPlayer];
       if (!player) return false;
+      // Southern China 인터어반/페리: 플레이어당 턴 1개 (페리 변 구매와 공유 카운트)
+      const ferryRule = getMapProfile(state.mapId).interurbanFerryRule;
+      if (ferryRule && ferryBuiltThisTurn(state, currentPlayer)) {
+        console.warn('[buildDirectLink] 인터어반/페리는 턴당 1개');
+        return false;
+      }
+      // 디스크 상한: 구매로 상한을 넘기는데 국유화 대상(당턴 제외 완성 링크)도 없으면
+      // 물리적으로 놓을 디스크가 없다 — 구매 거부 (사람·봇 공통 가드)
+      {
+        const discLimit = getMapProfile(state.mapId).ownershipDiscLimit;
+        if (
+          discLimit !== null &&
+          countOwnershipUnits(state.board, currentPlayer) + 1 > discLimit &&
+          eligibleNationalizationTargets(state.board, currentPlayer, state.currentTurn).length === 0
+        ) {
+          console.warn('[buildDirectLink] 디스크 부족 + 국유화 대상 없음 — 구매 불가');
+          return false;
+        }
+      }
       // 직결 링크는 두 도시를 직접 잇는 완성 링크 — 항상 도시에 붙으므로 첫 트랙 규칙 자동 충족
       if (player.cash < link.cost) {
         console.warn(`[buildDirectLink] 현금 부족 ($${player.cash} < $${link.cost})`);
@@ -682,7 +814,12 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         },
         players: {
           ...state.players,
-          [currentPlayer]: { ...player, cash: player.cash - link.cost },
+          [currentPlayer]: {
+            ...player,
+            cash: player.cash - link.cost,
+            // Southern China: 인터어반/페리 건설 = 종료 시 1 VP (playerBonusVP)
+            ...(ferryRule ? { ferriesBuilt: (player.ferriesBuilt ?? 0) + 1 } : {}),
+          },
         },
         undoCount: undoSnapshots.length,
         phaseState: { ...state.phaseState, builtTracksThisTurn: newBuiltCount },
@@ -699,6 +836,64 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         ],
       });
       get().applyTranscontinental();
+      afterBuildDiscCheck(set, get);
+      return true;
+    },
+
+    // === Southern China: 페리 변 구매 — 서안 헥스 변 ↔ Hong Kong 변을 인접으로 만든다 ===
+    buildFerryEdge: (ferryId) => {
+      const state = get();
+      if (!getMapProfile(state.mapId).interurbanFerryRule) return false;
+      const ferry = (state.board.ferryEdges ?? []).find((f) => f.id === ferryId);
+      if (!ferry || ferry.owner !== null) return false;
+      if (state.currentPhase !== 'buildTrack') return false;
+      if (state.phaseState.builtTracksThisTurn >= state.phaseState.maxTracksThisTurn) {
+        console.warn('[buildFerryEdge] 건설 제한 초과');
+        return false;
+      }
+      const currentPlayer = state.currentPlayer;
+      const player = state.players[currentPlayer];
+      if (!player) return false;
+      if (ferryBuiltThisTurn(state, currentPlayer)) {
+        console.warn('[buildFerryEdge] 인터어반/페리는 턴당 1개');
+        return false;
+      }
+      if (player.cash < ferry.cost) {
+        console.warn(`[buildFerryEdge] 현금 부족 ($${player.cash} < $${ferry.cost})`);
+        return false;
+      }
+
+      captureUndo(state, '페리 건설');
+      const newBuiltCount = state.phaseState.builtTracksThisTurn + 1;
+      set({
+        board: {
+          ...state.board,
+          ferryEdges: (state.board.ferryEdges ?? []).map((f) =>
+            f.id === ferryId ? { ...f, owner: currentPlayer, builtTurn: state.currentTurn } : f
+          ),
+        },
+        players: {
+          ...state.players,
+          [currentPlayer]: {
+            ...player,
+            cash: player.cash - ferry.cost,
+            ferriesBuilt: (player.ferriesBuilt ?? 0) + 1, // 종료 시 1 VP
+          },
+        },
+        undoCount: undoSnapshots.length,
+        phaseState: { ...state.phaseState, builtTracksThisTurn: newBuiltCount },
+        logs: [
+          ...state.logs,
+          {
+            turn: state.currentTurn,
+            phase: state.currentPhase,
+            player: currentPlayer,
+            action: `페리 건설 (주강 서안 ↔ Hong Kong) - $${ferry.cost} [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`,
+            timestamp: Date.now(),
+          },
+        ],
+      });
+      afterBuildDiscCheck(set, get);
       return true;
     },
 
@@ -823,6 +1018,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       });
 
       get().applyTranscontinental();
+      afterBuildDiscCheck(set, get);
       return true;
     },
   };

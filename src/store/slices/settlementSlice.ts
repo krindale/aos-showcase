@@ -9,7 +9,7 @@ import type { StoreApi } from 'zustand';
 import type { GameStore } from '../gameStore';
 import { PlayerId, GamePhase, GAME_CONSTANTS } from '@/types/game';
 import { getMapProfile } from '@/maps/getMapProfile';
-import { calculateVictoryPoints } from '@/utils/gameLogic';
+import { calculateVictoryPoints, playerBonusVP } from '@/utils/gameLogic';
 import { calculateTrackScore } from '@/utils/trackValidation';
 import { logAction } from '@/utils/debugConfig';
 
@@ -188,7 +188,7 @@ export function createSettlementSlice(set: Set, _get: Get): SettlementSlice {
                 id: pid, name: pl?.name, eliminated: pl?.eliminated ?? false,
                 income: pl?.income ?? 0, shares: pl?.issuedShares ?? 0,
                 engine: pl?.engineLevel ?? 0, cash: pl?.cash ?? 0, trackScore,
-                vp: pl ? calculateVictoryPoints(pl.income, trackScore, pl.issuedShares) : 0,
+                vp: pl ? calculateVictoryPoints(pl.income, trackScore, pl.issuedShares, playerBonusVP(pl)) : 0,
               };
             }),
           });

@@ -107,12 +107,12 @@ const maps: MapEntry[] = [
     playable: true,
   },
   {
-    slug: 'montreal',
-    name: 'Montréal Métro',
-    nameKo: '몬트리올 메트로',
+    slug: 'southern-china',
+    name: 'Southern China',
+    nameKo: '남부 중국',
     diff: '고급',
-    image: '/maps/montreal.webp',
-    description: '몬트리올 지하철망을 놓는 3인 전용전. 매 라운드 정부가 중립 링크를 무료 건설하고, 보드 위 모든 트랙이 하나의 네트워크로 이어져야 합니다.',
+    image: '/maps/southern-china.webp',
+    description: '홍콩과 주강 삼각주를 둘러싼 4~5인전. 소유 디스크가 4개뿐이라 링크를 국유화하며 확장해야 하고, 모든 색을 받는 홍콩은 마지막 2턴에 문을 닫습니다.',
     playable: true,
   },
   {
@@ -122,6 +122,15 @@ const maps: MapEntry[] = [
     diff: '고급',
     image: '/maps/moon.webp',
     description: '달 표면에 선로를 놓는 3~4인전. 매 턴 보드 절반이 밤이 되어 검은 도시로 변하고, 맵 가장자리로 나간 선로는 반대편으로 이어집니다.',
+    playable: true,
+  },
+  {
+    slug: 'montreal',
+    name: 'Montréal Métro',
+    nameKo: '몬트리올 메트로',
+    diff: '고급',
+    image: '/maps/montreal.webp',
+    description: '몬트리올 지하철망을 놓는 3인 전용전. 매 라운드 정부가 중립 링크를 무료 건설하고, 보드 위 모든 트랙이 하나의 네트워크로 이어져야 합니다.',
     playable: true,
   },
   {

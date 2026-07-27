@@ -27,6 +27,8 @@ export function isNightCity(city: City, board: BoardState): boolean {
  */
 export function cityAcceptsCube(city: City, cubeColor: CubeColor, board: BoardState): boolean {
   if (city.noDemand) return false; // Moon Base — 수요 없음
+  // Southern China Hong Kong — 모든 색 수용. 단 마지막 2턴은 폐쇄(allAcceptClosed, 턴 롤오버가 설정)
+  if (city.acceptsAllColors) return !board.allAcceptClosed;
   if (isNightCity(city, board)) return cubeColor === 'black'; // 밤쪽 = 검은 도시
   if (cubeColor === 'white') return !!board.cottonPorts?.includes(city.id);
   if (board.dynamicCityColors) return city.cubes.includes(cubeColor);
@@ -43,6 +45,8 @@ export function cityAcceptsCube(city: City, cubeColor: CubeColor, board: BoardSt
  * 비-달 맵은 cityAcceptsCube와 완전 동일.
  */
 export function cityEverAcceptsCube(city: City, cubeColor: CubeColor, board: BoardState): boolean {
+  // Hong Kong(전색 수용)의 "언젠가": 폐쇄(마지막 2턴) 이후는 다시 열리지 않으므로 현재 판정과 동일
+  if (city.acceptsAllColors) return !board.allAcceptClosed;
   if (!board.nightSide) return cityAcceptsCube(city, cubeColor, board);
   if (city.noDemand) return false;
   if (cubeColor === 'black') return true;              // 어느 도시든 밤이 되는 턴에 수용
@@ -309,13 +313,26 @@ function getWrapLookup(wrapEdges: NonNullable<BoardState['wrapEdges']>): Map<str
   return lookup;
 }
 
-export function getNeighborHex(coord: HexCoord, edge: number, board?: Pick<BoardState, 'wrapEdges'>): HexCoord {
+export function getNeighborHex(
+  coord: HexCoord,
+  edge: number,
+  board?: Pick<BoardState, 'wrapEdges' | 'ferryEdges'>
+): HexCoord {
   // 달(Moon): 외곽 랩 변이면 반대편 헥스가 이웃이다.
   // 랩 쌍은 보드 점대칭이라 "상대 변 = (edge+3)%6" 불변식이 유지된다 (moonMap.test 검증)
   // — getOppositeEdge/getConnectingEdge 관행이 랩 너머에서도 그대로 성립.
   if (board?.wrapEdges?.length) {
     const wrapped = getWrapLookup(board.wrapEdges).get(`${coord.col},${coord.row}:${edge}`);
     if (wrapped) return wrapped;
+  }
+  // Southern China: 구매된 페리 변은 인접이다 (서안 (6,9) E변 ↔ Hong Kong W변 —
+  // 0↔3이라 "상대 변 = (edge+3)%6" 불변식이 랩과 동일하게 성립. 미구매(owner null)는 비활성).
+  if (board?.ferryEdges?.length) {
+    for (const f of board.ferryEdges) {
+      if (f.owner === null) continue;
+      if (f.a.coord.col === coord.col && f.a.coord.row === coord.row && f.a.edge === edge) return f.b.coord;
+      if (f.b.coord.col === coord.col && f.b.coord.row === coord.row && f.b.edge === edge) return f.a.coord;
+    }
   }
 
   const { col, row } = coord;
@@ -771,11 +788,15 @@ export function getConnectedNeighbors(
       }
     }
     // Germany 직결 링크: 현재 도시와 directLink(건설된 것)로 이어진 상대 도시를 이웃으로 인정
+    // 국유화 직결 링크(owner null + isNationalized)는 중립 — 누구나 이동 가능 (수입 0)
     if (isCurrentCity) {
       const cityHere = board.cities.find(c => hexCoordsEqual(c.coord, currentCoord));
       for (const dl of board.directLinks ?? []) {
-        if (dl.owner === null) continue;
-        if (playerId !== undefined && playerId !== null && !includeOpponents && dl.owner !== playerId) continue;
+        if (dl.owner === null && !dl.isNationalized) continue; // 미건설
+        if (
+          !dl.isNationalized &&
+          playerId !== undefined && playerId !== null && !includeOpponents && dl.owner !== playerId
+        ) continue;
         const otherId = cityHere?.id === dl.cityA ? dl.cityB : cityHere?.id === dl.cityB ? dl.cityA : null;
         if (!otherId) continue;
         const other = board.cities.find(c => c.id === otherId);
@@ -965,6 +986,9 @@ function findAllPaths(
   opponentExtra: number = 0
 ): HexCoord[][] {
   const allPaths: HexCoord[][] = [];
+  // Southern China: 전색 수용 도시(Hong Kong)행 배달은 국유화(중립·isGovernment) 링크 경유 금지
+  // — 목적지가 acceptsAllColors면 정부/국유화 링크가 낀 경로를 버린다 (룰북 Move Goods).
+  const banGovToEnd = board.cities.find(c => hexCoordsEqual(c.coord, end))?.acceptsAllColors === true;
 
   function dfs(
     current: HexCoord,
@@ -979,7 +1003,7 @@ function findAllPaths(
   ) {
     // 목적지 도착
     if (hexCoordsEqual(current, end) && linkCount > 0) {
-      allPaths.push([...path]);
+      if (!(banGovToEnd && govLinks > 0)) allPaths.push([...path]);
       return;
     }
 
@@ -1003,6 +1027,22 @@ function findAllPaths(
         if (nextLinkIsOpp === undefined) {
           nextLinkIsOpp = !!tileHere && !tileHere.isGovernment
             && tileHere.owner !== null && tileHere.owner !== playerId && tileHere.secondaryOwner !== playerId;
+        }
+      }
+      // 직결 링크 스텝 (도시→도시, 사이 타일 없음): 소유/중립을 directLink에서 판정 —
+      // 국유화 직결(isNationalized)은 정부 링크 취급 (홍콩행 금지 판정에 포함)
+      if (isStop && (nextLinkIsGov === undefined || nextLinkIsOpp === undefined)) {
+        const curCity = board.cities.find(c => hexCoordsEqual(c.coord, current));
+        if (curCity && neighborCity) {
+          const dlStep = (board.directLinks ?? []).find(d =>
+            (d.cityA === curCity.id && d.cityB === neighborCity.id) ||
+            (d.cityA === neighborCity.id && d.cityB === curCity.id));
+          if (dlStep) {
+            if (nextLinkIsGov === undefined) nextLinkIsGov = dlStep.isNationalized === true;
+            if (nextLinkIsOpp === undefined) {
+              nextLinkIsOpp = !dlStep.isNationalized && dlStep.owner !== null && dlStep.owner !== playerId;
+            }
+          }
         }
       }
       const newGovLinks = isStop ? govLinks + (nextLinkIsGov === true ? 1 : 0) : govLinks;
@@ -1356,6 +1396,21 @@ export function findReachableDestinations(
             && tileHere.owner !== null && tileHere.owner !== playerId && tileHere.secondaryOwner !== playerId;
         }
       }
+      // 직결 링크 스텝 (도시→도시) — findAllPaths와 동일: 국유화 직결은 정부 링크 취급
+      if (isStop && (nextLinkIsGov === undefined || nextLinkIsOpp === undefined)) {
+        const curCity = board.cities.find(c => hexCoordsEqual(c.coord, current));
+        if (curCity && cityAt) {
+          const dlStep = (board.directLinks ?? []).find(d =>
+            (d.cityA === curCity.id && d.cityB === cityAt.id) ||
+            (d.cityA === cityAt.id && d.cityB === curCity.id));
+          if (dlStep) {
+            if (nextLinkIsGov === undefined) nextLinkIsGov = dlStep.isNationalized === true;
+            if (nextLinkIsOpp === undefined) {
+              nextLinkIsOpp = !dlStep.isNationalized && dlStep.owner !== null && dlStep.owner !== playerId;
+            }
+          }
+        }
+      }
       const newGovLinks = isStop ? govLinks + (nextLinkIsGov === true ? 1 : 0) : govLinks;
       const newOppLinks = isStop ? oppLinks + (nextLinkIsOpp === true ? 1 : 0) : oppLinks;
 
@@ -1368,7 +1423,10 @@ export function findReachableDestinations(
         if (cityAcceptsCube(cityAt, cubeColor, board)) {
           // 같은 색 도시 도착 → 배달 목적지. 여기서 멈춘다(더 진행하지 않음 = 첫 도시 규칙).
           // (Germany 외국 터미널도 수용색이 같으면 여기서 배달 완료)
-          if (!foundKeys.has(nbKey)) { foundKeys.add(nbKey); reachable.push(cityAt); }
+          // Southern China: 전색 수용 도시(Hong Kong)행은 국유화(중립) 링크 경유 금지 —
+          // 경유했으면 목적지로 등록하지 않는다 (수용 도시라 통과도 불가 → 막다른 길).
+          const bansGov = cityAt.acceptsAllColors === true && newGovLinks > 0;
+          if (!bansGov && !foundKeys.has(nbKey)) { foundKeys.add(nbKey); reachable.push(cityAt); }
           continue;
         }
         // 통과 차단 도시(Germany 터미널 / 달 밤 도시×타색 큐브) — 수용색이 아니면 막다른 길

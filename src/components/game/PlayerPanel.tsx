@@ -10,6 +10,7 @@ import {
   TrendingUp,
   Train,
   FileText,
+  Handshake,
   Plus,
   Minus,
   Skull,
@@ -138,6 +139,9 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
   // Montréal(dedicatedGovEngine): 엔진 칸에 정부 엔진(DGEL) 정보를 항상 함께 표시
   const mapIdForDgel = useGameStore((s) => s.mapId);
   const isDgelMap = getMapProfile(mapIdForDgel).dedicatedGovEngine;
+  // Southern China: 지지 토큰 (미사용 1개 = 종료 시 3 VP, 반납 → 건설 4개/기관차 +1)
+  const isTokenMap = getMapProfile(mapIdForDgel).supportTokensRule;
+  const supportTokens = player.supportTokens ?? 0;
 
   // 발행 가능한 최대 주식 수
   const maxIssuable = GAME_CONSTANTS.MAX_SHARES - player.issuedShares;
@@ -216,6 +220,11 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
             <FileText className="w-3 h-3" />{player.issuedShares}
             <DeltaBadge delta={sharesDelta} />
           </span>
+          {isTokenMap && (
+            <span className="relative flex items-center gap-0.5 text-positive" title="지지 토큰 (미사용 1개 = 3 VP)">
+              <Handshake className="w-3 h-3" />{supportTokens}
+            </span>
+          )}
         </div>
       </motion.div>
     );
@@ -340,8 +349,19 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
           icon={<FileText className="text-purple-700 flex-shrink-0 w-3 h-3 md:w-3.5 md:h-3.5" />}
           label="주식"
           delta={sharesDelta}        >
-          {player.issuedShares}
-          <span className="text-[10px] md:text-xs text-foreground-secondary"> 주</span>
+          <span className="flex items-baseline w-full">
+            <span>
+              {player.issuedShares}
+              <span className="text-[10px] md:text-xs text-foreground-secondary"> 주</span>
+            </span>
+            {/* Southern China: 지지 토큰 — 미사용 1개 = 종료 시 3 VP */}
+            {isTokenMap && (
+              <span className="ml-auto pl-2 text-positive" title="지지 토큰 — 반납: 건설 4개/기관차 +1, 미사용 1개 = 3 VP">
+                <span className="text-[10px] md:text-xs text-foreground-secondary">토큰 </span>
+                {supportTokens}
+              </span>
+            )}
+          </span>
         </StatCell>
       </div>
 

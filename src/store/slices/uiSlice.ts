@@ -30,7 +30,7 @@ import {
   cityAcceptsCube,
   isBlockedEdge,
 } from '@/utils/hexGrid';
-import { calculateVictoryPoints } from '@/utils/gameLogic';
+import { calculateVictoryPoints, playerBonusVP, effectiveEngineLevel } from '@/utils/gameLogic';
 import { logAction } from '@/utils/debugConfig';
 import { useToastStore } from '../toastStore';
 import { getBuildBlockReason } from '../helpers/buildReason';
@@ -93,7 +93,7 @@ function ownerScoreOf(state: GameStore): Partial<Record<PlayerId, number>> {
   for (const pid of state.activePlayers) {
     const p = state.players[pid];
     if (!p) continue;
-    scores[pid] = calculateVictoryPoints(p.income, calculateTrackScore(state.board, pid), p.issuedShares);
+    scores[pid] = calculateVictoryPoints(p.income, calculateTrackScore(state.board, pid), p.issuedShares, playerBonusVP(p));
   }
   return scores;
 }
@@ -137,13 +137,13 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
         const trackId = cityId.slice('track:'.length);
         // 화물 선택 — 수송 가능한 후보 루트를 모두 로그 (같은 도시 여러 경로의 채택/탈락 포함)
         const deliveries = findTrackCubeDeliveries(
-          state.board, trackId, state.players[state.currentPlayer]?.engineLevel ?? 1, state.currentPlayer,
+          state.board, trackId, effectiveEngineLevel(state.players, state.currentPlayer), state.currentPlayer,
           (cand) => logAction('goodsMovement', 'deliveryCandidate', { player: state.currentPlayer, trackId, ...cand }),
         );
         logAction('goodsMovement', 'trackCubeSelect', { player: state.currentPlayer, trackId, cities: deliveries.map(d => d.city.id) });
         if (deliveries.length === 0) {
           // 엔진 무제한으로 다시 탐색 → 엔진 부족(거리 초과)인지 vs 연결 자체가 없는지 구분
-          const eng = state.players[state.currentPlayer]?.engineLevel ?? 1;
+          const eng = effectiveEngineLevel(state.players, state.currentPlayer);
           const withMaxEngine = findTrackCubeDeliveries(state.board, trackId, Infinity, state.currentPlayer);
           if (withMaxEngine.length > 0) {
             logAction('goodsMovement', 'cubeUndeliverable', { trackId, reason: 'engineShort', engine: eng, cities: withMaxEngine.map(d => d.city.id) }, 'error');
@@ -194,8 +194,9 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
         const cubeColor = town.cubes[cubeIndex];
         if (!cubeColor) return;
         const player = state.players[state.currentPlayer];
+        const townEngine = effectiveEngineLevel(state.players, state.currentPlayer);
         const reachable = findReachableDestinations(
-          town.coord, state.board, state.currentPlayer, player.engineLevel, cubeColor, govExtraOf(state), player.engineLevel
+          town.coord, state.board, state.currentPlayer, townEngine, cubeColor, govExtraOf(state), townEngine
         );
         const townOwnerScore = ownerScoreOf(state);
         const townLowGrav = player.selectedAction === 'lowGravitation';
@@ -204,7 +205,7 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
             dest: dest.coord,
             options: findRouteOptions(
               town.coord, dest.coord, state.board, state.currentPlayer,
-              player.engineLevel, cubeColor, govExtraOf(state), townOwnerScore, townLowGrav
+              townEngine, cubeColor, govExtraOf(state), townOwnerScore, townLowGrav
             ),
           }))
           .filter(r => r.options.length > 0);
@@ -243,13 +244,15 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
 
       // 도달 가능한 목적지 계산 — 타인 철도 개방(룰북): 타인 링크는 엔진 한도 내 무제한
       // (opponentExtra = engineLevel. 본인 철도 우선 게이트는 findRouteOptions가 적용).
+      // 실효 엔진 = engineLevel + 지지 토큰 임시 +1 (Southern China, 다른 맵 항등)
+      const cityEngine = effectiveEngineLevel(state.players, state.currentPlayer);
       const reachable = findReachableDestinations(
         city.coord,
         state.board,
         state.currentPlayer,
-        player.engineLevel,
+        cityEngine,
         cubeColor,
-        govExtraOf(state), player.engineLevel
+        govExtraOf(state), cityEngine
       );
 
       // 목적지별 후보 경로: 본인-철도-최선 + (내 수입이 더 커지는) 타인 경유 경로들.
@@ -261,7 +264,7 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
           dest: dest.coord,
           options: findRouteOptions(
             city.coord, dest.coord, state.board, state.currentPlayer,
-            player.engineLevel, cubeColor, govExtraOf(state), ownerScore, lowGravCredit
+            cityEngine, cubeColor, govExtraOf(state), ownerScore, lowGravCredit
           ),
         }))
         .filter(r => r.options.length > 0);
@@ -804,7 +807,7 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
         const options = state.ui.routeOptions.find(r => hexCoordsEqual(r.dest, coord))?.options
           ?? findRouteOptions(
             town.coord, coord, state.board, state.currentPlayer,
-            player.engineLevel, cubeColor, govExtraOf(state), ownerScoreOf(state),
+            effectiveEngineLevel(state.players, state.currentPlayer), cubeColor, govExtraOf(state), ownerScoreOf(state),
             player.selectedAction === 'lowGravitation'
           );
         if (options.length === 0) return;
@@ -843,7 +846,7 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
       const options = state.ui.routeOptions.find(r => hexCoordsEqual(r.dest, coord))?.options
         ?? findRouteOptions(
           sourceCity.coord, coord, state.board, state.currentPlayer,
-          player.engineLevel, cubeColor, govExtraOf(state), ownerScoreOf(state),
+          effectiveEngineLevel(state.players, state.currentPlayer), cubeColor, govExtraOf(state), ownerScoreOf(state),
           player.selectedAction === 'lowGravitation'
         );
       if (options.length === 0) return;

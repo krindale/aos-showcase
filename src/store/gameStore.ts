@@ -25,6 +25,11 @@ import { getDisplaySlotRange } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { hexCoordsEqual } from '@/utils/hexGrid';
 import {
+  eligibleNationalizationTargets,
+  checkDiscLimitAfterBuild,
+  applyNationalization,
+} from './helpers/nationalization';
+import {
   getNextPlayerId,
   createPlayerMoves,
   allPlayersMoved,
@@ -34,6 +39,7 @@ import {
   findFirstMovePlayer,
   isLastPlayer,
   calculateVictoryPoints,
+  playerBonusVP,
 } from '@/utils/gameLogic';
 import { calculateTrackScore } from '@/utils/trackValidation';
 import { logAction, newLogSession } from '@/utils/debugConfig';
@@ -75,7 +81,7 @@ export type { AIPlayerConfig } from './helpers/setup';
  * 실행 중인 페이지에선 옛 로직이 계속 돈다(CLAUDE.md "HMR을 의심할 것").
  * 아래 가드가 "페이지 로드 이후 store 모듈이 다시 평가됨"을 감지해 콘솔 경고를 띄운다.
  */
-export const STORE_CODE_VERSION = 6;
+export const STORE_CODE_VERSION = 7; // 남부 중국 특수룰 (지지 토큰·국유화·디스크 상한)
 
 // HMR 스테일 가드 (dev 브라우저 전용 — SSR/vitest 제외).
 // window에 최초 로드 시점 버전을 박아두고, 이 모듈이 다시 평가되면(= store 관련 소스 변경)
@@ -157,6 +163,13 @@ export interface GameStore extends GameState {
   // --- Phase III: 행동 선택 ---
   /** 특수 행동 선택 */
   selectAction: (playerId: PlayerId, action: SpecialAction) => void;
+  /** Southern China: 지지 토큰 1개 반납 — 'build'=이번 턴 건설 4개(buildTrack 단계),
+   *  'loco'=이번 수송 단계 양 라운드 기관차 +1(moveGoods 단계). 두 효과를 다 쓰려면 2개 반납. */
+  spendSupportToken: (playerId: PlayerId, use: 'build' | 'loco') => void;
+  /** Southern China: 국유화 — 디스크 초과(nationalizationPending) 시 내 완성 링크 하나를
+   *  중립화(누구나 사용·수입 0·VP 0)하고 보상(지지 토큰 1 + 구간당 $1)을 받는다.
+   *  linkId = findCompletedLinks의 link.id. 초과가 남으면 대기 유지. */
+  nationalizeLink: (playerId: PlayerId, linkId: string) => void;
 
   // --- Phase IV: 트랙 건설 ---
   /** 트랙 건설 */
@@ -184,6 +197,9 @@ export interface GameStore extends GameState {
   buildTownSpur: (townCoord: HexCoord, edge?: number) => boolean;
   /** 도시-도시 직결 링크 건설 (Germany: Essen↔Düsseldorf $2). 건설 1회로 카운트 */
   buildDirectLink: (cityAId: string, cityBId: string) => boolean;
+  /** Southern China: 페리 변 구매 ($8, 건설 1회 카운트, 턴당 1개, +1 VP) — 구매 후
+   *  서안 헥스 E변 ↔ Hong Kong W변이 인접이 되어 트랙으로 이을 수 있다. */
+  buildFerryEdge: (ferryId: string) => boolean;
   /** 마을 가닥 단독 건설 가능 여부 (edge 지정 시 그 변) */
   canBuildTownSpur: (townCoord: HexCoord, edge?: number) => boolean;
 
@@ -614,6 +630,24 @@ export const useGameStore = create<GameStore>()(
               // 실패 시 재시도하지 않고 단계 종료 (무한 루프 방지)
               console.warn(`[AI 트랙 건설] 마을 가닥 실패: (${buildDecision.townCoord.col},${buildDecision.townCoord.row}) → 건설 단계 종료`);
             }
+          } else if (buildDecision.action === 'buildDirectLink') {
+            // 직결 링크/인터어반/페리 구매 (건설 1회 카운트)
+            const beforeState = get();
+            const buildNum = beforeState.phaseState.builtTracksThisTurn + 1;
+            console.log(`[AI 트랙 건설] Turn ${beforeState.currentTurn}, ${player.name}: ${buildNum}/${beforeState.phaseState.maxTracksThisTurn}번째 직결 링크 구매 (${buildDecision.cityA}↔${buildDecision.cityB})`);
+            const dlSuccess = store.buildDirectLink(buildDecision.cityA, buildDecision.cityB);
+
+            if (dlSuccess) {
+              const afterDlState = get();
+              if (afterDlState.phaseState.builtTracksThisTurn < afterDlState.phaseState.maxTracksThisTurn) {
+                releaseAILock(executionId, get, set);
+                scheduleAICheck(get);
+                return; // 남은 카운트로 계속 건설
+              }
+            } else {
+              // 실패 시 재시도하지 않고 단계 종료 (같은 결정 반복 → 무한 루프 방지, 가닥 실패와 동일 패턴)
+              console.warn(`[AI 트랙 건설] 직결 링크 구매 실패: ${buildDecision.cityA}↔${buildDecision.cityB} → 건설 단계 종료`);
+            }
           } else if (buildDecision.action === 'buildComplex') {
             // 복합 트랙 건설 (교차 또는 공존)
             const beforeState = get();
@@ -787,8 +821,11 @@ export const useGameStore = create<GameStore>()(
         return state;
       }
 
-      // 맵 전용 추가 행동(lowGravitation 등)은 그 맵(extraActions)에서만 선택 가능
-      if (action === 'lowGravitation' && !getMapProfile(state.mapId).extraActions.includes(action)) {
+      // 맵 전용 추가 행동(lowGravitation·gainSupport 등)은 그 맵(extraActions)에서만 선택 가능
+      if (
+        (action === 'lowGravitation' || action === 'gainSupport') &&
+        !getMapProfile(state.mapId).extraActions.includes(action)
+      ) {
         console.warn(`[WARN] selectAction: 이 맵에 없는 추가 행동 - playerId: ${playerId}, action: ${action}`);
         return state;
       }
@@ -852,6 +889,17 @@ export const useGameStore = create<GameStore>()(
         }
       }
 
+      // Southern China Gain Support: 즉시 지지 토큰 +1 (룰북 "Take a token of support")
+      if (action === 'gainSupport') {
+        const currentPlayers = newState.players ?? state.players;
+        const oldTokens = player.supportTokens ?? 0;
+        console.log(`[GainSupport] ${player.name}: 지지 토큰 ${oldTokens} → ${oldTokens + 1}`);
+        newState.players = {
+          ...currentPlayers,
+          [playerId]: { ...currentPlayers[playerId], supportTokens: oldTokens + 1 },
+        };
+      }
+
       // Montréal Repopulation: production 선택 즉시 주머니에서 3개 뽑아 배치 대기 상태로
       // (사람: RepopulationPanel에서 1개 배치, AI: executeAITurn이 곧바로 placeRepopulationCube)
       if (action === 'production' && getMapProfile(state.mapId).productionAsRepopulation) {
@@ -895,6 +943,118 @@ export const useGameStore = create<GameStore>()(
     });
     // 효과음 — 모든 검증을 통과해 실제로 선택됐을 때만 (set 후 상태로 성공 판정)
     if (get().players[playerId]?.selectedAction === action) playSfx('actionSelect');
+  },
+
+  // Southern China: 지지 토큰 반납 — 'build'(건설 4개) / 'loco'(수송 양 라운드 기관차 +1)
+  spendSupportToken: (playerId, use) => {
+    const pre = get();
+    const prePlayer = pre.players[playerId];
+    if (!prePlayer || !getMapProfile(pre.mapId).supportTokensRule) return;
+    if ((prePlayer.supportTokens ?? 0) <= 0) {
+      console.warn(`[WARN] spendSupportToken: 토큰 없음 - playerId: ${playerId}`);
+      return;
+    }
+    // 본인 차례에만 반납 (온라인 호스트 intent 검증의 currentPlayer 강제와 동일 규칙)
+    if (pre.currentPlayer !== playerId) return;
+    if (use === 'build' && (pre.currentPhase !== 'buildTrack' || prePlayer.supportBuildActive)) return;
+    if (use === 'loco' && (pre.currentPhase !== 'moveGoods' || prePlayer.supportLocoActive)) return;
+    logAction('preparation', 'spendSupportToken', { player: playerId, use, turn: pre.currentTurn });
+    captureUndo(pre, use === 'build' ? '지지 토큰 사용 (건설 4개)' : '지지 토큰 사용 (기관차 +1)');
+
+    set((state) => {
+      const player = state.players[playerId];
+      if (!player) return state;
+      const newPlayers = {
+        ...state.players,
+        [playerId]: {
+          ...player,
+          supportTokens: (player.supportTokens ?? 0) - 1,
+          ...(use === 'build'
+            ? { supportBuildActive: true }
+            : { supportLocoActive: true }),
+        },
+      };
+      const newState: Partial<GameState> = { players: newPlayers };
+      // 내 빌더 턴 중 반납 — 이번 턴 상한을 즉시 4개로 반영
+      if (use === 'build') {
+        newState.phaseState = {
+          ...state.phaseState,
+          maxTracksThisTurn: maxTracksForBuilder({ mapId: state.mapId, players: newPlayers }, playerId),
+        };
+      }
+      newState.logs = [
+        ...state.logs,
+        {
+          turn: state.currentTurn,
+          phase: state.currentPhase,
+          player: playerId,
+          action: use === 'build'
+            ? '지지 토큰 반납: 이번 턴 트랙 4개 건설'
+            : '지지 토큰 반납: 수송 단계 기관차 +1',
+          timestamp: Date.now(),
+        },
+      ];
+      newState.undoCount = undoSnapshots.length;
+      return newState as GameState;
+    });
+  },
+
+  // Southern China: 국유화 — 대기 상태의 플레이어가 대상 링크를 골라 중립화 + 보상
+  nationalizeLink: (playerId, linkId) => {
+    const pre = get();
+    const pending = pre.nationalizationPending;
+    if (!pending || pending.playerId !== playerId) return;
+    const limit = getMapProfile(pre.mapId).ownershipDiscLimit;
+    if (limit === null) return;
+    const link = eligibleNationalizationTargets(pre.board, playerId, pre.currentTurn)
+      .find((l) => l.id === linkId);
+    if (!link) {
+      console.warn(`[WARN] nationalizeLink: 국유화 불가 링크 - ${linkId}`);
+      return;
+    }
+    logAction('trackBuilding', 'nationalizeLink', {
+      player: playerId, linkId, segments: link.trackTiles.length, turn: pre.currentTurn,
+    });
+    captureUndo(pre, '링크 국유화');
+
+    set((state) => {
+      const player = state.players[playerId];
+      if (!player) return state;
+      const { board, segments, wasDirect } = applyNationalization(state.board, link);
+      const newPlayers = {
+        ...state.players,
+        [playerId]: {
+          ...player,
+          supportTokens: (player.supportTokens ?? 0) + 1, // 보상: 지지 토큰 1
+          cash: player.cash + segments,                   // 보상: 구간당 $1
+          // 직결 링크(인터어반/페리) 국유화 시 종료 1 VP도 회수 (건설 보너스는 소유 전제)
+          ...(wasDirect && getMapProfile(state.mapId).interurbanFerryRule
+            ? { ferriesBuilt: Math.max(0, (player.ferriesBuilt ?? 0) - 1) }
+            : {}),
+        },
+      };
+      // 아직도 초과면 대기 유지 (한 턴 4건설로 2개 초과 가능)
+      const still = checkDiscLimitAfterBuild(
+        { board, currentTurn: state.currentTurn }, playerId, limit
+      );
+      return {
+        board,
+        players: newPlayers,
+        nationalizationPending: still,
+        logs: [
+          ...state.logs,
+          {
+            turn: state.currentTurn,
+            phase: state.currentPhase,
+            player: playerId,
+            action: `링크 국유화 (${segments}구간) — 보상: 지지 토큰 1 + $${segments}`,
+            timestamp: Date.now(),
+          },
+        ],
+        undoCount: undoSnapshots.length,
+      };
+    });
+    scheduleAICheck(get);
   },
 
   // ============================================================
@@ -1144,6 +1304,11 @@ export const useGameStore = create<GameStore>()(
 
       // === IV. 트랙 건설 단계 ===
       if (state.currentPhase === 'buildTrack') {
+        // Southern China: 국유화 대기 중엔 진행 불가 — 초과 디스크를 해소해야 다음으로
+        if (state.nationalizationPending) {
+          console.log(`[buildTrack nextPhase] 국유화 대기 중 (${state.nationalizationPending.playerId}) — 진행 보류`);
+          return state;
+        }
         // 디버그: 현재 상태 로그
         console.log(`[buildTrack nextPhase] currentPlayer: ${state.currentPlayer}`);
         console.log(`[buildTrack nextPhase] playerMoves 전:`, JSON.stringify(state.phaseState.playerMoves));
@@ -1350,7 +1515,7 @@ export const useGameStore = create<GameStore>()(
                 id: pid, name: pl?.name, eliminated: pl?.eliminated ?? false,
                 income: pl?.income ?? 0, shares: pl?.issuedShares ?? 0,
                 engine: pl?.engineLevel ?? 0, cash: pl?.cash ?? 0, trackScore,
-                vp: pl ? calculateVictoryPoints(pl.income, trackScore, pl.issuedShares) : 0,
+                vp: pl ? calculateVictoryPoints(pl.income, trackScore, pl.issuedShares, playerBonusVP(pl)) : 0,
               };
             }),
           });
@@ -1384,7 +1549,7 @@ export const useGameStore = create<GameStore>()(
         }
 
         // 달(Moon): 물품 성장이 끝나면(=턴 롤오버) 밤/낮 반쪽을 교대한다
-        const rolledBoard = cleanedBoard.nightSide
+        let rolledBoard = cleanedBoard.nightSide
           ? { ...cleanedBoard, nightSide: (cleanedBoard.nightSide === 'west' ? 'east' : 'west') as 'west' | 'east' }
           : cleanedBoard;
         if (cleanedBoard.nightSide) {
@@ -1393,6 +1558,16 @@ export const useGameStore = create<GameStore>()(
             turn: state.currentTurn + 1,
             nightSide: rolledBoard.nightSide,
           });
+        }
+
+        // Southern China: 마지막 2턴 진입 시 전색 수용 도시(Hong Kong) 폐쇄 (룰북 Move Goods)
+        {
+          const closedLast = getMapProfile(state.mapId).allAcceptCityClosedLastTurns;
+          if (closedLast > 0 && !rolledBoard.allAcceptClosed &&
+              state.currentTurn + 1 > state.maxTurns - closedLast) {
+            rolledBoard = { ...rolledBoard, allAcceptClosed: true };
+            logAction('turnEnd', 'allAcceptCityClosed', { turn: state.currentTurn + 1 });
+          }
         }
 
         const newTurnBase = {

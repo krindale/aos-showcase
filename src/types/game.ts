@@ -40,7 +40,8 @@ export type SpecialAction =
   | 'urbanization'   // 도시화
   | 'production'     // 생산
   | 'turnOrder'      // 턴 순서 패스
-  | 'lowGravitation'; // 저중력 (Moon 전용 신규 행동 — 이동 시 타인 링크 1개 수입 획득)
+  | 'lowGravitation' // 저중력 (Moon 전용 신규 행동 — 이동 시 타인 링크 1개 수입 획득)
+  | 'gainSupport';   // 지지 확보 (Southern China 전용 신규 행동 — 지지 토큰 1개 획득)
 
 // 10단계 + 게임 종료 (+ Montréal 전용 정부 링크 단계)
 export type GamePhase =
@@ -84,6 +85,9 @@ export interface TrackTile {
   builtTurn?: number;
   /** 정부 트랙 (Montréal): owner=null 중립 — 누구나 이동 가능하나 수입 없음, 수정/방향전환 불가 */
   isGovernment?: boolean;
+  /** 국유화 트랙 (Southern China): isGovernment 중립 기계를 재사용하되 이 마커로 구분 —
+   *  Hong Kong행 배달 경유 금지 판정 + 렌더 색 구분 전용 (항상 isGovernment와 함께 true). */
+  isNationalized?: boolean;
 }
 
 // 도시
@@ -105,6 +109,10 @@ export interface City {
   /** 색·수요 없는 도시 (Moon: Moon Base) — 어떤 큐브도 여기서 배달이 끝나지 않고 출발/통과만
    *  가능하다 (cityAcceptsCube가 항상 false). color 필드는 타입 충족용일 뿐 수요에 쓰이지 않는다. */
   noDemand?: boolean;
+  /** 모든 색 화물을 받는 도시 (Southern China: Hong Kong) — cityAcceptsCube가 항상 true.
+   *  색 큐브가 들어오면 즉시 배달 종료라 통과도 불가. color 필드는 타입 충족용(렌더는 회색 특례).
+   *  홍콩의 "마지막 2턴 수령 불가"는 여기가 아니라 MapProfile 훅이 턴을 보고 게이팅한다. */
+  acceptsAllColors?: boolean;
   /** 도시화(Urbanization)로 배치된 신도시 (placeNewCity가 세팅). 중복 배치 검사가 신도시만
    *  보게 하는 구분자 — 맵 원본 도시 id가 신도시 타일 id(A~H)와 겹치는 맵(튜토리얼 Cleveland='C')에서
    *  타일 배치가 오탐 거부되던 버그(2026-07-26) 방지. 구버전 저장본의 신도시엔 없을 수 있으나
@@ -139,6 +147,9 @@ export interface HexTile {
   /** 시각 전용(Montréal $5 헥스): 바다 헥스를 원본 시트처럼 "서쪽 초록 쐐기 + 사선 분할"로 그린다.
    *  게임 로직엔 영향 없음 — 지형/비용은 terrain·fixedCost 그대로. */
   landWedgeWest?: boolean;
+  /** 시각 전용(Southern China 하이난 해협 (4,10)): 이 변들을 두꺼운 흰 실선으로 강조해
+   *  원본 시트의 해협 통로 표시를 재현한다. 게임 로직엔 영향 없음. */
+  whiteEdges?: number[];
   /** 강줄기가 지나는 두 변(면) 번호 [시작면, 끝면] (0=E,1=SE,2=SW,3=W,4=NW,5=NE).
    *  지정되면 강을 이 두 면 사이로 그린다 — 강이 옆 도시 쪽 면을 향하게 해 도시를 관통/연결시킬 때 쓴다.
    *  미지정이면 인접한 강 타일끼리 자동 연결(기본). 맵 데이터로 강 방향을 적는 칸이라 맵별 코드 분기가 없다. */
@@ -170,6 +181,16 @@ export interface PlayerState {
   /** Western US: 이 플레이어의 철도가 대륙횡단(서부 시작도시↔동부 시작도시)을 달성했는지.
    *  달성 시 연속성 강제(분리 구간 금지) 해제. 다른 맵에서는 undefined. */
   transcontinental?: boolean;
+  /** Southern China: 보유 지지 토큰(tokens of support) 수 — Gain Support 행동·국유화 보상으로
+   *  획득. 반납해 건설 4개/기관차 임시 +1, 미사용분은 종료 시 개당 3 VP. 다른 맵은 undefined. */
+  supportTokens?: number;
+  /** Southern China: 건설·완성한 인터어반/페리 수 — 종료 시 개당 1 VP. 다른 맵은 undefined. */
+  ferriesBuilt?: number;
+  /** Southern China: 이번 턴 지지 토큰 반납 효과 ① — 건설 상한 4개 (턴 롤오버 시 리셋) */
+  supportBuildActive?: boolean;
+  /** Southern China: 이번 턴 지지 토큰 반납 효과 ② — 수송 단계 양 라운드 기관차 +1
+   *  (임시 레벨 — 비용 지불(payExpenses)에는 포함되지 않는다. 턴 롤오버 시 리셋) */
+  supportLocoActive?: boolean;
 }
 
 // === 게임 보드 상태 ===
@@ -200,6 +221,22 @@ export interface BoardState {
   /** 달(Moon): 현재 밤인 반쪽 ('west'=화면 왼쪽). 밤쪽 도시는 검은 도시 취급.
    *  1턴 west 시작, 물품 성장 후 교대 (nightDayCycle 맵만 설정 — 비-달 맵은 미설정). */
   nightSide?: 'west' | 'east';
+  /** Southern China: 전색 수용 도시(Hong Kong)의 폐쇄 상태 — 마지막 2턴 진입 시 턴 롤오버가
+   *  true로 설정, cityAcceptsCube가 참조해 배달 수령을 막는다. 비-중국 맵은 미설정. */
+  allAcceptClosed?: boolean;
+  /** Southern China: 구매식 페리 변 — 소유자가 생기면(구매) a·b 변이 서로 인접이 된다
+   *  (getNeighborHex가 wrapEdges처럼 참조). 서안 육지 헥스 ↔ Hong Kong. */
+  ferryEdges?: FerryEdge[];
+}
+
+/** Southern China: 구매식 페리 변 연결 — $8, 건설 1회 카운트, 건설자 +1 VP (ferriesBuilt) */
+export interface FerryEdge {
+  id: string;
+  a: { coord: HexCoord; edge: number };
+  b: { coord: HexCoord; edge: number };
+  cost: number;
+  owner: PlayerId | null; // null = 미건설 (인접 비활성)
+  builtTurn?: number;
 }
 
 /** 달(Moon): 외곽 랩 연결 한 쌍 — 변 a와 변 b가 이어진다 (시트 인쇄 번호 1~37, 렌더에도 사용) */
@@ -216,6 +253,13 @@ export interface DirectLink {
   cost: number;            // 건설 비용 ($)
   owner: PlayerId | null;  // 건설한 플레이어 (null=미건설)
   builtTurn?: number;
+  /** 국유화된 직결 링크 (Southern China) — owner null이지만 "미건설"이 아니라 중립 링크:
+   *  누구나 이동 가능·수입 0·재구매 불가. 트랙의 isGovernment+isNationalized에 대응. */
+  isNationalized?: boolean;
+  /** 시각 전용 — 비인접 도시 쌍(Southern China GZ↔HK 페리)의 면 앵커 [cityA 변, cityB 변].
+   *  지정 시 두 도시 중심 대신 각 도시 헥스의 이 변 중점끼리 직선 점선으로 잇는다
+   *  (중심-중심 직선이 사이 도시 헥스를 관통하는 문제 방지). 게임 로직에는 영향 없음. */
+  faces?: [number, number];
 }
 
 /** 마을 안 철길 가닥: 마을 원에서 특정 변까지. 실제 건설물 (비용/카운트 발생)
@@ -250,6 +294,9 @@ export interface GoodsColumnMapping {
   // (Rust Belt: 12도시가 6번호를 2개씩). 신규 도시 열은 주사위로 보충되지 않아 undefined.
   // (지정 안 하면 columnId를 숫자로 해석 — Tutorial '1'~'6' 하위 호환)
   diceNumber?: number;
+  /** 이 열이 물품을 보충받는 주사위 번호 여러 개 (Southern China: Changsha·Hong Kong = 5와 6 모두).
+   *  지정되면 표준 성장 루프가 diceNumber 대신 이 목록의 모든 번호와 일치하는 주사위 수만큼 보충한다. */
+  diceNumbers?: number[];
   /** 디스플레이 열 헤더 표시용 라벨 오버라이드 (Moon: 도시당 두 주사위 번호 "1/2" 표기 —
    *  성장 판정은 diceNumber가 아니라 MapProfile.cityGrowthDice로 별도 처리). */
   displayLabel?: string;
@@ -572,6 +619,10 @@ export interface GameState {
    * 방금(5초 내) 이벤트는 재생하기 위한 신선도 판정용 — key 가드(중복 차단)와 역할이 다르다.
    */
   newCityEvent?: { coord: HexCoord; tileId: NewCityTileId; color: CityColor; player: PlayerId; key: string; at: number } | null;
+  /** Southern China: 국유화 대기 — 건설로 소유 디스크(4개) 초과 시 설정.
+   *  해당 플레이어가 기존 완성 링크 하나를 국유화(nationalizeLink)할 때까지 단계 진행이 막힌다.
+   *  스냅샷 동기화 상태 (게스트도 대기 표시). 다른 맵은 항상 null/undefined. */
+  nationalizationPending?: { playerId: PlayerId } | null;
 }
 
 /** 대륙횡단 연결 순간을 사람 플레이어에게 알리는 팝업 데이터. */
@@ -830,6 +881,10 @@ export const ACTION_INFO: Record<SpecialAction, { name: string; description: str
   lowGravitation: {
     name: '저중력',
     description: '물품 이동 단계에서 다른 플레이어의 링크 1개를 내 링크처럼 사용해 그 수입을 가져옵니다. 두 수송 라운드 모두 사용할 수 있습니다. (달 전용)',
+  },
+  gainSupport: {
+    name: '지지 확보',
+    description: '즉시 지지 토큰 1개를 얻습니다. 토큰은 건설 4개 또는 수송 단계 기관차 +1에 쓰거나, 안 쓰면 게임 종료 시 개당 3 VP입니다. (남부 중국 전용)',
   },
 };
 

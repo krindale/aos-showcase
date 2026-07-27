@@ -116,6 +116,8 @@ export function resetPlayerActions(
         turnOrderPassUsed: false,
         selectedAction: null,
         actionBanned: false, // Montréal 경매 트윅 페널티는 한 턴 한정
+        supportBuildActive: false, // Southern China 지지 토큰 효과는 한 턴 한정
+        supportLocoActive: false,
       };
     }
   });
@@ -243,12 +245,37 @@ export function checkBankruptcy(
 export function calculateVictoryPoints(
   income: number,
   completedLinkTiles: number,
-  issuedShares: number
+  issuedShares: number,
+  bonusVP: number = 0
 ): number {
   const incomePoints = income * 3;
   const trackPoints = completedLinkTiles;
   const sharePenalty = issuedShares * 3;
-  return incomePoints + trackPoints - sharePenalty;
+  return incomePoints + trackPoints - sharePenalty + bonusVP;
+}
+
+/**
+ * 수송(물품 이동) 판정용 실효 기관차 레벨 — Southern China 지지 토큰 반납(supportLocoActive)의
+ * 임시 +1을 더한다. 다른 맵/미반납은 engineLevel 그대로 (항등).
+ * ⚠️ 비용 지불(payExpenses)·승점·영구 엔진업 판정에는 쓰지 말 것 — 임시 레벨은 수송 전용.
+ */
+export function effectiveEngineLevel(
+  players: Record<PlayerId, PlayerState>,
+  playerId: PlayerId
+): number {
+  const p = players[playerId];
+  if (!p) return 1;
+  return p.engineLevel + (p.supportLocoActive ? 1 : 0);
+}
+
+/**
+ * 맵별 플레이어 보너스 VP — Southern China: 미사용 지지 토큰 ×3 + 건설한 인터어반/페리 ×1.
+ * 해당 필드가 없는 다른 맵은 항상 0 (항등). calculateVictoryPoints의 bonusVP 인자로 넘긴다.
+ */
+export function playerBonusVP(
+  player: Pick<PlayerState, 'supportTokens' | 'ferriesBuilt'>
+): number {
+  return (player.supportTokens ?? 0) * 3 + (player.ferriesBuilt ?? 0);
 }
 
 // === 유효성 검증 순수 함수 ===

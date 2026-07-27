@@ -28,6 +28,8 @@ interface BoardOverlaysProps {
   mapOutlinePath: string;
   /** 건설 불가 내부 경계 변 path (GameBoard useMemo) */
   blockedEdgePath: string;
+  /** 시각 강조 흰 변 (Southern China 해협 — GameBoard가 hexTiles.whiteEdges에서 계산) */
+  whiteEdgePath?: string;
   /** 달(Moon): 현재 밤쪽 절반 헥스들의 실루엣 path — 반투명 어둠 오버레이 (GameBoard useMemo) */
   nightOverlayPath?: string;
   /** 달(Moon): 밤쪽 상단 "밤" 배지 위치 (GameBoard useMemo) */
@@ -71,6 +73,7 @@ export default function BoardOverlays({
   isFlat,
   mapOutlinePath,
   blockedEdgePath,
+  whiteEdgePath,
   nightOverlayPath,
   nightBadge,
   dayBadge,
@@ -354,6 +357,20 @@ export default function BoardOverlays({
           fill="none"
           stroke="#000000"
           strokeWidth={8}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{ pointerEvents: 'none' }}
+        />
+      )}
+
+      {/* 시각 강조 흰 변 (Southern China 하이난 해협 윗변 — 원본 시트 재현).
+          굵기 사용자 튜닝: 7(과함) → 2(너무 얇음) → 3 */}
+      {whiteEdgePath && (
+        <path
+          d={whiteEdgePath}
+          fill="none"
+          stroke="#ffffff"
+          strokeWidth={3}
           strokeLinecap="round"
           strokeLinejoin="round"
           style={{ pointerEvents: 'none' }}

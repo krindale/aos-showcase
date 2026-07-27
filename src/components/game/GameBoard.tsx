@@ -34,7 +34,7 @@ import { getMapData } from '@/utils/mapRegistry';
 import { getMoonSide } from '@/utils/moonMap';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { isValidConnectionPoint as isValidConnectionPointUtil, getRedirectTargetHexes } from '@/utils/trackValidation';
-import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId, TerrainType } from '@/types/game';
+import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId, TerrainType, GAME_CONSTANTS } from '@/types/game';
 import { NewCityTilesModal } from './NewCityTilesModal';
 import GameSettingsDialog from './GameSettingsDialog';
 import TransportConfirmDialog, { TransportPreview } from './TransportConfirmDialog';
@@ -91,6 +91,27 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   const repopPending = useGameStore((s) => (s.phaseState.repopulationCubes?.length ?? 0) > 0);
   // 맵 데이터(그리드 크기/지형 색): mapRegistry에서 주입 — 튜토리얼 하드코딩 금지
   const mapData = useMemo(() => getMapData(mapId), [mapId]);
+
+  // 직결 링크 시각 메타(faces 면 앵커) 보충 — 정적 맵 정의에서 도시쌍으로 조회.
+  // persist 저장본의 board.directLinks에는 나중에 추가된 시각 필드가 없을 수 있어,
+  // 렌더 시점에 항상 정적 정의 값으로 채운다 (게임 상태 마이그레이션 불필요).
+  const directLinkFacesByPair = useMemo(() => {
+    const m = new Map<string, [number, number]>();
+    for (const dl of mapData.createBoardState().directLinks ?? []) {
+      if (dl.faces) {
+        m.set(`${dl.cityA}|${dl.cityB}`, dl.faces);
+        m.set(`${dl.cityB}|${dl.cityA}`, [dl.faces[1], dl.faces[0]]);
+      }
+    }
+    return m;
+  }, [mapData]);
+  const renderDirectLinks = useMemo(
+    () => board.directLinks?.map(dl => ({
+      ...dl,
+      faces: dl.faces ?? directLinkFacesByPair.get(`${dl.cityA}|${dl.cityB}`),
+    })),
+    [board.directLinks, directLinkFacesByPair]
+  );
   const mapProfile = useMemo(() => getMapProfile(mapId), [mapId]);
   const terrainColors = mapData.colors.terrain;
   // 산악 헥스: 바깥 밝은 테두리 + 안쪽 진한 내부 (기본 갈색 — 달은 mountainRenderColors로 회색)
@@ -168,6 +189,21 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     }
     return d;
   }, [board.blockedEdges, isFlat]);
+
+  // 시각 전용 흰 강조 변 (Southern China 하이난 해협 윗변 — 원본 시트 재현)
+  const whiteEdgePath = useMemo(() => {
+    let d = '';
+    for (const h of board.hexTiles) {
+      if (!h.whiteEdges?.length) continue;
+      const { x, y } = hexToPixel(h.coord.col, h.coord.row, undefined, undefined, undefined, isFlat);
+      for (const e of h.whiteEdges) {
+        const v1 = hexVertex(x, y, e, isFlat);
+        const v2 = hexVertex(x, y, (e + 1) % 6, isFlat);
+        d += `M ${v1.x.toFixed(1)} ${v1.y.toFixed(1)} L ${v2.x.toFixed(1)} ${v2.y.toFixed(1)} `;
+      }
+    }
+    return d;
+  }, [board.hexTiles, isFlat]);
 
   // 달(Moon): 밤쪽 절반 헥스들의 실루엣 — 반투명 어둠 오버레이 (턴마다 서↔동 교대)
   const nightOverlayPath = useMemo(() => {
@@ -272,6 +308,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     canBuildTownSpur,
     buildTownSpur,
     buildDirectLink,
+    buildFerryEdge,
   } = useGameStore();
 
   // 화물 운송 확인 창(설정 on일 때) — 목적지 클릭을 가로채 "출발→도착·수익 귀속"을 보여주고
@@ -403,10 +440,20 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     // 순서: 평지 → 강/도로(swamp) → 언덕(mountain) → 바다 (Montréal: 평지/도로/언덕/바다, Western US: 평지/강/늪/산)
     const order: TerrainType[] = ['plain', 'river', 'swamp', 'mountain', 'sea'];
     const costByTerrain = new Map<TerrainType, number>();
+    // fixedCost 미주입 지형은 룰북 표준 기본비용 (Southern China처럼 표준 비용 + 'legend' 조합
+    // 맵에서 전부 $2로 찍히던 버그 수정 — 2026-07-27 사용자 발견)
+    const TERRAIN_DEFAULT: Partial<Record<TerrainType, number>> = {
+      plain: GAME_CONSTANTS.PLAIN_TRACK_COST,
+      river: GAME_CONSTANTS.RIVER_TRACK_COST,
+      swamp: GAME_CONSTANTS.RIVER_TRACK_COST,
+      mountain: GAME_CONSTANTS.MOUNTAIN_TRACK_COST,
+    };
     for (const h of board.hexTiles) {
       if (h.terrain === 'lake') continue;
-      // 평지는 fixedCost가 없어 기본 $2, 그 외는 헥스에 주입된 fixedCost(늪/강 $4·산 $5)
-      const cost = h.fixedCost ?? 2;
+      // 개별 표기 헥스(showCostMarker — 추가비용 $4/$5)는 지형 대표값이 아니므로 제외
+      // (안 하면 마지막에 순회된 특수 헥스의 비용이 지형 전체 비용으로 둔갑)
+      if (h.showCostMarker) continue;
+      const cost = h.fixedCost ?? TERRAIN_DEFAULT[h.terrain] ?? 2;
       costByTerrain.set(h.terrain, cost);
     }
     return order
@@ -1109,7 +1156,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           cities={board.cities}
           dynamicCityColors={board.dynamicCityColors}
           cottonPorts={board.cottonPorts}
-          directLinks={board.directLinks}
+          directLinks={renderDirectLinks}
           players={players}
           currentPhase={currentPhase}
           isFlat={isFlat}
@@ -1124,6 +1171,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           selectDestinationCity={handleSelectDestination}
           onCubeClick={handleCubeClick}
           buildDirectLink={buildDirectLink}
+          ferryEdges={board.ferryEdges}
+          buildFerryEdge={buildFerryEdge}
         />
 
         {/* 오버레이 레이어 — 미리보기·트랙 위 큐브·이동 경로/큐브·외곽선·경계·터미널 테두리 (board/BoardOverlays) */}
@@ -1133,6 +1182,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           isFlat={isFlat}
           mapOutlinePath={mapOutlinePath}
           blockedEdgePath={blockedEdgePath}
+          whiteEdgePath={whiteEdgePath}
           nightOverlayPath={nightOverlayPath}
           nightBadge={nightBadge}
           dayBadge={dayBadge}

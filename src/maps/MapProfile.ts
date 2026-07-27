@@ -144,6 +144,23 @@ export abstract class MapProfile {
   /** 셋업: 신규 도시 타일마다 주머니에서 큐브 1개를 올려두고, 도시화 시 함께 보드에 올라감. */
   get newCitySetupCube(): boolean { return false; }
 
+  // ── Southern China 특수룰 (기본값 = 영향 없음) ──
+  /** 지지 토큰(tokens of support) 룰 사용 — Gain Support 행동·국유화 보상으로 획득,
+   *  반납해 건설 4개(spendSupportToken 'build')/수송 기관차 임시 +1('loco'),
+   *  미사용분 종료 시 개당 3 VP (playerBonusVP). */
+  get supportTokensRule(): boolean { return false; }
+  /** 소유 디스크 상한 — 완성 링크 + 미완성 구간 + 직결 링크(인터어반/페리) 합계가 이 수를
+   *  넘으면 기존 완성 링크를 국유화해야 한다 (null = 무제한 = 기존 맵 항등). China: 4. */
+  get ownershipDiscLimit(): number | null { return null; }
+  /** 동시에 가질 수 있는 미완성 트랙 구간 수 (null = 무제한). China: 1. */
+  get unfinishedSectionLimit(): number | null { return null; }
+  /** 전색 수용 도시(acceptsAllColors — Hong Kong)가 배달을 안 받는 마지막 N턴 (0 = 없음).
+   *  턴 롤오버가 board.allAcceptClosed를 설정, cityAcceptsCube가 참조. China: 2. */
+  get allAcceptCityClosedLastTurns(): number { return 0; }
+  /** 인터어반/페리 룰 (Southern China) — 직결 링크·페리 변 구매 시 플레이어당 턴 1개 제한
+   *  + 건설자 ferriesBuilt(종료 1 VP) 가산. Germany 직결 링크($2)에는 적용 안 함. */
+  get interurbanFerryRule(): boolean { return false; }
+
   // ── 달(Moon) 특수룰 (기본값 = 영향 없음) ──
   /** masterNetwork의 시드 도시 id — 네트워크가 항상 이 도시를 포함해야 한다 (Moon: 'moonBase').
    *  null이면 몬트리올식(첫 링크가 시드). masterNetwork=false면 무의미. */

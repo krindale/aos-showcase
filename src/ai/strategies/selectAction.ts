@@ -65,6 +65,7 @@ const TIE_BREAK_ORDER: SpecialAction[] = [
   'locomotive',
   'production',
   'lowGravitation',
+  'gainSupport',
   'urbanization',
   'turnOrder',
 ];

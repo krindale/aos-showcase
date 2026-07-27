@@ -11,6 +11,7 @@ import { HexCoord, PlayerId, GAME_CONSTANTS, MovingCubeContext } from '@/types/g
 import { getMapProfile } from '@/maps/getMapProfile';
 import { hexCoordsEqual, findTrackCubeDeliveries, getConnectingEdge, trackOwnerForEntry, getNeighborHex } from '@/utils/hexGrid';
 import { logAction } from '@/utils/debugConfig';
+import { effectiveEngineLevel } from '@/utils/gameLogic';
 import { releaseAILock } from '../helpers/aiScheduler';
 import { captureUndo } from '../helpers/undo';
 import { playSfx } from '@/utils/sfx';
@@ -262,7 +263,7 @@ export function createMoveSlice(set: Set, get: Get): MoveSlice {
 
       // 수송 시작 — 같은 도시로 가는 후보 루트를 모두 로그(사람/AI 공통), 그 다음 선택 루트 로그
       const deliveries = findTrackCubeDeliveries(
-        state.board, trackId, state.players[state.currentPlayer]?.engineLevel ?? 1, state.currentPlayer,
+        state.board, trackId, effectiveEngineLevel(state.players, state.currentPlayer), state.currentPlayer,
         (cand) => logAction('goodsMovement', 'deliveryCandidate', { player: currentPlayer, trackId, ...cand }),
       );
       const delivery = deliveries.find(d => d.city.id === destCityId);

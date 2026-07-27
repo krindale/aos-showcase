@@ -6,13 +6,14 @@ import {
   CUBE_COLORS,
   City,
   DirectLink,
+  FerryEdge,
   GamePhase,
   HexCoord,
   PLAYER_COLORS,
   PlayerId,
   PlayerState,
 } from '@/types/game';
-import { SQRT3_2, nameBandPoints, numberBoxPath, cubeRenderSize, cubeStrokeColor, cubeStrokeWidth, shadeColor } from './boardGeometry';
+import { SQRT3_2, nameBandPoints, numberBoxPath, cubeRenderSize, cubeStrokeColor, cubeStrokeWidth, shadeColor, hexVertex } from './boardGeometry';
 
 // 도시 레이어 — 도시 헥스·라벨(숫자 박스/이름 띠)·물품 큐브 + Germany 직결 링크.
 // GameBoard에서 그대로 이동한 순수 렌더 (게임 로직 없음, 판정/액션은 props로 주입).
@@ -53,6 +54,9 @@ interface BoardCitiesProps {
   selectDestinationCity: (coord: HexCoord) => void;
   onCubeClick: (cityId: string, cubeIndex: number) => void;
   buildDirectLink: (cityA: string, cityB: string) => void;
+  /** Southern China: 구매식 페리 변 (서안 헥스 ↔ Hong Kong) — 직결 링크와 같은 표현/클릭 */
+  ferryEdges?: FerryEdge[];
+  buildFerryEdge?: (ferryId: string) => void;
 }
 
 export default function BoardCities({
@@ -74,11 +78,69 @@ export default function BoardCities({
   selectDestinationCity,
   onCubeClick,
   buildDirectLink,
+  ferryEdges,
+  buildFerryEdge,
   repopPlacing,
   onRepopCityClick,
 }: BoardCitiesProps) {
   return (
     <>
+      {/* 직결 링크/페리 선 — 도시 헥스·이름 밴드 **아래** 레이어. 도시 위를 지나는 구간은
+          도시 헥스에 가려져 "변에서 변으로" 이어진 것처럼 보이고, 이름 밴드를 덮지 않는다
+          (2026-07-27 사용자 이슈: 철로 선·비용 원이 도시 이름을 가림). 클릭 요소는 아래
+          별도 레이어(도시 위)에 있다. */}
+      {(directLinks ?? []).map((dl, i) => {
+        const a = cities.find(c => c.id === dl.cityA);
+        const b = cities.find(c => c.id === dl.cityB);
+        if (!a || !b) return null;
+        const pa = hexToPixel(a.coord.col, a.coord.row, undefined, undefined, undefined, isFlat);
+        const pb = hexToPixel(b.coord.col, b.coord.row, undefined, undefined, undefined, isFlat);
+        const ownerColor = dl.owner ? PLAYER_COLORS[players[dl.owner].color] : null;
+        // faces(비인접 페리 — GZ SE면↔HK W면): 각 도시 헥스의 지정 변 중점끼리 직선.
+        // 미지정(인접 쌍)은 중심-중심 직선 — 두 도시 헥스에 완전히 가려져 보이지 않는다(의도).
+        const edgeMid = (p: { x: number; y: number }, e: number) => {
+          const v1 = hexVertex(p.x, p.y, e, isFlat);
+          const v2 = hexVertex(p.x, p.y, (e + 1) % 6, isFlat);
+          return { x: (v1.x + v2.x) / 2, y: (v1.y + v2.y) / 2 };
+        };
+        const s = dl.faces ? edgeMid(pa, dl.faces[0]) : pa;
+        const t = dl.faces ? edgeMid(pb, dl.faces[1]) : pb;
+        // 국유화 직결 링크: 중립 다크 그레이 실선 (정부/국유화 트랙 톤 #4E4D46)
+        const built = dl.owner !== null || dl.isNationalized;
+        return (
+          <path
+            key={`directlink-line-${i}`}
+            d={`M ${s.x} ${s.y} L ${t.x} ${t.y}`}
+            fill="none"
+            stroke={dl.isNationalized ? '#4E4D46' : (ownerColor ?? '#d4a853')}
+            strokeWidth={built ? 9 : 6}
+            strokeDasharray={built ? undefined : '10 7'}
+            strokeLinecap="round"
+            opacity={built ? 0.95 : 0.85}
+            style={{ pointerEvents: 'none' }}
+          />
+        );
+      })}
+      {(ferryEdges ?? []).map((f) => {
+        const pa = hexToPixel(f.a.coord.col, f.a.coord.row, undefined, undefined, undefined, isFlat);
+        const pb = hexToPixel(f.b.coord.col, f.b.coord.row, undefined, undefined, undefined, isFlat);
+        const mx = (pa.x + pb.x) / 2, my = (pa.y + pb.y) / 2 + 26;
+        const ownerColor = f.owner ? PLAYER_COLORS[players[f.owner].color] : null;
+        return (
+          <path
+            key={`ferry-line-${f.id}`}
+            d={`M ${pa.x} ${pa.y} Q ${mx} ${my + 30} ${pb.x} ${pb.y}`}
+            fill="none"
+            stroke={ownerColor ?? '#5bbcac'}
+            strokeWidth={f.owner ? 8 : 5}
+            strokeDasharray={f.owner ? undefined : '9 7'}
+            strokeLinecap="round"
+            opacity={0.9}
+            style={{ pointerEvents: 'none' }}
+          />
+        );
+      })}
+
       {/* 도시 */}
       {cities.map((city) => {
         const { x, y } = hexToPixel(city.coord.col, city.coord.row, undefined, undefined, undefined, isFlat);
@@ -303,37 +365,91 @@ export default function BoardCities({
         );
       })}
 
-      {/* Germany 도시-도시 직결 링크 (Essen↔Düsseldorf $2) — 도시 위 레이어라야 클릭이 도시에 가로채이지 않음 */}
+      {/* 직결 링크 구매/소유 마커 — 도시 위 레이어 (클릭이 도시에 가로채이지 않음).
+          인접 쌍(인터어반·Germany 직결)은 원본 시트처럼 공유 변 위 "점선 원 + 비용"만 —
+          속이 비쳐 이름 밴드를 가리지 않는다. via 쌍(GZ↔HK 페리)은 경유점(바다)에 원. */}
       {(directLinks ?? []).map((dl, i) => {
         const a = cities.find(c => c.id === dl.cityA);
         const b = cities.find(c => c.id === dl.cityB);
         if (!a || !b) return null;
         const pa = hexToPixel(a.coord.col, a.coord.row, undefined, undefined, undefined, isFlat);
         const pb = hexToPixel(b.coord.col, b.coord.row, undefined, undefined, undefined, isFlat);
-        const mx = (pa.x + pb.x) / 2, my = (pa.y + pb.y) / 2;
-        const buildable = currentPhase === 'buildTrack' && dl.owner === null;
+        // 마커 위치: faces 쌍은 두 면 중점을 이은 직선의 가운데(바다 위), 인접 쌍은 공유 변
+        const edgeMidM = (p: { x: number; y: number }, e: number) => {
+          const v1 = hexVertex(p.x, p.y, e, isFlat);
+          const v2 = hexVertex(p.x, p.y, (e + 1) % 6, isFlat);
+          return { x: (v1.x + v2.x) / 2, y: (v1.y + v2.y) / 2 };
+        };
+        const ms = dl.faces ? edgeMidM(pa, dl.faces[0]) : pa;
+        const mt = dl.faces ? edgeMidM(pb, dl.faces[1]) : pb;
+        const mx = (ms.x + mt.x) / 2;
+        const my = (ms.y + mt.y) / 2;
+        const buildable = currentPhase === 'buildTrack' && dl.owner === null && !dl.isNationalized;
         const ownerColor = dl.owner ? PLAYER_COLORS[players[dl.owner].color] : null;
+        // 국유화 직결: 중립 그레이 디스크 (인접 쌍은 선이 도시에 가려 보이지 않으므로 마커가 유일한 표시)
+        if (dl.isNationalized) {
+          return (
+            <circle
+              key={`directlink-${i}`}
+              cx={mx} cy={dl.faces ? my : my + 26} r="10"
+              fill="#4E4D46" stroke="rgba(0,0,0,0.65)" strokeWidth="2"
+              style={{ pointerEvents: 'none' }}
+            />
+          );
+        }
         return (
           <g
             key={`directlink-${i}`}
             className={buildable ? 'cursor-pointer' : ''}
             onClick={() => buildable && buildDirectLink(dl.cityA, dl.cityB)}
           >
-            <line
-              x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y}
-              stroke={ownerColor ?? '#d4a853'}
-              strokeWidth={dl.owner ? 9 : 6}
-              strokeDasharray={dl.owner ? undefined : '10 7'}
-              strokeLinecap="round"
-              opacity={dl.owner ? 0.95 : 0.85}
-              style={{ pointerEvents: 'none' }}
-            />
-            {/* 클릭 히트영역(투명, 큰 원) — 건설 가능할 때만 */}
             {buildable && <circle cx={mx} cy={my} r="22" fill="transparent" />}
-            <circle cx={mx} cy={my} r="14" fill={ownerColor ?? 'rgba(255,255,255,0.92)'} stroke="rgba(0,0,0,0.65)" strokeWidth="2" style={{ pointerEvents: 'none' }} />
-            {!dl.owner && (
-              <text x={mx} y={my + 5} textAnchor="middle" fill="#1a1a1a" fontSize="15" fontWeight="bold" fontFamily="system-ui, sans-serif" style={{ pointerEvents: 'none' }}>
-                {dl.cost}
+            {dl.owner ? (
+              // 건설됨: 소유색 소형 디스크 — 인접 쌍은 밴드 아래로 내려 이름을 가리지 않음
+              <circle
+                cx={mx} cy={dl.faces ? my : my + 26} r="10"
+                fill={ownerColor!} stroke="rgba(0,0,0,0.65)" strokeWidth="2"
+                style={{ pointerEvents: 'none' }}
+              />
+            ) : (
+              <>
+                {/* 미건설: 점선 아웃라인 원 (원본 시트의 인터어반 표기 — 반투명이라 글자가 비침) */}
+                <circle
+                  cx={mx} cy={my} r="15"
+                  fill="rgba(255,255,255,0.18)" stroke="#ffffff" strokeWidth="3" strokeDasharray="5 4"
+                  style={{ pointerEvents: 'none' }}
+                />
+                <text
+                  x={mx} y={my + 5} textAnchor="middle" fill="#1a1a1a" fontSize="15" fontWeight="bold"
+                  fontFamily="system-ui, sans-serif" stroke="#ffffff" strokeWidth="3.5" paintOrder="stroke"
+                  style={{ pointerEvents: 'none' }}
+                >
+                  {dl.cost}
+                </text>
+              </>
+            )}
+          </g>
+        );
+      })}
+
+      {/* Southern China 페리 변 (서안 헥스 ↔ Hong Kong) 구매 마커 — 선은 위 언더레이 */}
+      {(ferryEdges ?? []).map((f) => {
+        const pa = hexToPixel(f.a.coord.col, f.a.coord.row, undefined, undefined, undefined, isFlat);
+        const pb = hexToPixel(f.b.coord.col, f.b.coord.row, undefined, undefined, undefined, isFlat);
+        const mx = (pa.x + pb.x) / 2, my = (pa.y + pb.y) / 2 + 26;
+        const buildable = currentPhase === 'buildTrack' && f.owner === null;
+        const ownerColor = f.owner ? PLAYER_COLORS[players[f.owner].color] : null;
+        return (
+          <g
+            key={`ferry-${f.id}`}
+            className={buildable ? 'cursor-pointer' : ''}
+            onClick={() => buildable && buildFerryEdge?.(f.id)}
+          >
+            {buildable && <circle cx={mx} cy={my + 20} r="22" fill="transparent" />}
+            <circle cx={mx} cy={my + 20} r="14" fill={ownerColor ?? 'rgba(255,255,255,0.92)'} stroke="rgba(0,0,0,0.65)" strokeWidth="2" style={{ pointerEvents: 'none' }} />
+            {!f.owner && (
+              <text x={mx} y={my + 25} textAnchor="middle" fill="#1a1a1a" fontSize="15" fontWeight="bold" fontFamily="system-ui, sans-serif" style={{ pointerEvents: 'none' }}>
+                {f.cost}
               </text>
             )}
           </g>

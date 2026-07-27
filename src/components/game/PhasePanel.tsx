@@ -15,7 +15,9 @@ import {
   HexCoord,
   PlayerId,
 } from '@/types/game';
-import { getPathLinkOwners } from '@/utils/hexGrid';
+import { getPathLinkOwners, hexCoordsEqual } from '@/utils/hexGrid';
+import { getMapData } from '@/utils/mapRegistry';
+import { eligibleNationalizationTargets } from '@/store/helpers/nationalization';
 import {
   FileText,
   Users,
@@ -40,6 +42,7 @@ import {
   Landmark,
   type LucideIcon,
   Feather,
+  Handshake,
 } from 'lucide-react';
 import AuctionPanel from './AuctionPanel';
 import TurnOrderOfferPanel from './TurnOrderOfferPanel';
@@ -90,6 +93,7 @@ const ACTION_SHORT: Record<SpecialAction, string> = {
   production: '큐브 2개 보충',
   turnOrder: '다음 경매 패스',
   lowGravitation: '타인 링크 수입 1',
+  gainSupport: '지지 토큰 +1',
 };
 
 /** 행동 선택 버튼 아이콘 — 특수 액션 페이지(/actions)·도움말과 동일 */
@@ -102,6 +106,7 @@ export const ACTION_ICONS: Record<SpecialAction, LucideIcon> = {
   production: Boxes,
   turnOrder: ListOrdered,
   lowGravitation: Feather,
+  gainSupport: Handshake,
 };
 
 export default function PhasePanel() {
@@ -134,7 +139,7 @@ export default function PhasePanel() {
 
   // AI 실행 중 여부 (버튼 비활성화에 사용)
   const isAIExecuting = aiExecution.pending;
-  const { nextPhase, selectAction, upgradeEngine, cancelSelection, undoLastAction } = useGameStore();
+  const { nextPhase, selectAction, upgradeEngine, cancelSelection, undoLastAction, spendSupportToken } = useGameStore();
 
   // Montréal Repopulation 배치 UI 상태 — 큐브 선택은 스토어 ui(보드 도시 클릭으로 배치)
   const repopCubes = phaseState.repopulationCubes ?? [];
@@ -145,6 +150,19 @@ export default function PhasePanel() {
   const routeChoice = useGameStore((s) => s.ui.routeChoice);
   const routeBoard = useGameStore((s) => s.board);
   const { selectRouteOption, confirmRouteChoice } = useGameStore();
+
+  // Southern China 국유화 대기 (디스크 4개 초과 — 완성 링크 하나를 골라 국유화)
+  const nationalizationPending = useGameStore((s) => s.nationalizationPending ?? null);
+  const currentTurnForNat = useGameStore((s) => s.currentTurn);
+  const { nationalizeLink } = useGameStore();
+  /** 좌표의 정거장 이름 (도시 이름 / 마을 이름 / 좌표) — 국유화 대상 링크 표시용 */
+  const stationName = (coord: HexCoord): string => {
+    const city = routeBoard.cities.find((c) => hexCoordsEqual(c.coord, coord));
+    if (city) return city.name;
+    const town = routeBoard.towns.find((t) => hexCoordsEqual(t.coord, coord));
+    if (town) return getMapData(mapId).townNames?.[town.id] ?? town.id;
+    return `(${coord.col},${coord.row})`;
+  };
 
   /** 후보 경로의 주인별 실제 수입(+n) — 정산 미러(getPathLinkOwners) 기준.
    *  ⚠️ opt.oppLinks(총합)를 주인마다 찍으면 "각자 +총합"처럼 보이는 표시 버그가 된다(실전 발견).
@@ -667,9 +685,28 @@ export default function PhasePanel() {
                     : '• Engineer: 4개까지 건설 가능!'}
                 </p>
               )}
+              {currentPlayerData.supportBuildActive && (
+                <p className="text-[10px] md:text-xs text-accent mt-1">
+                  • 지지 토큰: 이번 턴 4개까지 건설!
+                </p>
+              )}
             </div>
             {isMyTurn ? (
               <>
+                {/* Southern China: 지지 토큰 반납 → 이번 턴 건설 4개 */}
+                {getMapProfile(mapId).supportTokensRule &&
+                  !currentPlayerData.isAI &&
+                  !currentPlayerData.supportBuildActive &&
+                  (currentPlayerData.supportTokens ?? 0) > 0 && (
+                    <button
+                      onClick={() => spendSupportToken(currentPlayer, 'build')}
+                      className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-positive/10 text-positive border border-positive/30 hover:bg-positive/20 transition-colors flex items-center justify-center gap-2"
+                      aria-label="지지 토큰 사용: 건설 4개"
+                    >
+                      <Handshake className="w-4 h-4" />
+                      지지 토큰 사용 — 건설 4개 (보유 {currentPlayerData.supportTokens})
+                    </button>
+                  )}
                 {hasActiveSelection && !currentPlayerData.isAI && (
                   <button
                     onClick={cancelSelection}
@@ -690,9 +727,32 @@ export default function PhasePanel() {
                     </span>
                   </div>
                 )}
+                {/* Southern China: 소유 디스크 초과 — 국유화할 완성 링크 선택 (해소 전 진행 불가) */}
+                {nationalizationPending?.playerId === currentPlayer && !currentPlayerData.isAI && (
+                  <div className="p-2 md:p-3 rounded-lg bg-steam-red/10 border border-steam-red/30 space-y-1.5">
+                    <p className="text-[11px] md:text-xs font-semibold text-steam-red">
+                      소유 디스크 4개 초과! 국유화할 링크를 선택하세요
+                    </p>
+                    <p className="text-[10px] md:text-xs text-foreground-secondary">
+                      국유화된 링크는 누구나 쓰지만 수입·승점이 없습니다. 보상: 지지 토큰 1 + 구간당 $1.
+                    </p>
+                    {eligibleNationalizationTargets(routeBoard, currentPlayer, currentTurnForNat).map((l) => (
+                      <button
+                        key={l.id}
+                        onClick={() => nationalizeLink(currentPlayer, l.id)}
+                        className="w-full text-left px-2 py-1.5 rounded-md text-[11px] md:text-xs border border-foreground/15 hover:bg-background/70 text-foreground transition-colors"
+                        aria-label={`${stationName(l.startCity)}↔${stationName(l.endCity)} 국유화`}
+                      >
+                        {stationName(l.startCity)} ↔ {stationName(l.endCity)} · {Math.max(1, l.trackTiles.length)}구간
+                        {l.trackTiles.length === 0 && ' (직결 링크)'}
+                        <span className="text-positive"> (+토큰 1, +${Math.max(1, l.trackTiles.length)})</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <button
                   onClick={handleNextPhase}
-                  disabled={isAIExecuting || incompleteBlocks}
+                  disabled={isAIExecuting || incompleteBlocks || nationalizationPending?.playerId === currentPlayer}
                   className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   aria-label="다음 단계로"
                   title={incompleteBlocks ? '완성되지 않은 철도가 있어 넘어갈 수 없어요' : undefined}
@@ -743,6 +803,11 @@ export default function PhasePanel() {
               {currentPlayerData.selectedAction === 'firstMove' && (
                 <p className="text-[10px] md:text-xs text-accent mt-1">
                   • First Move: 먼저 이동!
+                </p>
+              )}
+              {currentPlayerData.supportLocoActive && (
+                <p className="text-[10px] md:text-xs text-accent mt-1">
+                  • 지지 토큰: 이번 수송 단계 기관차 +1! (실효 {currentPlayerData.engineLevel + 1} 링크)
                 </p>
               )}
             </div>
@@ -807,6 +872,20 @@ export default function PhasePanel() {
                     선택 취소
                   </button>
                 )}
+                {/* Southern China: 지지 토큰 반납 → 이번 수송 단계 양 라운드 기관차 +1 */}
+                {getMapProfile(mapId).supportTokensRule &&
+                  !currentPlayerData.isAI &&
+                  !currentPlayerData.supportLocoActive &&
+                  (currentPlayerData.supportTokens ?? 0) > 0 && (
+                    <button
+                      onClick={() => spendSupportToken(currentPlayer, 'loco')}
+                      className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-positive/10 text-positive border border-positive/30 hover:bg-positive/20 transition-colors flex items-center justify-center gap-2"
+                      aria-label="지지 토큰 사용: 기관차 +1"
+                    >
+                      <Handshake className="w-4 h-4" />
+                      지지 토큰 사용 — 기관차 +1 (보유 {currentPlayerData.supportTokens})
+                    </button>
+                  )}
                 <button
                   onClick={() => upgradeEngine()}
                   disabled={isAIExecuting || currentPlayerData.engineLevel >= GAME_CONSTANTS.MAX_ENGINE || phaseState.playerMoves[currentPlayer]}

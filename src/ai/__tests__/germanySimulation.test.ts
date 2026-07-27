@@ -180,6 +180,12 @@ function runGermanyGame(seed: number): GResult {
           builds++; buildsByPlayer[cp]++;
           const ps = useGameStore.getState().phaseState;
           if (ps.builtTracksThisTurn >= ps.maxTracksThisTurn) useGameStore.getState().nextPhase();
+        } else if (d.action === 'buildDirectLink') {
+          // 직결 링크 구매 (Essen↔Düsseldorf 등) — 실패 시 재시도 없이 단계 종료 (executeAITurn과 동일)
+          if (!store.buildDirectLink(d.cityA, d.cityB)) { useGameStore.getState().nextPhase(); break; }
+          builds++; buildsByPlayer[cp]++;
+          const ps = useGameStore.getState().phaseState;
+          if (ps.builtTracksThisTurn >= ps.maxTracksThisTurn) useGameStore.getState().nextPhase();
         } else {
           useGameStore.getState().nextPhase();
         }

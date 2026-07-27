@@ -124,6 +124,42 @@ describe('국유화 대상과 실행', () => {
     expect(countOwnershipUnits(after.board, P1)).toBe(4);
   });
 
+  it('직결 링크(인터어반)도 국유화 대상 — 중립화·재구매 불가·페리 VP 회수', () => {
+    setupWithFiveLinks(2);
+    // 인터어반을 이전 턴에 구매한 상태로 만든다 (당턴 건설은 대상 제외)
+    useGameStore.setState((s) => ({
+      board: {
+        ...s.board,
+        directLinks: (s.board.directLinks ?? []).map((d) =>
+          d.cityA === 'guangzhou' && d.cityB === 'shenzhen'
+            ? { ...d, owner: P1, builtTurn: 1 }
+            : d
+        ),
+      },
+      players: { ...s.players, [P1]: { ...s.players[P1], ferriesBuilt: 1 } },
+      nationalizationPending: { playerId: P1 },
+    }));
+
+    const before = useGameStore.getState();
+    const target = eligibleNationalizationTargets(before.board, P1, 2)
+      .find((l) => l.id.startsWith('direct-'))!;
+    expect(target).toBeDefined();
+    const cashBefore = before.players[P1].cash;
+
+    useGameStore.getState().nationalizeLink(P1, target.id);
+
+    const after = useGameStore.getState();
+    const dl = after.board.directLinks!.find((d) => d.cityA === 'guangzhou' && d.cityB === 'shenzhen')!;
+    expect(dl.owner).toBeNull();
+    expect(dl.isNationalized).toBe(true);
+    expect(after.players[P1].supportTokens).toBe(1);   // 보상 토큰
+    expect(after.players[P1].cash).toBe(cashBefore + 1); // 직결 = 1구간 보상
+    expect(after.players[P1].ferriesBuilt).toBe(0);     // 종료 1 VP 회수
+    // 국유화된 직결은 재구매 불가
+    useGameStore.setState({ currentPhase: 'buildTrack', currentPlayer: P1 });
+    expect(useGameStore.getState().buildDirectLink('guangzhou', 'shenzhen')).toBe(false);
+  });
+
   it('대기 없는 상태/남의 링크면 no-op', () => {
     setupWithFiveLinks(2);
     const state = useGameStore.getState();

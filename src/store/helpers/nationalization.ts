@@ -85,7 +85,10 @@ export function countOwnershipUnits(board: BoardState, playerId: PlayerId): numb
  * **직결 링크(인터어반/페리)도 대상** — 룰북 "기존 링크에서 마커 제거"에 인터어반도 링크다.
  * (교차 타일 1개가 링크 2개를 동시 완성 + 직결 2개 보유 조합에서, 직결을 빼면 국유화 대상이
  * 소진돼 디스크 5개 초과가 잔존하던 실측 구멍의 해소책 — 2026-07-27.)
- * 직결 링크는 CompletedLink 모양의 의사 타깃으로 표현: id `direct-<A>-<B>`, trackTiles 빈 배열.
+ * 직결 링크는 CompletedLink 모양의 의사 타깃으로 표현: id `direct-<directLinks 인덱스>`,
+ * trackTiles 빈 배열. ⚠️ id에 **도시 이름을 넣지 않는다** — 하이픈이 든 도시 id가 생기면
+ * applyNationalization의 파싱이 깨진다(리뷰 S2 지적). 인덱스는 board.directLinks가 생성 후
+ * 원소 교체(map)만 하고 순서를 바꾸지 않으므로 안정적이다.
  */
 export function eligibleNationalizationTargets(
   board: BoardState,
@@ -105,12 +108,13 @@ export function eligibleNationalizationTargets(
     );
 
   const directTargets: CompletedLink[] = (board.directLinks ?? [])
-    .filter((d) => d.owner === playerId && d.builtTurn !== currentTurn)
-    .map((d) => {
+    .map((d, idx) => ({ d, idx }))
+    .filter(({ d }) => d.owner === playerId && d.builtTurn !== currentTurn)
+    .map(({ d, idx }) => {
       const a = board.cities.find((c) => c.id === d.cityA);
       const b = board.cities.find((c) => c.id === d.cityB);
       return {
-        id: `direct-${d.cityA}-${d.cityB}`,
+        id: `direct-${idx}`,
         owner: playerId,
         trackTiles: [], // 타일 없음 — 보상은 1구간($1) 취급 (applyNationalization)
         startCity: a?.coord ?? { col: 0, row: 0 },
@@ -130,17 +134,19 @@ export function applyNationalization(
   board: BoardState,
   link: CompletedLink
 ): { board: BoardState; segments: number; wasDirect: boolean } {
-  // 직결 링크 의사 타깃 (id `direct-<A>-<B>`) — 링크를 중립화(재구매 불가·수입 0·누구나 이동)
+  // 직결 링크 의사 타깃 (id `direct-<인덱스>`) — 링크를 중립화(재구매 불가·수입 0·누구나 이동)
   if (link.id.startsWith('direct-') && link.trackTiles.length === 0) {
-    const [, cityA, cityB] = link.id.split('-');
+    const idx = Number(link.id.slice('direct-'.length));
+    const target = (board.directLinks ?? [])[idx];
+    if (!target || target.owner !== link.owner) {
+      console.warn(`[nationalization] 직결 링크 타깃 불일치: ${link.id}`);
+      return { board, segments: 0, wasDirect: false };
+    }
     return {
       board: {
         ...board,
-        directLinks: (board.directLinks ?? []).map((d) =>
-          ((d.cityA === cityA && d.cityB === cityB) || (d.cityA === cityB && d.cityB === cityA)) &&
-          d.owner === link.owner
-            ? { ...d, owner: null, isNationalized: true }
-            : d
+        directLinks: (board.directLinks ?? []).map((d, i) =>
+          i === idx ? { ...d, owner: null, isNationalized: true } : d
         ),
       },
       segments: 1, // 직결 링크 = 1구간 취급 (보상 $1)

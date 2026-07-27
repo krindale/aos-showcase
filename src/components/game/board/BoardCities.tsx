@@ -5,6 +5,7 @@ import {
   CITY_COLORS,
   CUBE_COLORS,
   City,
+  CityColor,
   DirectLink,
   FerryEdge,
   GamePhase,
@@ -202,14 +203,30 @@ export default function BoardCities({
         // 화물 5색 **동심 헥스 테두리** — 바깥에서 안으로 겹겹이 쌓아 "모든 색을 받는 도시"를
         // 표현한다 (2026-07-27 사용자 요청). 중앙은 비워 이름 밴드·숫자·큐브 가독성 유지 —
         // 앞선 시도(방사형 부채꼴·가로/세로 띠)는 중앙을 덮어 색이 조각나 보였다.
-        const RING_W = 3;   // 각 링 두께 (6 → 3, 사용자 요청 50% 감소)
-        const RING_GAP = 2; // 링 사이 흰 간격 — 헥스 채움(흰색)이 이 틈으로 비친다
-        const rainbowRings = allColorCity && !allColorClosed
-          ? (['red', 'blue', 'yellow', 'purple', 'black'] as const).map((c, idx) => ({
-              color: CITY_COLORS[c],
-              // 링 중심선 반지름 — 바깥 테두리 안쪽부터 (두께+간격)씩 좁혀 들어간다
-              size: HEX_SIZE - 2 - idx * (RING_W + RING_GAP),
-            }))
+        // 헥스 우하단 빈 공간의 **원 그래프** — 받을 수 있는 화물색을 균등 분할로 표시해
+        // "모든 색이 다 된다"를 한눈에 (2026-07-27 사용자 요청). 헥스 자체는 회색 유지 —
+        // 앞선 시도(5색 채움·동심 링)는 이름 밴드·숫자와 경쟁해 어수선했다.
+        // 폐쇄(마지막 2턴)되면 받을 색이 없으므로 그래프도 숨긴다.
+        // 헥스 **바깥** 우하단에 살짝 띄워 배치 (사용자 조정) — 도시 내부 요소(큐브·숫자·
+        // 이름 밴드)와 완전히 분리돼 "이 도시가 받는 색" 배지로 읽힌다. 0.62 = 우하단 변에서
+        // 파이 가장자리가 ~3px 떨어지는 값. 홍콩 우하단은 바다라 다른 헥스와 겹치지 않는다.
+        const PIE_R = HEX_SIZE * 0.16;
+        const pieCx = x + HEX_SIZE * 0.8;
+        const pieCy = y + HEX_SIZE * 0.8;
+        // 폐쇄(마지막 2턴)에도 그래프는 남기고 X를 덧그린다 — "원래 다 받지만 지금은 닫힘"
+        const acceptedColors = allColorCity
+          ? (['red', 'blue', 'yellow', 'purple', 'black'] as const)
+          : null;
+        const pieSlices = acceptedColors
+          ? acceptedColors.map((c, i) => {
+              const a0 = (i / acceptedColors.length) * Math.PI * 2 - Math.PI / 2;
+              const a1 = ((i + 1) / acceptedColors.length) * Math.PI * 2 - Math.PI / 2;
+              return {
+                color: CITY_COLORS[c],
+                d: `M ${pieCx} ${pieCy} L ${pieCx + PIE_R * Math.cos(a0)} ${pieCy + PIE_R * Math.sin(a0)} `
+                  + `A ${PIE_R} ${PIE_R} 0 0 1 ${pieCx + PIE_R * Math.cos(a1)} ${pieCy + PIE_R * Math.sin(a1)} Z`,
+              };
+            })
           : null;
 
         return (
@@ -217,8 +234,9 @@ export default function BoardCities({
             {/* 도시 헥사곤 (검은 테두리 0.5px) */}
             <polygon
               points={getHexPoints(x, y, HEX_SIZE, isFlat)}
-              // 전색 수용 도시는 흰 바탕 — 5색 링 사이 간격이 흰색으로 비쳐 층이 분리돼 보인다
-              fill={allColorClosed ? '#9aa0a6' : allColorCity ? '#ffffff' : cityColor}
+              // 전색 수용 도시(홍콩)는 원본 시트대로 회색 — 수용 색은 우하단 원 그래프로 표시
+              // (폐쇄 시 더 짙은 회색으로 "이제 안 받음"을 구분)
+              fill={allColorClosed ? '#9aa0a6' : allColorCity ? '#d2d6da' : cityColor}
               stroke={
                 showDestRing
                   ? '#e6c77a'  // 골드 악센트 (accent-light)
@@ -235,18 +253,35 @@ export default function BoardCities({
               onClick={handleCityClick}
             />
 
-            {/* 전색 수용 도시(홍콩): 화물 5색 동심 헥스 테두리 — 바깥에서 안으로 겹겹이 */}
-            {rainbowRings && (
+            {/* 전색 수용 도시(홍콩): 헥스 바깥 우하단 원 그래프 — 받는 화물색 균등 분할.
+                폐쇄(마지막 2턴)면 흐리게 + X를 덧그려 "지금은 안 받음"을 표시 */}
+            {pieSlices && (
               <g style={{ pointerEvents: 'none' }}>
-                {rainbowRings.map((r, ri) => (
-                  <polygon
-                    key={`allcolor-ring-${city.id}-${ri}`}
-                    points={getHexPoints(x, y, r.size, isFlat)}
-                    fill="none"
-                    stroke={r.color}
-                    strokeWidth={RING_W}
-                  />
-                ))}
+                <g opacity={allColorClosed ? 0.45 : 1}>
+                  {pieSlices.map((s, si) => (
+                    <path key={`allcolor-pie-${city.id}-${si}`} d={s.d} fill={s.color} />
+                  ))}
+                  {/* 흰 테두리 — 바다/지형 위에서 그래프 경계를 또렷하게 */}
+                  <circle cx={pieCx} cy={pieCy} r={PIE_R} fill="none" stroke="#ffffff" strokeWidth={1.5} />
+                </g>
+                {allColorClosed && (() => {
+                  const d = PIE_R * 1.05;
+                  const cross = [
+                    { x1: pieCx - d, y1: pieCy - d, x2: pieCx + d, y2: pieCy + d },
+                    { x1: pieCx - d, y1: pieCy + d, x2: pieCx + d, y2: pieCy - d },
+                  ];
+                  return (
+                    <>
+                      {/* 흰 밑선 → 빨간 X (어느 배경에서도 대비 확보) */}
+                      {cross.map((c, ci) => (
+                        <line key={`closed-x-bg-${city.id}-${ci}`} {...c} stroke="#ffffff" strokeWidth={5} strokeLinecap="round" />
+                      ))}
+                      {cross.map((c, ci) => (
+                        <line key={`closed-x-${city.id}-${ci}`} {...c} stroke="#c0392b" strokeWidth={3} strokeLinecap="round" />
+                      ))}
+                    </>
+                  );
+                })()}
               </g>
             )}
 
@@ -334,13 +369,49 @@ export default function BoardCities({
                     const nc = isLabelBox ? numColor : '#1a1a1a';
                     // 달 "1/2" 같은 범위 라벨은 박스 폭에 맞게 축소
                     const nf = (isLabelBox ? numFs : numFs * 0.85) * (lbl.length > 1 ? 0.66 : 1);
+                    // 전색 수용 도시(홍콩): 숫자 박스를 화물색으로 분할 — 위 2색·아래 3색으로
+                    // 다섯 색을 나눠 담아 "모든 색을 받는다"를 도시 안에서 표현 (사용자 요청).
+                    // 폐쇄(마지막 2턴)면 색을 잃고 원래 박스색으로 돌아간다.
+                    const splitTop = allColorCity && !allColorClosed ? (['red', 'blue'] as const) : null;
+                    const splitBot = allColorCity && !allColorClosed ? (['yellow', 'purple', 'black'] as const) : null;
+                    /** 박스를 **세로 줄**로 n등분해 색을 칠한다 (박스 path로 클리핑).
+                     *  ⚠️ 띠의 세로 범위는 헥스 전체로 잡고 클리핑에 맡긴다 — 텍스트 y(topNumY/
+                     *  botNumY) 기준으로 잡으면 numberBoxPath의 실제 박스 영역과 어긋나 박스
+                     *  일부가 안 칠해진다 (2026-07-27 사용자 발견). 가로도 여유를 둬 모서리까지 덮음. */
+                    const splitBox = (colors: readonly CityColor[], isTop: boolean) => {
+                      const clipId = `numbox-clip-${city.id}-${isTop ? 't' : 'b'}`;
+                      const w = bw / colors.length;
+                      return (
+                        <>
+                          <clipPath id={clipId}>
+                            <path d={numberBoxPath(x, y, bw, bh, rad, isFlat, isTop)} />
+                          </clipPath>
+                          <g clipPath={`url(#${clipId})`}>
+                            {colors.map((c, ci) => (
+                              <rect
+                                key={`${clipId}-${ci}`}
+                                x={x - bw / 2 + ci * w}
+                                y={y - HEX_SIZE * 1.2}
+                                width={ci === colors.length - 1 ? w + 2 : w}
+                                height={HEX_SIZE * 2.4}
+                                fill={CITY_COLORS[c]}
+                              />
+                            ))}
+                          </g>
+                        </>
+                      );
+                    };
                     return (
                       <>
                         <path d={numberBoxPath(x, y, bw, bh, rad, isFlat, true)} fill={bf} />
-                        <text x={x} y={topNumY} textAnchor="middle" dominantBaseline="central" fill={nc} fontSize={nf} fontWeight="700" fontFamily={SERIF}>{lbl}</text>
+                        {splitTop && splitBox(splitTop, true)}
+                        <text x={x} y={topNumY} textAnchor="middle" dominantBaseline="central" fill={splitTop ? '#ffffff' : nc} fontSize={nf} fontWeight="700" fontFamily={SERIF}
+                          stroke={splitTop ? 'rgba(0,0,0,0.55)' : undefined} strokeWidth={splitTop ? 2.5 : undefined} paintOrder="stroke">{lbl}</text>
                         <path d={numberBoxPath(x, y, bw, bh, rad, isFlat, false)} fill={isLabelBox ? bf : CUBE_COLORS[city.color]} />
+                        {splitBot && splitBox(splitBot, false)}
                         {isLabelBox && (
-                          <text x={x} y={botNumY} textAnchor="middle" dominantBaseline="central" fill={nc} fontSize={nf} fontWeight="700" fontFamily={SERIF}>{lbl}</text>
+                          <text x={x} y={botNumY} textAnchor="middle" dominantBaseline="central" fill={splitBot ? '#ffffff' : nc} fontSize={nf} fontWeight="700" fontFamily={SERIF}
+                            stroke={splitBot ? 'rgba(0,0,0,0.55)' : undefined} strokeWidth={splitBot ? 2.5 : undefined} paintOrder="stroke">{lbl}</text>
                         )}
                       </>
                     );

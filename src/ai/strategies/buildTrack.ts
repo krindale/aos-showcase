@@ -895,6 +895,9 @@ function tryDirectPathBuild(
       //    내 네트워크가 닿은 정거장에서부터 짓는 것**이다.
       const blockedIsMine = playerTracks.some(t => hexCoordsEqual(t.coord, edgeBlockedHex!));
       if (blockedIsMine && !sourceMoved) {
+        // ⚠️ getConnectedCities는 **도시**(+건설된 직결 링크 끝점)만 돌려준다 — 마을은 후보에
+        //    들어오지 않는다. 마을에서 시작하는 편이 더 가까운 경우를 놓치지만, 첫 트랙 규칙상
+        //    도시 끝에서 짓는 게 안전하므로 현재는 이 범위로 충분하다.
         const connectedIds = getConnectedCities(state, playerId);
         // 내 네트워크가 닿은 정거장 중 목표에 가장 가까운 곳 (현재 출발점 제외)
         let best: ReturnType<typeof findStopById> = null;
@@ -1172,7 +1175,7 @@ function tryDirectPathBuild(
     }
 
     // 8. 건설!
-    debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 직접 경로 추적 (${nextCoord.col},${nextCoord.row}) edges=[${edges}] $${cost} 경로=${route.from}→${route.to} (frontier=${frontierIndex}, path=[${optimalPath.map(p => `(${p.col},${p.row})`).join('→')}])`);
+    debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 직접 경로 추적 (${nextCoord.col},${nextCoord.row}) edges=[${edges}] $${cost} 경로=${route.from}→${route.to}${sourceMoved ? ` [출발점 이동→${sourceCity!.id}]` : ''} (frontier=${frontierIndex}, path=[${optimalPath.map(p => `(${p.col},${p.row})`).join('→')}])`);
     incrementInvestedTracks(playerId);
     return { action: 'build', coord: nextCoord, edges };
   }

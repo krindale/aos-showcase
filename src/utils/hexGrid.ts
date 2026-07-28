@@ -1817,7 +1817,6 @@ export function getMovementPathSVG(
     const pixel = hexToPixel(coord.col, coord.row, undefined, undefined, undefined, flat);
 
     const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
-    const isTown = board.towns.some(t => hexCoordsEqual(t.coord, coord));
 
     // 이전 헥스와의 연결이 랩 경계면 진입을 M(끊기)으로, 아니면 L(잇기)로
     const wrapFromPrev = i > 0 && isWrapStep(coord, path[i - 1]);
@@ -1877,9 +1876,8 @@ export function getMovementPathSVG(
           pathParts.push(`Q ${pixel.x} ${pixel.y} ${exitPoint.x} ${exitPoint.y}`);
         }
       } else {
-        // 정거장(마을·도시) 통과 — 중심을 지난다. 과거엔 isTown만 처리해 경로 중간의
+        // 정거장(마을·도시) 통과 — 중심을 지난다. 과거엔 마을만 처리해 경로 중간의
         // **도시**에서 선이 끊겨 있었다(큐브 애니메이션도 같은 구멍).
-        void isTown;
         pathParts.push(`${enterCmd} ${entryPoint.x} ${entryPoint.y}`);
         pathParts.push(`L ${pixel.x} ${pixel.y}`);
         pathParts.push(`L ${exitPoint.x} ${exitPoint.y}`);
@@ -1913,7 +1911,6 @@ export function getAnimationPoints(
     const pixel = hexToPixel(coord.col, coord.row, undefined, undefined, undefined, flat);
 
     const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
-    const isTown = board.towns.some(t => hexCoordsEqual(t.coord, coord));
 
     if (i === 0) {
       // 시작 도시 중심
@@ -1991,9 +1988,8 @@ export function getAnimationPoints(
           }
         } else {
           // 정거장(마을·도시) 또는 변이 없는 직결 연결: 중심을 경유해 이어 간다.
-          // ⚠️ 과거엔 `isTown`만 처리해 **경로 중간의 도시**는 진입점만 찍고 다음 헥스로
+          // ⚠️ 과거엔 **마을만** 처리해 경로 중간의 도시는 진입점만 찍고 다음 헥스로
           //    건너뛰었다(큐브가 도시 폭만큼 순간이동). 마을과 다르게 취급할 이유가 없다.
-          void isTown;
           for (let j = 1; j <= pointsPerSegment / 2; j++) {
             const t = j / (pointsPerSegment / 2);
             points.push({

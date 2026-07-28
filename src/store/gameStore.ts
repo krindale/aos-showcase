@@ -1133,17 +1133,28 @@ export const useGameStore = create<GameStore>()(
     //    생기므로 모든 경로가 지나는 여기서 한 번에 지운다.
     //    movingCube는 제외 — 진행 중인 이동 애니메이션은 completeCubeMove가 끝낸다
     //    (그 액션은 ui를 전부 정리한 뒤 nextPhase를 호출하므로 여기선 이미 비어 있다).
-    set((state) => ({
-      undoCount: 0,
-      ui: {
-        ...state.ui,
-        selectedCube: null,
-        reachableDestinations: [],
-        movePath: [],
-        routeOptions: [],
-        routeChoice: null,
-      },
-    }));
+    //    ⚠️ 정리할 게 없으면 set을 건너뛴다 — nextPhase는 게임당 수백 번 도는데 매번 새 ui
+    //    객체를 만들면 ui 구독 컴포넌트(GameBoard 등)가 헛되이 리렌더된다.
+    {
+      const u = currentState.ui;
+      const uiDirty = !!u.selectedCube || u.reachableDestinations.length > 0
+        || u.movePath.length > 0 || u.routeOptions.length > 0 || !!u.routeChoice;
+      if (uiDirty || currentState.undoCount !== 0) {
+        set((state) => ({
+          undoCount: 0,
+          ...(uiDirty ? {
+            ui: {
+              ...state.ui,
+              selectedCube: null,
+              reachableDestinations: [],
+              movePath: [],
+              routeOptions: [],
+              routeChoice: null,
+            },
+          } : {}),
+        }));
+      }
+    }
 
     // 자동 단계 로직 실행 (단계 전환 전에 실행)
     if (currentState.currentPhase === 'collectIncome') {

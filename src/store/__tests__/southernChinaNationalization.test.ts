@@ -8,6 +8,7 @@ import {
   eligibleNationalizationTargets,
   checkDiscLimitAfterBuild,
 } from '@/store/helpers/nationalization';
+import { resolveBotNationalization } from '@/store/slices/buildSlice';
 import { TrackTile, TownSpur, PlayerId } from '@/types/game';
 
 const P1: PlayerId = 'player1';
@@ -231,6 +232,53 @@ describe('국유화 대상 소진 — 초과가 굳지 않는다 (사람 경로 
     const after = useGameStore.getState();
     expect(after.nationalizationPending).toBeNull();          // 대기 해제
     expect(countOwnershipUnits(after.board, P1)).toBeLessThanOrEqual(4); // 불변식 복원
+  });
+});
+
+describe('대기 중 봇 전환 — 자동 해소 (온라인 이탈·호스트 승계 교착 방지)', () => {
+  /**
+   * 리뷰 F2 회귀 가드. 봇 자동 해소는 원래 **건설 직후**(afterBuildDiscCheck)에만 돌았다.
+   * 온라인에서 대기 중인 사람이 이탈해 봇으로 전환되면(netStore가 isAI=true로 바꾼다)
+   * 그 시점엔 이미 지나간 뒤라 대기가 영원히 남는다 — 봇은 선택 UI가 없어 건설도 못 하고,
+   * nextPhase는 buildTrack에서 대기를 보고 보류(상태 무변경)하면서도 끝에서 항상
+   * scheduleAICheck를 부르므로 **결정 ↔ 보류 무한루프**가 된다.
+   * resolveBotNationalization을 AI 턴 진입에서도 호출해 끊는다.
+   */
+  it('사람이 봇으로 전환되면 AI 진입 시 대기가 자동 해소된다', () => {
+    setupWithFiveLinks(2);
+    useGameStore.setState({ nationalizationPending: { playerId: P1 } });
+    expect(countOwnershipUnits(useGameStore.getState().board, P1)).toBe(5); // 전제: 초과
+
+    // 이탈 → 봇 전환 (netStore.convertSeatToBot / promoteToHost가 하는 것과 동일한 상태 변경)
+    useGameStore.setState((s) => ({
+      players: { ...s.players, [P1]: { ...s.players[P1], isAI: true } },
+    }));
+
+    const resolved = resolveBotNationalization(
+      useGameStore.setState as never,
+      useGameStore.getState as never
+    );
+
+    expect(resolved).toBe(true);
+    const after = useGameStore.getState();
+    expect(after.nationalizationPending).toBeNull();                     // 교착 해제
+    expect(countOwnershipUnits(after.board, P1)).toBeLessThanOrEqual(4); // 불변식 복원
+    // 봇은 타일 수 최소 링크부터 국유화 → 보상 토큰 1개
+    expect(after.players[P1].supportTokens).toBe(1);
+  });
+
+  it('사람 차례(비봇)에는 손대지 않는다 — 선택권은 사람에게', () => {
+    setupWithFiveLinks(2);
+    useGameStore.setState({ nationalizationPending: { playerId: P1 } });
+
+    const resolved = resolveBotNationalization(
+      useGameStore.setState as never,
+      useGameStore.getState as never
+    );
+
+    expect(resolved).toBe(false);
+    expect(useGameStore.getState().nationalizationPending).toEqual({ playerId: P1 });
+    expect(countOwnershipUnits(useGameStore.getState().board, P1)).toBe(5); // 그대로 초과 유지
   });
 });
 

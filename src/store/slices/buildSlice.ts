@@ -63,6 +63,53 @@ function releaseUnfinishedForOverflow(set: Set, get: Get, playerId: PlayerId, li
   set({ board: result.board });
 }
 
+/**
+ * 봇 소유 국유화 대기를 즉시 해소한다 (봇은 선택 UI가 없다).
+ * 타일 수 최소(=VP·수입 손실 최소) 링크부터 국유화하고, 대상이 소진되면 안전망으로
+ * 미완성 구간 소유를 풀어 한도를 복원한다.
+ *
+ * 호출처 둘 — ① 건설 직후(afterBuildDiscCheck) ② **대기 중 사람이 봇으로 전환된 뒤**
+ * AI 턴 진입(gameStore.executeAITurn). ②가 없으면 온라인 이탈·호스트 승계로 봇이 된
+ * 플레이어의 대기가 영원히 남아, 봇이 건설도 진행도 못 하고 nextPhase 보류 ↔
+ * scheduleAICheck 무한루프에 빠진다 (nextPhase는 보류로 상태를 안 바꾸면서도 끝에서
+ * 항상 scheduleAICheck를 부른다).
+ *
+ * 호스트에서만 실행된다 — 게스트에선 AI 경로 자체가 돌지 않는다.
+ * @returns 해소를 시도했으면 true (대기가 없었거나 봇이 아니면 false)
+ */
+export function resolveBotNationalization(set: Set, get: Get): boolean {
+  const s0 = get();
+  const pending = s0.nationalizationPending;
+  const limit = getMapProfile(s0.mapId).ownershipDiscLimit;
+  if (!pending || limit === null) return false;
+  if (!s0.players[pending.playerId]?.isAI) return false;
+
+  let guard = 0; // 가드 5회 = 이론상 최대 초과분
+  while (get().nationalizationPending?.playerId === pending.playerId && guard++ < 5) {
+    const st = get();
+    // 타일 수 최소 링크부터 — 직결 링크(타일 0 = $8 자산)는 최후순위(가중 99)로 보호
+    const targets = eligibleNationalizationTargets(st.board, pending.playerId, st.currentTurn)
+      .sort((a, b) =>
+        (a.trackTiles.length || 99) - (b.trackTiles.length || 99)
+      );
+    if (targets.length === 0) {
+      // 대상 소진 — 대기만 풀면 **초과가 굳는다**. 안전망으로 한도를 복원한 뒤 해제한다.
+      releaseUnfinishedForOverflow(set, get, pending.playerId, limit);
+      set({ nationalizationPending: null });
+      break;
+    }
+    get().nationalizeLink(pending.playerId, targets[0].id);
+  }
+  // 봇 루프가 가드 소진으로 끝났는데도 초과가 남았다면 안전망으로 마무리
+  if (get().nationalizationPending?.playerId === pending.playerId) {
+    releaseUnfinishedForOverflow(set, get, pending.playerId, limit);
+    if (countOwnershipUnits(get().board, pending.playerId) <= limit) {
+      set({ nationalizationPending: null });
+    }
+  }
+  return true;
+}
+
 function afterBuildDiscCheck(set: Set, get: Get): void {
   const s = get();
   const limit = getMapProfile(s.mapId).ownershipDiscLimit;
@@ -77,33 +124,7 @@ function afterBuildDiscCheck(set: Set, get: Get): void {
   logAction('trackBuilding', 'discLimitExceeded', { player: pending.playerId, turn: s.currentTurn });
   set({ nationalizationPending: pending });
 
-  // 봇은 선택 UI가 없으므로 즉시 해소 — 타일 수 최소(=VP·수입 손실 최소) 링크부터 국유화.
-  // (호스트에서만 실행 — 게스트는 봇 빌드 자체가 돌지 않는다. 가드 5회 = 이론상 최대 초과분)
-  if (s.players[pending.playerId]?.isAI) {
-    let guard = 0;
-    while (get().nationalizationPending?.playerId === pending.playerId && guard++ < 5) {
-      const st = get();
-      // 타일 수 최소 링크부터 — 직결 링크(타일 0 = $8 자산)는 최후순위(가중 99)로 보호
-      const targets = eligibleNationalizationTargets(st.board, pending.playerId, st.currentTurn)
-        .sort((a, b) =>
-          (a.trackTiles.length || 99) - (b.trackTiles.length || 99)
-        );
-      if (targets.length === 0) {
-        // 대상 소진 — 대기만 풀면 **초과가 굳는다**. 안전망으로 한도를 복원한 뒤 해제한다.
-        releaseUnfinishedForOverflow(set, get, pending.playerId, limit);
-        set({ nationalizationPending: null });
-        break;
-      }
-      get().nationalizeLink(pending.playerId, targets[0].id);
-    }
-    // 봇 루프가 가드 소진으로 끝났는데도 초과가 남았다면 안전망으로 마무리
-    if (get().nationalizationPending?.playerId === pending.playerId) {
-      releaseUnfinishedForOverflow(set, get, pending.playerId, limit);
-      if (countOwnershipUnits(get().board, pending.playerId) <= limit) {
-        set({ nationalizationPending: null });
-      }
-    }
-  }
+  resolveBotNationalization(set, get);
 }
 
 /** Southern China: 이 플레이어가 이번 턴 이미 인터어반/페리를 건설했는가 (턴당 1개 제한) */

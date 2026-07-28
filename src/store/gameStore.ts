@@ -68,7 +68,7 @@ import { safeTimeout } from '@/utils/safeTimers';
 import { createUiSlice } from './slices/uiSlice';
 import { createAuctionSlice } from './slices/auctionSlice';
 import { createGoodsGrowthSlice } from './slices/goodsGrowthSlice';
-import { createBuildSlice } from './slices/buildSlice';
+import { createBuildSlice, resolveBotNationalization } from './slices/buildSlice';
 import { createMoveSlice } from './slices/moveSlice';
 import { createSettlementSlice } from './slices/settlementSlice';
 
@@ -581,6 +581,16 @@ export const useGameStore = create<GameStore>()(
         }
 
         case 'buildTrack': {
+          // Southern China: 대기 중이던 사람이 봇으로 전환된 경우(온라인 이탈·호스트 승계)
+          // 국유화 대기가 그대로 남아 있다 — 봇에겐 선택 UI가 없어 건설도 진행도 못 하고
+          // nextPhase 보류 ↔ scheduleAICheck 무한루프가 된다. 건설 직후 경로와 **같은 함수**로
+          // 즉시 해소한 뒤 재결정한다 (미러 금지).
+          if (resolveBotNationalization(set, get)) {
+            releaseAILock(executionId, get, set);
+            scheduleAICheck(get);
+            return;
+          }
+
           const { decision: buildDecision } = decision;
           if (buildDecision.action === 'build') {
             const beforeState = get();

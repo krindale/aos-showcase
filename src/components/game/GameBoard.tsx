@@ -1253,7 +1253,6 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           board={board}
           currentPhase={currentPhase}
           isFlat={isFlat}
-          mapOutlinePath={mapOutlinePath}
           blockedEdgePath={blockedEdgePath}
           whiteEdgePath={whiteEdgePath}
           nightOverlayPath={nightOverlayPath}

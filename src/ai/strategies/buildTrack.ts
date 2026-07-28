@@ -790,6 +790,8 @@ function tryDirectPathBuild(
 
   // 자사 트랙 엣지 비호환 시 회피 좌표를 추가하며 최대 3회 재탐색
   const avoidCoords: HexCoord[] = [];
+  /** 병렬 중복 방지로 출발점을 이미 옮겼는지 (무한 스왑 방지 — 1회 한정) */
+  let sourceMoved = false;
 
   // 마을 경유 우대: 화물이 마을 링크를 더 지나 다링크 배달 → income↑.
   // trackCubes(4-5링크 깊은 배달) + 다인 cityCubes(장거리 도시 배달, 사용자 목표 income 20) 모두 적용.
@@ -800,7 +802,7 @@ function tryDirectPathBuild(
   for (let attempt = 0; attempt < 3; attempt++) {
     // 1. A* 경로 계산 (상대 트랙 회피, 자사 트랙 우대, 비호환 트랙 회피)
     const optimalPath = findOptimalPathAvoidingOpponent(
-      sourceCity.coord, targetCity.coord, board, playerId,
+      sourceCity!.coord, targetCity!.coord, board, playerId,
       avoidCoords.length > 0 ? avoidCoords : undefined,
       preferTowns,
     );
@@ -883,6 +885,37 @@ function tryDirectPathBuild(
 
     // 순방향 엣지 비호환 발견 → 해당 좌표를 회피하고 재탐색
     if (edgeBlockedHex) {
+      // ⚠️ 막힌 게 **내 트랙**이면 그 구간은 이미 내 네트워크다. 회피시키면 A*가 옆으로 비켜
+      //    빈 헥스에 우회로를 만들어 **같은 두 정거장을 잇는 병렬 중복 노선**이 깔린다
+      //    (2026-07-28 사용자 스크린샷: Rust Belt Duluth↔Minneapolis 이중 부설).
+      //    원인은 A*의 구조적 한계 — 헥스 단위라 진입/진출 변을 모른 채 내 트랙을 비용 0.1로
+      //    우대해 고르는데, 마을 우대(preferTowns)로 경로가 틀어지면 그 변이 실제로는 안 맞는다.
+      //    옳은 대응은 "옆으로 비켜 새로 짓기"도 "목표 포기"도 아니라(포기는 건설 기회를 통째로
+      //    잃어 100시드 회귀 — Montréal −3.48·Korea −1.63), **이미 이어진 구간을 건너뛰고
+      //    내 네트워크가 닿은 정거장에서부터 짓는 것**이다.
+      const blockedIsMine = playerTracks.some(t => hexCoordsEqual(t.coord, edgeBlockedHex!));
+      if (blockedIsMine && !sourceMoved) {
+        const connectedIds = getConnectedCities(state, playerId);
+        // 내 네트워크가 닿은 정거장 중 목표에 가장 가까운 곳 (현재 출발점 제외)
+        let best: ReturnType<typeof findStopById> = null;
+        let bestDist = Infinity;
+        for (const id of connectedIds) {
+          if (id === sourceCity!.id) continue;
+          const stop = findStopById(board, id);
+          if (!stop) continue;
+          const d = hexDistance(stop.coord, targetCity!.coord);
+          if (d < bestDist) { bestDist = d; best = stop; }
+        }
+        if (best && bestDist < hexDistance(sourceCity!.coord, targetCity!.coord)) {
+          debugLog.trackBuilding(
+            `[직접 경로] (${edgeBlockedHex.col},${edgeBlockedHex.row})는 내 트랙(이미 연결) → 출발점을 ${sourceCity!.id}→${best.id}로 옮겨 재탐색 (병렬 중복 방지)`
+          );
+          sourceCity = best;
+          sourceMoved = true;
+          avoidCoords.length = 0; // 새 출발점 기준으로 다시 계산
+          continue;
+        }
+      }
       avoidCoords.push(edgeBlockedHex);
       debugLog.trackBuilding(
         `[직접 경로] (${edgeBlockedHex.col},${edgeBlockedHex.row}) 엣지 비호환 → 회피 재탐색 (시도 ${attempt + 1}/3)`

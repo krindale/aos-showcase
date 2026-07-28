@@ -12,10 +12,11 @@
  * **마을 우대(preferTowns)가 경로를 틀어 기존 트랙의 변과 어긋나게 만드는** 상호작용이다.
  * (A*는 헥스 단위라 진입/진출 변을 모른 채 내 트랙을 비용 0.1로 우대해 고른다.)
  *
- * ⚠️ "병렬 부설을 막는" 수정은 100시드에서 맵별로 효과가 갈려 기각됐다
- *    (Rust Belt +1.20·China +1.89 vs Korea −1.63·Montréal −3.48) —
- *    병렬 노선도 룰상 별개의 완성 링크라 수입원이 되기 때문. 근거:
- *    docs/ai-auction-baseline-100seed.md 2026-07-28 기각 실험 3.
+ * 대응 이력(2026-07-28):
+ *  ① 1차 "그 목표를 포기" → 건설 기회까지 잃어 회귀(Montréal −3.49·Korea −1.63) → 기각
+ *  ② 2차 **출발점 이동**(이미 이어진 구간은 건너뛰고 내 네트워크가 닿은 정거장부터 건설)
+ *     → 채택. 9맵 중 5개 개선·4개 오차 범위, **파산은 전 맵 개선 아니면 동일**.
+ *  근거표: docs/ai-auction-baseline-100seed.md 2026-07-28.
  */
 import { describe, it, expect } from 'vitest';
 import { createRustBeltBoardState } from '@/utils/rustBeltMap';

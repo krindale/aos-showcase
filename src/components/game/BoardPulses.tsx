@@ -329,8 +329,9 @@ function BoardPulsesInner({ isFlat, viewTop, silent = false }: { isFlat: boolean
         </g>
       ))}
       {newCityPulses.map((p) => {
-        // 라벨 2행: "🏙️ 신도시 X 건설!" / "배치자 이름" — 헥스 위(가장자리는 아래)로 떠오름
-        const rows = [`\u{1F3D9}️ 신도시 ${p.tileId} 건설!`, p.playerName];
+        // 라벨 2행: "신도시 X 건설!" / "배치자 이름" — 헥스 위(가장자리는 아래)로 떠오름
+        // (앞머리 도시 이모지는 뺐다 — 링·색 연출로 이미 충분해 군더더기, 2026-07-28 사용자 요청)
+        const rows = [`신도시 ${p.tileId} 건설!`, p.playerName];
         const dir = stackDir(p.y, rows.length, viewTop);
         const rowTransition = { duration: 2.2, times: [0, 0.12, 0.8, 1] as number[], ease: 'easeOut' as const };
         return (

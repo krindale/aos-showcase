@@ -802,6 +802,13 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         return deny(`현금이 부족해요 (필요 $${link.cost}, 보유 $${player.cash})`);
       }
 
+      // ⚠️ 검증을 전부 통과한 **성공 시점**에만 기록한다 (buildTrack의 시도 로그와 달리 확정 로그).
+      //    이 로그가 없어 봇 게임 분석에서 $8 직결/페리 구매가 통째로 안 보였다 — 남부 중국의
+      //    핵심 액션인데 최종 점수를 역산해야 구매 여부를 알 수 있었다 (2026-07-28).
+      logAction('trackBuilding', 'buildDirectLink', {
+        player: currentPlayer, cityA: link.cityA, cityB: link.cityB,
+        cost: link.cost, ferryRule, turn: state.currentTurn,
+      });
       captureUndo(state, `직결 링크 건설 (${link.cityA}↔${link.cityB})`);
       const newBuiltCount = state.phaseState.builtTracksThisTurn + 1;
 
@@ -863,6 +870,10 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         return false;
       }
 
+      // 성공 시점 확정 로그 (buildDirectLink와 동일 이유 — 분석에서 안 보이던 구매)
+      logAction('trackBuilding', 'buildFerryEdge', {
+        player: currentPlayer, ferryId, cost: ferry.cost, turn: state.currentTurn,
+      });
       captureUndo(state, '페리 건설');
       const newBuiltCount = state.phaseState.builtTracksThisTurn + 1;
       set({

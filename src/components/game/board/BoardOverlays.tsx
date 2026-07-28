@@ -233,6 +233,14 @@ export default function BoardOverlays({
       {movingCube && (() => {
         // 경로의 모든 애니메이션 포인트 계산
         const animPoints = getAnimationPoints(movingCube.path, board, HEX_SIZE - 2, 5, isFlat);
+        // ⚠️ 포인트가 2개 미만이면 아래 times 계산이 i/0 = NaN이 되어 Framer Motion 애니메이션이
+        //    통째로 깨진다(큐브가 안 움직이거나 사라짐). 경로 좌표를 그대로 써 최소 2점을 보장한다.
+        if (animPoints.length < 2) {
+          for (const c of movingCube.path) {
+            animPoints.push(hexToPixel(c.col, c.row, undefined, undefined, undefined, isFlat));
+          }
+        }
+        if (animPoints.length < 2) return null;
 
         // 모든 x, y 좌표 배열 생성
         const xPoints = animPoints.map(p => p.x - 9);

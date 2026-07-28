@@ -1776,6 +1776,23 @@ export function isSecondaryTrackPartOfCompletedLink(
  * 물품 이동 전체 경로의 SVG path 생성
  * 트랙을 따라 곡선으로 그림
  */
+/**
+ * 두 헥스가 변으로 인접하지 않은 연결(= 구매식 **직결 링크**, 예: Southern China
+ * Guangzhou↔Hong Kong $8 페리)에서 쓸 "경계 통과점". 인접이 아니라 변 중점이 없으므로
+ * 두 중심의 중점을 쓴다 — 직결 링크는 렌더도 면 앵커 직선이라 시각적으로 일치한다.
+ * ⚠️ 이 폴백이 없으면 getConnectingEdge가 null이라 경로 포인트가 **하나도 생성되지 않고**,
+ *    getAnimationPoints 호출부(BoardOverlays)에서 times가 0/0 = NaN이 되어 화물 애니메이션이
+ *    끊긴다 (2026-07-28 사용자 보고). 달 랩 어라운드는 board를 주면 인접이라 여기 해당 없음.
+ */
+function midpointTowardHex(
+  pixel: { x: number; y: number },
+  other: HexCoord,
+  flat: boolean
+): { x: number; y: number } {
+  const o = hexToPixel(other.col, other.row, undefined, undefined, undefined, flat);
+  return { x: (pixel.x + o.x) / 2, y: (pixel.y + o.y) / 2 };
+}
+
 export function getMovementPathSVG(
   path: HexCoord[],
   board: BoardState,
@@ -1783,6 +1800,8 @@ export function getMovementPathSVG(
   flat: boolean = false
 ): string {
   if (path.length < 2) return '';
+  const midpointToward = (pixel: { x: number; y: number }, other: HexCoord) =>
+    midpointTowardHex(pixel, other, flat);
 
   // 달(Moon) 랩 어라운드: 게임상 연결이지만 화면상 반대편에 있는(물리적 비인접) 전환.
   // 이 경계에서 선을 이으면 보드를 가로지르는 어색한 직선이 되므로, 진입점을 L 대신 M으로
@@ -1808,13 +1827,13 @@ export function getMovementPathSVG(
       // 시작점 — 도시/마을 또는 트랙(트랙 큐브 배달) 중심에서 시작
       pathParts.push(`M ${pixel.x} ${pixel.y}`);
 
-      // 다음 헥스로 나가는 엣지
+      // 다음 헥스로 나가는 엣지 (직결 링크는 변이 없어 두 중심의 중점으로 — getAnimationPoints와 동일)
       if (i + 1 < path.length) {
         const nextEdge = getConnectingEdge(coord, path[i + 1], board);
-        if (nextEdge !== null) {
-          const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat);
-          pathParts.push(`L ${exitPoint.x} ${exitPoint.y}`);
-        }
+        const exitPoint = nextEdge !== null
+          ? getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat)
+          : midpointToward(pixel, path[i + 1]);
+        pathParts.push(`L ${exitPoint.x} ${exitPoint.y}`);
       }
     } else if (i === path.length - 1) {
       // 끝점 (도시/마을 중심으로 진입)
@@ -1825,46 +1844,45 @@ export function getMovementPathSVG(
           pathParts.push(`${enterCmd} ${entryPoint.x} ${entryPoint.y}`);
         } else if (wrapFromPrev) {
           pathParts.push(`M ${pixel.x} ${pixel.y}`);
+        } else {
+          // 직결 링크로 진입 — 중점을 거쳐 중심으로
+          const entryPoint = midpointToward(pixel, path[i - 1]);
+          pathParts.push(`${enterCmd} ${entryPoint.x} ${entryPoint.y}`);
         }
         pathParts.push(`L ${pixel.x} ${pixel.y}`);
       }
     } else {
-      // 중간 트랙
-      if (track) {
-        const prevEdge = getConnectingEdge(coord, path[i - 1], board);
-        const nextEdge = getConnectingEdge(coord, path[i + 1], board);
+      // 중간 헥스 — 트랙이면 직선/곡선, 그 외(정거장·직결 연결)는 중심 경유
+      const prevEdge = getConnectingEdge(coord, path[i - 1], board);
+      const nextEdge = getConnectingEdge(coord, path[i + 1], board);
+      const entryPoint = prevEdge !== null
+        ? getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat)
+        : midpointToward(pixel, path[i - 1]);
+      const exitPoint = nextEdge !== null
+        ? getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat)
+        : midpointToward(pixel, path[i + 1]);
 
-        if (prevEdge !== null && nextEdge !== null) {
-          const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat);
-          const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat);
+      if (track && prevEdge !== null && nextEdge !== null) {
+        // 엣지 간 거리로 직선/곡선 결정
+        const edgeDiff = Math.abs(prevEdge - nextEdge);
+        const edgeDist = Math.min(edgeDiff, 6 - edgeDiff);
 
-          // 엣지 간 거리로 직선/곡선 결정
-          const edgeDiff = Math.abs(prevEdge - nextEdge);
-          const edgeDist = Math.min(edgeDiff, 6 - edgeDiff);
+        pathParts.push(`${enterCmd} ${entryPoint.x} ${entryPoint.y}`);
 
-          pathParts.push(`${enterCmd} ${entryPoint.x} ${entryPoint.y}`);
-
-          if (edgeDist === 3) {
-            // 직선 트랙
-            pathParts.push(`L ${exitPoint.x} ${exitPoint.y}`);
-          } else {
-            // 곡선 트랙 - 베지어 곡선
-            pathParts.push(`Q ${pixel.x} ${pixel.y} ${exitPoint.x} ${exitPoint.y}`);
-          }
-        }
-      } else if (isTown) {
-        // 마을 통과
-        const prevEdge = getConnectingEdge(coord, path[i - 1], board);
-        const nextEdge = getConnectingEdge(coord, path[i + 1], board);
-
-        if (prevEdge !== null && nextEdge !== null) {
-          const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat);
-          const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat);
-
-          pathParts.push(`${enterCmd} ${entryPoint.x} ${entryPoint.y}`);
-          pathParts.push(`L ${pixel.x} ${pixel.y}`);
+        if (edgeDist === 3) {
+          // 직선 트랙
           pathParts.push(`L ${exitPoint.x} ${exitPoint.y}`);
+        } else {
+          // 곡선 트랙 - 베지어 곡선
+          pathParts.push(`Q ${pixel.x} ${pixel.y} ${exitPoint.x} ${exitPoint.y}`);
         }
+      } else {
+        // 정거장(마을·도시) 통과 — 중심을 지난다. 과거엔 isTown만 처리해 경로 중간의
+        // **도시**에서 선이 끊겨 있었다(큐브 애니메이션도 같은 구멍).
+        void isTown;
+        pathParts.push(`${enterCmd} ${entryPoint.x} ${entryPoint.y}`);
+        pathParts.push(`L ${pixel.x} ${pixel.y}`);
+        pathParts.push(`L ${exitPoint.x} ${exitPoint.y}`);
       }
     }
   }
@@ -1885,6 +1903,9 @@ export function getAnimationPoints(
 ): { x: number; y: number }[] {
   if (path.length < 2) return [];
 
+  const midpointToward = (pixel: { x: number; y: number }, other: HexCoord) =>
+    midpointTowardHex(pixel, other, flat);
+
   const points: { x: number; y: number }[] = [];
 
   for (let i = 0; i < path.length; i++) {
@@ -1898,48 +1919,52 @@ export function getAnimationPoints(
       // 시작 도시 중심
       points.push(pixel);
 
-      // 나가는 엣지까지
+      // 나가는 엣지까지 (직결 링크면 변이 없으므로 두 중심의 중점으로)
       if (i + 1 < path.length) {
         const nextEdge = getConnectingEdge(coord, path[i + 1], board);
-        if (nextEdge !== null) {
-          const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat);
-          // 중간 포인트 추가
-          for (let j = 1; j <= pointsPerSegment; j++) {
-            const t = j / pointsPerSegment;
-            points.push({
-              x: pixel.x + (exitPoint.x - pixel.x) * t,
-              y: pixel.y + (exitPoint.y - pixel.y) * t,
-            });
-          }
-        }
-      }
-    } else if (i === path.length - 1) {
-      // 끝 도시
-      const prevEdge = getConnectingEdge(coord, path[i - 1], board);
-      if (prevEdge !== null) {
-        const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat);
-        // 이전 헥스 경계에서 진입점으로
+        const exitPoint = nextEdge !== null
+          ? getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat)
+          : midpointToward(pixel, path[i + 1]);
+        // 중간 포인트 추가
         for (let j = 1; j <= pointsPerSegment; j++) {
           const t = j / pointsPerSegment;
           points.push({
-            x: entryPoint.x + (pixel.x - entryPoint.x) * t,
-            y: entryPoint.y + (pixel.y - entryPoint.y) * t,
+            x: pixel.x + (exitPoint.x - pixel.x) * t,
+            y: pixel.y + (exitPoint.y - pixel.y) * t,
           });
         }
       }
+    } else if (i === path.length - 1) {
+      // 끝 도시 (직결 링크면 중점에서 진입)
+      const prevEdge = getConnectingEdge(coord, path[i - 1], board);
+      const entryPoint = prevEdge !== null
+        ? getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat)
+        : midpointToward(pixel, path[i - 1]);
+      // 이전 헥스 경계에서 진입점으로
+      for (let j = 1; j <= pointsPerSegment; j++) {
+        const t = j / pointsPerSegment;
+        points.push({
+          x: entryPoint.x + (pixel.x - entryPoint.x) * t,
+          y: entryPoint.y + (pixel.y - entryPoint.y) * t,
+        });
+      }
     } else {
-      // 중간 헥스 (트랙 또는 마을)
+      // 중간 헥스 (트랙 또는 마을, 또는 직결 링크로 드나드는 도시)
       const prevEdge = getConnectingEdge(coord, path[i - 1], board);
       const nextEdge = getConnectingEdge(coord, path[i + 1], board);
 
-      if (prevEdge !== null && nextEdge !== null) {
-        const entryPoint = getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat);
-        const exitPoint = getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat);
+      {
+        const entryPoint = prevEdge !== null
+          ? getEdgeMidpoint(pixel.x, pixel.y, prevEdge, hexSize, flat)
+          : midpointToward(pixel, path[i - 1]);
+        const exitPoint = nextEdge !== null
+          ? getEdgeMidpoint(pixel.x, pixel.y, nextEdge, hexSize, flat)
+          : midpointToward(pixel, path[i + 1]);
 
         // 진입점 추가
         points.push(entryPoint);
 
-        if (track) {
+        if (track && prevEdge !== null && nextEdge !== null) {
           // 트랙: 직선 또는 곡선
           const edgeDiff = Math.abs(prevEdge - nextEdge);
           const edgeDist = Math.min(edgeDiff, 6 - edgeDiff);
@@ -1964,8 +1989,11 @@ export function getAnimationPoints(
               });
             }
           }
-        } else if (isTown) {
-          // 마을: 중심 경유
+        } else {
+          // 정거장(마을·도시) 또는 변이 없는 직결 연결: 중심을 경유해 이어 간다.
+          // ⚠️ 과거엔 `isTown`만 처리해 **경로 중간의 도시**는 진입점만 찍고 다음 헥스로
+          //    건너뛰었다(큐브가 도시 폭만큼 순간이동). 마을과 다르게 취급할 이유가 없다.
+          void isTown;
           for (let j = 1; j <= pointsPerSegment / 2; j++) {
             const t = j / (pointsPerSegment / 2);
             points.push({

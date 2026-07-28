@@ -5,7 +5,6 @@ import { useGameStore, createInitialGameState } from '@/store/gameStore';
 import {
   cityAcceptsCube,
   findReachableDestinations,
-  getNeighborHex,
 } from '@/utils/hexGrid';
 import { CubeColor, PlayerId, TrackTile } from '@/types/game';
 

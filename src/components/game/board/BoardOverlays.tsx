@@ -25,7 +25,6 @@ interface BoardOverlaysProps {
   currentPhase: GamePhase;
   isFlat: boolean;
   /** 지도 바깥 외곽 실루엣 path (GameBoard useMemo) */
-  mapOutlinePath: string;
   /** 건설 불가 내부 경계 변 path (GameBoard useMemo) */
   blockedEdgePath: string;
   /** 시각 강조 흰 변 (Southern China 해협 — GameBoard가 hexTiles.whiteEdges에서 계산) */
@@ -71,7 +70,6 @@ export default function BoardOverlays({
   board,
   currentPhase,
   isFlat,
-  mapOutlinePath,
   blockedEdgePath,
   whiteEdgePath,
   nightOverlayPath,

@@ -771,7 +771,12 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
         }
       }
     },
-    [currentPhase, ui.buildMode, ui.sourceHex, ui.targetHex, board, currentPlayer, isValidConnectionPoint, isBuildableTarget, getExitEdgeForCoord, selectSourceHex, selectTargetHex, selectExitDirection, redirectTrack, resetBuildMode, canBuildTownSpur, buildTownSpur, boardInteractionBlocked]
+    // ⚠️ 국유화 가로채기(natSelecting·natTileIndex·nationalizeLink)가 이 콜백 **최상단**에
+    //    있으므로 deps에 포함한다. 지금은 대기가 서고 풀리는 모든 사람 경로에서 board 참조도
+    //    함께 바뀌어(applyNationalization·undo·스냅샷 적용) 실전에서 드러나지 않지만,
+    //    board 불변인 채 대기만 바뀌는 경로가 하나라도 생기면 즉시 옛 클로저가 남아
+    //    "대기가 풀렸는데 보드 클릭이 계속 먹통"이 된다. handleHexHover는 이미 포함돼 있다.
+    [currentPhase, ui.buildMode, ui.sourceHex, ui.targetHex, board, currentPlayer, isValidConnectionPoint, isBuildableTarget, getExitEdgeForCoord, selectSourceHex, selectTargetHex, selectExitDirection, redirectTrack, resetBuildMode, canBuildTownSpur, buildTownSpur, boardInteractionBlocked, natSelecting, natTileIndex, nationalizeLink]
   );
 
   // 헥스 호버 핸들러

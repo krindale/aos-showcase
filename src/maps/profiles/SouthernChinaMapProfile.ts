@@ -75,17 +75,23 @@ export class SouthernChinaMapProfile extends StandardMapProfile {
     return true;
   }
 
-  // Hong Kong 렌더는 City.acceptsAllColors가 직접 구동한다 — 회색 헥스 + 헥스 **바깥**
-  // 우하단의 5색 원 그래프(폐쇄 시 그 위에 X), 숫자 박스는 상2색/하3색 세로 분할(BoardCities).
+  // Hong Kong 렌더는 City.acceptsAllColors가 직접 구동한다 — 원본 시트대로 회색 헥스에
+  // 숫자 박스만 상2색(red·blue)/하3색(yellow·purple·black)으로 세로 분할(BoardCities).
+  // 폐쇄(마지막 2턴)는 **빨간 테두리**로 표시한다 — 헥스 바깥 5색 원 그래프와 그 위 X는
+  // 겉돌아 제거했다(2026-07-27). 색 분할이 사라진 것은 비교 대상 없이는 못 알아채는데,
+  // 폐쇄는 마지막 2턴 배달 계획을 바꾸는 규칙이라 명시적 신호가 필요하다.
   // grayRenderCityId(Germany Berlin 단색 회색 훅)는 쓰지 않는다.
 
   /**
    * Gain Support AI 선호 ΔVP — 토큰은 미사용 시 확정 3 VP인데, 행동 슬롯 기회비용과
    * "지금이 아니어도 나중에 얻을 수 있음"을 감안해 3보다 약간 낮은 값을 쓴다.
    * 후반(회수 턴이 없는 시점)일수록 확정 3 VP의 상대 가치가 올라간다.
-   * 100시드 실측: 이 값으로 게임당 8.0회 선택 · 잔여 토큰 3.5개(≈10.5 VP)로 종료.
-   * ⚠️ 봇의 **토큰 반납**은 전 변형이 베이스라인 미달로 기각됐다(반납 없음 = 최선) —
-   * docs/ai-auction-baseline-100seed.md 2026-07-27c. 이 값은 "모으기만" 전제의 튜닝값이다.
+   * 300시드 실측: 게임당 8.0회 선택 · 잔여 토큰 3.26개(≈9.8 VP)로 종료.
+   *
+   * ⚠️ 봇의 토큰 **반납**은 'loco'만 채택돼 있다(strategies/supportToken.ts) — 300시드에서
+   * VP 동률(16.81→16.84)에 파산 20% 감소(0.46→0.37). 100시드로는 "전 변형 기각"으로
+   * 잘못 판정했었다(베이스라인이 노이즈로 0.87 부풀려진 값이었음). 'build' 반납은 VP −2.16
+   * 으로 미구현. 근거·방법론: docs/ai-auction-baseline-100seed.md 2026-07-27c.
    */
   override aiExtraActionVP(action: SpecialAction, state: GameState, _playerId: PlayerId): number {
     if (action !== 'gainSupport') return 0;

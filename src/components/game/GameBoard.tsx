@@ -88,6 +88,12 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   const moveGuideAllowed = useGameStore((s) => s.moveGuideAllowed ?? true);
   const moveGuideEnabled = useGameSettingsStore((s) => s.moveGuideEnabled);
   const moveGuideOn = moveGuideAllowed && moveGuideEnabled;
+  // 화물 이동 선택 UI(목적지 골드 링·최적 경로 점선·선택 큐브 강조)는 **물품 이동 단계에서만**
+  // 그린다. 상태(ui.selectedCube/movePath/reachableDestinations)는 nextPhase의 여러 분기 중
+  // 일부에서만 정리되어, 단계가 바뀌거나 차례가 넘어가도 남아 있던 잔재가 보이던 문제
+  // (2026-07-28 사용자 보고). 상태 정리는 gameStore가 하고, 여기서는 표시를 단계로 잠근다.
+  const moveGoodsPhase = currentPhase === 'moveGoods';
+  const moveGuideVisible = moveGuideOn && moveGoodsPhase;
   // Montréal Repopulation: 배치 대기 큐브가 있는지 (boolean 셀렉터 — 값 변화시만 리렌더)
   const repopPending = useGameStore((s) => (s.phaseState.repopulationCubes?.length ?? 0) > 0);
   // Southern China 국유화 선택 모드 — 대기 중인 플레이어(사람)만 보드에서 링크를 고른다.
@@ -1230,9 +1236,9 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           isCityNight={(city) => isNightCity(city, board)}
           isCityNumberBoxBlack={(cityId, demandColor) => mapProfile.isCityNumberBoxBlack(cityId, demandColor)}
           sourceHex={ui.sourceHex}
-          reachableDestinations={ui.reachableDestinations}
-          showMoveGuide={moveGuideOn}
-          selectedCube={ui.selectedCube}
+          reachableDestinations={moveGoodsPhase ? ui.reachableDestinations : []}
+          showMoveGuide={moveGuideVisible}
+          selectedCube={moveGoodsPhase ? ui.selectedCube : null}
           onHexClick={handleHexClick}
           selectDestinationCity={handleSelectDestination}
           onCubeClick={handleCubeClick}
@@ -1255,10 +1261,10 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           dayBadge={dayBadge}
           borderColor={mapData.colors.border}
           previewTrack={ui.previewTrack}
-          selectedCubeCityId={ui.selectedCube?.cityId ?? null}
-          movePath={moveGuideOn ? ui.movePath : []}
+          selectedCubeCityId={moveGoodsPhase ? (ui.selectedCube?.cityId ?? null) : null}
+          movePath={moveGuideVisible ? ui.movePath : []}
           movingCube={ui.movingCube}
-          routeChoice={ui.routeChoice}
+          routeChoice={moveGoodsPhase ? ui.routeChoice : null}
           players={players}
           selectCube={selectCube}
           selectRouteOption={selectRouteOption}

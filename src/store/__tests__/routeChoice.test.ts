@@ -237,4 +237,33 @@ describe('타인 철도 경로 선택 상태기계', () => {
     useGameStore.getState().selectRouteOption(5);
     expect(useGameStore.getState().ui.routeChoice!.selectedIndex).toBe(0);
   });
+
+  /**
+   * 2026-07-28 사용자 보고 회귀 가드: 선택된 운송 가이드가 차례가 넘어가거나 수송 단계가
+   * 아닐 때도 남아 있었다. nextPhase의 단계 전환 분기들이 **건설 UI만** 손질하고 화물 쪽
+   * (selectedCube·reachableDestinations·movePath·routeOptions·routeChoice)은 어디서도
+   * 지우지 않았기 때문. 분기마다 넣으면 또 새므로 nextPhase 초입에서 일괄 정리한다.
+   */
+  it('nextPhase가 화물 이동 선택 UI를 정리한다 (차례·단계 전환 잔재 방지)', () => {
+    installBoard();
+    useGameStore.getState().selectCube('P', 0);
+    useGameStore.getState().selectDestinationCity(T_COORD);
+
+    // 전제: 선택 상태가 실제로 차 있다
+    const before = useGameStore.getState().ui;
+    expect(before.selectedCube).not.toBeNull();
+    expect(before.reachableDestinations.length).toBeGreaterThan(0);
+    expect(before.movePath.length).toBeGreaterThan(0);
+    expect(before.routeOptions.length).toBeGreaterThan(0);
+    expect(before.routeChoice).not.toBeNull();
+
+    useGameStore.getState().nextPhase();
+
+    const after = useGameStore.getState().ui;
+    expect(after.selectedCube).toBeNull();
+    expect(after.reachableDestinations).toEqual([]);
+    expect(after.movePath).toEqual([]);
+    expect(after.routeOptions).toEqual([]);
+    expect(after.routeChoice).toBeNull();
+  });
 });

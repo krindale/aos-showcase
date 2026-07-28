@@ -83,7 +83,7 @@ export type { AIPlayerConfig } from './helpers/setup';
  * 실행 중인 페이지에선 옛 로직이 계속 돈다(CLAUDE.md "HMR을 의심할 것").
  * 아래 가드가 "페이지 로드 이후 store 모듈이 다시 평가됨"을 감지해 콘솔 경고를 띄운다.
  */
-export const STORE_CODE_VERSION = 9; // 동률 타인 경유 제외 + 목적지 간 빌린 링크 비교(uiSlice)
+export const STORE_CODE_VERSION = 10; // nextPhase가 화물 이동 선택 UI를 정리 (가이드 잔재 제거)
 
 // HMR 스테일 가드 (dev 브라우저 전용 — SSR/vitest 제외).
 // window에 최초 로드 시점 버전을 박아두고, 이 모듈이 다시 평가되면(= store 관련 소스 변경)
@@ -1126,9 +1126,24 @@ export const useGameStore = create<GameStore>()(
 
     // 단계/차례가 넘어가면 이전 행동은 확정 — 실행 취소 스택 비움
     clearUndo();
-    if (currentState.undoCount !== 0) {
-      set({ undoCount: 0 });
-    }
+    // 화물 이동 선택 UI도 함께 확정 정리한다.
+    // ⚠️ 아래 단계 전환 분기들은 **건설 UI만** 손질하고 화물 쪽은 어디서도 지우지 않아,
+    //    단계가 바뀌거나(수송 단계가 아닌데도) 차례가 넘어가도 목적지 골드 링·최적 경로 점선·
+    //    선택 큐브 강조가 남아 있었다 (2026-07-28 사용자 보고). 분기마다 넣으면 또 새는 곳이
+    //    생기므로 모든 경로가 지나는 여기서 한 번에 지운다.
+    //    movingCube는 제외 — 진행 중인 이동 애니메이션은 completeCubeMove가 끝낸다
+    //    (그 액션은 ui를 전부 정리한 뒤 nextPhase를 호출하므로 여기선 이미 비어 있다).
+    set((state) => ({
+      undoCount: 0,
+      ui: {
+        ...state.ui,
+        selectedCube: null,
+        reachableDestinations: [],
+        movePath: [],
+        routeOptions: [],
+        routeChoice: null,
+      },
+    }));
 
     // 자동 단계 로직 실행 (단계 전환 전에 실행)
     if (currentState.currentPhase === 'collectIncome') {

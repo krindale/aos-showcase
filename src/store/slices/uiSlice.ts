@@ -78,9 +78,9 @@ function gateMixedByCubeBest(
       if (!ownOnlyReachable) return r;
       return {
         dest: r.dest,
-        // 내 수입이 큐브 최선 "미만"인 타인 경유만 숨김 — 동률은 합법 대안으로 남긴다
-        // (2026-07-26: 공존 헥스 경유 3링크 등 동률 경로가 통째로 사라지던 문제)
-        options: r.options.filter(o => o.oppLinks === 0 || o.ownLinks >= globalOwnBest),
+        // 내 수입이 큐브 최선을 **넘지 못하는** 타인 경유는 숨긴다 — 동률 포함
+        // (2026-07-28 사용자 지시: 내 수입이 같으면 남에게 헌납일 뿐이라 선택지로도 두지 않는다)
+        options: r.options.filter(o => o.oppLinks === 0 || o.ownLinks > globalOwnBest),
       };
     })
     .filter(r => r.options.length > 0);
@@ -210,13 +210,19 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
           }))
           .filter(r => r.options.length > 0);
         if (!player.isAI) townRouteOptions = gateMixedByCubeBest(townRouteOptions);
+        // 도시 큐브와 같은 기준: 내 수입 최대 → 빌린 링크 최소 → 총 링크 최대
         let bestPath: HexCoord[] = [];
         let bestOwnT = -1;
+        let bestOppT = Infinity;
         let bestTotalT = -1;
         for (const r of townRouteOptions) {
           const d = r.options[0];
-          if (d.ownLinks > bestOwnT || (d.ownLinks === bestOwnT && d.totalLinks > bestTotalT)) {
-            bestOwnT = d.ownLinks; bestTotalT = d.totalLinks; bestPath = d.path;
+          const better =
+            d.ownLinks > bestOwnT
+            || (d.ownLinks === bestOwnT && d.oppLinks < bestOppT)
+            || (d.ownLinks === bestOwnT && d.oppLinks === bestOppT && d.totalLinks > bestTotalT);
+          if (better) {
+            bestOwnT = d.ownLinks; bestOppT = d.oppLinks; bestTotalT = d.totalLinks; bestPath = d.path;
           }
         }
         logAction('goodsMovement', 'townCubeSelect', { player: state.currentPlayer, town: townId, color: cubeColor, cities: reachable.map(c => c.id) });
@@ -271,14 +277,22 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
       // 사람만 큐브 단위 게이트 — 내 수입이 본인-철도-최선을 못 넘는 타인 경유 목적지 숨김
       if (!player.isAI) routeOptions = gateMixedByCubeBest(routeOptions);
 
-      // 화물 선택 시 미리보기 골드 점선: 목적지별 디폴트 중 내 수입 최대(동률이면 총 링크 최대)
+      // 화물 선택 시 미리보기 골드 점선: 목적지별 디폴트 중
+      // 내 수입 최대 → **빌린 링크 최소** → 총 링크 최대 (findRouteOptions 디폴트 정렬과 동일 기준).
+      // ⚠️ oppLinks를 빠뜨리면 내 수입이 동률일 때 "총 링크가 긴 쪽"이 이겨, 본인 철도로 갈 수 있는데도
+      //    남의 철도를 낀 더 먼 목적지가 점선으로 추천된다(2026-07-28 사용자 보고).
       let bestPath: HexCoord[] = [];
       let bestOwn = -1;
+      let bestOpp = Infinity;
       let bestTotal = -1;
       for (const r of routeOptions) {
         const d = r.options[0];
-        if (d.ownLinks > bestOwn || (d.ownLinks === bestOwn && d.totalLinks > bestTotal)) {
-          bestOwn = d.ownLinks; bestTotal = d.totalLinks; bestPath = d.path;
+        const better =
+          d.ownLinks > bestOwn
+          || (d.ownLinks === bestOwn && d.oppLinks < bestOpp)
+          || (d.ownLinks === bestOwn && d.oppLinks === bestOpp && d.totalLinks > bestTotal);
+        if (better) {
+          bestOwn = d.ownLinks; bestOpp = d.oppLinks; bestTotal = d.totalLinks; bestPath = d.path;
         }
       }
 

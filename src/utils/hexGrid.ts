@@ -1320,10 +1320,15 @@ export function findRouteOptions(
   const bestOwnOnly = ownOnly[0] ?? null;
   const threshold = bestOwnOnly ? bestOwnOnly.ownLinks : -1;
 
-  // 타인 경유 후보: 내 수입이 본인-최선 이상인 경로만 → 빌린 소유자 집합 단위로 대표 1개
+  // 타인 경유 후보: 내 수입이 본인-최선을 **넘는** 경로만 → 빌린 소유자 집합 단위로 대표 1개.
+  // ⚠️ 동률(=)은 제외한다 (2026-07-28 사용자 지시): 내 수입이 같은데 남의 철도를 끼면
+  // 상대에게 수입만 헌납하는 선택지라 목록에 띄울 이유가 없다. 디폴트가 아니라 "선택지로만
+  // 남기는" 것도 안 된다는 지시. (2026-07-26엔 합법 경로 보존 취지로 동률을 노출했었다 —
+  // 다만 그때 실제로 고친 버그는 공존 헥스 2회 통과(pathVisitKey)였고 동률 노출은 곁들인
+  // 정책 완화라, 되돌려도 그 버그는 재발하지 않는다.)
   const bySet = new Map<string, RouteOption>();
   for (const o of scored) {
-    if (o.oppLinks === 0 || o.ownLinks < threshold) continue;
+    if (o.oppLinks === 0 || o.ownLinks <= threshold) continue;
     const key = [...o.owners].sort().join('|');
     const cur = bySet.get(key);
     if (!cur || cmp(o, cur) < 0) bySet.set(key, o);

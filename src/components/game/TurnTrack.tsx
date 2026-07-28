@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { Crown } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
@@ -59,6 +60,18 @@ export default function TurnTrack({
   };
   const govController = controllerForTurn(currentTurn);
   const govControllerNext = controllerForTurn(currentTurn + 1);
+
+  /**
+   * "새로운 순서" 영역이 다 펼쳐졌는지. `width: 0 → auto` 애니메이션에는 overflow-hidden이
+   * 필요하지만, **펼쳐진 뒤에도 켜져 있으면** 포기할 때마다 채워지는 색 원의 스프링
+   * overshoot(POP_SPRING = stiffness 480·damping 16 → 감쇠비 ≈0.37이라 scale이 1을 넘어 튄다)이
+   * 네모 경계에서 잘린다 (2026-07-28 사용자 보고). 그래서 펼침이 끝나면 해제한다.
+   * 닫힐 때(showNewOrder=false)는 이 effect가 먼저 돌아 다시 잘라주므로 exit의 width→0도 깔끔하다.
+   */
+  const [newOrderExpanded, setNewOrderExpanded] = useState(false);
+  useEffect(() => {
+    if (!showNewOrder) setNewOrderExpanded(false);
+  }, [showNewOrder]);
 
   return (
     <>
@@ -163,7 +176,8 @@ export default function TurnTrack({
                 animate={{ opacity: 1, width: 'auto' }}
                 exit={{ opacity: 0, width: 0 }}
                 transition={{ duration: 0.3, ease: 'easeOut' }}
-                className="flex items-center gap-3 overflow-hidden"
+                onAnimationComplete={() => { if (showNewOrder) setNewOrderExpanded(true); }}
+                className={`flex items-center gap-3 ${newOrderExpanded ? '' : 'overflow-hidden'}`}
               >
                 <div className="w-px h-6 bg-foreground/10 flex-none" />
                 <div className="flex items-center gap-2">

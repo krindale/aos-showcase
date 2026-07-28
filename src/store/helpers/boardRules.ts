@@ -15,7 +15,9 @@ export function maxTracksForBuilder(state: Pick<GameState, 'mapId' | 'players'>,
   const profile = getMapProfile(state.mapId);
   const base = profile.buildsPerTurn;
   const isEngineer = state.players[playerId]?.selectedAction === 'engineer';
-  return isEngineer && !profile.engineerHalfCost ? base + 1 : base;
+  const withEngineer = isEngineer && !profile.engineerHalfCost ? base + 1 : base;
+  // Southern China: 지지 토큰 반납 효과 ① — 이번 턴 건설 4개 (Engineer가 없는 맵이라 중첩 없음)
+  return state.players[playerId]?.supportBuildActive ? Math.max(withEngineer, 4) : withEngineer;
 }
 
 /**

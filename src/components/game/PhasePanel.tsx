@@ -15,7 +15,9 @@ import {
   HexCoord,
   PlayerId,
 } from '@/types/game';
-import { getPathLinkOwners } from '@/utils/hexGrid';
+import { getPathLinkOwners, hexCoordsEqual } from '@/utils/hexGrid';
+import { getMapData } from '@/utils/mapRegistry';
+import { eligibleNationalizationTargets } from '@/store/helpers/nationalization';
 import {
   FileText,
   Users,
@@ -40,6 +42,7 @@ import {
   Landmark,
   type LucideIcon,
   Feather,
+  Handshake,
 } from 'lucide-react';
 import AuctionPanel from './AuctionPanel';
 import TurnOrderOfferPanel from './TurnOrderOfferPanel';
@@ -90,6 +93,7 @@ const ACTION_SHORT: Record<SpecialAction, string> = {
   production: '큐브 2개 보충',
   turnOrder: '다음 경매 패스',
   lowGravitation: '타인 링크 수입 1',
+  gainSupport: '지지 토큰 +1',
 };
 
 /** 행동 선택 버튼 아이콘 — 특수 액션 페이지(/actions)·도움말과 동일 */
@@ -102,6 +106,7 @@ export const ACTION_ICONS: Record<SpecialAction, LucideIcon> = {
   production: Boxes,
   turnOrder: ListOrdered,
   lowGravitation: Feather,
+  gainSupport: Handshake,
 };
 
 export default function PhasePanel() {
@@ -134,7 +139,7 @@ export default function PhasePanel() {
 
   // AI 실행 중 여부 (버튼 비활성화에 사용)
   const isAIExecuting = aiExecution.pending;
-  const { nextPhase, selectAction, upgradeEngine, cancelSelection, undoLastAction } = useGameStore();
+  const { nextPhase, selectAction, upgradeEngine, cancelSelection, undoLastAction, spendSupportToken } = useGameStore();
 
   // Montréal Repopulation 배치 UI 상태 — 큐브 선택은 스토어 ui(보드 도시 클릭으로 배치)
   const repopCubes = phaseState.repopulationCubes ?? [];
@@ -145,6 +150,19 @@ export default function PhasePanel() {
   const routeChoice = useGameStore((s) => s.ui.routeChoice);
   const routeBoard = useGameStore((s) => s.board);
   const { selectRouteOption, confirmRouteChoice } = useGameStore();
+
+  // Southern China 국유화 대기 (디스크 4개 초과 — 완성 링크 하나를 골라 국유화)
+  const nationalizationPending = useGameStore((s) => s.nationalizationPending ?? null);
+  const currentTurnForNat = useGameStore((s) => s.currentTurn);
+  const { nationalizeLink } = useGameStore();
+  /** 좌표의 정거장 이름 (도시 이름 / 마을 이름 / 좌표) — 국유화 대상 링크 표시용 */
+  const stationName = (coord: HexCoord): string => {
+    const city = routeBoard.cities.find((c) => hexCoordsEqual(c.coord, coord));
+    if (city) return city.name;
+    const town = routeBoard.towns.find((t) => hexCoordsEqual(t.coord, coord));
+    if (town) return getMapData(mapId).townNames?.[town.id] ?? town.id;
+    return `(${coord.col},${coord.row})`;
+  };
 
   /** 후보 경로의 주인별 실제 수입(+n) — 정산 미러(getPathLinkOwners) 기준.
    *  ⚠️ opt.oppLinks(총합)를 주인마다 찍으면 "각자 +총합"처럼 보이는 표시 버그가 된다(실전 발견).
@@ -373,15 +391,6 @@ export default function PhasePanel() {
               otherTurnNote
             ) : (
               <div className="flex gap-2">
-                {hasActiveSelection && (
-                  <button
-                    onClick={cancelSelection}
-                    className="flex-shrink-0 min-h-[44px] px-3 py-3 md:py-2 rounded-lg text-sm font-medium bg-steam-red/10 text-steam-red border border-steam-red/30 hover:bg-steam-red/20 transition-colors flex items-center justify-center gap-1"
-                    aria-label="선택 취소"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
                 <button
                   onClick={() => {
                     // 원본 룰: 관리자는 정부 링크를 반드시 건설 — 안 짓고 넘어가면 확인을 받는다
@@ -395,6 +404,17 @@ export default function PhasePanel() {
                   건설 완료 — 주식 발행으로
                   <ChevronRight className="w-4 h-4" />
                 </button>
+                {/* 취소 계열은 진행 버튼 우측에 통일 */}
+                {hasActiveSelection && (
+                  <button
+                    onClick={cancelSelection}
+                    className="flex-shrink-0 min-h-[44px] px-3 py-3 md:py-2 rounded-lg text-sm font-medium bg-steam-red/10 text-steam-red border border-steam-red/30 hover:bg-steam-red/20 transition-colors flex items-center justify-center"
+                    aria-label="선택 취소"
+                    title="선택 취소"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
                 {undoButton}
               </div>
             )}
@@ -612,12 +632,13 @@ export default function PhasePanel() {
                   })}
                 </div>
                 {currentPlayerData.selectedAction && (
-                  <>
-                    <div className="mt-3 md:mt-4">{undoButton}</div>
+                  // 취소 버튼은 진행 버튼과 **같은 행**에 둔다 — 세로로 쌓으면 취소 가능 상태가
+                  // 될 때마다 패널 높이가 늘어 화면 전체가 밀린다(사용자 피드백)
+                  <div className="flex gap-2 mt-3 md:mt-4">
                     <button
                       onClick={handleNextPhase}
                       disabled={isAIExecuting}
-                      className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 mt-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex-1 min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                       aria-label="다음 단계로"
                     >
                       {players.player1.selectedAction && players.player2.selectedAction
@@ -625,7 +646,8 @@ export default function PhasePanel() {
                         : `${currentPlayer === 'player1' ? players.player2.name : players.player1.name} 차례로`}
                       <ChevronRight className="w-4 h-4" />
                     </button>
-                  </>
+                    {undoButton}
+                  </div>
                 )}
               </>
             )}
@@ -667,20 +689,28 @@ export default function PhasePanel() {
                     : '• Engineer: 4개까지 건설 가능!'}
                 </p>
               )}
+              {currentPlayerData.supportBuildActive && (
+                <p className="text-[10px] md:text-xs text-accent mt-1">
+                  • 지지 토큰: 이번 턴 4개까지 건설!
+                </p>
+              )}
             </div>
             {isMyTurn ? (
               <>
-                {hasActiveSelection && !currentPlayerData.isAI && (
-                  <button
-                    onClick={cancelSelection}
-                    className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-steam-red/10 text-steam-red border border-steam-red/30 hover:bg-steam-red/20 transition-colors flex items-center justify-center gap-2"
-                    aria-label="선택 취소"
-                  >
-                    <X className="w-4 h-4" />
-                    선택 취소
-                  </button>
-                )}
-                {undoButton}
+                {/* Southern China: 지지 토큰 반납 → 이번 턴 건설 4개 */}
+                {getMapProfile(mapId).supportTokensRule &&
+                  !currentPlayerData.isAI &&
+                  !currentPlayerData.supportBuildActive &&
+                  (currentPlayerData.supportTokens ?? 0) > 0 && (
+                    <button
+                      onClick={() => spendSupportToken(currentPlayer, 'build')}
+                      className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-positive/10 text-positive border border-positive/30 hover:bg-positive/20 transition-colors flex items-center justify-center gap-2"
+                      aria-label="지지 토큰 사용: 건설 4개"
+                    >
+                      <Handshake className="w-4 h-4" />
+                      지지 토큰 사용 — 건설 4개 (보유 {currentPlayerData.supportTokens})
+                    </button>
+                  )}
                 {incompleteBlocks && (
                   <div className="p-2 md:p-3 rounded-lg bg-steam-red/10 border border-steam-red/30 text-[11px] md:text-xs text-steam-red flex items-start gap-1.5">
                     <span className="mt-0.5">⚠️</span>
@@ -690,10 +720,38 @@ export default function PhasePanel() {
                     </span>
                   </div>
                 )}
+                {/* Southern China: 소유 디스크 초과 — 국유화할 완성 링크 선택 (해소 전 진행 불가) */}
+                {nationalizationPending?.playerId === currentPlayer && !currentPlayerData.isAI && (
+                  <div className="p-2 md:p-3 rounded-lg bg-steam-red/10 border border-steam-red/30 space-y-1.5">
+                    <p className="text-[11px] md:text-xs font-semibold text-steam-red">
+                      소유 디스크 4개 초과! 국유화할 링크를 선택하세요
+                    </p>
+                    <p className="text-[10px] md:text-xs text-foreground-secondary">
+                      국유화된 링크는 누구나 쓰지만 수입·승점이 없습니다. 보상: 지지 토큰 1 + 구간당 $1.
+                    </p>
+                    <p className="text-[10px] md:text-xs text-accent">
+                      보드에서 <b>깜빡이는 철도를 직접 클릭</b>해도 됩니다 (마우스를 올리면 그 링크 전체가 강조).
+                    </p>
+                    {eligibleNationalizationTargets(routeBoard, currentPlayer, currentTurnForNat).map((l) => (
+                      <button
+                        key={l.id}
+                        onClick={() => nationalizeLink(currentPlayer, l.id)}
+                        className="w-full text-left px-2 py-1.5 rounded-md text-[11px] md:text-xs border border-foreground/15 hover:bg-background/70 text-foreground transition-colors"
+                        aria-label={`${stationName(l.startCity)}↔${stationName(l.endCity)} 국유화`}
+                      >
+                        {stationName(l.startCity)} ↔ {stationName(l.endCity)} · {Math.max(1, l.trackTiles.length)}구간
+                        {l.trackTiles.length === 0 && ' (직결 링크)'}
+                        <span className="text-positive"> (+토큰 1, +${Math.max(1, l.trackTiles.length)})</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {/* 취소 계열은 진행 버튼 우측에 나란히 — 패널이 세로로 늘어나지 않게 */}
+                <div className="flex gap-2">
                 <button
                   onClick={handleNextPhase}
-                  disabled={isAIExecuting || incompleteBlocks}
-                  className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={isAIExecuting || incompleteBlocks || nationalizationPending?.playerId === currentPlayer}
+                  className="flex-1 min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   aria-label="다음 단계로"
                   title={incompleteBlocks ? '완성되지 않은 철도가 있어 넘어갈 수 없어요' : undefined}
                 >
@@ -714,6 +772,18 @@ export default function PhasePanel() {
                   })()}
                   <ChevronRight className="w-4 h-4" />
                 </button>
+                {hasActiveSelection && !currentPlayerData.isAI && (
+                  <button
+                    onClick={cancelSelection}
+                    className="flex-shrink-0 min-h-[44px] px-3 py-3 md:py-2 rounded-lg text-sm font-medium bg-steam-red/10 text-steam-red border border-steam-red/30 hover:bg-steam-red/20 transition-colors flex items-center justify-center"
+                    aria-label="선택 취소"
+                    title="선택 취소"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+                {undoButton}
+                </div>
               </>
             ) : (
               otherTurnNote
@@ -743,6 +813,11 @@ export default function PhasePanel() {
               {currentPlayerData.selectedAction === 'firstMove' && (
                 <p className="text-[10px] md:text-xs text-accent mt-1">
                   • First Move: 먼저 이동!
+                </p>
+              )}
+              {currentPlayerData.supportLocoActive && (
+                <p className="text-[10px] md:text-xs text-accent mt-1">
+                  • 지지 토큰: 이번 수송 단계 기관차 +1! (실효 {currentPlayerData.engineLevel + 1} 링크)
                 </p>
               )}
             </div>
@@ -797,16 +872,20 @@ export default function PhasePanel() {
                     </button>
                   </div>
                 )}
-                {hasActiveSelection && !currentPlayerData.isAI && (
-                  <button
-                    onClick={cancelSelection}
-                    className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-steam-red/10 text-steam-red border border-steam-red/30 hover:bg-steam-red/20 transition-colors flex items-center justify-center gap-2"
-                    aria-label="선택 취소"
-                  >
-                    <X className="w-4 h-4" />
-                    선택 취소
-                  </button>
-                )}
+                {/* Southern China: 지지 토큰 반납 → 이번 수송 단계 양 라운드 기관차 +1 */}
+                {getMapProfile(mapId).supportTokensRule &&
+                  !currentPlayerData.isAI &&
+                  !currentPlayerData.supportLocoActive &&
+                  (currentPlayerData.supportTokens ?? 0) > 0 && (
+                    <button
+                      onClick={() => spendSupportToken(currentPlayer, 'loco')}
+                      className="w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-positive/10 text-positive border border-positive/30 hover:bg-positive/20 transition-colors flex items-center justify-center gap-2"
+                      aria-label="지지 토큰 사용: 기관차 +1"
+                    >
+                      <Handshake className="w-4 h-4" />
+                      지지 토큰 사용 — 기관차 +1 (보유 {currentPlayerData.supportTokens})
+                    </button>
+                  )}
                 <button
                   onClick={() => upgradeEngine()}
                   disabled={isAIExecuting || currentPlayerData.engineLevel >= GAME_CONSTANTS.MAX_ENGINE || phaseState.playerMoves[currentPlayer]}
@@ -815,6 +894,8 @@ export default function PhasePanel() {
                 >
                   엔진 업그레이드 (+1 링크)
                 </button>
+                {/* 취소 계열은 진행 버튼 우측에 나란히 — 패널이 세로로 늘어나지 않게 */}
+                <div className="flex gap-2">
                 <button
                   onClick={() => {
                     // 인간 플레이어가 아직 이동하지 않았으면 확인
@@ -825,7 +906,7 @@ export default function PhasePanel() {
                     handleNextPhase();
                   }}
                   disabled={isAIExecuting}
-                  className={`w-full min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                  className={`flex-1 min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
                     !currentPlayerData.isAI && !phaseState.playerMoves[currentPlayer]
                       ? 'bg-foreground/10 text-foreground-secondary hover:bg-foreground/20 border border-foreground/20'
                       : 'bg-accent text-background hover:bg-accent-light'
@@ -855,7 +936,18 @@ export default function PhasePanel() {
                   })()}
                   <ChevronRight className="w-4 h-4" />
                 </button>
+                {hasActiveSelection && !currentPlayerData.isAI && (
+                  <button
+                    onClick={cancelSelection}
+                    className="flex-shrink-0 min-h-[44px] px-3 py-3 md:py-2 rounded-lg text-sm font-medium bg-steam-red/10 text-steam-red border border-steam-red/30 hover:bg-steam-red/20 transition-colors flex items-center justify-center"
+                    aria-label="선택 취소"
+                    title="선택 취소"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
                 {undoButton}
+                </div>
               </>
             ) : (
               otherTurnNote

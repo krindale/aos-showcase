@@ -86,9 +86,10 @@ describe('findRouteOptions — 게이트/디폴트/중복 제거', () => {
     expect(options[1].owners).toEqual([]);
   });
 
-  it('타인 경유 동률은 선택지로 남고 디폴트는 본인 철도다 (2026-07-26 정책)', () => {
+  it('타인 경유 동률은 아예 노출되지 않는다 (2026-07-28 정책)', () => {
     // 윗길은 P→M만 내 것, M→N·N→T 전부 타인 → 윗길 내1+타2. 아랫길 내1.
-    // 내 수입 동률(1=1) — 과거엔 제외했으나 합법 경로이므로 비-디폴트 선택지로 노출.
+    // 내 수입 동률(1=1) — 내 수입이 같은데 남의 철도를 끼면 상대에게 헌납일 뿐이라
+    // 디폴트는 물론 **선택지로도 두지 않는다**(사용자 지시로 2026-07-26 노출 정책을 되돌림).
     const b2 = board(
       [city('P', 'red', 0, 1), city('M', 'yellow', 2, 0), city('N', 'yellow', 4, 0), city('T', 'blue', 6, 1)],
       [
@@ -105,13 +106,10 @@ describe('findRouteOptions — 게이트/디폴트/중복 제거', () => {
       ]
     );
     const options = findRouteOptions(P_COORD, T_COORD, b2, P1, 4, 'blue');
-    expect(options).toHaveLength(2);
-    expect(options[0].oppLinks).toBe(0); // 디폴트 = 본인 철도
+    expect(options).toHaveLength(1);          // 본인 철도 경로 하나만
+    expect(options[0].oppLinks).toBe(0);
     expect(options[0].ownLinks).toBe(1);
-    expect(options[1].ownLinks).toBe(1); // 동률 타인 경유는 비-디폴트 선택지
-    expect(options[1].oppLinks).toBe(2);
-    // 내 수입이 본인-최선 "미만"인 경로는 여전히 숨김 — 엔진을 줄여 윗길 내0(내 타일 미경유) 상황은
-    // 별도 케이스라 여기선 동률만 검증
+    // 내 수입이 본인-최선 "미만"인 경로도 물론 숨김 (이제 미만·동률 모두 제외)
   });
 
   it('본인 철도만으론 도달 불가한 목적지는 타인 경유 경로가 열린다 (2ⓑ)', () => {
@@ -190,13 +188,12 @@ describe('findRouteOptions — 달 저중력 크레딧 (수입 이전 반영)', 
     ]
   );
 
-  it('크레딧 없음: 내 수입이 같은 타인 경유는 비-디폴트 선택지로만 남는다', () => {
+  it('크레딧 없음: 내 수입이 같은 타인 경유는 노출되지 않는다', () => {
     const options = findRouteOptions({ col: 0, row: 1 }, { col: 4, row: 1 }, lowGravBoard(), P1, 4, 'blue');
     expect(options[0].owners).toEqual([]); // 디폴트 = 본인 철도
     expect(options[0].ownLinks).toBe(1);
-    // 동률 타인 경유는 선택지로 노출되나 디폴트가 아니다 (2026-07-26 정책)
-    const mixed = options.find(o => o.oppLinks > 0);
-    expect(mixed?.ownLinks).toBe(1);
+    // 동률 타인 경유는 선택지에서도 제외 (2026-07-28 정책) — 저중력 크레딧이 붙어야 비로소 등장
+    expect(options.find(o => o.oppLinks > 0)).toBeUndefined();
   });
 
   it('lowGravCredit: 빌린 링크 1개 수입 이전이 반영돼(own+1/opp−1) 경유 경로가 최선이 된다', () => {
@@ -277,7 +274,7 @@ describe('교차/공존 헥스 2회 통과 (2026-07-26 사용자 발견 — 한�
     trk(7, 5, [1, 3], P1),
   ];
 
-  it('같은 공존 헥스의 독립된 두 트랙을 각각 한 번씩 지나는 3링크 경로를 찾는다', () => {
+  it('본인 2링크길이 있으면 동률(내2) 혼합 3링크는 노출되지 않는다 (2026-07-28 정책)', () => {
     const b = board(cities(), [
       ...coexistTracks(),
       trk(8, 7, [4, 5], P1),  // 2링크 본인길
@@ -288,14 +285,10 @@ describe('교차/공존 헥스 2회 통과 (2026-07-26 사용자 발견 — 한�
     expect(options[0].ownLinks).toBe(2);
     expect(options[0].oppLinks).toBe(0);
     expect(options[0].totalLinks).toBe(2);
-    // 동률(내2) 3링크 혼합 경로도 선택지로 노출 — (9,5)를 두 번 지나는 경로
-    const mixed = options.find(o => o.oppLinks > 0);
-    expect(mixed).toBeDefined();
-    expect(mixed!.ownLinks).toBe(2);
-    expect(mixed!.oppLinks).toBe(1);
-    expect(mixed!.totalLinks).toBe(3);
-    expect(mixed!.owners).toEqual([P2]);
-    expect(mixed!.path.filter(c => c.col === 9 && c.row === 5)).toHaveLength(2);
+    // 내 수입이 같은(내2) 혼합 3링크는 상대에게 +1을 헌납할 뿐이라 선택지에서도 제외.
+    // ⚠️ **경로 탐색 자체**(공존 헥스 2회 통과 — 2026-07-26 실버그)는 아래
+    //    "유일한 길" 테스트가 계속 지킨다. 여기서 안 보이는 건 탐색이 아니라 게이트 때문이다.
+    expect(options.find(o => o.oppLinks > 0)).toBeUndefined();
   });
 
   it('공존 헥스 2회 통과가 유일한 길이어도 목적지가 누락되지 않는다 (findReachableDestinations)', () => {

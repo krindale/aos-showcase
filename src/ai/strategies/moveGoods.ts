@@ -11,7 +11,7 @@
 
 import { GameState, PlayerId, HexCoord, CubeColor } from '@/types/game';
 import { findReachableDestinations, findRouteOptions, hexCoordsEqual, findTrackCubeDeliveries } from '@/utils/hexGrid';
-import { calculateVictoryPoints } from '@/utils/gameLogic';
+import { calculateVictoryPoints, playerBonusVP, effectiveEngineLevel } from '@/utils/gameLogic';
 import { calculateTrackScore } from '@/utils/trackValidation';
 import { getSelectedStrategy, getCurrentRoute } from '../strategy/state';
 import { getConnectedCities } from '../strategy/analyzer';
@@ -73,7 +73,9 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
   const govExtra = profile.dedicatedGovEngine ? (player.dgel ?? 0) : 0;
   // 타인 철도 개방(전 맵, 룰북): 타인 링크는 엔진 한도 내 무제한 — 본인 철도 우선 게이트와
   // "최저 VP 주인에게 수입 주기" 디폴트는 findRouteOptions가 사람 UI와 동일하게 적용.
-  const oppExtra = player.engineLevel;
+  // 실효 엔진 = engineLevel + 지지 토큰 임시 +1 (Southern China, 다른 맵 항등)
+  const myEngine = effectiveEngineLevel(state.players, playerId);
+  const oppExtra = myEngine;
   // 달(Moon) 저중력 보유: 빌린 링크 1개 수입 이전(applyLowGravitation)을 경로 수치에 반영
   const lowGravCredit = player.selectedAction === 'lowGravitation';
   // 후보 정렬용 상대 점수(VP) — 사람 UI(uiSlice.ownerScoreOf)와 동일 공식
@@ -81,7 +83,7 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
   for (const pid of state.activePlayers) {
     const p = state.players[pid];
     if (!p) continue;
-    ownerScore[pid] = calculateVictoryPoints(p.income, calculateTrackScore(board, pid), p.issuedShares);
+    ownerScore[pid] = calculateVictoryPoints(p.income, calculateTrackScore(board, pid), p.issuedShares, playerBonusVP(p));
   }
   const candidates: MoveCandidate[] = [];
 
@@ -97,7 +99,7 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
   ) => {
     for (let cubeIndex = 0; cubeIndex < cubes.length; cubeIndex++) {
       const cubeColor = cubes[cubeIndex];
-      const reachable = findReachableDestinations(sourceCoord, board, playerId, player.engineLevel, cubeColor, govExtra, oppExtra);
+      const reachable = findReachableDestinations(sourceCoord, board, playerId, myEngine, cubeColor, govExtra, oppExtra);
       if (reachable.length === 0) continue;
 
       // 선점 보너스용 상대 도달 집합 — (출발지·큐브)당 상대별 1회만 계산해 목적지 루프에서 재사용
@@ -113,7 +115,7 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
         // 목적지별 대표 경로 = findRouteOptions 디폴트([0]) — 사람 UI와 동일 정책
         // (내 수입 최대 → 최저 VP 주인 → 빌린 링크 최소, 저중력 수입 이전 반영)
         const opt = findRouteOptions(
-          sourceCoord, destCity.coord, board, playerId, player.engineLevel, cubeColor,
+          sourceCoord, destCity.coord, board, playerId, myEngine, cubeColor,
           govExtra, ownerScore, lowGravCredit
         )[0];
         if (!opt || opt.path.length < 2) continue;
@@ -198,7 +200,7 @@ export function decideMoveGoods(state: GameState, playerId: PlayerId): MoveGoods
   let bestTrackCube: { trackId: string; destCityId: string; deltaVP: number } | null = null;
   for (const track of board.trackTiles) {
     if (!track.cube) continue;
-    for (const delivery of findTrackCubeDeliveries(board, track.id, player.engineLevel, playerId)) {
+    for (const delivery of findTrackCubeDeliveries(board, track.id, myEngine, playerId)) {
       const vp = deliveryDeltaVP(state, playerId, delivery.ownIncome, delivery.oppIncome);
       if (!bestTrackCube || vp > bestTrackCube.deltaVP) {
         bestTrackCube = { trackId: track.id, destCityId: delivery.city.id, deltaVP: vp };
@@ -399,6 +401,46 @@ function findBestUnlockedDelivery(
   }
 
   return best;
+}
+
+/**
+ * 엔진 +1의 **증분** 가치: (엔진 +1 최선 배달 ΔVP) − (현재 엔진 최선 배달 ΔVP).
+ *
+ * ⚠️ 해금 배달의 **총 ΔVP**가 아니다 — 지지 토큰 'loco' 판단에 총액을 쓰면 "엔진 없이도
+ * 거의 같은 값의 짧은 배달이 가능한" 상황까지 반납으로 오판한다(100시드 실측 VP −4.31).
+ * 엔진이 없을 때의 차선을 빼야 토큰 3 VP와 옳게 비교된다.
+ *
+ * 두 값을 한 번의 전수 탐색으로 함께 구한다(탐색이 비싸 두 번 도는 것을 피함).
+ */
+export function engineUpgradeDeliveryGain(
+  state: GameState,
+  playerId: PlayerId,
+  baseEngine: number,
+): number {
+  const player = state.players[playerId];
+  if (!player) return -Infinity;
+  const { board } = state;
+  const upEngine = baseEngine + 1;
+  let bestBase = 0;   // 배달을 아예 안 해도 손해는 없으므로 하한 0
+  let bestUp = 0;
+
+  for (const city of board.cities) {
+    for (let ci = 0; ci < city.cubes.length; ci++) {
+      const cubeColor = city.cubes[ci];
+      const reachable = findReachableDestinations(city.coord, board, playerId, upEngine, cubeColor, 0, upEngine);
+
+      for (const destCity of reachable) {
+        const opt = findRouteOptions(city.coord, destCity.coord, board, playerId, upEngine, cubeColor)[0];
+        if (!opt || opt.path.length < 2 || opt.ownLinks < 1) continue;
+
+        const value = deliveryDeltaVP(state, playerId, opt.ownLinks, opt.oppLinks);
+        if (value > bestUp) bestUp = value;
+        if (opt.totalLinks <= baseEngine && value > bestBase) bestBase = value;
+      }
+    }
+  }
+
+  return bestUp - bestBase;
 }
 
 /**

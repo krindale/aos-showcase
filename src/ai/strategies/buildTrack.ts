@@ -14,6 +14,8 @@ import {
   touchesClaimableUnownedTrack,
 } from '@/utils/trackValidation';
 import { hexCoordsEqual, hexDistance, getNeighborHex, getOppositeEdge, playerEdgesAtTrack, cityEverAcceptsCube, cityAcceptsCube } from '@/utils/hexGrid';
+// 순수 헬퍼(types+hexGrid만 의존)라 ai→store 순환 없음 — 디스크 카운트는 store와 동일 소스 공유
+import { countOwnershipUnits } from '@/store/helpers/nationalization';
 import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, incrementInvestedTracks } from '../strategy/state';
 import { getNextTargetRoute, findNextTargetRoute, getTopPriorityRoutes } from '../strategy/selector';
 import { getMapAIConfig } from '../strategy/mapConfig';
@@ -38,6 +40,7 @@ export type TrackBuildDecision =
   | { action: 'build'; coord: HexCoord; edges: [number, number] }
   | { action: 'buildComplex'; coord: HexCoord; edges: [number, number]; trackType: 'crossing' | 'coexist' }
   | { action: 'buildSpur'; townCoord: HexCoord } // 마을 가닥 단독 건설 (미연결 트랙의 연결 완성)
+  | { action: 'buildDirectLink'; cityA: string; cityB: string } // 직결 링크/인터어반/페리 구매
   | { action: 'skip' }; // 건설 스킵
 
 // ===== 모듈 레벨: 건설 실패 좌표 추적 (턴 기반 자동 초기화) =====
@@ -57,6 +60,102 @@ function isFailedCoord(playerId: PlayerId, coord: HexCoord, currentTurn: number)
   const entry = failedBuildCoords.get(playerId);
   if (!entry || entry.turn !== currentTurn) return false;
   return entry.coords.some(c => hexCoordsEqual(c, coord));
+}
+
+/**
+ * 두 도시를 "타일 1개"로 잇는 대안의 최저 건설비 — 두 도시 모두에 인접한 건설 가능 헥스의
+ * 최저 비용 (없으면 Infinity). 직결 링크 구매가 이 값보다 비싸면 타일이 항상 우월하다
+ * (같은 링크 + 트랙 구간 VP까지 얻으므로).
+ */
+function cheapestOneTileAlternative(board: GameState['board'], aCoord: HexCoord, bCoord: HexCoord): number {
+  let best = Infinity;
+  for (let e = 0; e < 6; e++) {
+    const h = getNeighborHex(aCoord, e, board);
+    // b에도 인접한가
+    const adjacentToB = [0, 1, 2, 3, 4, 5].some(e2 => hexCoordsEqual(getNeighborHex(bCoord, e2, board), h));
+    if (!adjacentToB) continue;
+    // 건설 가능 지형인가 (도시/마을/호수 제외)
+    if (board.cities.some(c => hexCoordsEqual(c.coord, h))) continue;
+    if (board.towns.some(t => hexCoordsEqual(t.coord, h))) continue;
+    const hex = board.hexTiles.find(x => hexCoordsEqual(x.coord, h));
+    if (!hex || hex.terrain === 'lake') continue;
+    const cost = getTerrainBuildCost(h, board); // fixedCost 우선 포함
+    if (cost < best) best = cost;
+  }
+  return best;
+}
+
+/**
+ * 직결 링크(인터어반/페리 — 남부 중국 $8, Germany $2, Korea 수원) 구매 평가.
+ * 미건설 직결 링크 중 "지금 그 링크로 건너갈 수 있는 큐브"(양 방향 합)가 문턱 이상이고
+ * 자금·턴당 제한·디스크 여유가 되면 구매를 결정한다 (건설 1회 소비 — 슬롯 경쟁은 이 판정이
+ * 타일 건설보다 먼저 온다는 것으로 대신하되, 문턱을 큐브 2개 이상으로 잡아 남발을 막는다).
+ * 반환 null = 구매 안 함 (직결 링크가 없는 맵은 항상 null = 항등).
+ */
+function evaluateDirectLinkPurchase(
+  state: GameState,
+  playerId: PlayerId
+): { action: 'buildDirectLink'; cityA: string; cityB: string } | null {
+  const board = state.board;
+  const unbuilt = (board.directLinks ?? []).filter(d => d.owner === null);
+  if (unbuilt.length === 0) return null;
+  const player = state.players[playerId];
+  if (!player) return null;
+  const profile = getMapProfile(state.mapId);
+
+  // 동적 색상 맵(Korea): 도시 수요가 현재 큐브를 따라 변해 "건너갈 큐브 수" 평가가 시점에
+  // 따라 무의미 — 구매하지 않는다 (100시드 실측: 문턱 2 구매가 VP 49.23→46.96 회귀).
+  if (board.dynamicCityColors) return null;
+
+  // 남부 중국: 인터어반/페리는 플레이어당 턴 1개
+  if (profile.interurbanFerryRule) {
+    const boughtThisTurn =
+      (board.directLinks ?? []).some(d => d.owner === playerId && d.builtTurn === state.currentTurn) ||
+      (board.ferryEdges ?? []).some(f => f.owner === playerId && f.builtTurn === state.currentTurn);
+    if (boughtThisTurn) return null;
+  }
+
+  // 디스크 상한 맵: 구매(+1디스크)가 상한을 넘기면 사지 않는다 — 봇 구매는 국유화를 강제하지
+  // 않는 범위에서만. ⚠️ 반드시 **전체 단위 수(미완성 구간 포함, countOwnershipUnits)**로 판정 —
+  // 링크+직결만 세는 근사는 구간 2개를 가진 봇이 구매로 5단위가 되는 구멍(불변식 위반 실측:
+  // 관측 최대 5 > 상한 4, 이번 턴 링크뿐이라 국유화 대상도 없는 상태)을 만들었다.
+  const discLimit = profile.ownershipDiscLimit;
+  if (discLimit !== null) {
+    if (countOwnershipUnits(board, playerId) + 1 > discLimit) return null;
+  }
+
+  const turnsLeft = state.maxTurns - state.currentTurn + 1;
+  if (turnsLeft < 2) return null; // 마지막 턴 구매는 회수 불가 (VP +1뿐 — 비용이 더 큼)
+
+  let best: { cityA: string; cityB: string; value: number } | null = null;
+  for (const dl of unbuilt) {
+    const a = board.cities.find(c => c.id === dl.cityA);
+    const b = board.cities.find(c => c.id === dl.cityB);
+    if (!a || !b) continue;
+    // 자금: 링크 비용 + 최소 예비금 + 여유 버퍼 — 고가 링크를 초반 시드머니($10)로 사면
+    // 타일 건설이 통째로 멈춰 경제가 무너진다 (버퍼 없이 100시드 파산 0.62·VP −1.3).
+    const buffer = dl.cost > 2 ? 6 : 0;
+    if (player.cash < dl.cost + calculateMinCashReserve(state, playerId) + buffer) continue;
+    // 가치: 지금 이 링크 하나로 배달 가능한 큐브 수 (양 방향, 현재 수요 기준)
+    const aToB = a.cubes.filter(c => cityAcceptsCube(b, c, board)).length;
+    const bToA = b.cubes.filter(c => cityAcceptsCube(a, c, board)).length;
+    const cubesAcross = aToB + bToA;
+    // 고가($3+) 링크는 **전색 수용 도시(홍콩) 끝점일 때만** — 홍콩은 모든 색을 받고 5·6
+    // 성장으로 화물이 계속 공급돼 회수가 지속된다. 그 외 고가 링크(GZ↔SZ 인터어반)는
+    // 끝점 큐브 소진 후 가치가 죽는데 $8 + 슬롯 + 디스크를 잠근다
+    // (100시드: 무차별 구매 14.26→10.53, 문턱 3 12.10 — 전부 회귀).
+    if (dl.cost > 2 && !a.acceptsAllColors && !b.acceptsAllColors) continue;
+    // 같은 링크를 더 싸게 만드는 1타일 대안이 있으면 사지 않는다 — SZ↔HK $8은 (9,8) 타일
+    // $5(트랙 VP까지 +1)로 대체 가능해 직결 구매가 순손실이었다 (100시드 −2.2의 주범).
+    // GZ↔HK(사이가 바다뿐)·Germany $2(대안 타일도 $2 이상)는 통과.
+    if (dl.cost > cheapestOneTileAlternative(board, a.coord, b.coord)) continue;
+    const required = dl.cost > 2 ? 3 : 2; // $8 HK 링크 3, $2(Germany) 2 (+0.26 실측 유지)
+    if (cubesAcross < required) continue;
+    const value = cubesAcross + (profile.interurbanFerryRule ? 1 : 0); // 중국은 +1 VP 보너스 가산
+    if (!best || value > best.value) best = { cityA: dl.cityA, cityB: dl.cityB, value };
+  }
+  if (!best) return null;
+  return { action: 'buildDirectLink', cityA: best.cityA, cityB: best.cityB };
 }
 
 /**
@@ -98,6 +197,18 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
   if (state.phaseState.builtTracksThisTurn >= state.phaseState.maxTracksThisTurn) {
     debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 이번 턴 건설 완료`);
     return { action: 'skip' };
+  }
+
+  // ===== 0c. 직결 링크(인터어반/페리/Germany·Korea 직결) 구매 평가 =====
+  // 봇이 $8 링크를 영영 안 사던 사각지대 해소 (2026-07-27 사용자 관찰 — 남부 중국은 홍콩
+  // 접근이 이 링크들에 걸려 있어 특히 중요). 즉시 완성 링크 = 양끝 도시의 큐브가 바로
+  // 배달 가능해지므로, 지금 건너갈 수 있는 큐브 수로 가치를 판정한다.
+  {
+    const dl = evaluateDirectLinkPurchase(state, playerId);
+    if (dl) {
+      debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 직결 링크 구매 (${dl.cityA}↔${dl.cityB})`);
+      return dl;
+    }
   }
 
   // ===== 1. 타일 건설 우선 (수익 위해 타일을 최대한 — 마을 가닥은 타일 후순위로) =====
@@ -679,6 +790,8 @@ function tryDirectPathBuild(
 
   // 자사 트랙 엣지 비호환 시 회피 좌표를 추가하며 최대 3회 재탐색
   const avoidCoords: HexCoord[] = [];
+  /** 병렬 중복 방지로 출발점을 이미 옮겼는지 (무한 스왑 방지 — 1회 한정) */
+  let sourceMoved = false;
 
   // 마을 경유 우대: 화물이 마을 링크를 더 지나 다링크 배달 → income↑.
   // trackCubes(4-5링크 깊은 배달) + 다인 cityCubes(장거리 도시 배달, 사용자 목표 income 20) 모두 적용.
@@ -689,7 +802,7 @@ function tryDirectPathBuild(
   for (let attempt = 0; attempt < 3; attempt++) {
     // 1. A* 경로 계산 (상대 트랙 회피, 자사 트랙 우대, 비호환 트랙 회피)
     const optimalPath = findOptimalPathAvoidingOpponent(
-      sourceCity.coord, targetCity.coord, board, playerId,
+      sourceCity!.coord, targetCity!.coord, board, playerId,
       avoidCoords.length > 0 ? avoidCoords : undefined,
       preferTowns,
     );
@@ -772,6 +885,40 @@ function tryDirectPathBuild(
 
     // 순방향 엣지 비호환 발견 → 해당 좌표를 회피하고 재탐색
     if (edgeBlockedHex) {
+      // ⚠️ 막힌 게 **내 트랙**이면 그 구간은 이미 내 네트워크다. 회피시키면 A*가 옆으로 비켜
+      //    빈 헥스에 우회로를 만들어 **같은 두 정거장을 잇는 병렬 중복 노선**이 깔린다
+      //    (2026-07-28 사용자 스크린샷: Rust Belt Duluth↔Minneapolis 이중 부설).
+      //    원인은 A*의 구조적 한계 — 헥스 단위라 진입/진출 변을 모른 채 내 트랙을 비용 0.1로
+      //    우대해 고르는데, 마을 우대(preferTowns)로 경로가 틀어지면 그 변이 실제로는 안 맞는다.
+      //    옳은 대응은 "옆으로 비켜 새로 짓기"도 "목표 포기"도 아니라(포기는 건설 기회를 통째로
+      //    잃어 100시드 회귀 — Montréal −3.48·Korea −1.63), **이미 이어진 구간을 건너뛰고
+      //    내 네트워크가 닿은 정거장에서부터 짓는 것**이다.
+      const blockedIsMine = playerTracks.some(t => hexCoordsEqual(t.coord, edgeBlockedHex!));
+      if (blockedIsMine && !sourceMoved) {
+        // ⚠️ getConnectedCities는 **도시**(+건설된 직결 링크 끝점)만 돌려준다 — 마을은 후보에
+        //    들어오지 않는다. 마을에서 시작하는 편이 더 가까운 경우를 놓치지만, 첫 트랙 규칙상
+        //    도시 끝에서 짓는 게 안전하므로 현재는 이 범위로 충분하다.
+        const connectedIds = getConnectedCities(state, playerId);
+        // 내 네트워크가 닿은 정거장 중 목표에 가장 가까운 곳 (현재 출발점 제외)
+        let best: ReturnType<typeof findStopById> = null;
+        let bestDist = Infinity;
+        for (const id of connectedIds) {
+          if (id === sourceCity!.id) continue;
+          const stop = findStopById(board, id);
+          if (!stop) continue;
+          const d = hexDistance(stop.coord, targetCity!.coord);
+          if (d < bestDist) { bestDist = d; best = stop; }
+        }
+        if (best && bestDist < hexDistance(sourceCity!.coord, targetCity!.coord)) {
+          debugLog.trackBuilding(
+            `[직접 경로] (${edgeBlockedHex.col},${edgeBlockedHex.row})는 내 트랙(이미 연결) → 출발점을 ${sourceCity!.id}→${best.id}로 옮겨 재탐색 (병렬 중복 방지)`
+          );
+          sourceCity = best;
+          sourceMoved = true;
+          avoidCoords.length = 0; // 새 출발점 기준으로 다시 계산
+          continue;
+        }
+      }
       avoidCoords.push(edgeBlockedHex);
       debugLog.trackBuilding(
         `[직접 경로] (${edgeBlockedHex.col},${edgeBlockedHex.row}) 엣지 비호환 → 회피 재탐색 (시도 ${attempt + 1}/3)`
@@ -1028,7 +1175,7 @@ function tryDirectPathBuild(
     }
 
     // 8. 건설!
-    debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 직접 경로 추적 (${nextCoord.col},${nextCoord.row}) edges=[${edges}] $${cost} 경로=${route.from}→${route.to} (frontier=${frontierIndex}, path=[${optimalPath.map(p => `(${p.col},${p.row})`).join('→')}])`);
+    debugLog.trackBuilding(`[Phase IV: 트랙 건설] ${player.name}: 직접 경로 추적 (${nextCoord.col},${nextCoord.row}) edges=[${edges}] $${cost} 경로=${route.from}→${route.to}${sourceMoved ? ` [출발점 이동→${sourceCity!.id}]` : ''} (frontier=${frontierIndex}, path=[${optimalPath.map(p => `(${p.col},${p.row})`).join('→')}])`);
     incrementInvestedTracks(playerId);
     return { action: 'build', coord: nextCoord, edges };
   }

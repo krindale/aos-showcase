@@ -86,6 +86,15 @@ import {
   createMoonBoardState,
 } from './moonMap';
 import {
+  SOUTHERN_CHINA_MAP,
+  SOUTHERN_CHINA_CITIES,
+  SOUTHERN_CHINA_TOWNS,
+  SOUTHERN_CHINA_COLUMN_MAPPING,
+  SOUTHERN_CHINA_COLORS,
+  SOUTHERN_CHINA_TOWN_NAMES,
+  createSouthernChinaBoardState,
+} from './southernChinaMap';
+import {
   SOUTHERN_US_MAP,
   SOUTHERN_US_CITIES,
   SOUTHERN_US_TOWNS,
@@ -415,6 +424,36 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     rules: { ...DEFAULT_MAP_RULES },
     createBoardState: createMoonBoardState,
     goodsCubeCounts: DEFAULT_CUBE_COUNTS, // 룰북 표준 — 밤 도시 수요(black) 포함 5색
+  },
+
+  'southern-china': {
+    id: SOUTHERN_CHINA_MAP.id,
+    name: SOUTHERN_CHINA_MAP.name,
+    nameKo: SOUTHERN_CHINA_MAP.nameKo,
+    description: SOUTHERN_CHINA_MAP.description,
+    supportedPlayers: SOUTHERN_CHINA_MAP.supportedPlayers,
+    cols: SOUTHERN_CHINA_MAP.cols,
+    rows: SOUTHERN_CHINA_MAP.rows,
+    startCol: SOUTHERN_CHINA_MAP.startCol,
+    maxTurns: SOUTHERN_CHINA_MAP.maxTurns,
+    turnsByPlayers: SOUTHERN_CHINA_MAP.turnsByPlayers,
+    cities: SOUTHERN_CHINA_CITIES,
+    towns: SOUTHERN_CHINA_TOWNS,
+    columnMapping: SOUTHERN_CHINA_COLUMN_MAPPING,
+    townNames: SOUTHERN_CHINA_TOWN_NAMES,
+    hideLakeHexes: true,         // 남중국해/보드 밖은 안 그려 해안 윤곽 표현
+    orientation: 'pointy',       // pointy-top 네이티브 — 전치 없음 (Western US와 동일)
+    hexCostMode: 'legend',       // 지형별 균일 비용($2/$3/$4) → 범례. 추가비용 헥스 3곳만
+                                 // showCostMarker로 원 숫자 표시 (원본 시트 재현)
+    colors: {
+      terrain: SOUTHERN_CHINA_COLORS.terrain,
+      background: SOUTHERN_CHINA_COLORS.background,
+      border: SOUTHERN_CHINA_COLORS.border,
+    },
+    // 특수 규칙(디스크 4개/국유화/지지 토큰/Gain Support/HK/인터어반·페리)은 MapProfile getter로 주입
+    rules: { ...DEFAULT_MAP_RULES },
+    createBoardState: createSouthernChinaBoardState,
+    goodsCubeCounts: DEFAULT_CUBE_COUNTS, // 룰북 표준 — 검정 화물은 신도시(E~H)로 배달 + HK는 전색 수용
   },
 
   korea: {

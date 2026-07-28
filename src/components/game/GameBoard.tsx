@@ -12,6 +12,7 @@ import { useGameStore } from '@/store/gameStore';
 import { useGameSettingsStore } from '@/store/gameSettingsStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useTouchGestures } from '@/hooks/useTouchGestures';
+import { eligibleNationalizationTargets } from '@/store/helpers/nationalization';
 import {
   hexToPixel,
   getHexPoints,
@@ -34,7 +35,7 @@ import { getMapData } from '@/utils/mapRegistry';
 import { getMoonSide } from '@/utils/moonMap';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { isValidConnectionPoint as isValidConnectionPointUtil, getRedirectTargetHexes } from '@/utils/trackValidation';
-import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId, TerrainType } from '@/types/game';
+import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId, TerrainType, GAME_CONSTANTS } from '@/types/game';
 import { NewCityTilesModal } from './NewCityTilesModal';
 import GameSettingsDialog from './GameSettingsDialog';
 import TransportConfirmDialog, { TransportPreview } from './TransportConfirmDialog';
@@ -87,10 +88,60 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   const moveGuideAllowed = useGameStore((s) => s.moveGuideAllowed ?? true);
   const moveGuideEnabled = useGameSettingsStore((s) => s.moveGuideEnabled);
   const moveGuideOn = moveGuideAllowed && moveGuideEnabled;
+  // 화물 이동 선택 UI(목적지 골드 링·최적 경로 점선·선택 큐브 강조)는 **물품 이동 단계에서만**
+  // 그린다. 상태(ui.selectedCube/movePath/reachableDestinations)는 nextPhase의 여러 분기 중
+  // 일부에서만 정리되어, 단계가 바뀌거나 차례가 넘어가도 남아 있던 잔재가 보이던 문제
+  // (2026-07-28 사용자 보고). 상태 정리는 gameStore가 하고, 여기서는 표시를 단계로 잠근다.
+  const moveGoodsPhase = currentPhase === 'moveGoods';
+  const moveGuideVisible = moveGuideOn && moveGoodsPhase;
   // Montréal Repopulation: 배치 대기 큐브가 있는지 (boolean 셀렉터 — 값 변화시만 리렌더)
   const repopPending = useGameStore((s) => (s.phaseState.repopulationCubes?.length ?? 0) > 0);
+  // Southern China 국유화 선택 모드 — 대기 중인 플레이어(사람)만 보드에서 링크를 고른다.
+  // PhasePanel 목록과 **같은 헬퍼**(eligibleNationalizationTargets)를 쓴다 — 미러 금지.
+  const nationalizationPending = useGameStore((s) => s.nationalizationPending ?? null);
+  const nationalizeLink = useGameStore((s) => s.nationalizeLink);
+  const natSelecting =
+    !!nationalizationPending &&
+    nationalizationPending.playerId === currentPlayer &&
+    !players[currentPlayer]?.isAI &&
+    !boardInteractionBlocked;
+  const natTargets = useMemo(
+    () => (natSelecting ? eligibleNationalizationTargets(board, currentPlayer, currentTurn) : []),
+    [natSelecting, board, currentPlayer, currentTurn]
+  );
+  /** 국유화 후보 타일 좌표 → 링크 id (보드 클릭·하이라이트가 공유하는 인덱스) */
+  const natTileIndex = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const link of natTargets) {
+      for (const c of link.trackTiles) m.set(`${c.col},${c.row}`, link.id);
+    }
+    return m;
+  }, [natTargets]);
+  // 마우스가 올라간 후보 링크 — 그 링크 **전체**를 강조해 "어디까지가 한 링크인지" 보여준다
+  const [hoveredNatLinkId, setHoveredNatLinkId] = useState<string | null>(null);
   // 맵 데이터(그리드 크기/지형 색): mapRegistry에서 주입 — 튜토리얼 하드코딩 금지
   const mapData = useMemo(() => getMapData(mapId), [mapId]);
+
+  // 직결 링크 시각 메타(faces 면 앵커) 보충 — 정적 맵 정의에서 도시쌍으로 조회.
+  // persist 저장본의 board.directLinks에는 나중에 추가된 시각 필드가 없을 수 있어,
+  // 렌더 시점에 항상 정적 정의 값으로 채운다 (게임 상태 마이그레이션 불필요).
+  const directLinkFacesByPair = useMemo(() => {
+    const m = new Map<string, [number, number]>();
+    for (const dl of mapData.createBoardState().directLinks ?? []) {
+      if (dl.faces) {
+        m.set(`${dl.cityA}|${dl.cityB}`, dl.faces);
+        m.set(`${dl.cityB}|${dl.cityA}`, [dl.faces[1], dl.faces[0]]);
+      }
+    }
+    return m;
+  }, [mapData]);
+  const renderDirectLinks = useMemo(
+    () => board.directLinks?.map(dl => ({
+      ...dl,
+      faces: dl.faces ?? directLinkFacesByPair.get(`${dl.cityA}|${dl.cityB}`),
+    })),
+    [board.directLinks, directLinkFacesByPair]
+  );
   const mapProfile = useMemo(() => getMapProfile(mapId), [mapId]);
   const terrainColors = mapData.colors.terrain;
   // 산악 헥스: 바깥 밝은 테두리 + 안쪽 진한 내부 (기본 갈색 — 달은 mountainRenderColors로 회색)
@@ -168,6 +219,21 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     }
     return d;
   }, [board.blockedEdges, isFlat]);
+
+  // 시각 전용 흰 강조 변 (Southern China 하이난 해협 윗변 — 원본 시트 재현)
+  const whiteEdgePath = useMemo(() => {
+    let d = '';
+    for (const h of board.hexTiles) {
+      if (!h.whiteEdges?.length) continue;
+      const { x, y } = hexToPixel(h.coord.col, h.coord.row, undefined, undefined, undefined, isFlat);
+      for (const e of h.whiteEdges) {
+        const v1 = hexVertex(x, y, e, isFlat);
+        const v2 = hexVertex(x, y, (e + 1) % 6, isFlat);
+        d += `M ${v1.x.toFixed(1)} ${v1.y.toFixed(1)} L ${v2.x.toFixed(1)} ${v2.y.toFixed(1)} `;
+      }
+    }
+    return d;
+  }, [board.hexTiles, isFlat]);
 
   // 달(Moon): 밤쪽 절반 헥스들의 실루엣 — 반투명 어둠 오버레이 (턴마다 서↔동 교대)
   const nightOverlayPath = useMemo(() => {
@@ -272,6 +338,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     canBuildTownSpur,
     buildTownSpur,
     buildDirectLink,
+    buildFerryEdge,
   } = useGameStore();
 
   // 화물 운송 확인 창(설정 on일 때) — 목적지 클릭을 가로채 "출발→도착·수익 귀속"을 보여주고
@@ -403,10 +470,20 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     // 순서: 평지 → 강/도로(swamp) → 언덕(mountain) → 바다 (Montréal: 평지/도로/언덕/바다, Western US: 평지/강/늪/산)
     const order: TerrainType[] = ['plain', 'river', 'swamp', 'mountain', 'sea'];
     const costByTerrain = new Map<TerrainType, number>();
+    // fixedCost 미주입 지형은 룰북 표준 기본비용 (Southern China처럼 표준 비용 + 'legend' 조합
+    // 맵에서 전부 $2로 찍히던 버그 수정 — 2026-07-27 사용자 발견)
+    const TERRAIN_DEFAULT: Partial<Record<TerrainType, number>> = {
+      plain: GAME_CONSTANTS.PLAIN_TRACK_COST,
+      river: GAME_CONSTANTS.RIVER_TRACK_COST,
+      swamp: GAME_CONSTANTS.RIVER_TRACK_COST,
+      mountain: GAME_CONSTANTS.MOUNTAIN_TRACK_COST,
+    };
     for (const h of board.hexTiles) {
       if (h.terrain === 'lake') continue;
-      // 평지는 fixedCost가 없어 기본 $2, 그 외는 헥스에 주입된 fixedCost(늪/강 $4·산 $5)
-      const cost = h.fixedCost ?? 2;
+      // 개별 표기 헥스(showCostMarker — 추가비용 $4/$5)는 지형 대표값이 아니므로 제외
+      // (안 하면 마지막에 순회된 특수 헥스의 비용이 지형 전체 비용으로 둔갑)
+      if (h.showCostMarker) continue;
+      const cost = h.fixedCost ?? TERRAIN_DEFAULT[h.terrain] ?? 2;
       costByTerrain.set(h.terrain, cost);
     }
     return order
@@ -596,6 +673,19 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     (coord: HexCoord) => {
       if (boardInteractionBlocked) return; // 내 차례가 아니면 무시 (봇/타인 차례 보호)
       if (isMousePanning()) return; // 마우스 드래그(팬) 직후의 클릭은 무시
+
+      // Southern China 국유화 선택 — 대기 중엔 **다른 건설 조작보다 먼저** 가로챈다.
+      // 대기가 풀릴 때까지 건설이 어차피 막혀 있으므로(buildSlice), 여기서 잡지 않으면
+      // 후보 트랙 클릭이 "연결점 선택"으로 새어 혼란만 준다.
+      if (natSelecting) {
+        const linkId = natTileIndex.get(`${coord.col},${coord.row}`);
+        if (linkId) {
+          nationalizeLink(currentPlayer, linkId);
+          setHoveredNatLinkId(null);
+        }
+        return;
+      }
+
       if (currentPhase === 'buildTrack' || currentPhase === 'governmentLink') {
         // 미연결 가닥 완성: 내 트랙이 변에 닿아 있으나 가닥이 없는 마을 클릭 → 가닥 건설.
         // buildMode와 무관하게 최우선 — 같은 턴에 이미 일부 연결된 마을의 추가 변도 연결 가능.
@@ -687,17 +777,27 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
         }
       }
     },
-    [currentPhase, ui.buildMode, ui.sourceHex, ui.targetHex, board, currentPlayer, isValidConnectionPoint, isBuildableTarget, getExitEdgeForCoord, selectSourceHex, selectTargetHex, selectExitDirection, redirectTrack, resetBuildMode, canBuildTownSpur, buildTownSpur, boardInteractionBlocked]
+    // ⚠️ 국유화 가로채기(natSelecting·natTileIndex·nationalizeLink)가 이 콜백 **최상단**에
+    //    있으므로 deps에 포함한다. 지금은 대기가 서고 풀리는 모든 사람 경로에서 board 참조도
+    //    함께 바뀌어(applyNationalization·undo·스냅샷 적용) 실전에서 드러나지 않지만,
+    //    board 불변인 채 대기만 바뀌는 경로가 하나라도 생기면 즉시 옛 클로저가 남아
+    //    "대기가 풀렸는데 보드 클릭이 계속 먹통"이 된다. handleHexHover는 이미 포함돼 있다.
+    [currentPhase, ui.buildMode, ui.sourceHex, ui.targetHex, board, currentPlayer, isValidConnectionPoint, isBuildableTarget, getExitEdgeForCoord, selectSourceHex, selectTargetHex, selectExitDirection, redirectTrack, resetBuildMode, canBuildTownSpur, buildTownSpur, boardInteractionBlocked, natSelecting, natTileIndex, nationalizeLink]
   );
 
   // 헥스 호버 핸들러
   const handleHexHover = useCallback(
     (coord: HexCoord) => {
+      // 국유화 선택 중: 후보 타일에 올리면 그 링크 전체를 강조 (링크 경계를 눈으로 확인)
+      if (natSelecting) {
+        setHoveredNatLinkId(natTileIndex.get(`${coord.col},${coord.row}`) ?? null);
+        return;
+      }
       if ((currentPhase === 'buildTrack' || currentPhase === 'governmentLink') && (ui.buildMode === 'source_selected' || ui.buildMode === 'target_selected')) {
         updateTrackPreview(coord);
       }
     },
-    [currentPhase, ui.buildMode, updateTrackPreview]
+    [natSelecting, natTileIndex, currentPhase, ui.buildMode, updateTrackPreview]
   );
 
   // 큐브 클릭 핸들러
@@ -895,9 +995,13 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             );
 
             // 클릭 가능 여부: 트랙 건설 단계 = 하이라이트/내 트랙, 정부 링크 단계 = 하이라이트/정부 트랙
+            // 국유화 선택 중엔 **후보 링크 타일만** 클릭 대상 — 나머지 클릭은 어차피
+            // handleHexClick이 무시하므로, 커서(pointer)도 후보에만 뜨게 맞춘다.
             const isClickable = !isLake && (
-              (currentPhase === 'buildTrack' && (isHighlighted || hasPlayerTrack)) ||
-              (currentPhase === 'governmentLink' && (isHighlighted || hasGovTrack))
+              natSelecting
+                ? natTileIndex.has(`${col},${row}`)
+                : (currentPhase === 'buildTrack' && (isHighlighted || hasPlayerTrack)) ||
+                  (currentPhase === 'governmentLink' && (isHighlighted || hasGovTrack))
             );
 
             return (
@@ -1055,6 +1159,21 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             );
           })}
 
+        {/* 지도 바깥 외곽선 — 헥스 실루엣의 바깥 변을 두꺼운 실선으로 (맵 테두리색).
+            ⚠️ **최하단 레이어**(배경 직후, 마을/트랙/도시보다 아래): 오버레이에 두면 굵은
+            테두리가 가장자리 도시의 색 테두리·트랙 위를 덮는다 (2026-07-27 사용자 요청). */}
+        {mapOutlinePath && (
+          <path
+            d={mapOutlinePath}
+            fill="none"
+            stroke={mapData.colors.border}
+            strokeWidth={4}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ pointerEvents: 'none' }}
+          />
+        )}
+
         {/* 마을 레이어 — 흰 디스크·이름 띠·마을 트랙/가닥·도시화 하이라이트·큐브 (board/BoardTowns) */}
         <BoardTowns
           towns={board.towns}
@@ -1109,7 +1228,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           cities={board.cities}
           dynamicCityColors={board.dynamicCityColors}
           cottonPorts={board.cottonPorts}
-          directLinks={board.directLinks}
+          directLinks={renderDirectLinks}
           players={players}
           currentPhase={currentPhase}
           isFlat={isFlat}
@@ -1117,13 +1236,16 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           isCityNight={(city) => isNightCity(city, board)}
           isCityNumberBoxBlack={(cityId, demandColor) => mapProfile.isCityNumberBoxBlack(cityId, demandColor)}
           sourceHex={ui.sourceHex}
-          reachableDestinations={ui.reachableDestinations}
-          showMoveGuide={moveGuideOn}
-          selectedCube={ui.selectedCube}
+          reachableDestinations={moveGoodsPhase ? ui.reachableDestinations : []}
+          showMoveGuide={moveGuideVisible}
+          selectedCube={moveGoodsPhase ? ui.selectedCube : null}
           onHexClick={handleHexClick}
           selectDestinationCity={handleSelectDestination}
           onCubeClick={handleCubeClick}
           buildDirectLink={buildDirectLink}
+          ferryEdges={board.ferryEdges}
+          buildFerryEdge={buildFerryEdge}
+          allAcceptClosed={board.allAcceptClosed}
         />
 
         {/* 오버레이 레이어 — 미리보기·트랙 위 큐브·이동 경로/큐브·외곽선·경계·터미널 테두리 (board/BoardOverlays) */}
@@ -1133,20 +1255,58 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           isFlat={isFlat}
           mapOutlinePath={mapOutlinePath}
           blockedEdgePath={blockedEdgePath}
+          whiteEdgePath={whiteEdgePath}
           nightOverlayPath={nightOverlayPath}
           nightBadge={nightBadge}
           dayBadge={dayBadge}
           borderColor={mapData.colors.border}
           previewTrack={ui.previewTrack}
-          selectedCubeCityId={ui.selectedCube?.cityId ?? null}
-          movePath={moveGuideOn ? ui.movePath : []}
+          selectedCubeCityId={moveGoodsPhase ? (ui.selectedCube?.cityId ?? null) : null}
+          movePath={moveGuideVisible ? ui.movePath : []}
           movingCube={ui.movingCube}
-          routeChoice={ui.routeChoice}
+          routeChoice={moveGoodsPhase ? ui.routeChoice : null}
           players={players}
           selectCube={selectCube}
           selectRouteOption={selectRouteOption}
           confirmRouteChoice={confirmRouteChoice}
         />
+        {/* Southern China 국유화 선택 — 후보 링크 타일 하이라이트 (트랙·도시 위 레이어).
+            호버한 링크는 그 **전체**가 진하게 = 국유화되면 어디까지 중립이 되는지 보여준다.
+            클릭 판정은 handleHexClick이 같은 natTileIndex로 하므로 표시=판정이 항상 일치. */}
+        {natSelecting && natTargets.length > 0 && (
+          <g style={{ pointerEvents: 'none' }}>
+            {natTargets.map((link) => {
+              const isHot = hoveredNatLinkId === link.id;
+              return (
+                <g key={link.id}>
+                  {link.trackTiles.map((c) => {
+                    const { x, y } = hexToPixel(c.col, c.row, undefined, undefined, undefined, isFlat);
+                    return (
+                      <polygon
+                        key={`${c.col},${c.row}`}
+                        points={getHexPoints(x, y, HEX_SIZE - 1, isFlat)}
+                        fill={isHot ? 'rgba(192,74,43,0.28)' : 'rgba(192,74,43,0.12)'}
+                        stroke="#c04a2b"
+                        strokeWidth={isHot ? 4 : 2.5}
+                        strokeDasharray={isHot ? undefined : '6 4'}
+                      >
+                        {!isHot && (
+                          <animate
+                            attributeName="stroke-opacity"
+                            values="1;0.45;1"
+                            dur="1.8s"
+                            repeatCount="indefinite"
+                          />
+                        )}
+                      </polygon>
+                    );
+                  })}
+                </g>
+              );
+            })}
+          </g>
+        )}
+
         {/* 인플레이스 펄스 레이어 (건설/큐브 유입) — memo 자식으로 분리, 미니 오버레이에서도 표시 */}
         {/* viewTop: 가장자리 도시에서 떠오르는 스택이 viewBox에 잘리지 않게 방향을 뒤집는 기준 */}
         <BoardPulses isFlat={isFlat} viewTop={viewTop} silent={fitOverlay} />

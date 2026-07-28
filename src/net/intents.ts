@@ -67,6 +67,12 @@ const INTENT_SPECS: Record<string, IntentSpec> = {
   startCubeAnimation: { captureUi: ['selectedCube'] },
   moveTrackCube: { captureUi: ['selectedCube'] },
   upgradeEngine: { playerIdArg: 0, optimistic: true },
+  // Southern China 지지 토큰 반납 (건설 4개 / 수송 기관차 +1) — 순수 상태 전이라 낙관 반영 안전
+  spendSupportToken: { playerIdArg: 0, optimistic: true },
+  // Southern China 국유화 — 결정론적 보드 전이라 낙관 반영 안전 (링크 id는 좌표 기반 결정적)
+  nationalizeLink: { playerIdArg: 0, optimistic: true },
+  // Southern China 페리 변 구매 — 결정론적 보드 전이 (인터어반/GZ-HK 페리는 기존 buildDirectLink)
+  buildFerryEdge: { optimistic: true },
   // Phase IX 물품 성장/생산
   growGoods: { optimistic: true }, // 주사위 결과는 인자로 고정 전송 (굴린 사람 값을 호스트가 그대로 적용)
   // Montréal Repopulation — 뽑힌 큐브는 phaseState(스냅샷 동기화)에 있어 captureUi 불필요.

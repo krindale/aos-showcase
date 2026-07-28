@@ -24,6 +24,24 @@ function getCacheKey(from: HexCoord, to: HexCoord, board: BoardState): string {
  * @param board 보드 상태
  * @returns 경로 (헥스 좌표 배열), 경로 없으면 빈 배열
  */
+/**
+ * 정거장(도시/마을) → 정거장 "직행 스텝" 허용 여부 — 인접 정거장 사이엔 트랙 타일을 놓을
+ * 헥스가 없어 0타일 링크가 물리적으로 불가능하다. 이걸 막지 않으면 A*가 [Shenzhen→HongKong]
+ * 같은 0타일 경로를 최적으로 반환하고, "지을 타일이 없는데 링크는 영원히 완성 안 되는" 목표에
+ * 봇이 몇 턴씩 갇힌다 (2026-07-27 남부 중국 실측: 전 봇이 T1~6 홍콩 경로 고착·배달 0).
+ * 예외: 이미 건설된 도시-도시 직결 링크(Germany Essen↔Düsseldorf·중국 인터어반/페리)는
+ * 실존하는 링크이므로 경유 허용.
+ */
+function canStepStationToStation(board: BoardState, aCoord: HexCoord, bCoord: HexCoord): boolean {
+  const a = board.cities.find(c => hexCoordsEqual(c.coord, aCoord));
+  const b = board.cities.find(c => hexCoordsEqual(c.coord, bCoord));
+  if (!a || !b) return false; // 마을이 낀 인접 정거장 쌍 — 직결 링크 없음
+  return (board.directLinks ?? []).some(
+    d => d.owner !== null &&
+      ((d.cityA === a.id && d.cityB === b.id) || (d.cityA === b.id && d.cityB === a.id))
+  );
+}
+
 export function findOptimalPath(
   from: HexCoord,
   to: HexCoord,
@@ -111,6 +129,10 @@ export function findOptimalPath(
       // 훨씬 크므로, 통과를 0이 아니라 보너스로 우대 → 일직선 대신 마을·도시를 거치는 경로를
       // 선호하게 한다 (income 핵심: 지나는 링크 수만큼 수입). 도착 도시(to)는 보너스 제외.
       if (isCity(neighbor)) {
+        // 정거장→정거장 직행(0타일 링크) 금지 — 건설된 직결 링크가 있을 때만 예외
+        if (isCity(current.coord) && !canStepStationToStation(board, current.coord, neighbor)) {
+          continue;
+        }
         const passBonus = hexCoordsEqual(neighbor, to) ? 0 : 1.5;
         const newG = current.g - passBonus;  // 중간 도시/마을 경유 우대
 
@@ -775,6 +797,19 @@ export function findOptimalPathAvoidingOpponent(
 
       // 이미 방문한 노드 스킵
       if (closedSet.has(neighborKey)) continue;
+
+      // 정거장→정거장 직행(0타일 링크) 금지 — findOptimalPath와 동일 (건설된 직결 링크만 예외)
+      {
+        const isStation = (c: HexCoord) =>
+          board.cities.some(x => hexCoordsEqual(x.coord, c)) ||
+          board.towns.some(t => hexCoordsEqual(t.coord, c));
+        if (
+          isStation(current.coord) && isStation(neighbor) &&
+          !canStepStationToStation(board, current.coord, neighbor)
+        ) {
+          continue;
+        }
+      }
 
       // 지형 비용 계산
       let terrainCost = getTerrainCost(neighbor);

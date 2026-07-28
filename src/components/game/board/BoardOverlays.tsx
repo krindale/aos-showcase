@@ -28,6 +28,8 @@ interface BoardOverlaysProps {
   mapOutlinePath: string;
   /** 건설 불가 내부 경계 변 path (GameBoard useMemo) */
   blockedEdgePath: string;
+  /** 시각 강조 흰 변 (Southern China 해협 — GameBoard가 hexTiles.whiteEdges에서 계산) */
+  whiteEdgePath?: string;
   /** 달(Moon): 현재 밤쪽 절반 헥스들의 실루엣 path — 반투명 어둠 오버레이 (GameBoard useMemo) */
   nightOverlayPath?: string;
   /** 달(Moon): 밤쪽 상단 "밤" 배지 위치 (GameBoard useMemo) */
@@ -71,6 +73,7 @@ export default function BoardOverlays({
   isFlat,
   mapOutlinePath,
   blockedEdgePath,
+  whiteEdgePath,
   nightOverlayPath,
   nightBadge,
   dayBadge,
@@ -230,6 +233,16 @@ export default function BoardOverlays({
       {movingCube && (() => {
         // 경로의 모든 애니메이션 포인트 계산
         const animPoints = getAnimationPoints(movingCube.path, board, HEX_SIZE - 2, 5, isFlat);
+        // ⚠️ 포인트가 2개 미만이면 아래 times 계산이 i/0 = NaN이 되어 Framer Motion 애니메이션이
+        //    통째로 깨진다(큐브가 안 움직이거나 사라짐). 경로 좌표를 그대로 써 최소 2점을 보장한다.
+        //    남아 있던 1점에 **덧붙이면** 시작점이 중복돼 큐브가 튀므로 비우고 다시 채운다.
+        if (animPoints.length < 2) {
+          animPoints.length = 0;
+          for (const c of movingCube.path) {
+            animPoints.push(hexToPixel(c.col, c.row, undefined, undefined, undefined, isFlat));
+          }
+        }
+        if (animPoints.length < 2) return null;
 
         // 모든 x, y 좌표 배열 생성
         const xPoints = animPoints.map(p => p.x - 9);
@@ -304,18 +317,9 @@ export default function BoardOverlays({
         </g>
       )}
 
-      {/* 지도 바깥 외곽선 — 헥스 실루엣의 바깥 변(이웃 없는 변)을 두꺼운 실선으로 연결 (맵 테두리색) */}
-      {mapOutlinePath && (
-        <path
-          d={mapOutlinePath}
-          fill="none"
-          stroke={borderColor}
-          strokeWidth={4}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          style={{ pointerEvents: 'none' }}
-        />
-      )}
+      {/* 지도 바깥 외곽선은 여기서 그리지 않는다 — GameBoard가 **배경 직후 최하단 레이어**에서
+          렌더한다 (2026-07-27 사용자 요청). 오버레이(최상단)에 있으면 굵은 테두리가 가장자리
+          도시의 색 테두리·트랙 위를 덮어 가린다 (홍콩 5색 링에서 발견). */}
 
       {/* 달(Moon): 랩 어라운드 엣지 번호 — 원본 시트처럼 외곽 변에 딱 붙은 갈색 박스,
           변과 평행하게 회전 (하단 번호가 뒤집혀 보이는 것까지 원본 레이아웃 그대로) */}
@@ -354,6 +358,20 @@ export default function BoardOverlays({
           fill="none"
           stroke="#000000"
           strokeWidth={8}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{ pointerEvents: 'none' }}
+        />
+      )}
+
+      {/* 시각 강조 흰 변 (Southern China 하이난 해협 윗변 — 원본 시트 재현).
+          굵기 사용자 튜닝: 7(과함) → 2(너무 얇음) → 3 */}
+      {whiteEdgePath && (
+        <path
+          d={whiteEdgePath}
+          fill="none"
+          stroke="#ffffff"
+          strokeWidth={3}
           strokeLinecap="round"
           strokeLinejoin="round"
           style={{ pointerEvents: 'none' }}

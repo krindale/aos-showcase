@@ -14,4 +14,5 @@ export enum MapId {
   StLucia = 'st-lucia',
   Montreal = 'montreal',
   Moon = 'moon',
+  SouthernChina = 'southern-china',
 }

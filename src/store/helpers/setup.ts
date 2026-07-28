@@ -366,6 +366,11 @@ export function createInitialGameState(
     deliveryIncomeEvent: null,
     newCityEvent: null,
     bankruptcyEvent: null,
+    // Southern China 국유화 대기 — 새 게임에서 반드시 비운다. 안 비우면 이전 게임의 대기가
+    // 남아 새 게임 buildTrack이 시작부터 막힌다 (nextPhase가 대기 중엔 진행을 보류하므로).
+    // ⚠️ persist merge에는 넣지 말 것 — 1회성 팝업과 달리 "지금 디스크가 초과됐다"는 진행
+    //    상태라 새로고침 후에도 복원돼야 한다 (리뷰 S2).
+    nationalizationPending: null,
     turboMode: false,
     moveGuideAllowed: true,
     gameStarted: false,

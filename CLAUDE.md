@@ -15,6 +15,8 @@ Age of Steam 보드게임의 프리미엄 비주얼 쇼케이스 웹사이트입
   ① 리뷰 체크리스트(스텝 목록)를 먼저 만들고, ② 한 번에 한 스텝씩 수행하며, ③ 각 스텝이 끝날
   때마다 결과(통과/발견 사항)를 기록하고 **관련 사항을 즉시 커밋·푸시**합니다 — 토큰이 중간에
   소진되어도 git 이력만으로 다른 PC에서 이어갈 수 있어야 합니다.
+- **브라우저 테스트**: Claude가 **임의로** 브라우저를 열어 게임을 실행·조작·캡처하지 않습니다.
+  사용자가 명시적으로 지시했을 때만 합니다 → [⛔ 브라우저 테스트는 사용자가 시킬 때만](#-브라우저-테스트는-사용자가-시킬-때만)
 
 
 ## 기술 스택
@@ -162,6 +164,7 @@ src/
 │       ├── koreaSimulation.test.ts       # Korea 4인 AI 동기식 전체게임 러너(8턴) + 베이스라인
 │       ├── montrealSimulation.test.ts    # Montréal 3인 AI 동기식 러너(9턴) + 특수룰 불변식(정부링크/마스터네트워크/DGEL)
 │       ├── moonSimulation.test.ts        # Moon 4인 AI 동기식 러너(8턴) + 달 불변식(밤낮 교대/건설 상한/Moon Base 무배달)
+│       ├── southernChinaSimulation.test.ts # Southern China 4인 AI 동기식 러너(8턴) + 불변식(디스크≤4/HK 폐쇄 후 배달 0)
 │       └── helpers/
 │           └── mockState.ts    # 테스트용 Mock 데이터 헬퍼
 │
@@ -178,7 +181,8 @@ src/
 │       ├── SouthernUsMapProfile.ts # Southern US override (면화/항구/Atlanta 호황/남북전쟁 수입감소 2배)
 │       ├── KoreaMapProfile.ts     # Korea override (동적색은 board플래그/도시화 디스플레이보충/no-growth/큐브수)
 │       ├── MontrealMapProfile.ts  # Montréal override (정부 링크/마스터 네트워크/DGEL/경매 트윅/Repopulation/신도시 큐브)
-│       └── MoonMapProfile.ts      # Moon override (건설2·Engineer3/Moon Base 네트워크 시드/밤낮/저중력/주사위 성장/신도시 A·B·E·F)
+│       ├── MoonMapProfile.ts      # Moon override (건설2·Engineer3/Moon Base 네트워크 시드/밤낮/저중력/주사위 성장/신도시 A·B·E·F)
+│       └── SouthernChinaMapProfile.ts # Southern China override (디스크4+국유화/지지 토큰/Gain Support/HK 폐쇄/인터어반·페리)
 │
 ├── components/                 # UI 컴포넌트
 │   ├── Navigation.tsx          # 글래스모피즘 네비게이션 바
@@ -284,6 +288,7 @@ src/
     ├── koreaMap.ts             # Korea 맵 데이터 정의 (4인 전용, flat-top 전치, 동적색 플래그/산fixedCost/수원 직결)
     ├── montrealMap.ts          # Montréal Métro 맵 데이터 정의 (3인 전용 9턴, flat-top 전치, 언덕$3/도로$4/물$6·Parc 밀봉)
     ├── moonMap.ts              # Moon(달) 맵 데이터 정의 (4인 전용 8턴, flat-top 전치, 크레이터$3/산$4, 랩 어라운드 37쌍)
+    ├── southernChinaMap.ts     # Southern China 맵 데이터 정의 (4~5인·디폴트 4인, pointy-top 네이티브, 추가비용 헥스/인터어반·페리)
     ├── mapRegistry.ts          # 맵 룰 분리 레지스트리 (MapRuleConfig·columnMapping·boardDisplayScale 등)
     ├── debugConfig.ts          # 디버그 설정 (로그 카테고리 토글 + logAction 종합 액션 로깅)
     ├── pwaUtils.ts             # Service Worker 등록/관리 유틸리티
@@ -345,14 +350,14 @@ docs/
 
 ### MapsPage
 페이퍼 카드 그리드 (3열). 카드 = 맵 이미지(16:10) + 난이도 배지(입문/표준/중급/고급) +
-설명 + 플레이 버튼(`/game/<slug>/`). 튜토리얼 포함 10개 맵, Barbados만 "준비 중".
+설명 + 플레이 버튼(`/game/<slug>/`). 튜토리얼 포함 11개 맵, Barbados만 "준비 중".
 
 **맵 이미지는 WebP** (`public/maps/*.webp`, 폭 1600·q84, 맵당 ~200KB). 새 맵 추가 시 원본을
 `cwebp -q 84`(필요 시 폭 1600 다운스케일)로 변환해 넣을 것 — `unoptimized: true`(static export)라
 Next가 압축을 안 하므로 원본 대용량 PNG를 그대로 받으면 갤러리가 무거워진다 (PNG 기준 맵당 1~5MB).
 게임 보드는 SVG 렌더라 이 이미지와 무관(갤러리 표시용일 뿐).
 
-9개 맵 갤러리 (다인원 지원 맵은 `supportedPlayers[0]`=디폴트 인원, 인원별 턴 수는 맵 데이터
+10개 맵 갤러리 (다인원 지원 맵은 `supportedPlayers[0]`=디폴트 인원, 인원별 턴 수는 맵 데이터
 `turnsByPlayers`(룰북 턴 트랙 3인10/4인8/5인7/6인6)를 setup·게임 셋업 UI가 조회 — 고정 인원 맵은 미지정=maxTurns 항등):
 - **Rust Belt** (기본) - 미국 북동부, 4~5인(디폴트 4인 8턴/5인 7턴)
 - **Korea** (플레이 가능) - 한반도, 동적 도시 색상, 4인 8턴 (도시 수요색=현재 큐브색·수원 직결 링크·신도시 회색)
@@ -361,6 +366,7 @@ Next가 압축을 안 하므로 원본 대용량 PNG를 그대로 받으면 갤�
 - **Germany** (플레이 가능) - 외국 터미널·헥스 고정비용·도시 직결, 5~6인(디폴트 5인 7턴/6인 6턴)
 - **Montréal Métro** (플레이 가능) - 몬트리올 지하철, 3인 9턴 (정부 링크·마스터 네트워크·DGEL·Repopulation)
 - **The Moon** (플레이 가능) - 달 표면, 4인 8턴 (밤낮 교대·랩 어라운드·Moon Base 네트워크·건설 2개 제한·저중력)
+- **Southern China** (플레이 가능) - 홍콩·주강 삼각주, 4~5인(디폴트 4인 8턴/5인 7턴) (디스크 4개+국유화·지지 토큰·Gain Support·HK 전색 수용/마지막 2턴 폐쇄·인터어반/페리)
 - **Barbados** - 솔로 게임
 - **St. Lucia** - 2인 전용
 
@@ -632,7 +638,8 @@ AI는 객체 지향 아키텍처(`AIPlayer`/`AIPlayerManager`/`AIDebugger`) + **
 
 **항상 지킬 규칙 (함정)**:
 - **맵 분기 금지**: `mapId === 'x'` 하드코딩 대신 `MapProfile` override / `mapConfig` 테이블. 새 맵은 프로파일만 추가.
-- **다인 맵 측정은 100시드**: 8/20시드는 편차가 커 결론이 뒤집힌다. 변경 전/후 비교 기준은 [docs/ai-auction-baseline-100seed.md](docs/ai-auction-baseline-100seed.md). 회귀 의심 시 `git stash`로 직전 코드를 같은 환경에서 재측정해 비교.
+- **A\*는 헥스 단위 — "내 트랙 재사용"을 변까지 보장하지 않는다**: `findOptimalPathAvoidingOpponent`는 내 트랙을 비용 0.1로 우대해 경로에 넣지만, 진입/진출 **변**이 맞는지는 모른다. 마을 우대(`preferTowns`, 3인+ 맵 기본 on)로 경로가 틀어지면 그 변이 실제로는 안 맞아 `tryDirectPathBuild`에서 "엣지 비호환"이 난다. 이때 **회피 재탐색을 시키면 A*가 옆 빈 헥스로 우회로를 만들어 같은 두 정거장을 잇는 병렬 중복 노선**이 깔린다(사용자 스크린샷: Rust Belt Duluth↔Minneapolis 이중 부설). 그래서 막힌 게 **내 트랙**이면 회피 대신 **출발점을 내 네트워크가 닿은 정거장 중 목표에 가장 가까운 곳으로 옮겨** 재탐색한다 — 이미 이어진 구간은 건너뛰고 미연결 지점부터 짓는 것(1회 한정 `sourceMoved`, 목표에 더 가까울 때만). 100시드 Rust Belt VP 44.58→46.42·파산 0.08→0.03. ⚠️ **"그 목표를 포기"로 고치면 안 된다** — 건설 기회까지 잃어 Montréal −3.49·Korea −1.63. 기각 실험(방향 전환·A* 미소유 우대 포함) 상세는 [docs/ai-auction-baseline-100seed.md](docs/ai-auction-baseline-100seed.md) 2026-07-28.
+- **다인 맵 측정은 100시드**(최소): 8/20시드는 편차가 커 결론이 뒤집힌다. ⚠️ **100시드도 1 VP 미만의 차이는 판별 못 한다** — VP 표준편차가 20 이상이라 400관측의 표준오차가 ±1.15다. 시뮬 출력의 표준오차를 보고 비교하려는 차이보다 크면 `AOS_SEEDS=300`으로 다시 잴 것. 또 **VP만 보고 판정하지 말 것** — 파산·income은 분산이 작아 방향이 먼저 드러난다(지지 토큰 반납은 VP만 보고 기각했다가 파산 지표로 뒤집혔다, 2026-07-27c). 변경 전/후 비교 기준은 [docs/ai-auction-baseline-100seed.md](docs/ai-auction-baseline-100seed.md). 회귀 의심 시 `git stash`로 직전 코드를 같은 환경에서 재측정해 비교.
 - **동적색/특수 큐브는 `cityAcceptsCube`(hexGrid) 한 곳으로** — 배달 경로탐색뿐 아니라 AI 경로 평가(`vp.ts`/`buildTrack.ts`)도 이 헬퍼로 도시 수요색을 봐야 한다.
 - **기각 실험도 선행조건이 바뀌면 뒤집힌다** — 막다른 길을 영구 배제하지 말 것(악화 기록은 당시 조건 한정).
 - **주식 보존 법칙**: 투자(발행)를 줄이는 방향은 대체로 역효과 — income 레버만 건드린다.
@@ -651,9 +658,10 @@ AI는 객체 지향 아키텍처(`AIPlayer`/`AIPlayerManager`/`AIDebugger`) + **
 - **달 AI 재무 튜닝 (2026-07-21b)**: 달 봇은 매 턴 적자(income +2/턴 vs 비용 +2.3/턴)로 발행 캡을 매 턴 채워 주식 14.7 = **VP −44**였다. 달은 크레이터 \$3·건설 2개 제한이라 주식 1주(\$5)로 1.67타일뿐 → **3턴 이후 차입은 회수 불가**. 달 전용 MapProfile 훅 3종(다른 맵은 기본값 = 기존 동작 항등): ① `aiNoBuildIssueLastTurns=5` — 후반 5턴(T4~8) **계획** 발행 금지(생존 발행은 허용, issueShares.ts). 최대 기여 ② `aiPlanExpensesNetOfIncome` — turnPlan.cashNeeded의 운영비를 income으로 상계해 "발행→expenses↑→cashNeeded↑→또 발행" 자기증폭 차단 ③ `aiDeliveryTimingFactor` — 검은 큐브 우대(밤쪽 도시가 매 턴 열려 있어 타이밍에 안 묶임)·목적지가 밤인 경로 소폭 할인. **⚠️ 타이밍 계수는 반드시 `perDeliveryVP`에 곱할 것** — `deliverableTurns`에 곱하면 `expectedDeliveries = min(deliverableTurns, matchingCubes)`의 큐브 병목에 묻혀 무효(실측 VP 변화 0.03). 이후 추가 3종: ④ 반구 포트폴리오(타이밍 계수 안에서 내 완성 링크가 커버한 반구 ×0.75/미커버 ×1.4 — 한쪽에 몰린 링크가 밤에 통째로 노는 문제, 스킵의 41%) ⑤ `aiEngineUpgradeCap=3` — **엔진업 결정만** 제한하고 경로 평가(engineMax)는 그대로(engineMax 축소는 긴 경로 −∞ 배제로 기각된 것과 구분) ⑥ `aiSkipHopelessSurvivalIssue` — 최대 발행으로도 파산 회피 불가면 생존 발행 포기(필요 주수 = ceil((부족분−income)/4), 주 실효 보전액 \$4). ⑦ 건설 예비금 면제의 배달 판정을 `cityAcceptsCube`(현재 상태)로 교정 — 계획용 `cityEverAcceptsCube`로 판정하면 목적지가 밤이라 이번 턴 배달 불가인데도 "배달로 회수"로 오판해 비용 지불용 현금을 건설에 헐어 수입컷/파산(파산 턴 건설지출 \$4.4 실측). 밤낮 없는 맵은 두 판정이 동치라 전 맵 불변. 최종 VP −21.49→**−11.49**·파산 1.78→1.50·주식 14.7→12.1. **기각**: 엔진 front-load 끄기(VP −19.6·파산 2.07로 악화 — 짧은 링크는 "엔진이 낮아서" 생긴 결과였음), 후반 6턴 금지(VP는 높으나 파산 원복), Locomotive까지 엔진 상한(4링크 배달 차단), 생존 발행 \$4 정확 메움(주식 증가로 악화), 수송 스킵 문턱 완화(자발적 스킵은 income 0짜리라 봇 판단이 옳았음). 상세·기각 근거는 [docs/ai-auction-baseline-100seed.md](docs/ai-auction-baseline-100seed.md).
 - **달 "성장 연결 가치" 실험 기각 (2026-07-21)**: 파라미터 튜닝이 국소 최적(VP −11.49·파산 1.50)에 도달한 뒤, 달 성장 룰("낮쪽+Moon Base 완성링크 연결 도시만 성장")의 "경로 완성 = 미래 화물 공급 해금" 가치를 `aiRouteExtraVP` 가산 훅(선례: `transcontinentalVP`와 동일 계열, 기본 0=항등)으로 넣는 실험(계획: [docs/moon-growth-link-plan.md](docs/moon-growth-link-plan.md)) — **전 지점 기각**. 최소 자극(VP_PER_CUBE 0.5×MY_SHARE 0.25)조차 VP −11.63으로 악화, 보너스 크기와 단조 비례해 더 악화(1.0×0.4 → −11.82). 원인: `estimateRouteVP`의 `matchingCubes`가 이미 "현재 큐브"를 정확히 보는데 "미래 성장 큐브" 가치를 얹으면 즉시 income을 내는 경로보다 지금은 빈약해도 "언젠가 자랄" 경로를 과대평가 — 그 성장은 실제 발생 시 별도 경로평가 턴이 다시 잡아내므로(성장발생턴 이미 5.8/8) 이중 계상에 가깝다. `citiesConnectedToSeed` 이동(hexGrid.ts, export)·훅 배관(기본 0)은 유지 — 다른 축이 재사용 가능. 상세: [docs/ai-auction-baseline-100seed.md](docs/ai-auction-baseline-100seed.md).
 - **달 경로 겹침 완화 — 스나이핑·순번 편향 해소 (2026-07-21i)**: player3 열세(VP −23·승률 5%)의 뿌리는 selector의 경로 겹침 완전 차단(-Infinity)이 **Moon Base 단일 허브와 상성 최악**이라는 것 — 초반 기회가 전부 moonBase 출발이라 앞 순번이 잡는 순간 뒷순번의 평가 후보 top-8이 전멸하고, fallback(`viableOpps[0] ?? opportunities[0]`)이 **겹침·ΔVP 평가를 무시한 경로를 커밋**해 정면 충돌(T1에 3·4번이 같은 moonBase→imbrium)·스나이핑(30시드 20.2건/게임)·재탐색 강요로 이어졌다. 수정: `MapProfile.aiRouteOverlapSharedCityPenalty`(기본 null=완전 차단 항등, selector.ts) — 달은 **0**: "도시 하나만 공유"는 무감점 허용(moonBase 화물 인원×2 = 출발지 공유가 정상), **정확히 같은 연결(from-to 쌍, 방향 무시)만 차단 유지**. 스윕 0/3/6/10 = −3.94/−6.28/−6.40/−7.53(단조), sameLink 차단까지 풀면 −4.47 악화(차단 실기여). **VP −8.61→−3.94·파산 1.34→0.87·player3 −23→−12.5·승자 분포 25/34/21/20**, 타 맵 6개 100시드 수치 정확 일치(항등). 상세: [docs/ai-auction-baseline-100seed.md](docs/ai-auction-baseline-100seed.md).
+- **Southern China 특수룰 (4~5인·디폴트 4인 8턴 — 정본: rules/southern-china-rules-pt1/2.pdf, 2026-07-27)**: ① **소유 디스크 4개** — 디스크 1개 = 완성 링크/미완성 구간/구매한 직결 링크(`helpers/nationalization.countOwnershipUnits`). 건설로 초과하면 `GameState.nationalizationPending`이 서고 기존 완성 링크 하나를 **국유화**(`nationalizeLink` — 사람은 PhasePanel 목록 또는 **보드에서 깜빡이는 후보 철도 직접 클릭**, 봇은 `resolveBotNationalization`이 타일 수 최소 링크 즉시 자동 해소 — 호출처 둘: 건설 직후(`afterBuildDiscCheck`) + **AI 턴 진입**(대기 중 사람이 봇으로 전환된 경우. 안 하면 nextPhase 보류 ↔ scheduleAICheck 무한루프))할 때까지 buildTrack 진행이 막힌다. 국유화 트랙 = `{owner:null, isGovernment:true, isNationalized:true}` — **Montréal 중립 기계 재사용**(누구나 이동·수입 0·VP 0·수정 금지), isNationalized는 HK 경유 금지·렌더 구분 마커. 보상 = 지지 토큰 1 + 구간당 $1, 당턴 건설/완성 링크는 대상 제외(`eligibleNationalizationTargets`). ② **미완성 구간 동시 1개**(`unfinishedSectionLimit`) — canBuildTrack가 "내 미완성 구간에 안 이어지고 양끝이 정거장도 아닌 새 타일"을 거부(buildReason 미러). ③ **Engineer·Locomotive 미사용** + 신규 8번째 행동 **Gain Support**(`gainSupport`, 선택 즉시 `PlayerState.supportTokens`+1). ④ **지지 토큰**: 미사용 1개 = 종료 3 VP(`playerBonusVP` — calculateVictoryPoints 4번째 인자), 반납(`spendSupportToken`, 내 차례 한정) → 'build' 이번 턴 건설 4개(maxTracksForBuilder) / 'loco' 수송 양 라운드 실효 엔진 +1(`effectiveEngineLevel` — 이동 탐색만, **payExpenses엔 미포함**). 롤오버 시 효과 플래그만 리셋(토큰은 유지). **봇도 'loco'를 반납한다**(`strategies/supportToken.shouldSpendSupportForLoco` — gameStore의 AI moveGoods 진입에서 판정, 반납 후 재결정해 늘어난 엔진을 경로에 반영). 이 맵은 Locomotive가 없어 토큰이 **유지비 안 붙는 1회용 엔진**이라, 300시드에서 **VP 동률(16.81→16.84)에 파산 20% 감소(0.46→0.37)**. 판정은 **증분** ΔVP `(엔진+1 최선 배달)−(현재 엔진 최선 배달)` > 3+6이며, 총 ΔVP로 재면 과대평가돼 역효과(−4.31 실측). **'build'(건설 4개) 반납은 미구현** — VP −2.16으로 명백한 손해. ⚠️ 이 항목은 100시드에서 '전 변형 기각'으로 잘못 결론냈다가 300시드 재측정으로 뒤집힌 건이다(기각 근거였던 베이스라인 17.68이 노이즈로 0.87 부풀려진 값이었음) — **1 VP 미만 차이는 100시드로 판별 불가(표준오차 ±1.15)**, 근거표·방법론 교훈: [docs/ai-auction-baseline-100seed.md](docs/ai-auction-baseline-100seed.md) 2026-07-27c. ⑤ **Hong Kong**(acceptsAllColors) — 모든 색 수용(`cityAcceptsCube` 한 곳), **마지막 2턴 폐쇄**(`allAcceptCityClosedLastTurns` → 롤오버가 `board.allAcceptClosed` 설정), **국유화 링크 경유 배달 금지**(findAllPaths·findReachableDestinations의 acceptsAllColors×govLinks 가드). ⑥ **인터어반(GZ↔SZ)·SZ↔HK 링크·페리(GZ↔HK)** = $8 구매식 직결 링크 3개(buildDirectLink + `interurbanFerryRule`: 플레이어당 턴 1개·`ferriesBuilt`+1=종료 1 VP). GZ↔HK는 비인접이라 시각은 면 앵커 직선(`DirectLink.faces` — GZ SE면↔HK W면, GameBoard가 정적 정의에서 보충해 구 저장본도 표시). 인접 쌍(GZ↔SZ·SZ↔HK)은 공유 변 위 반투명 점선 원 "8"(이름 밴드 안 가림), 링크 선은 도시 아래 레이어. (구) 서안 (6,9)↔HK 변 페리는 사용자 확인으로 제거 — 구매식 변 인접 기계(`board.ferryEdges`+`buildFerryEdge`+getNeighborHex, "(e+3)%6" 불변식)는 무해하게 잔존. ⑦ 추가비용 헥스 $4/$5 = fixedCost+showCostMarker. "복합 전 단순 선행" 룰은 **구조적으로 충족** — 이 엔진의 복합(교차/공존)은 항상 기존 단순 트랙 위 교체라 빈 헥스 복합 배치가 원래 불가(canBuildComplexTrack 기존 트랙 필수). southernChinaRules.test에 회귀 가드 박제(훗날 빈 헥스 복합 배치를 허용하게 되면 이 제약을 상기). ⚠️ **A* 정거장→정거장 직행 금지(전 맵 공유 수정)**: SZ(8,8)·HK(8,9)처럼 인접 도시 쌍은 0타일 링크가 불가능한데 A*가 [SZ→HK] 0타일 경로를 반환해 봇 전원이 "지을 게 없는 목표"에 몇 턴씩 갇혔다(홍콩 배달 0·VP −2.79). 건설된 직결 링크만 예외(`canStepStationToStation`, analyzer 두 A* 공통) — 수정 후 VP +14.26·파산 0.57·HK 배달 5.2/게임. **봇 직결 구매 구현(2026-07-27b)**: `evaluateDirectLinkPurchase`(strategies/buildTrack) — 동적색 맵 제외·고가는 HK 끝점만·1타일 대안 비교·현금 버퍼 6 (China 14.30/HK 배달 8.0·Germany +0.26·Korea 항등, 튜닝 이력은 baseline 문서). 직결 링크도 국유화 대상(중립 직결 = owner null+isNationalized·재구매 불가·HK행 정부 취급).
 - **봇 Production 실행 (전 맵 공통, 2026-07-21)**: `goodsGrowthSlice.applyBotProduction` — growGoods 초입에서 봇 홀더가 주머니에서 `min(2, 빈칸, 주머니)`개를 디스플레이 빈 칸에 자동 배치(룰북 IX: 생산 → 주사위). 달(`cityDiceGrowth`)은 **낮쪽 + Moon Base 연결 도시 열을 우선** 채워 이번 성장에 실제로 나갈 칸부터 보충한다. 사람 홀더는 기존 ProductionPanel 흐름 유지. ⚠️ 오랫동안 "봇 생산 미구현"이 **전 맵 공통 병목**이었음이 100시드로 확인됨(구현 후 전 맵 VP 상승, 하락 맵 없음 — docs/ai-auction-baseline-100seed.md 2026-07-21 표).
 - **미완성 트랙 소유권 (룰북 IV, 2026-07-21 정합화)**: ① **연장 인수** — 미소유 미완성 트랙(턴에 연장 안 해 디스크 빠진 것)은 연결점으로 인정되며, 새 타일로 이어 지으면 `findClaimableSectionKeys`(boardRules)가 그 구간 전체 소유권을 건설자에게 이전. 정부 트랙(중립)·완성 링크 소속(파산 해제분)·Western US 연속성 중(requireNetwork)은 제외. ② **방향 전환은 소유권 무변경** — "방향 전환만으로는 연장으로 인정되지 않는다"에 따라 `redirectTrack`·`buildTrack` 기존 타일 경로 모두 owner/builtTurn 유지(과거엔 소유권을 넘겨줬음 — 룰 위반이라 제거). ③ 방향 전환 **도시 방향 허용**(룰북에 금지 조항 없음), 이웃 판정 = 타 플레이어·정부 트랙 직접 연결 금지 / 내·미소유 트랙·맵 내 빈 헥스 허용. `getRedirectableEdges`는 currentPlayer를 받는다. **AI도 인수를 계획한다(2026-07-22)**: 경로 위 미소유 타일이 **변 일치로 그대로 재사용 가능**하면 건설 불요·비용 0으로 취급(`isReusableUnownedOnPath`, analyzer — vp.estimateRouteVP·turnPlan·buildTrack 예비금 면제가 공유, 미러 금지). buildTrack frontier 체인도 인수 가능 미소유 타일을 통과(`getClaimableUnownedTrackAt`)하고, AI측 첫 트랙 규칙에도 인수 연장 예외를 미러. **가산 보너스 금지** — 비용 절감으로만 반영해 이중 계상을 피한다(달 성장 가치 기각 교훈). 변 불일치 미소유 타일·A* 비용 우대는 미구현(2단계 후보). **전 맵 100시드 게이트 통과(2026-07-22)**: 7개 맵 전부 채택(VP 하락 −1·파산 증가 +0.1 기준 충족) — Rust Belt 18.71→20.12·Southern US 13.44→14.63·Montréal 0.55→2.31 등 6개 맵 개선, Moon만 −3.94→−4.48 소폭 하락(노이즈 범위). 상세: [docs/ai-auction-baseline-100seed.md](docs/ai-auction-baseline-100seed.md). **UX(노란 칸 통합)**: 미완성 트랙(내 것/미소유) 클릭 = 연장 타깃 + 방향 전환 방향이 전부 노란 하이라이트(`getRedirectTargetHexes` — uiSlice 하이라이트와 GameBoard 클릭 판정이 공유, 연장 후보와 서로소), 방향 전환 칸은 클릭 한 번에 즉시 커밋. 내 트랙 0개여도 인수 연장은 첫 트랙 규칙(도시 인접) 예외(`touchesClaimableUnownedTrack` — buildReason 미러 동기화). 이력: [docs/issue-log.md](docs/issue-log.md).
-- **타인 철도 이용 화물 운송 (룰북 V 정합, 2026-07-22)**: 이동 경로가 **타인 소유 완성 링크도 이용**(개수 무제한, 엔진 한도 내) — 수입은 링크 소유자에게(정산은 원래부터 링크 소유자별 +1이라 무수정, 탐색 계층만 개방). 정책은 **`hexGrid.findRouteOptions` 한 곳**(사람 UI·AI 공유): ① 본인 철도 우선 게이트 — 타인 경유 경로는 내 수입(정산 미러 `getPathLinkOwners` 기준)이 본인-철도-최선 **이상**이면 선택지로 노출(동률도 합법 경로라 남김 — 2026-07-26, 디폴트는 본인 철도라 동률 대안은 경로 선택 모드에서만), **미만**이면 숨김; 본인 철도로 도달 불가한 목적지는 무조건 노출(사람 쪽 큐브 단위 게이트 `gateMixedByCubeBest`도 동일 원칙 — 목적지 통째 숨김 금지). **경로 탐색 visited는 트랙 헥스에 한해 (헥스+진입 트랙 P/S) 단위**(`pathVisitKey`) — 교차/공존 타일의 독립된 두 트랙을 한 경로가 각각 한 번씩 지나는 합법 경로(한국 실전 3링크)를 헥스 단위 visited가 차단하던 버그 수정(2026-07-26, findAllPaths·findReachableDestinations. `findTrackCubeDeliveries`는 미적용 — 후속) ② 디폴트([0]) = 내 수입 최대 → **최저 VP 주인**(`calculateVictoryPoints`, 선두 견제) → 빌린 링크 최소 ③ 같은 빌린-소유자 집합은 대표 1개(dedupe). `findLongestPath` tie-break = 내 링크↓ → 타인 링크↓ → 총 링크↓. **UI**: 후보 1개면 목적지 클릭 즉시 수송(기존 UX), 여러 개면 경로 선택 모드(`ui.routeChoice`) — 빌린 구간을 소유자 마커 색으로 분절 렌더(BoardOverlays)·선택은 굵게, 경로 클릭/PhasePanel 카드로 전환, 목적지 재클릭·'이 경로로 수송'으로 확정, `selectRouteOption`/`confirmRouteChoice` 액션. **봇은 선택 UI 없이 디폴트 즉시 커밋**(uiSlice `selectDestinationCity`의 isAI 우회 — AI 결정 `decideMoveGoods`가 같은 findRouteOptions 디폴트로 평가하므로 일치). ⚠️ **AI 결정과 실행(uiSlice) 탐색이 어긋나면 목적지가 reachable에 없어 AI 락 미해제로 멈춘다** — 마을 큐브 분기에서 실제 발생해 수정(도시·마을 분기 모두 개방 유지할 것). 온라인: 선택 경로는 `startCubeAnimation` args로 전달(추가 intent 불요), `routeOptions`/`routeChoice`는 로컬 UI(스냅샷 미동기 — netStore 적용 시 정리). St.Lucia 트랙 큐브 탐색은 원래 소유자 필터가 없었고, 픽커/AI 평가만 정산 미러(`TrackCubeDelivery.ownIncome/oppIncome`)로 통일(VP −15.25→−4.80 — "St.Lucia 파탄"의 상당 부분이 수입 귀속 근사 오류였음). **100시드 전 맵 대폭 개선**(포지티브섬 — 전원 income↑·파산↓, 달 최대 +22): [docs/ai-auction-baseline-100seed.md](docs/ai-auction-baseline-100seed.md) 2026-07-22b. 설계·스텝 이력: [docs/opponent-rail-plan.md](docs/opponent-rail-plan.md).
+- **타인 철도 이용 화물 운송 (룰북 V 정합, 2026-07-22)**: 이동 경로가 **타인 소유 완성 링크도 이용**(개수 무제한, 엔진 한도 내) — 수입은 링크 소유자에게(정산은 원래부터 링크 소유자별 +1이라 무수정, 탐색 계층만 개방). 정책은 **`hexGrid.findRouteOptions` 한 곳**(사람 UI·AI 공유): ① 본인 철도 우선 게이트 — 타인 경유 경로는 내 수입(정산 미러 `getPathLinkOwners` 기준)이 본인-철도-최선을 **넘을 때만** 노출, **동률·미만이면 숨김**(2026-07-28 사용자 지시 — 내 수입이 같은데 남의 철도를 끼면 상대에게 수입만 헌납하는 선택지라 디폴트는 물론 경로 선택 목록에도 두지 않는다. 2026-07-26엔 "합법 경로 보존" 취지로 동률을 노출했었으나, 그때 실제로 고친 버그는 공존 헥스 2회 통과 `pathVisitKey`였고 동률 노출은 곁들인 완화라 되돌려도 그 버그는 재발하지 않는다); 본인 철도로 도달 불가한 목적지는 무조건 노출(사람 쪽 큐브 단위 게이트 `gateMixedByCubeBest`도 동일 원칙 — 목적지 통째 숨김 금지). **경로 탐색 visited는 트랙 헥스에 한해 (헥스+진입 트랙 P/S) 단위**(`pathVisitKey`) — 교차/공존 타일의 독립된 두 트랙을 한 경로가 각각 한 번씩 지나는 합법 경로(한국 실전 3링크)를 헥스 단위 visited가 차단하던 버그 수정(2026-07-26, findAllPaths·findReachableDestinations. `findTrackCubeDeliveries`는 미적용 — 후속) ② 디폴트([0]) = 내 수입 최대 → **최저 VP 주인**(`calculateVictoryPoints`, 선두 견제) → 빌린 링크 최소 ③ 같은 빌린-소유자 집합은 대표 1개(dedupe). ④ **목적지 간** 골드 점선(`ui.movePath`) 선택도 같은 기준 — 내 수입 최대 → **빌린 링크 최소** → 총 링크 최대 (uiSlice 도시·마을 큐브. oppLinks를 빠뜨리면 내 수입 동률일 때 "총 링크가 긴 쪽"이 이겨, 본인 철도로 갈 수 있는데도 남의 철도를 낀 더 먼 목적지를 추천한다 — 2026-07-28 사용자 보고로 수정). `findLongestPath` tie-break = 내 링크↓ → 타인 링크↓ → 총 링크↓. **UI**: 후보 1개면 목적지 클릭 즉시 수송(기존 UX), 여러 개면 경로 선택 모드(`ui.routeChoice`) — 빌린 구간을 소유자 마커 색으로 분절 렌더(BoardOverlays)·선택은 굵게, 경로 클릭/PhasePanel 카드로 전환, 목적지 재클릭·'이 경로로 수송'으로 확정, `selectRouteOption`/`confirmRouteChoice` 액션. **봇은 선택 UI 없이 디폴트 즉시 커밋**(uiSlice `selectDestinationCity`의 isAI 우회 — AI 결정 `decideMoveGoods`가 같은 findRouteOptions 디폴트로 평가하므로 일치). ⚠️ **AI 결정과 실행(uiSlice) 탐색이 어긋나면 목적지가 reachable에 없어 AI 락 미해제로 멈춘다** — 마을 큐브 분기에서 실제 발생해 수정(도시·마을 분기 모두 개방 유지할 것). 온라인: 선택 경로는 `startCubeAnimation` args로 전달(추가 intent 불요), `routeOptions`/`routeChoice`는 로컬 UI(스냅샷 미동기 — netStore 적용 시 정리). St.Lucia 트랙 큐브 탐색은 원래 소유자 필터가 없었고, 픽커/AI 평가만 정산 미러(`TrackCubeDelivery.ownIncome/oppIncome`)로 통일(VP −15.25→−4.80 — "St.Lucia 파탄"의 상당 부분이 수입 귀속 근사 오류였음). **100시드 전 맵 대폭 개선**(포지티브섬 — 전원 income↑·파산↓, 달 최대 +22): [docs/ai-auction-baseline-100seed.md](docs/ai-auction-baseline-100seed.md) 2026-07-22b. 설계·스텝 이력: [docs/opponent-rail-plan.md](docs/opponent-rail-plan.md).
 - **신도시 배치 연출(`newCityEvent`)**: `placeNewCity`가 좌표·타일·색·배치자·key를 남김 → 스냅샷으로 전원 동기화. `BoardPulses`가 도시색 대형 링+“신도시 X 건설!” 펄스, `MoveCubeOverlay`가 3.5초 미니맵 플래시. 재생 중복은 "key 최초 관측 스킵" 가드, undo 복원은 `isRecentUndoLog` 억제. ⚠️ persist merge 리셋 목록 금지(deliveryIncomeEvent와 동일). ⚠️ 플래시 숨김 타이머는 flash 상태 기준 별도 effect — 관측 effect cleanup에 걸면 스냅샷마다 참조가 바뀌어 타이머만 취소되고 팝업이 영구히 남는다(실전 버그).
 - **운송 가이드 on/off(`moveGuideAllowed` + gameSettingsStore)**: 가이드 = 목적지 골드 링(BoardCities `showMoveGuide`) + 최적 경로 점선(GameBoard가 movePath 게이팅). **표시만** 게이팅 — 목적지 클릭·수송·경로 선택 모드(routeChoice)·이동 애니메이션·Repopulation 골드 링은 불변. 실효 = 방 설정(`GameState.moveGuideAllowed`, 온라인 방장이 로비에서 설정→`startOnlineGame` 주입→스냅샷 동기화, false면 전원 잠김) AND 개인 토글(⚙ 설정 창). 오프라인은 방 설정 항상 true.
 - **수송 도착지 수익 펄스**: 정산(`completeCubeMove`)이 `GameState.deliveryIncomeEvent`(도착지 좌표·플레이어별 수입 증가·key)를 남기고, `BoardPulses`가 도착 도시 위에 "플레이어 디스크+이름 +n" 스택 펄스(큐브 유입 펄스와 동일 모션)로 표시. 스냅샷에 실려 게스트도 봄 — ⚠️ **persist merge 리셋 목록에 넣지 말 것**(게스트 적용 경로가 merge를 재사용해 넣으면 게스트 표시가 죽음). 재생 중복은 컴포넌트의 "key 최초 관측 스킵" 가드가 방지, 실행 취소 복원은 `isRecentUndoLog`로 억제.
@@ -680,20 +688,27 @@ store는 HMR로 slice 함수가 갈아끼워지지 않아 **옛 로직이 계속
 하면 dev 콘솔에 `[HMR] 버전 불일치` 경고가 뜬다(버전을 안 올려도 모듈 재평가 경고는 뜸).
 강력 새로고침하면 사라진다.
 
-### 브라우저 테스트 규칙 (터보 모드 + 왕복 최소화)
+### ⛔ 브라우저 테스트는 사용자가 시킬 때만
 
-- **터보 모드 자동 켜기 (필수)**: 브라우저에서 게임을 테스트/검증할 때는 게임 시작 전에
-  터보 모드를 켠다 — `localStorage.setItem('aos-turbo','1')` 또는 URL `?turbo=1`, 게임 상단
-  바의 "터보 ON" 버튼(온라인은 방장만 노출). 봇 딜레이·확인 홀드·스냅샷 홀드·정산 애니메이션·
-  스케줄러 debounce가 50ms 상한으로 줄어든다(`src/utils/turboMode.ts` — 게임 로직 무변경,
-  같은 비동기 경로 유지). 검증 후 `removeItem('aos-turbo')`로 원복. 사용자가 "실제 속도로/연출
-  확인"을 원하면 켜지 않는다. Playwright는 addInitScript로 주입.
-- **왕복 최소화**: 브라우저 검증에서 "클릭 1번 → 결과 확인" 왕복을 반복하지 말 것 (23분짜리
-  세션의 ~85%가 이 왕복이었음). 대신 ① 한 호출에 시나리오 구간을 통째로 넣고(45초 CDP 제한
-  내), ② 페이지에 setInterval **상주 드라이버**를 심어 호출 사이에도 게임이 진행되게 하고
-  가끔 상태만 폴링, ③ 여러 조작은 browser_batch로 묶는다.
-- **서브에이전트 모델**: 처음 하는 탐색적 검증(예상 밖 대응·버그 발견)은 Sonnet, 절차가 확정된
-  반복 검증은 Haiku. 반복 검증이 2회를 넘으면 Playwright 스크립트로 박제를 우선 검토.
+**Claude는 임의로 브라우저를 열어 게임을 실행·조작·캡처하지 않는다.**
+사용자가 **"브라우저로 테스트해봐 / 브라우저로 확인해봐"라고 명시적으로 지시한 경우에만** 한다.
+
+- 대상: Claude in Chrome(`mcp__claude-in-chrome__*`) 전부, Playwright/Puppeteer 등 로컬
+  브라우저 구동, `window.__GAME_STORE__` 직접 조작, 캡처를 위한 게임 진행.
+- **"화면 캡처해서 보여줘" 정도로 자의적으로 판단해 시작하지 말 것** (2026-07-28 실제 제지).
+  기본 대응은 ① 무엇을 어떻게 확인하면 되는지 안내, ② 코드/테스트로 근거 제시.
+  실물 확인이 필요하면 **사용자가 직접** 한다.
+- 이유(실제 사고): ⓐ 저장된 게임(localStorage `age-of-steam-game`)을 덮어써 **사용자가
+  진행 중이던 판이 날아간다**, ⓑ store 액션을 직접 호출하다 인자를 틀려(예: `issueShare`는
+  `(playerId, amount)`인데 amount 누락) 현금이 `NaN`이 되는 등 **상태를 오염**시킨다,
+  ⓒ 클릭→확인 왕복이 세션 시간의 대부분을 먹는데 얻는 정보는 적다.
+- 화면 동작 검증의 기본은 **Vitest 단위/통합 테스트**. UI 렌더 자체가 대상이면 코드 검토와
+  구조 설명으로 갈음한다.
+- **지시를 받아 실제로 할 때**: ⓐ 시작 전 저장 게임을 백업하거나 사용자에게 덮어씀을 먼저
+  알린다, ⓑ store 직접 호출 대신 **UI 클릭 경로**를 쓴다(앱 로직을 정상 경유), ⓒ 터보 모드
+  (`localStorage 'aos-turbo'` 또는 `?turbo=1`, `src/utils/turboMode.ts` — 봇 딜레이·홀드·
+  debounce 50ms 상한, 게임 로직 무변경)를 켜고 끝나면 원복, ⓓ 왕복을 줄여 한 호출에 시나리오
+  구간을 묶는다.
 
 ### 프로덕션 빌드
 ```bash
@@ -1335,9 +1350,8 @@ const CITY_COLORS = {
 
 ### 트러블슈팅 로그
 
-#### 브라우저 도구 429 Too Many Requests 오류
+#### 브라우저 도구 429 Too Many Requests 오류 (참고 — 지금은 브라우저 사용 자체가 제한됨)
 - **증상**: `browser_subagent` 도구 실행 시 지속적인 429 오류 발생하며 브라우저 실행 불가.
 - **원인**: 로컬 서버(`curl` 테스트 결과 200 OK)가 아닌, 에이전트 도구 시스템의 네트워크 요청 빈도 제한(Rate Limiting)에 걸린 것으로 추정됨.
-- **해결책**:
-    1. `browser_subagent` 사용을 일시 중단하고 충분한 대기 시간(Cool-down)을 가짐.
-    2. Playwright 등 로컬 브라우저 구동 방식을 대안으로 사용 (현재는 사용자 요청으로 사용 금지됨).
+- **해결책**: 대기(Cool-down) 후 재시도. ⚠️ 단 브라우저 구동은 **사용자가 명시적으로 지시한
+  경우에만** 한다 → [⛔ 브라우저 테스트는 사용자가 시킬 때만](#-브라우저-테스트는-사용자가-시킬-때만)

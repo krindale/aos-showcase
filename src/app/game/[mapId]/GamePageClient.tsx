@@ -59,6 +59,7 @@ import HelpOverlay from '@/components/game/HelpOverlay';
 import TurboSwitch from '@/components/game/TurboSwitch';
 import HostTakeoverDialog from '@/components/game/HostTakeoverDialog';
 import { calculateTrackScore } from '@/utils/trackValidation';
+import { calculateVictoryPoints, playerBonusVP } from '@/utils/gameLogic';
 import { ArrowLeft, RotateCcw, Users, Zap, X, Bot, Crown, ChevronRight, ChevronLeft, HelpCircle } from 'lucide-react';
 import {
   PLAYER_COLOR_ORDER,
@@ -624,14 +625,19 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   // 게임 종료 화면
   if (currentPhase === 'gameOver' || winner) {
     // 모든 플레이어의 점수 계산 (동적)
+    // ⚠️ VP는 반드시 calculateVictoryPoints + playerBonusVP로 — 공식을 여기서 다시 쓰면
+    // 맵별 보너스(Southern China: 미사용 지지 토큰 ×3, 인터어반/페리 ×1)가 누락돼
+    // **승자 판정이 틀린다** (리뷰 S4에서 발견: 종료 화면만 보너스를 빼고 계산 중이었음).
     const playerScores = activePlayers.map(playerId => {
       const player = players[playerId];
       const trackScore = calculateTrackScore(board, playerId);
-      const totalScore = player.income * 3 + trackScore - player.issuedShares * 3;
+      const bonusVP = playerBonusVP(player);
+      const totalScore = calculateVictoryPoints(player.income, trackScore, player.issuedShares, bonusVP);
       return {
         playerId,
         player,
         trackScore,
+        bonusVP,
         totalScore,
       };
     }).sort((a, b) => b.totalScore - a.totalScore);
@@ -668,7 +674,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
             {/* 승자 카드의 ring-2는 요소 바깥에 그려져 overflow 컨테이너에 잘린다 →
                 안쪽 여백(px/py-1)으로 링 자리를 만들고 음수 마진으로 원래 위치를 유지 */}
             <div className="space-y-3 my-5 -mx-1 px-1 py-1 max-h-[400px] overflow-y-auto">
-              {playerScores.map(({ playerId, player, trackScore, totalScore }, rank) => {
+              {playerScores.map(({ playerId, player, trackScore, bonusVP, totalScore }, rank) => {
                 const isWinner = totalScore === highestScore;
                 const colorHex = PLAYER_COLORS[player.color];
 
@@ -703,6 +709,18 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
                         <span>주식 {player.issuedShares} × 3</span>
                         <span>-{player.issuedShares * 3}</span>
                       </div>
+                      {/* 맵별 보너스 VP (Southern China: 지지 토큰 ×3 + 인터어반/페리 ×1) */}
+                      {bonusVP > 0 && (
+                        <div className="flex justify-between text-positive">
+                          <span>
+                            {[
+                              player.supportTokens ? `지지 토큰 ${player.supportTokens} × 3` : null,
+                              player.ferriesBuilt ? `인터어반·페리 ${player.ferriesBuilt}` : null,
+                            ].filter(Boolean).join(' + ')}
+                          </span>
+                          <span>+{bonusVP}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

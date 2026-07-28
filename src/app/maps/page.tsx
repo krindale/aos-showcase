@@ -107,6 +107,15 @@ const maps: MapEntry[] = [
     playable: true,
   },
   {
+    slug: 'southern-china',
+    name: 'Southern China',
+    nameKo: '남부 중국',
+    diff: '고급',
+    image: '/maps/southern-china.webp',
+    description: '홍콩과 주강 삼각주를 둘러싼 4~5인전. 소유 디스크가 4개뿐이라 링크를 국유화하며 확장해야 하고, 모든 색을 받는 홍콩은 마지막 2턴에 문을 닫습니다.',
+    playable: true,
+  },
+  {
     slug: 'montreal',
     name: 'Montréal Métro',
     nameKo: '몬트리올 메트로',

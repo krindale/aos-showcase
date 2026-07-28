@@ -15,6 +15,7 @@ import {
 } from '@/utils/trackValidation';
 import { hexCoordsEqual } from '@/utils/hexGrid';
 import { crossesBlockedEdge, touchesMasterNetwork } from './boardRules';
+import { canStartSectionHere } from './nationalization';
 import { applyEngineerDiscount, hasEngineerDiscount } from './engineerDiscount';
 
 /** 신규 타일 건설 예상 비용 (buildTrack의 비용 계산 미러 — 지형/고정비용/Engineer 절반). */
@@ -112,6 +113,15 @@ export function getBuildBlockReason(
     return profile.masterNetworkSeedCityId
       ? '모든 트랙은 Moon Base와 이어진 네트워크에 연결되어야 해요'
       : '모든 트랙은 하나의 네트워크로 이어져야 해요 (정부 링크와 연결)';
+  }
+
+  // Southern China 미완성 구간 동시 1개 — canBuildTrack과 **같은 헬퍼**를 호출 (미러 복제 금지)
+  const sectionLimit = profile.unfinishedSectionLimit;
+  if (
+    sectionLimit !== null && !existingTrack &&
+    !canStartSectionHere(board, currentPlayer, coord, edges, sectionLimit)
+  ) {
+    return '미완성 구간은 한 번에 1개만 — 기존 구간을 먼저 완성하세요';
   }
 
   // 여기까지 통과 = canBuildTrack OK → 남은 실패 원인은 현금.

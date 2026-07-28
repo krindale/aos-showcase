@@ -87,7 +87,9 @@
       "Bash(gh run *)",
       "Bash(python3 -c ' *)",
       "Bash(git -C /Users/dalelee/Desktop/aos-showcase status --short --branch)",
-      "Bash(git -C /Users/dalelee/Desktop/aos-showcase log --oneline -3)"
+      "Bash(git -C /Users/dalelee/Desktop/aos-showcase log --oneline -3)",
+      "Bash(git restore *)",
+      "Bash(git branch *)"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -58,6 +58,11 @@ npx vitest run src/ai/__tests__/rustBeltSimulation.test.ts \
 **정확 항등 6 · ±0.03 이내 2**(Western US는 대륙횡단 감지가 `findAllCompletedLinks`를 쓰므로
 1.30→1.32명/게임으로 미세 변동). 이 측정은 **같은 세션에서 직전 커밋 값을 대조군으로 쓴 A/B**다.
 
+**리뷰 R3 수정 후 재측정 — 위 표 그대로 유지**(전 맵 소수점까지 동일, 전체 회귀 469 통과).
+코드리뷰에서 "도시가 자기 자신에게 이어진 순환이 완성 링크로 잡히는" 회귀를 잡아 고쳤는데
+(순환 감지를 경로종류 단위로 바꾸면서 출발점 재방문 보호가 사라졌었다), 봇은 그런 순환을
+만들지 않아 시뮬 수치에는 영향이 없었다. 사람 플레이에서만 발생할 수 있는 경로였다.
+
 ⚠️ **범위 주의**: VP 경로(`trackValidation.findAllCompletedLinks`/`calculateTrackScore`)만
 보조 경로를 인식하게 했다. `hexGrid.findCompletedLinks`(디스크 회계·완성 링크 마커·달 성장
 도시 판정)는 **여전히 primary만 추적**한다 — 디스크는 `countUnfinishedSections`가 보조 구간을

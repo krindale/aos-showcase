@@ -7,6 +7,8 @@
  * 하나뿐이라, 지도·인원·좌석 같은 방 만들기 선택지를 보여줄 이유가 없다.
  *
  * 방에 들어가면 곧바로 /game/<맵>/으로 넘겨 기존 대기실에 맡긴다.
+ *
+ * 레이아웃은 /online과 짝을 맞춘다 — 왼쪽이 고르는 영역(방 목록), 오른쪽이 액션 카드.
  */
 
 import { useEffect, useState } from 'react';
@@ -75,117 +77,125 @@ export default function QuickJoinPage() {
   const joinable = publicRooms.filter((r) => r.seats.some((s) => s.kind === 'human' && !s.clientId));
 
   return (
-    <div className="mx-auto max-w-[820px] px-[clamp(18px,5vw,56px)] pb-[clamp(48px,7vw,90px)] pt-[clamp(36px,6vw,72px)]">
-      <motion.div {...enter({ y: 14, ease: 'easeOut' })}>
-        <div className="mb-3 font-display text-xs font-medium tracking-[0.16em] text-accent">
+    <div className="mx-auto max-w-[1180px] px-[clamp(18px,5vw,56px)] pb-[clamp(36px,5vw,64px)] pt-[clamp(24px,4vw,48px)]">
+      <motion.div {...enter({ y: 12, ease: 'easeOut' })} className="mb-[clamp(18px,3vw,32px)]">
+        <div className="mb-2 font-display text-xs font-medium tracking-[0.16em] text-accent">
           QUICK JOIN / 바로 참가
         </div>
-        <h1 className="mb-[14px] text-[clamp(28px,5vw,52px)] font-bold leading-[1.06] tracking-[-0.04em]">
+        <h1 className="text-[clamp(26px,4.2vw,44px)] font-bold leading-[1.08] tracking-[-0.04em]">
           기다리는 방에 그냥 앉으세요
         </h1>
-        <p className="max-w-[600px] text-base leading-[1.8] text-foreground-secondary">
-          약속도 코드도 필요 없습니다. 자리가 남은 공개방에 바로 들어갑니다.
-        </p>
       </motion.div>
 
-      <div className="glass-card mt-[clamp(26px,4vw,44px)] p-5">
-        <label className="mb-4 block">
-          <span className="mb-1 block text-xs font-medium text-foreground-secondary">내 이름</span>
-          <input
-            value={myName}
-            onChange={(e) => setMyName(e.target.value)}
-            maxLength={12}
-            className="w-full max-w-[280px] rounded-lg border border-[#ddd6c8] bg-background-secondary px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
-          />
-        </label>
+      <div className="grid gap-[clamp(20px,3vw,40px)] lg:grid-cols-[minmax(0,1fr)_340px]">
+        {/* ── 왼쪽: 지금 열려 있는 방 ── */}
+        <section aria-label="열려 있는 방">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="flex items-baseline gap-2 text-[19px] font-bold tracking-[-0.02em]">
+              <span className="font-display text-sm text-accent">01</span> 지금 열려 있는 방
+              <span className="font-display text-sm font-medium text-foreground-muted">
+                {joinable.length}
+              </span>
+            </h2>
+            <button
+              type="button"
+              onClick={() => void refreshPublicRooms()}
+              aria-label="공개방 목록 새로고침"
+              className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-foreground-secondary transition-colors hover:text-accent"
+            >
+              <RefreshCw size={13} className={publicRoomsLoading ? 'animate-spin' : ''} /> 새로고침
+            </button>
+          </div>
 
-        <button
-          type="button"
-          onClick={handleQuickMatch}
-          disabled={matching}
-          className="btn-primary w-full disabled:opacity-60"
-        >
-          {matching ? (
-            <span className="inline-flex items-center justify-center gap-2">
-              <Loader2 size={15} className="animate-spin" /> 빈 방 찾는 중…
-            </span>
-          ) : (
-            <span className="inline-flex items-center justify-center gap-2">
-              <Zap size={15} /> 빈 방에 바로 참가
-            </span>
-          )}
-        </button>
+          {/* 방 수가 폴링으로 계속 바뀌므로 높이를 고정해 아래가 밀리지 않게 한다 */}
+          <div className="h-[clamp(300px,42vh,420px)] overflow-y-auto pr-1">
+            {joinable.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center rounded-[16px] border border-dashed border-[#ddd6c8] px-5 text-center">
+                <p className="text-[15px] font-medium text-foreground">
+                  지금은 기다리는 방이 없습니다
+                </p>
+                <p className="mt-1.5 text-sm text-foreground-secondary">
+                  새 방이 열리면 여기에 바로 나타납니다. 직접 열면 친구를 코드로 부를 수 있어요.
+                </p>
+                <Link href="/online/" className="btn-primary mt-5 inline-block">
+                  내가 방을 열기 →
+                </Link>
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {joinable.map((r) => {
+                  const seated = r.seats.filter((s) => s.clientId || s.kind === 'ai').length;
+                  return (
+                    <li key={r.code}>
+                      <button
+                        type="button"
+                        onClick={() => void joinRoom(r.code, myName.trim() || '게스트')}
+                        className="glass-card flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:border-accent"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold text-foreground">
+                            {r.title || `${mapNameOf(r.mapId)} 방`}
+                          </span>
+                          <span className="mt-[2px] block font-display text-xs text-foreground-muted">
+                            {mapNameOf(r.mapId)}
+                          </span>
+                        </span>
+                        <span className="inline-flex flex-none items-center gap-1.5 rounded-full bg-background-tertiary px-3 py-1 font-display text-xs text-foreground-secondary">
+                          <Users size={12} /> {seated}/{r.seats.length}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </section>
 
-        {error && <p className="mt-3 text-sm text-accent">{error}</p>}
-      </div>
+        {/* ── 오른쪽: 참가 액션 ── */}
+        <section className="glass-card h-fit p-5" aria-label="참가 설정">
+          <label className="mb-4 block">
+            <span className="mb-1 block text-xs font-medium text-foreground-secondary">내 이름</span>
+            <input
+              value={myName}
+              onChange={(e) => setMyName(e.target.value)}
+              maxLength={12}
+              className="w-full rounded-lg border border-[#ddd6c8] bg-background-secondary px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+            />
+          </label>
 
-      {/* 지금 열려 있는 방 — 직접 골라 들어갈 수도 있게 */}
-      <section className="mt-[clamp(26px,4vw,40px)]">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-[17px] font-bold tracking-[-0.02em]">
-            지금 열려 있는 방{' '}
-            <span className="font-display text-sm font-medium text-foreground-muted">
-              {joinable.length}개
-            </span>
-          </h2>
           <button
             type="button"
-            onClick={() => void refreshPublicRooms()}
-            aria-label="공개방 목록 새로고침"
-            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-foreground-secondary transition-colors hover:text-accent"
+            onClick={handleQuickMatch}
+            disabled={matching}
+            className="btn-primary w-full disabled:opacity-60"
           >
-            <RefreshCw size={13} className={publicRoomsLoading ? 'animate-spin' : ''} /> 새로고침
+            {matching ? (
+              <span className="inline-flex items-center justify-center gap-2">
+                <Loader2 size={15} className="animate-spin" /> 빈 방 찾는 중…
+              </span>
+            ) : (
+              <span className="inline-flex items-center justify-center gap-2">
+                <Zap size={15} /> 빈 방에 바로 참가
+              </span>
+            )}
           </button>
-        </div>
+          <p className="mt-2 text-xs leading-[1.6] text-foreground-muted">
+            자리가 남은 방에 자동으로 들어갑니다. 왼쪽 목록에서 직접 골라도 됩니다.
+          </p>
 
-        {joinable.length === 0 ? (
-          <div className="rounded-[14px] border border-dashed border-[#ddd6c8] px-5 py-8 text-center">
-            <p className="text-sm text-foreground-secondary">
-              지금은 기다리는 방이 없습니다.
-            </p>
-            <Link
-              href="/online/"
-              className="btn-primary mt-4 inline-block"
-            >
-              내가 방을 열기 →
-            </Link>
+          {error && <p className="mt-3 text-sm text-accent">{error}</p>}
+
+          <div className="my-4 flex items-center gap-3 text-[11px] text-foreground-muted">
+            <span className="h-px flex-1 bg-[#e6e1d6]" /> 원하는 지도가 있다면{' '}
+            <span className="h-px flex-1 bg-[#e6e1d6]" />
           </div>
-        ) : (
-          <ul className="space-y-2">
-            {joinable.map((r) => {
-              const seated = r.seats.filter((s) => s.clientId || s.kind === 'ai').length;
-              return (
-                <li key={r.code}>
-                  <button
-                    type="button"
-                    onClick={() => void joinRoom(r.code, myName.trim() || '게스트')}
-                    className="glass-card flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:border-accent"
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-semibold text-foreground">
-                        {r.title || `${mapNameOf(r.mapId)} 방`}
-                      </span>
-                      <span className="mt-[2px] block font-display text-xs text-foreground-muted">
-                        {mapNameOf(r.mapId)}
-                      </span>
-                    </span>
-                    <span className="inline-flex flex-none items-center gap-1.5 rounded-full bg-background-tertiary px-3 py-1 font-display text-xs text-foreground-secondary">
-                      <Users size={12} /> {seated}/{r.seats.length}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
 
-      <Link
-        href="/online/"
-        className="mt-6 inline-block text-sm font-medium text-foreground-secondary underline-offset-4 hover:text-accent hover:underline"
-      >
-        ← 지도를 고르고 방 만들기
-      </Link>
+          <Link href="/online/" className="btn-secondary block w-full text-center">
+            지도 고르고 방 만들기 →
+          </Link>
+        </section>
+      </div>
     </div>
   );
 }

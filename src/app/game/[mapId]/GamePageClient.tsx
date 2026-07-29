@@ -350,7 +350,13 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       backTo = window.sessionStorage.getItem('aos-back-to') || '/maps';
       window.sessionStorage.removeItem('aos-back-to');
     } catch { /* noop */ }
-    if (isOnline) void leaveRoom();
+    if (isOnline) {
+      /* 방 나가기가 끝난 뒤에 이동한다 — leaveRoom은 호스트일 때 closeRoom() 왕복을
+         기다린 뒤에야 room을 비우는데(netStore), 그 전에 /online에 도착하면 그 화면의
+         "방이 있으면 대기실로" 자동 라우팅이 게임 페이지로 도로 튕겨낸다. */
+      void leaveRoom().finally(() => router.push(backTo));
+      return;
+    }
     router.push(backTo);
   };
 

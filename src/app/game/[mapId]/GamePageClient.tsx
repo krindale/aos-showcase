@@ -2,11 +2,13 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 
-// 개발 모드에서 AI 디버거 활성화
-import '@/ai/debug';
+// AI 디버거(@/ai/debug)는 프로덕션 번들에서 빼려고 정적 import 대신 컴포넌트 내부에서
+// 개발 모드일 때만 동적 로드한다(아래 useEffect). 정적 `import '@/ai/debug'`는 사이드이펙트
+// 모듈이라 트리셰이킹이 안 돼 프로덕션에도 딸려왔었다 (2026-07-29).
 
 // [개발 전용] 브라우저 콘솔/게임 로그를 로컬 수신 서버(:3999)로 미러링 — 디버깅용
 if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
@@ -34,7 +36,6 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
   }
 }
 import ConfirmDialog from '@/components/game/ConfirmDialog';
-import GameBoard from '@/components/game/GameBoard';
 import GameChat from '@/components/game/GameChat';
 import OnlineLobby from '@/components/game/OnlineLobby';
 import PhaseTransition from '@/components/game/PhaseTransition';
@@ -87,8 +88,27 @@ const COLOR_NAMES: Record<string, string> = {
   yellow: '노랑',
 };
 
+// GameBoard(SVG 렌더러 + board/ 레이어들)는 게임 라우트 청크에서 가장 무거운 축이라 지연 로딩.
+// ssr:false — static export에서도 클라이언트 전용 청크로 분리돼 게임 페이지 First Load JS를 줄인다.
+// 보드는 store 구독형(props 없음)이라 분리가 안전하다 (2026-07-29).
+const GameBoard = dynamic(() => import('@/components/game/GameBoard'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full w-full items-center justify-center text-foreground-muted text-sm">
+      보드 불러오는 중…
+    </div>
+  ),
+});
+
 export default function GamePageClient({ mapId }: GamePageClientProps) {
   const router = useRouter();
+
+  // AI 디버거(window.debugAI 등)는 개발 모드에서만 동적 로드 — 프로덕션 번들 제외
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'production') {
+      import('@/ai/debug');
+    }
+  }, []);
 
   // 맵 설정 (mapRegistry에서 맵별 주입)
   const mapConfig = getMapData(mapId);
@@ -848,8 +868,8 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   // 메인 게임 화면
   return (
     <div className={`bg-background ${isLandscape ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
-      {/* 헤더 */}
-      <header className={`fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-md border-b border-foreground/10 ${isLandscape ? 'py-1' : ''}`}>
+      {/* 헤더 — backdrop-blur 8px로 억제(스크롤 상시 재블러가 윈도우 GPU에서 버벅임 유발, 2026-07-29) */}
+      <header className={`fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-[8px] border-b border-foreground/10 ${isLandscape ? 'py-1' : ''}`}>
         <div className={`max-w-[1800px] mx-auto px-2 sm:px-4 flex items-center justify-between gap-2 sm:gap-4 ${isLandscape ? 'py-1' : 'py-2 sm:py-3'}`}>
           <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             <button

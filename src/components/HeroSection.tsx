@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Zap } from 'lucide-react';
 import HeroBoardVignette from './HeroBoardVignette';
 import { RULEBOOK_URL } from './Navigation';
 import { useEnterMotion } from '@/hooks/useEnterMotion';
@@ -11,6 +11,8 @@ import { useEnterMotion } from '@/hooks/useEnterMotion';
    (GamePageClient의 setupTab 초기값이 이 쿼리를 읽는다). 맵은 로비에서 방을 만들 때 정해지므로
    기본 맵(rust-belt)으로 보낸다. */
 const ONLINE_ENTRY = '/game/rust-belt/?mode=online';
+/** 빈 공개방 자동 참가(quickMatch)까지 바로 실행 — OnlineLobby가 quick=1을 읽는다 */
+const QUICK_JOIN_ENTRY = '/game/rust-belt/?mode=online&quick=1';
 
 /* ⚠️ '수록 맵' 수는 src/app/maps/page.tsx의 maps 배열 길이와 맞춰야 한다.
    (맵 데이터를 여기서 import하면 홈 번들에 맵 프로파일 전체가 딸려오므로 숫자만 둔다) */
@@ -60,6 +62,16 @@ export default function HeroSection() {
             </Link>
             <Link href="/maps" className="btn-secondary inline-block">
               봇과 바로 시작
+            </Link>
+          </div>
+          {/* 방을 만들 상대가 없어도 바로 낄 수 있는 경로 — 로비 진입 즉시 빠른 매칭 1회 */}
+          <div className="mt-[14px]">
+            <Link
+              href={QUICK_JOIN_ENTRY}
+              className="inline-flex items-center gap-1.5 text-[15px] font-semibold text-accent underline-offset-4 transition-colors hover:underline"
+            >
+              <Zap className="h-[15px] w-[15px]" aria-hidden />
+              또는 빈 방에 바로 참가하기 →
             </Link>
           </div>
           <div className="mt-[18px] flex flex-wrap items-center gap-x-5 gap-y-2 text-[15px]">

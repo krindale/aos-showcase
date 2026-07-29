@@ -17,7 +17,7 @@ import {
 } from '@/types/game';
 import { getPathLinkOwners, hexCoordsEqual } from '@/utils/hexGrid';
 import { getMapData } from '@/utils/mapRegistry';
-import { eligibleNationalizationTargets } from '@/store/helpers/nationalization';
+import { nationalizationTargets } from '@/store/helpers/nationalization';
 import {
   FileText,
   Users,
@@ -732,7 +732,7 @@ export default function PhasePanel() {
                     <p className="text-[10px] md:text-xs text-accent">
                       보드에서 <b>깜빡이는 철도를 직접 클릭</b>해도 됩니다 (마우스를 올리면 그 링크 전체가 강조).
                     </p>
-                    {eligibleNationalizationTargets(routeBoard, currentPlayer, currentTurnForNat).map((l) => (
+                    {nationalizationTargets(routeBoard, currentPlayer, currentTurnForNat).map((l) => (
                       <button
                         key={l.id}
                         onClick={() => nationalizeLink(currentPlayer, l.id)}

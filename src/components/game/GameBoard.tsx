@@ -12,7 +12,7 @@ import { useGameStore } from '@/store/gameStore';
 import { useGameSettingsStore } from '@/store/gameSettingsStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useTouchGestures } from '@/hooks/useTouchGestures';
-import { eligibleNationalizationTargets } from '@/store/helpers/nationalization';
+import { nationalizationTargets } from '@/store/helpers/nationalization';
 import {
   hexToPixel,
   getHexPoints,
@@ -97,7 +97,9 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   // Montréal Repopulation: 배치 대기 큐브가 있는지 (boolean 셀렉터 — 값 변화시만 리렌더)
   const repopPending = useGameStore((s) => (s.phaseState.repopulationCubes?.length ?? 0) > 0);
   // Southern China 국유화 선택 모드 — 대기 중인 플레이어(사람)만 보드에서 링크를 고른다.
-  // PhasePanel 목록과 **같은 헬퍼**(eligibleNationalizationTargets)를 쓴다 — 미러 금지.
+  // PhasePanel 목록과 **같은 헬퍼**(nationalizationTargets)를 쓴다 — 미러 금지.
+  // 그 헬퍼에는 "후보가 0이면 당턴 제외를 푸는" 폴백이 들어 있어, 표시·판정·봇이 모두
+  // 같은 목록을 본다 (상한을 지킬 방법이 사라지는 경우 방지, 2026-07-29).
   const nationalizationPending = useGameStore((s) => s.nationalizationPending ?? null);
   const nationalizeLink = useGameStore((s) => s.nationalizeLink);
   const natSelecting =
@@ -106,7 +108,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     !players[currentPlayer]?.isAI &&
     !boardInteractionBlocked;
   const natTargets = useMemo(
-    () => (natSelecting ? eligibleNationalizationTargets(board, currentPlayer, currentTurn) : []),
+    () => (natSelecting ? nationalizationTargets(board, currentPlayer, currentTurn) : []),
     [natSelecting, board, currentPlayer, currentTurn]
   );
   /** 국유화 후보 타일 좌표 → 링크 id (보드 클릭·하이라이트가 공유하는 인덱스) */
@@ -114,6 +116,21 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     const m = new Map<string, string>();
     for (const link of natTargets) {
       for (const c of link.trackTiles) m.set(`${c.col},${c.row}`, link.id);
+    }
+    return m;
+  }, [natTargets]);
+  /**
+   * 직결 링크(인터어반/페리) 국유화 후보 — `board.directLinks` 인덱스 → 링크 id.
+   * 직결 의사 타깃은 trackTiles가 비어 있어(nationalization.ts) 위 natTileIndex에 안 들어간다.
+   * 그래서 PhasePanel 목록에만 뜨고 보드에서는 깜빡이지도 클릭되지도 않아, "$8 링크는 디스크
+   * 취급이 아니다"라는 인상을 줬다 (2026-07-29 사용자 보고).
+   */
+  const natDirectIndex = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const link of natTargets) {
+      if (link.id.startsWith('direct-') && link.trackTiles.length === 0) {
+        m.set(Number(link.id.slice('direct-'.length)), link.id);
+      }
     }
     return m;
   }, [natTargets]);
@@ -518,19 +535,26 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     [board]
   );
 
-  // 완성된 링크에 포함된 트랙인지 확인
+  // 완성된 링크에 포함된 트랙인지 확인 (경로종류별 — 복합 타일은 기본/보조가 독립이라
+  // 한쪽만 완성된 상태가 정상이다. 좌표만으로 보면 보조가 완성됐다고 기본의 미완성 마커까지
+  // 지워버린다).
   // 정부 트랙(Montréal, owner null)은 completedLinks(소유자 필수 목록)에 없으므로 직접 판정
   // — 안 하면 정부 완성 링크 마커가 영영 안 뜬다 (원본 룰: 정부 링크도 중립색 마커 표시).
+  const completedPathKeys = useMemo(() => {
+    const s = new Set<string>();
+    for (const link of completedLinks) {
+      for (const t of link.trackPaths) s.add(`${t.coord.col},${t.coord.row}:${t.kind}`);
+    }
+    return s;
+  }, [completedLinks]);
   const isTrackInCompletedLink = useCallback(
-    (coord: HexCoord) => {
-      if (completedLinks.some(link => link.trackTiles.some(t => hexCoordsEqual(t, coord)))) {
-        return true;
-      }
+    (coord: HexCoord, kind: 'P' | 'S' = 'P') => {
+      if (completedPathKeys.has(`${coord.col},${coord.row}:${kind}`)) return true;
       const tile = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
       if (tile?.isGovernment) return isTrackPartOfCompletedLink(coord, board);
       return false;
     },
-    [completedLinks, board]
+    [completedPathKeys, board]
   );
 
   // 큐브 이동 애니메이션 처리 - 1초 후 완료.
@@ -1243,6 +1267,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           selectDestinationCity={handleSelectDestination}
           onCubeClick={handleCubeClick}
           buildDirectLink={buildDirectLink}
+          natDirectIndex={natDirectIndex}
+          onNationalizeDirect={(linkId) => nationalizeLink(currentPlayer, linkId)}
           ferryEdges={board.ferryEdges}
           buildFerryEdge={buildFerryEdge}
           allAcceptClosed={board.allAcceptClosed}

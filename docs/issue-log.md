@@ -8,6 +8,116 @@
 
 ---
 
+## 2026-07-29c — 보조 경로 링크가 마커·국유화·성장 판정에서 빠짐 + 국유화 후보 고갈 (사용자 지적)
+
+- **증상**: ① 교차/공존으로 완성한 링크가 **완성 링크 마커로 안 뜨고**(미완성 모양 유지),
+  중국에서는 **디스크는 쓰는데 국유화 후보로 안 떠 반납할 방법이 없었다**(디스크 영구 고착).
+  달에서는 보조 경로로 이은 도시가 성장 대상에서 빠졌다. ② 내 링크가 전부 당턴 건설이면
+  국유화 후보가 0이 되어 상한(디스크 4)을 지킬 방법이 사라지고 5단위가 그대로 굳었다.
+- **원인**: ①은 2026-07-29b에서 **VP 경로(trackValidation)만** 고치고 `hexGrid.findCompletedLinks`를
+  남겨둔 탓. 그 함수는 `t.owner`만 보고 primary `edges`만 따라가서 보조 경로 링크를 통째로 놓쳤고,
+  마커·국유화 대상·달 성장 판정이 전부 이 함수를 쓴다. ②는 룰의 "당턴 건설 링크 제외" 조항이
+  후보를 0으로 만들 수 있는데, 그때 상한을 강제할 폴백이 없었다(안전망은 미완성 구간만 해제).
+- **수정**:
+  - `CompletedLink`에 `trackPaths`(좌표+경로종류 P/S) 추가, 링크 id에 경로 시그니처 포함(같은
+    정거장 쌍을 잇는 기본/보조 링크 구분). `traceLinkFromTrack`이 진입 변이 속한 경로로 통과하고
+    **그 경로의 소유자**를 검사.
+  - `buildOwnedLinkTileIndex` 키를 (좌표+경로종류)로 → 회계 호출부에 kind 전달.
+  - `eligibleNationalizationTargets`가 보조 링크도 후보에 포함(예전엔 좌표만으로 경로를 특정 못 해
+    제외했다). `applyNationalization`은 보조 링크를 **secondaryOwner만** 중립화 — 타일 전체를 정부
+    트랙으로 만들면 기본 경로 주인의 철도를 뺏는다.
+  - 보드 소유 마커를 경로별 판정으로(한쪽만 완성된 상태가 정상).
+  - `nationalizationTargets` 신설 — **후보가 하나도 없을 때만** 당턴 제외를 푸는 폴백. 표시·판정·봇이
+    모두 이 함수를 쓴다(미러 금지). 평상시엔 룰대로 당턴 링크 제외(회귀 테스트 포함).
+- **측정 — 전 맵 개선(9/9)**: Rust Belt 44.84→**46.44**(+1.60) · Korea +0.93 · Western US +0.85 ·
+  Southern US +0.67 · China +0.61 · Montréal +0.50 · Moon +0.40 · Germany +0.25 · St.Lucia +0.10.
+  파산은 유지 또는 개선(Montréal 0.72→0.67, Moon 0.13→0.12, Western US 0.22→0.21).
+  **"봇은 복합을 거의 안 쓴다"던 앞선 추측이 틀렸다** — VP 경로만 고쳤을 때 항등이었던 이유는
+  그때까지 `releaseUnextendedTrack`이 보조 완성 링크를 "미완성 구간"으로 보고 **미연장 시 소유권을
+  해제**했기 때문이다. 봇은 교차/공존을 실제로 쓰면서 그 소유권을 매 턴 잃고 있었다.
+- **검증**: 전체 회귀 474 통과 · tsc · lint 0 errors · 중국 소유 단위 상한 4 불변식 유지.
+
+## 2026-07-29b — 교차/공존의 보조 경로로 완성한 링크가 VP 0 (사용자 지시로 수정)
+
+- **증상**: 복합 타일(교차·공존)의 **보조 경로**로 도시↔도시를 이어 링크를 완성해도 승점이
+  붙지 않는다. 수입은 정상 지급돼(`getPathLinkOwners`가 진입 변 기준으로 귀속) 발견이 어렵다.
+- **원인**: `isCompletedLink`/`findAllCompletedLinks`(trackValidation)가 **primary `edges`만**
+  추적했다. 시작점 판정도 `t.owner === playerId`만 봐서 `secondaryOwner`를 놓쳤고, `allOwned`도
+  경로 종류를 구분하지 않았다. 게다가 `calculateTrackScore`는 좌표 Set으로 집계해, 설령 잡히더라도
+  같은 헥스의 기본·보조가 **하나로 합쳐져** 점수가 누락될 구조였다.
+- **수정**: ① `isCompletedLink`가 진입 변이 속한 경로(P/S)로만 통과 — 이동 경로 탐색
+  (`hexGrid.checkConnectionToCity`)이 이미 쓰던 규칙과 통일. 순환 감지도 **(헥스+경로종류)**
+  단위로 바꿔 복합 타일의 두 트랙을 한 경로가 각각 지나는 합법 케이스를 허용. ② 시작점에
+  `secondaryOwner` 포함, `allOwned`를 경로 종류별 소유자로 검사. ③ `calculateTrackScore`
+  집계 단위를 **(헥스+경로종류)** — 룰북 "완성된 철도 링크의 각 트랙 구간당 +1점"에서 복합
+  타일의 두 트랙은 독립 구간이므로 각각 1점이다.
+- **측정**: 계획 단계에선 "달 성장 판정·AI 평가가 바뀌는 의미 변경"으로 보고 보류했으나,
+  **전 맵 100시드 실측 결과 사실상 항등**(정확 항등 6 · ±0.03 이내 2, 파산 전 맵 동일).
+  봇이 교차/공존을 거의 쓰지 않아 실효는 **사람 플레이의 누락 점수 복구**에 한정된다.
+  보류 판단이 과했던 셈. 표: [docs/ai-auction-baseline-100seed.md](ai-auction-baseline-100seed.md).
+- **남은 범위**: VP 경로만 고쳤다. `hexGrid.findCompletedLinks`(디스크 회계·완성 링크 마커·
+  달 성장 도시)는 여전히 primary만 추적한다 — 디스크는 `countUnfinishedSections`가 보조 구간을
+  세어 결과적으로 일관되지만, **보드의 소유 마커는 보조 경로로 완성한 링크에서도 "미완성"
+  모양으로 남는다**(시각 불일치, 미수정).
+
+## 2026-07-29 — 트랙 소유권 회계 증발: 혼합 소유 링크가 어디에도 안 세짐 (사용자 발견)
+
+- **증상(남부 중국)**: ① 주인 없는 미완성 철도를 도시에서 새 타일로 이었는데 **내 철도로
+  카운트되지 않고**, "디스크 제외(국유화)할 철도" 목록에도 안 떴다. ② $8 직결 링크(홍콩 연결)가
+  디스크를 안 세는 것 같다. ③ 복합(교차/공존) 트랙 끝에서 이어 짓기가 안 된다.
+- **원인 — 같은 "완성 링크"를 두 함수가 다른 기준으로 판정**:
+  - `isTrackPartOfCompletedLink`(hexGrid) = **소유권 무시**, 물리적 연결만 본다.
+  - `findCompletedLinks`(hexGrid) = **모든 타일이 동일 owner**여야 링크가 성립한다.
+
+  내 타일이 국유화/미소유/타인 타일과 섞인 채 정거장↔정거장을 이으면 그 틈으로 빠진다 —
+  물리적으로 완성이라 `countUnfinishedSections`가 "미완성 구간 아님"으로 빼는데,
+  `findCompletedLinks`는 소유자가 섞였다고 링크를 안 만든다. **디스크 0개·국유화 대상 아님·
+  완성 링크 마커 없음·VP 0.** 게다가 `findClaimableSectionKeys`와 `releaseUnextendedTrack`이
+  양쪽 다 그 타일을 제외해 **되돌릴 방법조차 없이 굳었다**. 중국은 국유화 트랙(회색)이 상시
+  존재해 "주인 없는 철도"로 보이므로 이 경로에 정확히 걸린다.
+  - ②는 **오진**이었다 — `countOwnershipUnits`는 직결 링크를 원래 세고 있었다. 진짜 문제는
+    ⓐ 디스크 사용량을 보여주는 UI가 하나도 없었고, ⓑ 직결 의사 타깃은 `trackTiles`가 빈 배열이라
+    보드 하이라이트 인덱스에서 빠져 클릭도 안 됐으며, ⓒ 위 증발로 실제 사용량이 과소 집계됐다.
+  - ③은 별개 원인 둘: secondary 소유 마커 `<circle>`에 `onClick`도 `pointerEvents:'none'`도 없어
+    **클릭을 삼켰고**, `playerHasTrack`이 `secondaryOwner`를 세지 않아 내 primary가 0개일 때
+    "첫 트랙 = 도시 인접" 분기로 빠져 거부됐다(토스트도 엉뚱한 문구).
+- **수정** (커밋 7건, 브랜치 `fix/track-ownership-accounting`):
+  1. `hexGrid`에 `buildOwnedLinkTileIndex`/`isTrackInOwnedCompletedLink` 신설 →
+     **소유권 회계 4곳만** 교체(`countUnfinishedSections`·`releaseUnfinishedOwnership`·
+     `releaseUnextendedTrack`·`findClaimableSectionKeys`). 물리적 연결성 판정 12곳은 그대로.
+     타일마다 `findCompletedLinks`를 부르면 O(n²)라 인덱스를 한 번 만들어 넘긴다.
+  2. `findClaimableSectionKeys`를 `buildTownSpur`·`buildComplexTrack`에도 연결 —
+     **완성된 구간만** 인수한다(미완성인 채 가져오면 builtTurn이 과거라 같은 턴 끝
+     `releaseUnextendedTrack`이 도로 풀고, builtTurn을 현재 턴으로 덮으면 독일
+     `getIncompleteNewTracks`가 삭제+환불한다).
+  3. `playerHasTrack`에 `secondaryOwner` 추가(판정·사유가 같은 함수를 공유해 미러 자동 유지).
+  4. `BoardTracks` secondary 마커에 `onClick`/`pointerEvents` + `isTrackClickable` 합류.
+  5. `describeOwnershipUnits` + PlayerPanel "소유 디스크 N/4 (링크·구간·직결)" 표시.
+  6. 직결 링크 국유화 후보 보드 하이라이트/클릭(`natDirectIndex`).
+  7. `getComplexBuildBlockReason` — 복합 건설 거부 사유 표시(기존엔 비활성 버튼만).
+- **검증**: `ownershipAccounting.test.ts` 신설(재현 → 수정 후 통과) 15건 ·
+  `trackBuilding` 26건 · `southernChinaNationalization` 14건(스토어 `buildDirectLink()` →
+  `nationalizationPending` 통합 공백 보강). STORE_CODE_VERSION 10 → 11.
+- **100시드 (기준 → 현재)**: Rust Belt 44.58→**44.84**(파산 0.08→**0.03**) ·
+  Germany 35.95→**36.15**(0.16→**0.15**) · Southern China 17.21→**16.44**(0.35→**0.32**,
+  소유 단위 상한 4 불변식 유지). 중국 −0.77은 표준오차 ±1.12 이내이고, 디스크를 정확히 세게 되어
+  국유화가 늘어난 **예상된 방향**이다. St.Lucia는 20시드 노이즈가 커 **같은 커밋 A/B**로 직접
+  비교했다(별도 워크트리): 수정 전 −6.30/파산 12 → 후 −6.88/파산 12 = −0.58(노이즈 범위).
+
+## 2026-07-29 — 윈도우에서 텍스트가 2줄로 접힘 (사용자 발견)
+
+- **증상**: 윈도우에서 게임 화면 텍스트가 2줄로 깨지고, **글꼴 모양 자체가 맥과 다르게** 보인다.
+- **원인**: 웹폰트가 적용되지 않은 **폴백 상태로 렌더**되고 있었다. 폴백은 맥 Apple SD Gothic
+  Neo(좁음) vs 윈도우 맑은 고딕(넓음)이라 한글 폭이 달라 같은 문장이 윈도우에서만 접힌다.
+  둘이 겹쳤다: ⓐ `globals.css`가 CSS `@import`로 폰트를 불러와, 그 파일을 다 파싱한 뒤에야
+  요청이 시작됐다(preconnect도 없음). ⓑ Service Worker의 fetch 핸들러가 **cross-origin을 전부
+  스킵**해 Google Fonts가 한 번도 캐시되지 않았다 — 재방문·오프라인·PWA 설치 상태에서 매번
+  네트워크에 의존하고, 못 받으면 폴백으로 떨어진다.
+- **수정**: `@import` → `layout.tsx`의 `<link>` + `fonts.gstatic.com` preconnect.
+  sw.js에 폰트 전용 `cacheFirstFont` — 일반 `cacheFirst`는 `res.ok`만 보고 캐싱하는데
+  stylesheet는 no-cors라 **opaque(status 0)**이므로 그대로면 영영 캐시되지 않는다. opaque도
+  보관하고, 축출을 피하려 DYNAMIC이 아니라 STATIC_CACHE에 넣는다.
+
 ## 2026-07-28 — 경매 "새로운 순서" 원 애니메이션이 네모에서 잘림 (사용자 발견)
 
 - **증상**: 경매에서 **포기할 때마다** 채워지는 "새로운 순서" 색 원의 팝 애니메이션이 사각형

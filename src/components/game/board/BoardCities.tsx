@@ -27,6 +27,13 @@ interface BoardCitiesProps {
   cottonPorts: string[] | undefined;
   /** board.directLinks (Germany Essen↔Düsseldorf 등) */
   directLinks: DirectLink[] | undefined;
+  /** Southern China 국유화 후보 직결 링크 — **board.directLinks 인덱스** → 링크 id (GameBoard가 주입).
+   *  ⚠️ 아래 렌더 루프의 `i`로 조회하므로 `directLinks` prop은 board.directLinks와 **순서·길이가
+   *  같아야 한다** (GameBoard의 renderDirectLinks는 map만 하므로 성립). filter/sort를 넣으면
+   *  인덱스가 어긋나 엉뚱한 링크가 후보로 뜬다 — 그때는 링크 id를 직접 실어 보낼 것. */
+  natDirectIndex?: Map<number, string>;
+  /** 후보 직결 링크 클릭 → 국유화 */
+  onNationalizeDirect?: (linkId: string) => void;
   players: Record<PlayerId, PlayerState>;
   currentPhase: GamePhase;
   isFlat: boolean;
@@ -67,6 +74,8 @@ export default function BoardCities({
   dynamicCityColors,
   cottonPorts,
   directLinks,
+  natDirectIndex,
+  onNationalizeDirect,
   players,
   currentPhase,
   isFlat,
@@ -455,13 +464,26 @@ export default function BoardCities({
             />
           );
         }
+        // 국유화 후보(내 직결 링크) — 깜빡이는 링 + 클릭으로 국유화.
+        // 타일 링크와 달리 trackTiles가 비어 있어 좌표 인덱스로는 잡히지 않으므로
+        // directLinks 인덱스로 판정한다 (GameBoard natDirectIndex).
+        const natLinkId = natDirectIndex?.get(i);
+        const isNatTarget = !!natLinkId && dl.owner !== null;
         return (
           <g
             key={`directlink-${i}`}
-            className={buildable ? 'cursor-pointer' : ''}
-            onClick={() => buildable && buildDirectLink(dl.cityA, dl.cityB)}
+            className={buildable || isNatTarget ? 'cursor-pointer' : ''}
+            onClick={() => {
+              if (isNatTarget) { onNationalizeDirect?.(natLinkId!); return; }
+              if (buildable) buildDirectLink(dl.cityA, dl.cityB);
+            }}
           >
-            {buildable && <circle cx={mx} cy={my} r="22" fill="transparent" />}
+            {(buildable || isNatTarget) && <circle cx={mx} cy={my} r="22" fill="transparent" />}
+            {isNatTarget && (
+              <circle cx={mx} cy={my} r="16" fill="none" stroke="#c04a2b" strokeWidth="3">
+                <animate attributeName="stroke-opacity" values="1;0.25;1" dur="1.1s" repeatCount="indefinite" />
+              </circle>
+            )}
             {dl.owner ? (
               // 건설됨: 소유색 디스크 (흰 테두리 — 도시색/바다 어느 배경에서도 식별)
               <circle

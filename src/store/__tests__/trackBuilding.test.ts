@@ -24,7 +24,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useGameStore } from '../gameStore';
 import { getBuildableNeighbors, isValidBuildTargetWithReplace } from '@/utils/hexGrid';
-import { getRedirectTargetHexes } from '@/utils/trackValidation';
+import { getRedirectTargetHexes, playerHasTrack } from '@/utils/trackValidation';
+import { getComplexBuildBlockReason } from '@/store/helpers/buildReason';
 import { PlayerId, HexCoord } from '@/types/game';
 
 describe('트랙 건설 메커니즘', () => {
@@ -252,6 +253,81 @@ describe('트랙 건설 메커니즘', () => {
       expect(useGameStore.getState().canBuildComplexTrack(
         { col: 3, row: 0 }, [0, 4], 'crossing'
       )).toBe(false);
+    });
+
+    /**
+     * 상대 트랙 위에 내 교차를 얹은 뒤 내 primary 타일을 전부 잃은 상태.
+     * 실전 발생 경로: 남부 중국 국유화(내 타일이 owner null이 됨) · releaseUnextendedTrack으로
+     * 미완성 구간이 전부 풀림 · 첫 건설이 상대 트랙 위 교차였던 경우.
+     * playerHasTrack이 secondaryOwner를 못 보면 canBuildTrack이 "첫 트랙 = 도시 인접"
+     * 분기로 빠져 내 복합 트랙 끝에서 이어 짓기가 거부된다 (2026-07-29 사용자 보고).
+     */
+    function crossingOnlyOwnership() {
+      placeTrack({ col: 1, row: 0 }, [3, 0], 'player2'); // 상대 단순 트랙
+      placeTrack({ col: 0, row: 1 }, [4, 5], 'player1'); // 내 접근 트랙
+      useGameStore.getState().buildComplexTrack({ col: 1, row: 0 }, [2, 5], 'crossing');
+
+      // 내 primary 타일을 전부 제거 — secondary(교차)만 남는다
+      const s = useGameStore.getState();
+      useGameStore.setState({
+        board: {
+          ...s.board,
+          trackTiles: s.board.trackTiles.filter(t => t.owner !== 'player1'),
+        },
+        phaseState: { ...s.phaseState, builtTracksThisTurn: 0 },
+      });
+    }
+
+    it('playerHasTrack: 복합 타일의 secondaryOwner도 내 트랙으로 센다', () => {
+      crossingOnlyOwnership();
+      const { board } = useGameStore.getState();
+
+      expect(board.trackTiles.some(t => t.owner === 'player1')).toBe(false);
+      expect(board.trackTiles.some(t => t.secondaryOwner === 'player1')).toBe(true);
+      expect(playerHasTrack(board, 'player1')).toBe(true);
+    });
+
+    it('내 primary 타일이 0개여도 복합 secondary 끝에서 이어 지을 수 있다', () => {
+      crossingOnlyOwnership();
+
+      // (1,0)의 secondary edges [2,5] 중 edge2(SW)=(0,1) — 방금 비운 자리.
+      // 그쪽으로 맞물리는 변(edge5=NE→(1,0))을 가진 타일을 놓는다.
+      expect(useGameStore.getState().canBuildTrack({ col: 0, row: 1 }, [5, 0])).toBe(true);
+    });
+
+    // 거부 사유 문구 — canBuildComplexTrack 판정과 어긋나지 않아야 한다 (미러 가드)
+    it('getComplexBuildBlockReason: 건설 가능하면 null, 막히면 사유를 준다', () => {
+      buildCompletedLink('player1');
+      placeTrack({ col: 1, row: 0 }, [3, 0], 'player1');
+      placeTrack({ col: 2, row: 0 }, [3, 0], 'player1');
+      const s = useGameStore.getState();
+
+      // 가능한 조합 → null (canBuildComplexTrack true와 일치)
+      expect(s.canBuildComplexTrack({ col: 3, row: 0 }, [3, 1], 'crossing')).toBe(true);
+      expect(getComplexBuildBlockReason(s, { col: 3, row: 0 }, [3, 1], 'crossing')).toBeNull();
+
+      // 엣지 겹침 → 사유 (canBuildComplexTrack false와 일치)
+      expect(s.canBuildComplexTrack({ col: 3, row: 0 }, [0, 4], 'crossing')).toBe(false);
+      expect(getComplexBuildBlockReason(s, { col: 3, row: 0 }, [0, 4], 'crossing'))
+        .toContain('같은 변');
+
+      // 기존 트랙이 없는 빈 헥스 → 사유
+      expect(getComplexBuildBlockReason(s, { col: 0, row: 3 }, [0, 3], 'coexist'))
+        .toContain('기존 트랙');
+    });
+
+    it('getComplexBuildBlockReason: 현금이 부족하면 그 사유를 준다', () => {
+      buildCompletedLink('player1');
+      placeTrack({ col: 1, row: 0 }, [3, 0], 'player1');
+      placeTrack({ col: 2, row: 0 }, [3, 0], 'player1');
+      const s0 = useGameStore.getState();
+      useGameStore.setState({
+        players: { ...s0.players, player1: { ...s0.players.player1, cash: 0 } },
+      });
+      const reason = getComplexBuildBlockReason(
+        useGameStore.getState(), { col: 3, row: 0 }, [3, 1], 'crossing'
+      );
+      expect(reason).toContain('현금');
     });
   });
 

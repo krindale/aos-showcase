@@ -1464,10 +1464,19 @@ export function findReachableDestinations(
 /**
  * 완성된 철도 링크 정보
  */
+/** 링크가 지나는 트랙 한 칸 — 복합 타일은 기본(P)·보조(S)가 서로 독립된 트랙이다. */
+export interface LinkTileRef {
+  coord: HexCoord;
+  kind: 'P' | 'S';
+}
+
 export interface CompletedLink {
   id: string;
   owner: PlayerId;
-  trackTiles: HexCoord[];  // 링크에 포함된 트랙 타일들
+  trackTiles: HexCoord[];  // 링크에 포함된 트랙 타일들 (좌표만 — 기존 소비자 호환)
+  /** 좌표 + 경로종류. 복합 타일은 같은 좌표가 P/S로 서로 다른 링크에 속할 수 있어,
+   *  국유화·소유 마커처럼 "어느 경로인지"가 중요한 곳은 반드시 이걸 쓴다. */
+  trackPaths: LinkTileRef[];
   startCity: HexCoord;     // 시작 도시/마을
   endCity: HexCoord;       // 끝 도시/마을
   centerPosition: { x: number; y: number };  // 마커 표시 위치
@@ -1498,22 +1507,27 @@ export function findCompletedLinks(board: BoardState): CompletedLink[] {
         sp => hexCoordsEqual(sp.townCoord, startPoint) && sp.edge === edge
       )) continue;
       const neighbor = getNeighborHex(startPoint, edge, board);
-      const track = board.trackTiles.find(
-        t => hexCoordsEqual(t.coord, neighbor) && t.owner !== null
-      );
-
+      const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighbor));
       if (!track) continue;
 
-      // owner가 null이 아닌 트랙만 찾았으므로 안전하게 추출
-      const trackOwner = track.owner;
-      if (!trackOwner) continue;
-
-      // 트랙이 이 도시 방향으로 연결되어 있는지 확인
+      // 정거장을 마주보는 변이 **어느 경로**에 속하는지 보고, 그 경로의 소유자로 추적을 시작한다
+      // (복합 타일의 보조 경로도 완성 링크를 이룰 수 있다 — 2026-07-29).
       const entryEdge = getOppositeEdge(edge);
-      if (!track.edges.includes(entryEdge)) continue;
+      let startKind: 'P' | 'S';
+      let trackOwner: PlayerId | null;
+      if (track.edges.includes(entryEdge)) {
+        startKind = 'P';
+        trackOwner = track.owner;
+      } else if (track.secondaryEdges?.includes(entryEdge)) {
+        startKind = 'S';
+        trackOwner = track.secondaryOwner ?? null;
+      } else {
+        continue; // 이 변으로는 연결되지 않음
+      }
+      if (!trackOwner) continue; // 미소유(디스크 빠짐)·정부 트랙은 링크를 이루지 않는다
 
-      // 이미 처리된 트랙이면 건너뛰기
-      const trackKey = hexToKey(track.coord);
+      // 이미 처리된 경로면 건너뛰기 (같은 헥스라도 P/S는 별개)
+      const trackKey = `${hexToKey(track.coord)}:${startKind}`;
       if (processedTrackIds.has(trackKey)) continue;
 
       // 이 트랙에서 시작해서 다른 도시/마을까지 경로 추적
@@ -1526,28 +1540,81 @@ export function findCompletedLinks(board: BoardState): CompletedLink[] {
       );
 
       if (linkResult) {
-        // 양방향 중복 방지를 위해 좌표를 정렬하여 고유 ID 생성
+        // 양방향 중복 방지를 위해 좌표를 정렬하여 고유 ID 생성.
+        // ⚠️ 정거장 쌍만으로는 부족하다 — 같은 두 정거장을 잇는 기본 경로 링크와 보조 경로
+        // 링크를 한 사람이 둘 다 가질 수 있으므로, 경로가 지나는 칸을 id에 함께 넣어 구분한다.
         const [minCoord, maxCoord] = [startPoint, linkResult.endCity].sort((a, b) =>
           a.col !== b.col ? a.col - b.col : a.row - b.row
         );
-        const linkId = `link-${trackOwner}-${minCoord.col}-${minCoord.row}-${maxCoord.col}-${maxCoord.row}`;
+        const pathSig = linkResult.trackTiles
+          .map(t => `${t.coord.col}.${t.coord.row}${t.kind}`)
+          .sort()
+          .join('_');
+        const linkId = `link-${trackOwner}-${minCoord.col}-${minCoord.row}-${maxCoord.col}-${maxCoord.row}-${pathSig}`;
 
         // 이미 추가된 링크인지 확인
         if (completedLinks.some(l => l.id === linkId)) continue;
 
+        const coords = linkResult.trackTiles.map(t => t.coord);
         completedLinks.push({
           id: linkId,
           owner: trackOwner,
-          trackTiles: linkResult.trackTiles,
+          trackTiles: coords,
+          trackPaths: linkResult.trackTiles,
           startCity: startPoint,
           endCity: linkResult.endCity,
-          centerPosition: calculateLinkCenter(linkResult.trackTiles),
+          centerPosition: calculateLinkCenter(coords),
         });
       }
     }
   }
 
   return completedLinks;
+}
+
+/**
+ * 완성 링크에 속한 타일 → 그 링크의 소유자 인덱스 ("col,row" → PlayerId).
+ *
+ * ⚠️ **소유권 회계는 반드시 이 인덱스(또는 isTrackInOwnedCompletedLink)로 판정한다.**
+ * `isTrackPartOfCompletedLink`는 **소유권을 보지 않는 물리적 연결성 판정**이라, 내 타일이
+ * 국유화/미소유/타인 타일과 섞인 채 정거장↔정거장을 이으면 true를 돌려준다. 그런데
+ * `findCompletedLinks`는 타일 소유자가 전부 같아야 링크를 만들므로 그 경우 링크가 없다.
+ * 두 기준을 섞어 쓰면 그 틈에서 트랙이 회계에서 통째로 증발한다 — 완성 링크로도 안 세고
+ * 미완성 구간으로도 안 세어 디스크 0개·국유화 대상 아님·소유 마커 없음
+ * (2026-07-29 사용자 실측, 남부 중국).
+ *
+ * 타일마다 findCompletedLinks를 다시 부르면 O(n²)가 되므로 한 번 만들어 넘겨 쓸 것.
+ */
+export function buildOwnedLinkTileIndex(
+  board: BoardState,
+  /** 이미 구한 완성 링크 목록 — 같은 보드로 링크 수와 인덱스를 함께 쓸 때 넘기면
+   *  findCompletedLinks 재실행을 피한다 (describeOwnershipUnits). */
+  links?: CompletedLink[]
+): Map<string, PlayerId> {
+  const index = new Map<string, PlayerId>();
+  for (const link of links ?? findCompletedLinks(board)) {
+    // 키는 **(좌표 + 경로종류)** — 복합 타일은 P/S가 서로 다른 링크(다른 주인일 수도)에
+    // 속하므로 좌표만으로 인덱싱하면 한쪽이 다른 쪽을 덮어쓴다.
+    for (const t of link.trackPaths) index.set(`${t.coord.col},${t.coord.row}:${t.kind}`, link.owner);
+  }
+  return index;
+}
+
+/**
+ * 이 타일이 **ownerId 단일 소유의** 완성 링크에 속하는가 (소유권 회계용).
+ * 물리적 완성 여부만 필요한 곳(건설 연결성·경로 탐색)은 isTrackPartOfCompletedLink를 쓴다.
+ * 반복 호출 시 buildOwnedLinkTileIndex로 인덱스를 만들어 index 인자로 넘길 것.
+ */
+export function isTrackInOwnedCompletedLink(
+  trackCoord: HexCoord,
+  board: BoardState,
+  ownerId: PlayerId,
+  /** 복합 타일에서 어느 경로를 묻는지 — 기본 경로(P)가 기본값 */
+  kind: 'P' | 'S' = 'P',
+  index?: Map<string, PlayerId>
+): boolean {
+  const idx = index ?? buildOwnedLinkTileIndex(board);
+  return idx.get(`${trackCoord.col},${trackCoord.row}:${kind}`) === ownerId;
 }
 
 /**
@@ -1585,25 +1652,37 @@ function traceLinkFromTrack(
   board: BoardState,
   owner: PlayerId,
   processedTrackIds: Set<string>
-): { trackTiles: HexCoord[]; endCity: HexCoord } | null {
-  const trackTiles: HexCoord[] = [];
+): { trackTiles: LinkTileRef[]; endCity: HexCoord } | null {
+  const trackTiles: LinkTileRef[] = [];
   let currentCoord = startTrackCoord;
   let currentEntryEdge = entryEdge;
 
   while (true) {
-    const track = board.trackTiles.find(
-      t => hexCoordsEqual(t.coord, currentCoord) && t.owner === owner
-    );
-
+    const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, currentCoord));
     if (!track) return null;
 
-    // 이 트랙 추가
-    trackTiles.push(currentCoord);
-    processedTrackIds.add(hexToKey(currentCoord));
-
-    // 나가는 방향 찾기 (들어온 방향의 반대쪽)
-    const exitEdge = track.edges.find(e => e !== currentEntryEdge);
+    // 진입 변이 어느 경로(기본/보조)에 속하는지 판정하고, **그 경로의 소유자**가 맞는지 본다.
+    // 복합 타일은 기본/보조가 서로 다른 주인일 수 있으므로 타일 단위 owner 비교로는 안 된다
+    // — 예전엔 t.owner만 봐서 교차·공존으로 완성한 링크를 통째로 놓쳤고, 그 링크는 완성 링크
+    // 마커·중국 국유화 대상·달 성장 판정에서 전부 빠졌다 (2026-07-29).
+    let kind: 'P' | 'S';
+    let exitEdge: number | undefined;
+    if (track.edges.includes(currentEntryEdge)) {
+      kind = 'P';
+      if (track.owner !== owner) return null;
+      exitEdge = track.edges.find(e => e !== currentEntryEdge);
+    } else if (track.secondaryEdges?.includes(currentEntryEdge)) {
+      kind = 'S';
+      if (track.secondaryOwner !== owner) return null;
+      exitEdge = track.secondaryEdges.find(e => e !== currentEntryEdge);
+    } else {
+      return null; // 어느 경로에도 연결되지 않음
+    }
     if (exitEdge === undefined) return null;
+
+    // 이 트랙 추가 (같은 헥스라도 경로가 다르면 별개 구간)
+    trackTiles.push({ coord: currentCoord, kind });
+    processedTrackIds.add(`${hexToKey(currentCoord)}:${kind}`);
 
     // 다음 이웃 확인
     const nextNeighbor = getNeighborHex(currentCoord, exitEdge, board);
@@ -1627,16 +1706,14 @@ function traceLinkFromTrack(
       return null; // 가닥 없으면 미완성 구간
     }
 
-    // 다음 트랙으로 이동
-    const nextTrack = board.trackTiles.find(
-      t => hexCoordsEqual(t.coord, nextNeighbor) && t.owner === owner
-    );
-
+    // 다음 트랙으로 이동 — 소유·경로 판정은 루프 머리에서 진입 변 기준으로 한다
+    // (여기서 owner를 걸러버리면 보조 경로가 내 것인 복합 타일을 놓친다).
+    const nextTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, nextNeighbor));
     if (!nextTrack) return null;
 
-    // 다음 트랙이 연결되어 있는지 확인
     const nextEntryEdge = getOppositeEdge(exitEdge);
-    if (!nextTrack.edges.includes(nextEntryEdge)) return null;
+    if (!nextTrack.edges.includes(nextEntryEdge) &&
+        !nextTrack.secondaryEdges?.includes(nextEntryEdge)) return null;
 
     currentCoord = nextNeighbor;
     currentEntryEdge = nextEntryEdge;

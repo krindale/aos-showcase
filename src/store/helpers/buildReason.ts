@@ -131,3 +131,60 @@ export function getBuildBlockReason(
 
   return '지금은 여기에 건설할 수 없어요';
 }
+
+/**
+ * 복합 트랙(교차/공존) 건설 실패 사유 — canBuildComplexTrack(buildSlice)의 검사 순서를
+ * 거울처럼 따른다. ⚠️ canBuildComplexTrack 규칙을 바꾸면 여기 순서/조건도 함께 맞출 것
+ * (getBuildBlockReason ↔ canBuildTrack과 같은 관례).
+ *
+ * 기존엔 ComplexTrackPanel이 버튼을 비활성화만 하고 사유를 전혀 보여주지 않아, 사용자에게는
+ * "그냥 안 됨"으로만 보였다 (2026-07-29 사용자 보고: 복합 트랙 끝에서 이어 짓기가 안 됨).
+ * 건설 가능하면 null.
+ */
+export function getComplexBuildBlockReason(
+  state: GameState,
+  coord: HexCoord,
+  newEdges: [number, number],
+  trackType: 'crossing' | 'coexist'
+): string | null {
+  const { board, phaseState, currentPlayer } = state;
+
+  if (state.currentPhase === 'governmentLink') {
+    return '정부 링크 단계에서는 교차/공존을 놓을 수 없어요';
+  }
+  if (phaseState.builtTracksThisTurn + 1 > phaseState.maxTracksThisTurn) {
+    return `이번 턴 건설 제한에 도달했어요 (${phaseState.builtTracksThisTurn}/${phaseState.maxTracksThisTurn})`;
+  }
+  if (board.towns.some((t) => hexCoordsEqual(t.coord, coord))) {
+    return '마을에는 교차/공존을 놓을 수 없어요';
+  }
+  if (crossesBlockedEdge(board, coord, newEdges)) {
+    return '산맥 등 막힌 경계는 넘을 수 없어요';
+  }
+
+  const existingTrack = board.trackTiles.find((t) => hexCoordsEqual(t.coord, coord));
+  if (!existingTrack) return '교차/공존은 기존 트랙 위에만 얹을 수 있어요';
+  if (existingTrack.trackType !== 'simple') return '이미 교차/공존 타일이라 더 얹을 수 없어요';
+
+  const e = existingTrack.edges;
+  if (newEdges[0] === e[0] || newEdges[0] === e[1] || newEdges[1] === e[0] || newEdges[1] === e[1]) {
+    return '기존 트랙과 같은 변은 쓸 수 없어요 (다른 두 변을 고르세요)';
+  }
+
+  const profile = getMapProfile(state.mapId);
+  const requireNetwork =
+    profile.requireContiguousUntilTranscontinental && !state.players[currentPlayer]?.transcontinental;
+  if (!validateTrackConnection(coord, newEdges, board, currentPlayer, requireNetwork)) {
+    return requireNetwork
+      ? '기존 내 노선에 이어서 지어야 해요 (분리 구간 불가)'
+      : '새 경로가 내 트랙이나 도시에 연결되어야 해요';
+  }
+
+  // 규칙은 통과 — 남은 실패 원인은 현금
+  const cost =
+    trackType === 'crossing' ? TRACK_REPLACE_COSTS.simpleToCrossing : TRACK_REPLACE_COSTS.default;
+  const cash = state.players[currentPlayer]?.cash ?? 0;
+  if (cash < cost) return `현금이 부족해요 (필요 $${cost}, 보유 $${cash})`;
+
+  return null;
+}

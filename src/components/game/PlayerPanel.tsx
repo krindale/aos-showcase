@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -15,10 +15,12 @@ import {
   Bot,
   User,
   Crown,
+  CircleDot,
 } from 'lucide-react';
 import { POP_SPRING, isRecentUndoLog, CROWN_GOLD, CROWN_INK } from './uiEffects';
 import { useMyPlayerId, isMyPlayer } from '@/hooks/useMyPlayerId';
 import { getMapProfile } from '@/maps/getMapProfile';
+import { describeOwnershipUnits } from '@/store/helpers/nationalization';
 
 interface PlayerPanelProps {
   playerId: PlayerId;
@@ -137,6 +139,19 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
   // Southern China: 지지 토큰 (미사용 1개 = 종료 시 3 VP, 반납 → 건설 4개/기관차 +1)
   const isTokenMap = getMapProfile(mapIdForDgel).supportTokensRule;
   const supportTokens = player.supportTokens ?? 0;
+  // 소유 디스크 상한이 있는 맵(남부 중국)만 사용량을 표시한다 — 화면에 사용량이 전혀 없어
+  // "지금 몇 개 쓰는지" 확인할 방법이 없었다 (2026-07-29 사용자 보고). 상한 없는 맵은 미렌더.
+  const discLimit = getMapProfile(mapIdForDgel).ownershipDiscLimit;
+  const board = useGameStore((s) => s.board);
+  // useMemo 필수 — describeOwnershipUnits는 내부에서 findCompletedLinks(정거장×6변 경로추적)를
+  // 돌리는데, 이 패널은 플레이어 수만큼 렌더된다 (리뷰 R4).
+  const discUnits = useMemo(
+    () => (discLimit !== null ? describeOwnershipUnits(board, playerId) : null),
+    [discLimit, board, playerId]
+  );
+  const discTitle = discUnits
+    ? `소유 디스크 ${discUnits.total}/${discLimit} — 완성 링크 ${discUnits.completed} + 미완성 구간 ${discUnits.sections} + 직결 링크 ${discUnits.directs}`
+    : '';
 
   // 발행 가능한 최대 주식 수
   const maxIssuable = GAME_CONSTANTS.MAX_SHARES - player.issuedShares;
@@ -208,6 +223,14 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
           {isTokenMap && (
             <span className="relative flex items-center gap-0.5 text-positive" title="지지 토큰 (미사용 1개 = 3 VP)">
               <Handshake className="w-3 h-3" />{supportTokens}
+            </span>
+          )}
+          {discUnits && (
+            <span
+              className={`relative flex items-center gap-0.5 ${discUnits.total >= (discLimit ?? 0) ? 'text-accent font-semibold' : 'text-foreground-secondary'}`}
+              title={discTitle}
+            >
+              <CircleDot className="w-3 h-3" />{discUnits.total}/{discLimit}
             </span>
           )}
         </div>
@@ -349,6 +372,29 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
           </span>
         </StatCell>
       </div>
+
+      {/* 소유 디스크 사용량 (남부 중국) — 상한에 닿으면 다음 건설이 국유화를 요구하므로
+          "지금 몇 개를 무엇으로 쓰고 있는지"를 항상 보여준다 */}
+      {discUnits && (
+        <div className="px-1.5 md:px-2 pb-1">
+          <div
+            className={`text-[10px] md:text-xs flex items-center justify-between p-1.5 rounded bg-background/30 ${
+              discUnits.total >= (discLimit ?? 0) ? 'text-accent' : 'text-foreground-secondary'
+            }`}
+            title={discTitle}
+          >
+            <span className="flex items-center gap-1">
+              <CircleDot className="w-3 h-3" />소유 디스크
+            </span>
+            <span className="whitespace-nowrap">
+              <span className="font-semibold">{discUnits.total}/{discLimit}</span>
+              <span className="hidden sm:inline">
+                {' '}(링크 {discUnits.completed} + 구간 {discUnits.sections} + 직결 {discUnits.directs})
+              </span>
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* 비용 표시 - 반응형 패딩 및 텍스트 */}
       <div className="px-1.5 md:px-2 pb-1.5 md:pb-2">

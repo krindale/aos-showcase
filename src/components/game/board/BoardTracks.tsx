@@ -28,7 +28,8 @@ interface BoardTracksProps {
   trackPathCache: Map<string, TrackPathCacheEntry>;
   completedLinks: CompletedLink[];
   disconnectedConnections: { from: HexCoord; to: HexCoord; fromEdge: number; toEdge: number }[];
-  isTrackInCompletedLink: (coord: HexCoord) => boolean;
+  /** 이 트랙 경로가 완성 링크에 속하는지 — 복합 타일은 기본(P)/보조(S)를 따로 물어야 한다 */
+  isTrackInCompletedLink: (coord: HexCoord, kind?: 'P' | 'S') => boolean;
   canRedirect: (coord: HexCoord) => boolean;
   selectTrackToRedirect: (coord: HexCoord) => void;
   onHexClick: (coord: HexCoord) => void;
@@ -76,8 +77,12 @@ export default function BoardTracks({
         // 미소유(디스크 빠진) 트랙 — 룰 IV: 새 타일로 연장하면 소유권 인수 가능.
         // 완성 링크 소속(파산 잔재) 여부는 selectSourceHex의 isValidConnectionPoint가 걸러준다.
         const isUnownedClaimable = tile.owner === null && !tile.isGovernment;
+        // 복합 타일의 두 번째 경로(secondary)도 내 트랙이다 — 그 끝에서 이어 지으려면
+        // 연결점으로 선택할 수 있어야 한다 (2026-07-29 사용자 보고: 교차/공존으로 놓은
+        // 트랙 끝에서 이어 짓기가 안 됨)
+        const isMineHere = tile.owner === currentPlayer || tile.secondaryOwner === currentPlayer;
         const isTrackClickable = isBuildPhase && (
-          tile.owner === currentPlayer || isUnownedClaimable || isRedirectable
+          isMineHere || isUnownedClaimable || isRedirectable
         );
 
         // 트랙 클릭 핸들러 (연결점 선택 우선, 방향 전환은 Shift+클릭)
@@ -87,7 +92,7 @@ export default function BoardTracks({
           // 내 트랙·인수 가능한 미소유 트랙: 일반 클릭 = 연결점 선택(이어 짓기 — 미소유는 연장 시
           // 소유권 인수), Shift+클릭 = 방향 전환. (과거엔 미소유 트랙 클릭이 무조건 방향 전환으로
           // 갔음 — 연장 인수가 없던 시절의 라우팅이라 룰 정합 수정에서 내 트랙과 동일하게 통일)
-          if (tile.owner === currentPlayer || isUnownedClaimable) {
+          if (isMineHere || isUnownedClaimable) {
             if (e.shiftKey && isRedirectable && isBuildModeIdle) {
               // Shift+클릭: 방향 전환 모드
               selectTrackToRedirect(tile.coord);
@@ -249,8 +254,11 @@ export default function BoardTracks({
                 style={{ pointerEvents: isTrackClickable ? 'auto' : 'none' }}
               />
             )}
-            {/* 복합 트랙: 두 번째 소유자 마커 (미완성 트랙에만) */}
-            {!isTrackInCompletedLink(tile.coord) && hasSecondary && tile.secondaryOwner && (
+            {/* 복합 트랙: 두 번째 소유자 마커 (미완성 트랙에만).
+                ⚠️ onClick/pointerEvents 필수 — SVG 기본값이 pointerEvents:auto라, 둘 다
+                없으면 이 원이 클릭을 삼키고 아무 일도 안 한다(내 복합 트랙 끝에서 이어
+                짓기가 "클릭이 안 먹는" 것으로 보이던 원인, 2026-07-29 사용자 보고). */}
+            {!isTrackInCompletedLink(tile.coord, 'S') && hasSecondary && tile.secondaryOwner && (
               <circle
                 cx={x + 10}
                 cy={y - 10}
@@ -258,6 +266,9 @@ export default function BoardTracks({
                 fill={secondaryOwnerColor}
                 stroke="#1a1a1a"
                 strokeWidth="1"
+                className={isTrackClickable ? 'cursor-pointer' : ''}
+                onClick={(e) => handleTrackClick(e)}
+                style={{ pointerEvents: isTrackClickable ? 'auto' : 'none' }}
               />
             )}
           </g>

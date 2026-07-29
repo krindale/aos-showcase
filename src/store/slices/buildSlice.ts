@@ -30,7 +30,7 @@ import {
   releaseUnfinishedOwnership,
   canStartSectionHere,
   countOwnershipUnits,
-  eligibleNationalizationTargets,
+  nationalizationTargets,
 } from '../helpers/nationalization';
 import { applyEngineerDiscount, hasEngineerDiscount } from '../helpers/engineerDiscount';
 import { useToastStore } from '../toastStore';
@@ -88,7 +88,7 @@ export function resolveBotNationalization(set: Set, get: Get): boolean {
   while (get().nationalizationPending?.playerId === pending.playerId && guard++ < 5) {
     const st = get();
     // 타일 수 최소 링크부터 — 직결 링크(타일 0 = $8 자산)는 최후순위(가중 99)로 보호
-    const targets = eligibleNationalizationTargets(st.board, pending.playerId, st.currentTurn)
+    const targets = nationalizationTargets(st.board, pending.playerId, st.currentTurn)
       .sort((a, b) =>
         (a.trackTiles.length || 99) - (b.trackTiles.length || 99)
       );
@@ -572,9 +572,29 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         secondaryBuiltTurn: state.currentTurn, // 독일 미완성 제거의 "이번 턴 교차" 판별용
       };
 
-      const updatedTrackTiles = state.board.trackTiles.map(t =>
+      const replacedTrackTiles = state.board.trackTiles.map(t =>
         hexCoordsEqual(t.coord, coord) ? updatedTrack : t
       );
+
+      // 룰(IV) 소유권 주장 — 새 교차/공존 경로가 미소유 미완성 구간을 이어 **완성시키면**
+      // 그 구간을 인수한다. 완성된 것만 가져오는 이유는 buildTownSpur 주석 참조
+      // (복합은 secondaryBuiltTurn만 갱신하고 타일의 builtTurn은 그대로라, 미완성 인수분이
+      //  releaseUnextendedTrack에게 "미연장"으로 보여 그 턴 끝에 도로 풀린다).
+      // 이 타일 자신은 BFS 시작점이라 인수 대상이 아니다 — 복합을 얹는 건 그 구간의 '연장'이
+      // 아니라 별도 트랙 추가이므로 미소유 primary의 소유권은 건드리지 않는다(룰 IV).
+      const cxClaimKeys = findClaimableSectionKeys(state.board, coord, newEdges);
+      const boardAfterComplex = { ...state.board, trackTiles: replacedTrackTiles };
+      const updatedTrackTiles = cxClaimKeys.size === 0
+        ? replacedTrackTiles
+        : replacedTrackTiles.map(t =>
+            cxClaimKeys.has(`${t.coord.col},${t.coord.row}`) &&
+            isTrackPartOfCompletedLink(t.coord, boardAfterComplex)
+              ? { ...t, owner: currentPlayer }
+              : t
+          );
+      const cxClaimedCount = updatedTrackTiles.filter(
+        (t, i) => t !== replacedTrackTiles[i]
+      ).length;
 
       // 가닥은 자동 생성하지 않음 — 타일만 1카운트. 마을 연결은 마을 클릭(buildTownSpur)으로.
       const complexSpurs: { townCoord: HexCoord; edge: number }[] = [];
@@ -621,7 +641,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
             turn: state.currentTurn,
             phase: state.currentPhase,
             player: currentPlayer,
-            action: `복합 트랙 건설 (${trackType}) (${coord.col}, ${coord.row}) - $${cost} [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`,
+            action: `복합 트랙 건설 (${trackType}) (${coord.col}, ${coord.row})${cxClaimedCount > 0 ? ` + 미소유 구간 ${cxClaimedCount}타일 소유권 인수` : ''} - $${cost} [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`,
             timestamp: Date.now(),
           },
         ],
@@ -695,6 +715,49 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       const cost = isGovSpur ? 0 : missing.length * townSpurCost(state.mapId);
       const newBuiltCount = state.phaseState.builtTracksThisTurn + townCount;
 
+      const newSpurs = missing.map((sp, i) => ({
+        id: `spur-solo-${Date.now()}-${i}-${sp.edge}`,
+        townCoord: sp.townCoord,
+        edge: sp.edge,
+        owner: spurOwner,
+        builtTurn: state.currentTurn,
+      }));
+      const newTownSpurs = [...(state.board.townSpurs ?? []), ...newSpurs];
+
+      // 룰(IV) 소유권 주장: 가닥으로 미소유 미완성 구간을 이어 **완성시키면** 그 구간을 인수한다.
+      // 안 하면 미소유 완성 링크(룰상 존재할 수 없는 상태)가 되어 수입·VP·디스크 모두 0인 채
+      // 영구히 굳는다 — 완성이라 findClaimableSectionKeys/releaseUnextendedTrack이 양쪽 다
+      // 손대지 못한다 (2026-07-29 사용자 실측).
+      // ⚠️ **완성된 구간만** 인수한다 — buildTrack(신설 타일)은 완성 여부를 안 보는데 여기만
+      //    보는 이유: buildTrack은 새 타일의 builtTurn이 현재 턴이라, 인수한 구간이 미완성이어도
+      //    releaseUnextendedTrack의 그룹 판정에서 "이번 턴 연장 있음"으로 유지된다. 가닥·복합은
+      //    타일을 추가하지 않아(복합은 secondaryBuiltTurn만 갱신, release는 builtTurn만 봄) 그
+      //    보호가 없다 → 미완성인 채 가져오면 같은 턴 끝에 곧바로 도로 풀린다. builtTurn을 현재
+      //    턴으로 덮어쓰는 건 더 나쁘다(독일 getIncompleteNewTracks가 삭제+환불해버림).
+      // 정부 가닥(isGovSpur)은 중립 건설이라 플레이어 소유권을 인수하지 않는다.
+      // (findClaimableSectionKeys가 내부에서 완성 링크 인덱스를 만들므로 가닥 수만큼 반복되지만,
+      //  missing은 보통 1~2개이고 건설은 빈번한 경로가 아니라 그대로 둔다.)
+      const claimKeys = new Set<string>();
+      if (!isGovSpur) {
+        for (const sp of missing) {
+          findClaimableSectionKeys(state.board, sp.townCoord, [sp.edge]).forEach(key =>
+            claimKeys.add(key)
+          );
+        }
+      }
+      const boardAfterSpurs = { ...state.board, townSpurs: newTownSpurs };
+      const claimedTrackTiles = claimKeys.size === 0
+        ? state.board.trackTiles
+        : state.board.trackTiles.map(t =>
+            claimKeys.has(`${t.coord.col},${t.coord.row}`) &&
+            isTrackPartOfCompletedLink(t.coord, boardAfterSpurs)
+              ? { ...t, owner: currentPlayer }
+              : t
+          );
+      const claimedCount = claimedTrackTiles.filter(
+        (t, i) => t !== state.board.trackTiles[i]
+      ).length;
+
       debugLog.trackBuilding(`[buildTownSpur 성공] ${player.name} (${currentPlayer}): Turn ${state.currentTurn}, ` +
         `마을 (${townCoord.col},${townCoord.row}) 가닥 ${missing.length}개 연결, ` +
         `${newBuiltCount}/${state.phaseState.maxTracksThisTurn}번째, 비용=$${cost}`);
@@ -702,16 +765,8 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       set({
         board: {
           ...state.board,
-          townSpurs: [
-            ...(state.board.townSpurs ?? []),
-            ...missing.map((sp, i) => ({
-              id: `spur-solo-${Date.now()}-${i}-${sp.edge}`,
-              townCoord: sp.townCoord,
-              edge: sp.edge,
-              owner: spurOwner,
-              builtTurn: state.currentTurn,
-            })),
-          ],
+          trackTiles: claimedTrackTiles,
+          townSpurs: newTownSpurs,
         },
         players: {
           ...state.players,
@@ -742,7 +797,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
             turn: state.currentTurn,
             phase: state.currentPhase,
             player: currentPlayer,
-            action: `마을 가닥 건설 (${townCoord.col}, ${townCoord.row}) 가닥 ${missing.length}개 — 노선 연결 완성 - $${cost} [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`,
+            action: `마을 가닥 건설 (${townCoord.col}, ${townCoord.row}) 가닥 ${missing.length}개 — 노선 연결 완성${claimedCount > 0 ? ` + 미소유 구간 ${claimedCount}타일 소유권 인수` : ''} - $${cost} [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`,
             timestamp: Date.now(),
           },
         ],
@@ -792,7 +847,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         if (
           discLimit !== null &&
           countOwnershipUnits(state.board, currentPlayer) + 1 > discLimit &&
-          eligibleNationalizationTargets(state.board, currentPlayer, state.currentTurn).length === 0
+          nationalizationTargets(state.board, currentPlayer, state.currentTurn).length === 0
         ) {
           return deny(`소유 디스크가 부족해요 (상한 ${discLimit}개) — 국유화할 링크도 없습니다`);
         }

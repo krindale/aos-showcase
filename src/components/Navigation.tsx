@@ -14,13 +14,13 @@ import { Train } from 'lucide-react';
 export const RULEBOOK_URL =
   'https://drive.google.com/file/d/1FC5evRrUeT1gc33DLSJzed03TX6fgiiS/view';
 
-/* /maps는 목록이 아니라 우측 강조 버튼("플레이")이 담당한다 — 라벨 "맵"으로는
-   플레이 진입점이라는 신호가 약했고, 메뉴와 버튼이 같은 곳을 가리키면 중복이라
-   버튼 하나로 합쳤다 (2026-07-29). */
+/* 우측 강조 버튼은 온라인 플레이(/online) 전용이고, 봇과 하는 게임은 "맵" 메뉴에서
+   지도를 골라 들어간다 — 둘의 목적지가 달라 중복되지 않는다 (2026-07-29). */
 const navItems = [
   { href: '/', label: '홈' },
   { href: '/gameplay', label: 'How to Play' },
   { href: '/actions', label: '특수 액션' },
+  { href: '/maps', label: '맵' },
 ] as const;
 
 /** 버밀리언 사각 + 흰 열차(lucide Train) 로고 마크 */
@@ -79,12 +79,12 @@ export default function Navigation() {
               </Link>
             );
           })}
-          {/* 히어로 1차 CTA와 같은 목적지(/maps). navItems의 "맵" 항목을 대체한다 */}
+          {/* 히어로 1차 CTA와 같은 목적지(/online) — 이 사이트의 강점인 온라인 대전으로 직행 */}
           <Link
-            href="/maps"
+            href="/online/"
             className="ml-2 rounded-[10px] bg-accent px-4 py-2 text-sm font-bold text-[#fffdf8] shadow-glow transition-colors hover:bg-accent-light"
           >
-            게임 플레이
+            온라인 플레이
           </Link>
         </nav>
 
@@ -133,11 +133,11 @@ export default function Navigation() {
                 );
               })}
               <Link
-                href="/maps"
+                href="/online/"
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="mt-3 block rounded-xl bg-accent px-4 py-3 text-center text-base font-bold text-[#fffdf8]"
               >
-                게임 플레이
+                온라인 플레이
               </Link>
             </div>
           </motion.div>

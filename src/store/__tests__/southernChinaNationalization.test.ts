@@ -7,6 +7,7 @@ import {
   countUnfinishedSections,
   eligibleNationalizationTargets,
   checkDiscLimitAfterBuild,
+  releaseUnfinishedOwnership,
 } from '@/store/helpers/nationalization';
 import { resolveBotNationalization } from '@/store/slices/buildSlice';
 import { TrackTile, TownSpur, PlayerId } from '@/types/game';
@@ -150,6 +151,42 @@ describe('국유화 대상과 실행', () => {
     const targets = eligibleNationalizationTargets(after.board, P1, after.currentTurn);
     expect(targets.length).toBeGreaterThan(0);
     expect(targets.some((l) => l.id.startsWith('direct-'))).toBe(false);
+  });
+
+  // ⚠️ **알려진 한계(현재 동작 박제, 2026-07-29)** — 고치지 않기로 한 엣지 케이스.
+  // 이 맵은 미완성 구간이 1개로 제한(unfinishedSectionLimit)돼 있어 실전에서 이 조합이
+  // 성립하기 어렵다는 판단(사용자). 훗날 상한을 100% 강제하려면 이 테스트가 먼저 실패한다 —
+  // 그때 ① 후보가 0일 때만 "당턴 제외"를 푸는 폴백 국유화, 또는 ② 5번째 단위를 만드는 건설의
+  // 사전 차단 중 하나를 택하고 이 테스트를 그 기대값으로 갱신할 것.
+  it('[알려진 한계] 당턴 링크뿐이라 국유화 대상이 0이면 5단위가 조용히 굳는다', () => {
+    // 직결 구매에는 사전 게이트가 있어 "5번째 직결"은 막히지만, buildTrack/복합/가닥에는
+    // 게이트가 없다 → 직결을 4번째로 산 뒤 트랙으로 5번째 링크를 완성하면 통과된다.
+    // 그 시점 내 링크가 전부 당턴 건설이면 국유화 대상이 0이라 대기도 서지 않고,
+    // 안전망(releaseUnfinishedOwnership)은 미완성 구간만 풀어 직결·완성 링크를 못 건드린다.
+    // (사용자가 실제로 목격한 "디스크 5개"는 이것이 아니라 혼합 소유 링크의 회계 증발이었을
+    //  가능성이 높다 — 그쪽은 isTrackInOwnedCompletedLink 도입으로 수정됨.)
+    setupWithFiveLinks(1); // 모든 타일 builtTurn=1 = 당턴 → 국유화 대상 0
+    const s = useGameStore.getState();
+    // L5(Xiamen↔Ganzhou) 제거 → 완성 링크 4개, 여기에 당턴 구매 직결 1개 = 5단위
+    const trackTiles = s.board.trackTiles.filter(
+      (t) => !((t.coord.col === 10 && t.coord.row === 6) ||
+               (t.coord.col === 9 && t.coord.row === 6) ||
+               (t.coord.col === 9 && t.coord.row === 5))
+    );
+    const board = {
+      ...s.board,
+      trackTiles,
+      directLinks: (s.board.directLinks ?? []).map((d) =>
+        d.cityA === 'guangzhou' && d.cityB === 'hongkong'
+          ? { ...d, owner: P1, builtTurn: 1 }
+          : d
+      ),
+    };
+
+    expect(countOwnershipUnits(board, P1)).toBe(5);            // 상한 4를 넘겼는데
+    expect(eligibleNationalizationTargets(board, P1, 1)).toHaveLength(0); // 국유화 대상이 없고
+    expect(checkDiscLimitAfterBuild({ board, currentTurn: 1 }, P1, 4)).toBeNull(); // 대기도 안 서고
+    expect(releaseUnfinishedOwnership(board, P1, 4)).toBeNull(); // 안전망도 못 푼다 → 5단위 고착
   });
 
   it('직결 링크(인터어반)도 국유화 대상 — 중립화·재구매 불가·페리 VP 회수', () => {

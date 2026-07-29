@@ -112,12 +112,17 @@ export default function QuickJoinPage() {
             {/* 빈 상태에 방 만들기 버튼을 두지 않는다 — 오른쪽 카드의 "지도 고르고 방 만들기"와
                 같은 곳으로 가는 버튼이 한 화면에 둘이 된다 */}
             {joinable.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center rounded-[16px] border border-dashed border-[#ddd6c8] px-5 text-center">
-                <p className="text-[15px] font-medium text-foreground">
+              /* 점선 테두리만 두면 안이 페이지 배경 그대로라 텅 비어 보인다 —
+                 목록 항목과 같은 페이퍼 카드(glass-card)로 채워 실체감을 준다 */
+              <div className="glass-card hex-pattern flex h-full flex-col items-center justify-center px-6 text-center">
+                <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-accent/10">
+                  <Users className="h-6 w-6 text-accent" strokeWidth={1.8} />
+                </span>
+                <p className="text-base font-bold tracking-[-0.01em] text-foreground">
                   지금은 기다리는 방이 없습니다
                 </p>
-                <p className="mt-1.5 text-sm text-foreground-secondary">
-                  새 방이 열리면 여기에 바로 나타납니다.
+                <p className="mt-2 max-w-[340px] text-sm leading-[1.7] text-foreground-secondary">
+                  새 방이 열리면 여기에 바로 나타납니다 — 8초마다 자동으로 확인해요.
                 </p>
               </div>
             ) : (

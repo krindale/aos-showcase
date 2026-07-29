@@ -161,10 +161,13 @@ export function findClaimableSectionKeys(
       const nbTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, nb));
       if (!nbTrack || nbTrack.owner !== null || nbTrack.isGovernment) continue;
       if (!nbTrack.edges.includes(getOppositeEdge(e))) continue; // 변이 맞물려야 연결
-      // 누군가의 완성 링크에 속한 타일만 제외 — 소유권은 영구이므로 뺏을 수 없다.
-      // ⚠️ 물리적 완성(isTrackPartOfCompletedLink)으로 재면 안 된다: 미소유 타일이 다른
-      // 트랙에 기대 물리적으로만 이어진 경우까지 인수를 영구 차단해, 룰상 존재할 수 없는
-      // "미소유 완성 링크"가 되돌릴 방법 없이 굳는다 (2026-07-29 사용자 실측).
+      // 누군가의 **소유** 완성 링크에 속한 타일은 제외 — 소유권은 영구라 뺏을 수 없다.
+      // ⚠️ 실제로는 바로 위에서 owner!==null을 걸러내므로 여기 도달하는 건 미소유 타일뿐이고,
+      // 미소유 타일은 findCompletedLinks(소유자 단일 필수)에 들어가지 않아 이 가드는 통과한다.
+      // **그게 의도다** — 예전엔 물리적 완성(isTrackPartOfCompletedLink)으로 재서, 미소유 타일이
+      // 다른 트랙에 기대 물리적으로만 이어져도 인수를 영구 차단했다. 그 결과 룰상 존재할 수 없는
+      // "미소유 완성 링크"가 되돌릴 방법 없이 굳었다 (2026-07-29 사용자 실측). 가드는 소유 링크가
+      // 어떤 경로로든 여기 닿을 경우를 위한 방어로 남긴다.
       if (ownedLinkIndex.has(k(nb))) continue;
       visited.add(key);
       claimKeys.add(key);

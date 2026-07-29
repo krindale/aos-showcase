@@ -29,14 +29,20 @@ const key = (c: HexCoord) => `${c.col},${c.row}`;
  * 내 미완성 트랙 구간 수 — 완성 링크에 속하지 않은 내 소유 트랙 경로(복합 타일은 P/S 별도
  * 노드)의 연결 성분 수. 구간은 정거장(도시/마을)에서 끝나므로 마을 관통 인접은 없다.
  */
-export function countUnfinishedSections(board: BoardState, playerId: PlayerId): number {
+export function countUnfinishedSections(
+  board: BoardState,
+  playerId: PlayerId,
+  /** 완성 링크 타일 인덱스 — 같은 보드로 여러 번 셀 때 재사용해 findCompletedLinks 중복 실행을
+   *  피한다(describeOwnershipUnits가 넘긴다). 생략하면 여기서 만든다. */
+  linkIndex?: Map<string, PlayerId>
+): number {
   type Node = { coord: HexCoord; edges: [number, number] };
   const nodes: Node[] = [];
   // ⚠️ 완성 판정은 **소유자 인식**으로 — 물리적 완성(isTrackPartOfCompletedLink)으로 재면
   // 내 타일이 국유화/미소유/타인 타일에 기대 이어진 경우 "완성됐다"며 구간에서 빼는데,
   // findCompletedLinks는 소유자가 섞였다고 링크를 안 만들어 완성 링크로도 안 센다
   // → 디스크 0개로 증발 (2026-07-29 사용자 실측). hexGrid 주석 참조.
-  const ownedLinkIndex = buildOwnedLinkTileIndex(board);
+  const ownedLinkIndex = linkIndex ?? buildOwnedLinkTileIndex(board);
   for (const t of board.trackTiles) {
     if (t.owner === playerId && !isTrackInOwnedCompletedLink(t.coord, board, playerId, ownedLinkIndex)) {
       nodes.push({ coord: t.coord, edges: t.edges });
@@ -137,8 +143,11 @@ export function describeOwnershipUnits(
   board: BoardState,
   playerId: PlayerId
 ): { completed: number; sections: number; directs: number; total: number } {
-  const completed = findCompletedLinks(board).filter((l) => l.owner === playerId).length;
-  const sections = countUnfinishedSections(board, playerId);
+  // findCompletedLinks는 정거장×6변 경로추적이라 비싸다 — 한 번만 돌려 완성 링크 수와
+  // 구간 판정 인덱스에 함께 쓴다 (PlayerPanel이 매 렌더 × 플레이어 수만큼 호출한다).
+  const links = findCompletedLinks(board);
+  const completed = links.filter((l) => l.owner === playerId).length;
+  const sections = countUnfinishedSections(board, playerId, buildOwnedLinkTileIndex(board, links));
   const directs = (board.directLinks ?? []).filter((d) => d.owner === playerId).length;
   return { completed, sections, directs, total: completed + sections + directs };
 }

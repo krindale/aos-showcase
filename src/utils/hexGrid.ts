@@ -1563,9 +1563,14 @@ export function findCompletedLinks(board: BoardState): CompletedLink[] {
  *
  * 타일마다 findCompletedLinks를 다시 부르면 O(n²)가 되므로 한 번 만들어 넘겨 쓸 것.
  */
-export function buildOwnedLinkTileIndex(board: BoardState): Map<string, PlayerId> {
+export function buildOwnedLinkTileIndex(
+  board: BoardState,
+  /** 이미 구한 완성 링크 목록 — 같은 보드로 링크 수와 인덱스를 함께 쓸 때 넘기면
+   *  findCompletedLinks 재실행을 피한다 (describeOwnershipUnits). */
+  links?: CompletedLink[]
+): Map<string, PlayerId> {
   const index = new Map<string, PlayerId>();
-  for (const link of findCompletedLinks(board)) {
+  for (const link of links ?? findCompletedLinks(board)) {
     for (const c of link.trackTiles) index.set(`${c.col},${c.row}`, link.owner);
   }
   return index;

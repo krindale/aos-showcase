@@ -7,12 +7,10 @@ import HeroBoardVignette from './HeroBoardVignette';
 import { RULEBOOK_URL } from './Navigation';
 import { useEnterMotion } from '@/hooks/useEnterMotion';
 
-/* 온라인 로비 직행 — 기본 맵 셋업 화면을 ?mode=online으로 열면 온라인 탭이 선택된다
-   (GamePageClient의 setupTab 초기값이 이 쿼리를 읽는다). 맵은 로비에서 방을 만들 때 정해지므로
-   기본 맵(rust-belt)으로 보낸다. */
-const ONLINE_ENTRY = '/game/rust-belt/?mode=online';
-/** 빈 공개방 자동 참가(quickMatch)까지 바로 실행 — OnlineLobby가 quick=1을 읽는다 */
-const QUICK_JOIN_ENTRY = '/game/rust-belt/?mode=online&quick=1';
+/* 온라인 진입은 각각 전용 화면 — 게임 화면의 셋업 탭을 재사용하지 않는다.
+   두 화면 모두 "방에 들어가는 지점"까지만 담당하고, 방이 생기면 /game/<맵>/의 대기실로 넘긴다. */
+const ONLINE_ENTRY = '/online/';
+const QUICK_JOIN_ENTRY = '/online/quick/';
 
 /* ⚠️ '수록 맵' 수는 src/app/maps/page.tsx의 maps 배열 길이와 맞춰야 한다.
    (맵 데이터를 여기서 import하면 홈 번들에 맵 프로파일 전체가 딸려오므로 숫자만 둔다) */
@@ -54,14 +52,14 @@ export default function HeroSection() {
           </p>
 
           {/* 이 사이트의 강점은 설치 없이 브라우저에서 되는 온라인 대전 — 1차 CTA로 둔다.
-              혼자 온 방문자가 상대를 기다리지 않도록 봇 게임을 바로 옆에 나란히 둔다.
+              (봇 게임 진입은 상단 "게임 플레이" 버튼이 담당)
               Link 안에 button을 넣으면 <a><button> 중첩이라 유효하지 않은 마크업이 된다. */}
           <div className="mt-[38px] flex flex-wrap items-center gap-3">
             <Link href={ONLINE_ENTRY} className="btn-primary inline-block">
               친구와 온라인 플레이 →
             </Link>
-            <Link href="/maps" className="btn-secondary inline-block">
-              봇과 바로 시작
+            <Link href="/gameplay" className="btn-secondary inline-block">
+              How to Play
             </Link>
           </div>
           {/* 방을 만들 상대가 없어도 바로 낄 수 있는 경로 — 로비 진입 즉시 빠른 매칭 1회 */}
@@ -75,12 +73,6 @@ export default function HeroSection() {
             </Link>
           </div>
           <div className="mt-[18px] flex flex-wrap items-center gap-x-5 gap-y-2 text-[15px]">
-            <Link
-              href="/gameplay"
-              className="font-medium text-foreground-secondary underline-offset-4 transition-colors hover:text-accent hover:underline"
-            >
-              게임 살펴보기
-            </Link>
             <a
               href={RULEBOOK_URL}
               target="_blank"

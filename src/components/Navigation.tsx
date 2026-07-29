@@ -99,7 +99,7 @@ export default function Navigation() {
             href="/maps"
             className="ml-2 rounded-[10px] bg-accent px-4 py-2 text-sm font-bold text-[#fffdf8] shadow-glow transition-colors hover:bg-accent-light"
           >
-            플레이
+            게임 플레이
           </Link>
         </nav>
 
@@ -168,7 +168,7 @@ export default function Navigation() {
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="mt-3 block rounded-xl bg-accent px-4 py-3 text-center text-base font-bold text-[#fffdf8]"
               >
-                플레이
+                게임 플레이
               </Link>
             </div>
           </motion.div>

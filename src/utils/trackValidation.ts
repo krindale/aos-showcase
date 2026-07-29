@@ -335,21 +335,27 @@ export function isCompletedLink(
     return { isComplete: false, endCoord: null, trackPath: [] };
   }
 
+  // 방문 기록은 **(헥스 + 경로종류)** 단위 — 복합 타일의 두 트랙은 독립이라 한 경로가
+  // 각각을 한 번씩 지나는 것은 합법이다(헥스 단위로 막으면 오탐).
   const visited = new Set<string>();
   const path: LinkPathStep[] = [];
 
   let currentCoord = startCoord;
   let currentEdge = startEdge;
 
-  // 시작점 방문 처리
-  visited.add(`${currentCoord.col},${currentCoord.row}`);
-
   while (true) {
     // 다음 헥스로 이동
     const nextCoord = getNeighborHex(currentCoord, currentEdge, board);
 
-    // 다음 헥스가 도시/마을이면 완성된 링크
+    // 다음 헥스가 도시/마을이면 완성된 링크.
+    // ⚠️ 단 **출발 정거장으로 되돌아온 순환은 링크가 아니다** — 룰북 "도시/마을이 자기
+    // 자신에게 직접 연결될 수 없음". 예전엔 모든 헥스를 한 visited에 넣고 도시 판정보다
+    // 먼저 검사해 이 경우가 걸렸는데, 방문 단위를 경로종류별로 바꾸면서 그 보호가
+    // 사라졌다 → 출발점 비교로 명시적으로 막는다 (리뷰 R3에서 발견).
     if (isCityOrTown(nextCoord, board)) {
+      if (hexCoordsEqual(nextCoord, startCoord)) {
+        return { isComplete: false, endCoord: null, trackPath: path };
+      }
       return { isComplete: true, endCoord: nextCoord, trackPath: path };
     }
 
@@ -378,8 +384,6 @@ export function isCompletedLink(
       return { isComplete: false, endCoord: null, trackPath: path };
     }
 
-    // 순환 감지는 (헥스 + 경로종류) 단위 — 복합 타일의 두 트랙은 독립이라
-    // 한 경로가 각각을 한 번씩 지나는 것은 합법이다 (헥스 단위로 막으면 오탐).
     const stepKey = `${nextCoord.col},${nextCoord.row}:${kind}`;
     if (visited.has(stepKey)) {
       return { isComplete: false, endCoord: null, trackPath: path };
@@ -431,7 +435,10 @@ export function findAllCompletedLinks(
       const result = isCompletedLink(startCoord, edge, board);
 
       if (result.isComplete && result.endCoord) {
-        // 중복 체크 (A→B와 B→A는 같은 링크)
+        // 중복 체크 (A→B와 B→A는 같은 링크).
+        // ⚠️ 알려진 한계: 키가 **정거장 쌍**이라, 같은 두 정거장을 잇는 서로 다른 경로를
+        // 한 플레이어가 둘 다 소유하면(예: 기본 경로 하나 + 보조 경로 하나) 하나만 집계된다.
+        // 원래도 있던 한계이고 실전 빈도가 낮아 그대로 둔다 (리뷰 R3).
         const pairKey1 = `${startCoord.col},${startCoord.row}-${result.endCoord.col},${result.endCoord.row}`;
         const pairKey2 = `${result.endCoord.col},${result.endCoord.row}-${startCoord.col},${startCoord.row}`;
 

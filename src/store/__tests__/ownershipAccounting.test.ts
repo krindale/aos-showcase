@@ -19,7 +19,7 @@ import {
   describeOwnershipUnits,
 } from '@/store/helpers/nationalization';
 import { releaseUnextendedTrack } from '@/store/helpers/boardRules';
-import { isTrackPartOfCompletedLink, findCompletedLinks } from '@/utils/hexGrid';
+import { isTrackPartOfCompletedLink, findCompletedLinks, hexCoordsEqual } from '@/utils/hexGrid';
 import { findAllCompletedLinks, calculateTrackScore } from '@/utils/trackValidation';
 import { BoardState, TrackTile, TownSpur, PlayerId } from '@/types/game';
 
@@ -271,6 +271,32 @@ describe('복합 보조 경로로 완성한 링크의 VP', () => {
     const board = boardWithCrossingLink();
     // 상대의 기본 경로 [1,4]는 어느 정거장에도 닿지 않는다
     expect(calculateTrackScore(board, P2)).toBe(0);
+  });
+
+  it('출발 정거장으로 되돌아오는 순환은 링크가 아니다 (룰: 자기 자신 연결 불가)', () => {
+    // 리뷰 R3 회귀 가드: 순환 감지를 (헥스+경로종류) 단위로 바꾸면서 "출발점 재방문" 보호가
+    // 사라져, 도시가 자기 자신에게 이어진 고리가 완성 링크로 잡히던 문제.
+    // C1(4,2)을 나갔다가 곧바로 되돌아오는 2타일 고리:
+    //   C1 -E(0)-> (5,2) -NW(4)-> (4,1) -SW(2)-> C1
+    //   (4,2) even: E=(5,2), NE=(4,1) / (5,2) even: W=C1, NW=(4,1) / (4,1) odd: SE=(5,2), SW=C1
+    const s = createInitialGameState('st-lucia', ['A', 'B'], []);
+    const board: BoardState = {
+      ...s.board,
+      cities: [{ id: 'C1', name: 'C1', coord: C1, color: 'red' as const, cubes: [] }],
+      towns: [],
+      townSpurs: [],
+      trackTiles: [
+        { id: 'loop-a', coord: { col: 5, row: 2 }, edges: [3, 4] as [number, number],
+          owner: P1, trackType: 'simple' as const, builtTurn: 1 },   // W=C1, NW=(4,1)
+        { id: 'loop-b', coord: { col: 4, row: 1 }, edges: [1, 2] as [number, number],
+          owner: P1, trackType: 'simple' as const, builtTurn: 1 },   // SE=(5,2), SW=C1
+      ],
+    };
+
+    // 물리적으로는 이어져 있지만 링크로 인정하면 안 된다
+    const links = findAllCompletedLinks(board, P1);
+    expect(links.filter(l => hexCoordsEqual(l.from, l.to))).toHaveLength(0);
+    expect(calculateTrackScore(board, P1)).toBe(0);
   });
 
   it('기본·보조가 각각 다른 링크를 완성하면 두 구간 모두 점수에 들어간다', () => {

@@ -10,11 +10,13 @@ import { ExternalLink, Train } from 'lucide-react';
 export const RULEBOOK_URL =
   'https://drive.google.com/file/d/1FC5evRrUeT1gc33DLSJzed03TX6fgiiS/view';
 
+/* /maps는 목록이 아니라 우측 강조 버튼("플레이")이 담당한다 — 라벨 "맵"으로는
+   플레이 진입점이라는 신호가 약했고, 메뉴와 버튼이 같은 곳을 가리키면 중복이라
+   버튼 하나로 합쳤다 (2026-07-29). */
 const navItems = [
   { href: '/', label: '홈', external: false },
-  { href: '/gameplay', label: '게임플레이', external: false },
+  { href: '/gameplay', label: 'How to Play', external: false },
   { href: '/actions', label: '특수 액션', external: false },
-  { href: '/maps', label: '맵', external: false },
   // 계산기 메뉴 자리를 공식 룰북 링크로 교체 (2026-07-04 — /calculator 페이지 자체는 유지)
   { href: RULEBOOK_URL, label: '룰북', external: true },
 ] as const;
@@ -92,8 +94,7 @@ export default function Navigation() {
               </Link>
             );
           })}
-          {/* 히어로 1차 CTA와 같은 목적지(/maps)로 통일 — 라벨이 "튜토리얼"이면
-              맵 갤러리의 튜토리얼 카드와 용어가 충돌한다 */}
+          {/* 히어로 1차 CTA와 같은 목적지(/maps). navItems의 "맵" 항목을 대체한다 */}
           <Link
             href="/maps"
             className="ml-2 rounded-[10px] bg-accent px-4 py-2 text-sm font-bold text-[#fffdf8] shadow-glow transition-colors hover:bg-accent-light"

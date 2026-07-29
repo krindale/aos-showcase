@@ -104,7 +104,13 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   const [booting, setBooting] = useState(true);
   // 진행 중 게임 이어하기 배너 (일부러 나갔다 재입장한 경우 — 자동 복원 대신 선택권)
   const [resumeAvailable, setResumeAvailable] = useState(false);
-  const [setupTab, setSetupTab] = useState<'local' | 'online'>('local');
+  /* 랜딩 히어로의 "친구와 온라인 플레이" CTA는 ?mode=online으로 온라인 탭을 바로 연다.
+     (정적 export라 useSearchParams 대신 location을 직접 읽는다 — CSR bailout·Suspense 불필요) */
+  const [setupTab, setSetupTab] = useState<'local' | 'online'>(() => {
+    if (typeof window === 'undefined') return 'local';
+    const wantsOnline = new URLSearchParams(window.location.search).get('mode') === 'online';
+    return wantsOnline && isNetConfigured() ? 'online' : 'local';
+  });
   const [playerCount, setPlayerCount] = useState(supportedPlayers[0]);
   const [playerNames, setPlayerNames] = useState<string[]>(DEFAULT_NAMES);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);

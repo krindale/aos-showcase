@@ -98,6 +98,20 @@ body {
      "A가 잘린다"는 관찰로 padding 여유를 넣었다가 원인이 아님을 확인하고 되돌렸다. */
 }
 
+/* 높이가 짧은 뷰포트(노트북 브라우저 창 등)에서는 히어로를 압축해 1차 CTA가
+   스크롤 없이 보이게 한다. 큰 화면의 초대형 타이포 임팩트는 그대로 둔다.
+   (1512×710 창 실측: 압축 전 CTA가 y=742로 첫 화면 밖) */
+@media (max-height: 800px) {
+  .hero-compact {
+    padding-top: clamp(28px, 4vw, 52px);
+    padding-bottom: clamp(26px, 3.5vw, 44px);
+  }
+
+  .hero-title {
+    font-size: clamp(44px, 8.5vw, 104px);
+  }
+}
+
 /* Paper Panel (구 glass-panel — 클래스명 유지) */
 .glass-panel {
   background: #faf8f3;

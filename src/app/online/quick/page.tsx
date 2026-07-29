@@ -46,9 +46,12 @@ export default function QuickJoinPage() {
     return () => clearInterval(timer);
   }, [room, refreshPublicRooms]);
 
-  // 자리를 잡았으면 그 방의 맵 페이지(대기실)로
+  // 자리를 잡았으면 그 방의 맵 페이지(대기실)로.
+  // 게임 화면의 '나가기'가 맵 갤러리 대신 여기로 되돌아오도록 출발지를 남긴다.
   useEffect(() => {
-    if (room) router.push(`/game/${room.mapId}/`);
+    if (!room) return;
+    try { window.sessionStorage.setItem('aos-back-to', '/online/quick/'); } catch { /* noop */ }
+    router.push(`/game/${room.mapId}/`);
   }, [room, router]);
 
   const handleQuickMatch = async () => {

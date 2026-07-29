@@ -338,11 +338,20 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     setShowSetup(true);
   };
 
-  // 맵 페이지로 돌아가기 (온라인이면 방도 나감) — 의도적 이탈이므로 F5 복원 마킹 해제
+  /* 나가기 — 들어온 화면으로 되돌린다 (온라인이면 방도 나감).
+     /online·/online/quick에서 방을 만들거나 입장하면 그 경로를 sessionStorage에 남겨두는데,
+     그게 있으면 거기로 돌아간다(없으면 기존대로 맵 갤러리). 안 그러면 온라인으로 들어온
+     사람이 X를 눌렀을 때 엉뚱하게 봇 게임용 맵 갤러리로 떨어진다.
+     의도적 이탈이므로 F5 복원 마킹도 해제. */
   const handleBack = () => {
-    try { window.sessionStorage.removeItem('aos-ingame'); } catch { /* noop */ }
+    let backTo = '/maps';
+    try {
+      window.sessionStorage.removeItem('aos-ingame');
+      backTo = window.sessionStorage.getItem('aos-back-to') || '/maps';
+      window.sessionStorage.removeItem('aos-back-to');
+    } catch { /* noop */ }
     if (isOnline) void leaveRoom();
-    router.push('/maps');
+    router.push(backTo);
   };
 
   // 온라인 방 나가기 (게임 화면 → 셋업으로)

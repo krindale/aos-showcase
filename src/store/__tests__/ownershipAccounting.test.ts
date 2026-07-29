@@ -13,7 +13,11 @@
 
 import { describe, it, expect } from 'vitest';
 import { useGameStore, createInitialGameState } from '@/store/gameStore';
-import { countOwnershipUnits, countUnfinishedSections } from '@/store/helpers/nationalization';
+import {
+  countOwnershipUnits,
+  countUnfinishedSections,
+  describeOwnershipUnits,
+} from '@/store/helpers/nationalization';
 import { releaseUnextendedTrack } from '@/store/helpers/boardRules';
 import { isTrackPartOfCompletedLink, findCompletedLinks } from '@/utils/hexGrid';
 import { BoardState, TrackTile, TownSpur, PlayerId } from '@/types/game';
@@ -219,6 +223,28 @@ describe('마을 가닥 건설도 미소유 구간을 인수한다', () => {
     const before = useGameStore.getState().board.trackTiles.map(t => t.owner);
     expect(useGameStore.getState().buildTownSpur(TOWN, 0)).toBe(true);
     expect(useGameStore.getState().board.trackTiles.map(t => t.owner)).toEqual(before);
+  });
+});
+
+describe('디스크 사용량 내역 (UI 표시용)', () => {
+  it('describeOwnershipUnits의 내역 합이 countOwnershipUnits와 일치한다 (미러 가드)', () => {
+    const board = boardWithMixedLink(nationalizedTile(5, 8, [3, 5]));
+    const withDirect: BoardState = {
+      ...board,
+      directLinks: [{ cityA: 'guangzhou', cityB: 'shenzhen', cost: 8, owner: P1 }],
+    };
+    const d = describeOwnershipUnits(withDirect, P1);
+
+    expect(d.completed + d.sections + d.directs).toBe(d.total);
+    expect(d.total).toBe(countOwnershipUnits(withDirect, P1));
+    expect(d.directs).toBe(1);  // $8 직결 링크가 내역에 잡힌다
+    expect(d.sections).toBe(1); // 국유화 트랙에 기댄 내 구간
+  });
+
+  it('상한이 없는 맵(튜토리얼)에서도 내역 계산이 안전하다', () => {
+    useGameStore.getState().initGame('tutorial', ['P1', 'P2']);
+    const d = describeOwnershipUnits(useGameStore.getState().board, P1);
+    expect(d).toEqual({ completed: 0, sections: 0, directs: 0, total: 0 });
   });
 });
 

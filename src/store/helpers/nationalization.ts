@@ -128,12 +128,24 @@ export function canStartSectionHere(
   return countUnfinishedSections(board, playerId) < limit;
 }
 
-/** 내 소유 단위(디스크 사용) 수 = 완성 링크 + 미완성 구간 + 구매한 직결 링크(인터어반/페리) */
-export function countOwnershipUnits(board: BoardState, playerId: PlayerId): number {
+/**
+ * 내 소유 단위(디스크 사용) 내역 = 완성 링크 + 미완성 구간 + 구매한 직결 링크(인터어반/페리).
+ * UI가 "지금 몇 개를 왜 쓰고 있는지"를 보여줄 수 있도록 항목별로 돌려준다 — 화면에 사용량이
+ * 전혀 없어서 사용자가 "직결 링크는 디스크를 안 세는 것 같다"고 판단했던 원인 (2026-07-29).
+ */
+export function describeOwnershipUnits(
+  board: BoardState,
+  playerId: PlayerId
+): { completed: number; sections: number; directs: number; total: number } {
   const completed = findCompletedLinks(board).filter((l) => l.owner === playerId).length;
   const sections = countUnfinishedSections(board, playerId);
   const directs = (board.directLinks ?? []).filter((d) => d.owner === playerId).length;
-  return completed + sections + directs;
+  return { completed, sections, directs, total: completed + sections + directs };
+}
+
+/** 내 소유 단위(디스크 사용) 수 — 내역 합. 미러 복제 금지: describeOwnershipUnits 한 곳에서 센다. */
+export function countOwnershipUnits(board: BoardState, playerId: PlayerId): number {
+  return describeOwnershipUnits(board, playerId).total;
 }
 
 /**

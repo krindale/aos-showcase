@@ -15,7 +15,7 @@ const basePath = process.env.NODE_ENV === 'production' ? '/aos-showcase' : '';
 type Difficulty = '입문' | '표준' | '중급' | '고급';
 
 const DIFF_COLOR: Record<Difficulty, string> = {
-  입문: '#8a857c',
+  입문: '#66625a',
   표준: '#c04a2b',
   중급: '#2f6b4f',
   고급: '#3a4a78',
@@ -377,7 +377,7 @@ export default function MapsPage() {
                     {map.players}인 · {map.turns}
                   </span>
                 </div>
-                <div className="mt-1 font-display text-xs tracking-wide text-[#a39d91]">
+                <div className="mt-1 font-display text-xs tracking-wide text-foreground-muted">
                   {map.name}
                 </div>
                 <p className="mt-[14px] text-sm leading-[1.7] text-foreground-secondary">
@@ -451,7 +451,7 @@ export default function MapsPage() {
                   <h3 className="text-[22px] font-bold tracking-[-0.02em] text-foreground">
                     {lightboxMap.nameKo}
                   </h3>
-                  <span className="font-display text-xs tracking-wide text-[#a39d91]">
+                  <span className="font-display text-xs tracking-wide text-foreground-muted">
                     {lightboxMap.name}
                   </span>
                 </div>

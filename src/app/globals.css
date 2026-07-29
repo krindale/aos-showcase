@@ -8,7 +8,8 @@
 
 /*
  * 디자인 시스템 — "크림 페이퍼 + 버밀리언" (claude-design/Age of Steam Website Design)
- * bg #f7f5f0 · band #efeae1 · card #ffffff · ink #1c1b18 · sub #6e6a61 · muted #8a857c
+ * bg #efece4 · band #e7e1d5 · card #faf8f3 · ink #1c1b18 · sub #5f5b53 · muted #66625a
+ * (sub/muted는 2026-07-29 WCAG AA 확보로 진해짐 — 구 #6e6a61 / #8a857c)
  * accent #c04a2b (hover #d65a39) · positive #2f6b4f · border #e6e1d6 / #ebe6dc
  */
 :root {
@@ -150,7 +151,7 @@ body {
 /* Navigation */
 .nav-link {
   position: relative;
-  color: #6e6a61;
+  color: #5f5b53;
   transition: color 0.3s ease, background 0.3s ease;
 }
 
@@ -203,11 +204,11 @@ body {
 }
 
 /* 키보드 포커스 표시 — 마우스 클릭에는 안 뜨고 Tab 이동에만 뜬다.
-   focus:outline-none으로 링을 지우는 곳이 있어 전역 기본값을 명시한다. */
-:focus-visible {
+   :where()로 특이성 0 — 자체 포커스 스타일을 가진 요소(focus:ring 등)가 이걸 덮어쓰게 두고,
+   아무 표시도 없던 요소에만 기본 링을 준다. outline은 요소의 border-radius를 자동으로 따른다. */
+:where(:focus-visible) {
   outline: 2px solid #c04a2b;
   outline-offset: 2px;
-  border-radius: 4px;
 }
 
 /* 모션 최소화 설정 존중 (prefers-reduced-motion)

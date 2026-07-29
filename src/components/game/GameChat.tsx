@@ -120,7 +120,7 @@ export default function GameChat() {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && handleSend()}
                 placeholder="메시지…"
-                className="flex-1 px-3 py-2 bg-transparent text-xs text-foreground focus:outline-none"
+                className="flex-1 px-3 py-2 bg-transparent text-xs text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
               />
               <button
                 onClick={handleSend}

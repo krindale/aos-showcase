@@ -35,7 +35,13 @@ function Stepper({
         >
           −
         </button>
-        <div className="min-w-[42px] text-center font-display text-[22px] font-semibold text-foreground">
+        {/* ± 로 바뀐 값을 스크린리더가 읽어주도록 (버튼 라벨만으론 결과를 알 수 없다) */}
+        <div
+          role="status"
+          aria-live="polite"
+          aria-label={`${def.label} ${value}${def.unit}`}
+          className="min-w-[42px] text-center font-display text-[22px] font-semibold text-foreground"
+        >
           {value}
         </div>
         <button
@@ -143,7 +149,7 @@ export default function CalculatorPage() {
               <Stepper key={def.key} def={def} value={values[def.key]} onChange={set(def.key)} />
             ))}
             <div className="mt-[22px] flex items-center justify-between rounded-[14px] border border-glass-border bg-background p-5">
-              <span className="font-medium text-[#54504a]">총 건설 비용</span>
+              <span className="font-medium text-foreground-secondary">총 건설 비용</span>
               <span className="font-display text-[34px] font-bold tracking-[-0.02em] text-accent">
                 ${trackTotal}
               </span>
@@ -180,7 +186,7 @@ export default function CalculatorPage() {
               className="mt-[10px] flex items-center justify-between rounded-[14px] border bg-background px-5 py-[18px]"
               style={{ borderColor: net >= 0 ? '#bcd4c7' : '#eccabd' }}
             >
-              <span className="font-medium text-[#54504a]">순이익 / 턴</span>
+              <span className="font-medium text-foreground-secondary">순이익 / 턴</span>
               <span
                 className="font-display text-[30px] font-bold tracking-[-0.02em]"
                 style={{ color: net >= 0 ? '#2f6b4f' : '#c04a2b' }}
@@ -210,7 +216,7 @@ export default function CalculatorPage() {
               <Stepper key={def.key} def={def} value={values[def.key]} onChange={set(def.key)} />
             ))}
             <div className="mt-[22px] flex items-center justify-between rounded-[14px] border border-glass-border bg-background p-5">
-              <span className="font-medium text-[#54504a]">예상 점수</span>
+              <span className="font-medium text-foreground-secondary">예상 점수</span>
               <span className="font-display text-[34px] font-bold tracking-[-0.02em] text-foreground">
                 {vpTotal}
                 <span className="ml-1 text-base text-foreground-muted">점</span>

@@ -44,13 +44,13 @@ export default function EditorialSection() {
             <circle cx="260" cy="90" r="17" fill="#fffdf8" stroke="#c9c1b1" strokeWidth="3" />
             <circle cx="460" cy="90" r="22" fill="#fffdf8" stroke="#2f6b4f" strokeWidth="3" />
             <rect x="51" y="81" width="18" height="18" rx="4" fill="#c04a2b" />
-            <text x="60" y="138" textAnchor="middle" fill="#6e6a61" fontFamily="IBM Plex Sans KR" fontSize="13">
+            <text x="60" y="138" textAnchor="middle" fill="#5f5b53" fontFamily="IBM Plex Sans KR" fontSize="13">
               출발 도시
             </text>
-            <text x="260" y="138" textAnchor="middle" fill="#8a857c" fontFamily="IBM Plex Sans KR" fontSize="13">
+            <text x="260" y="138" textAnchor="middle" fill="#66625a" fontFamily="IBM Plex Sans KR" fontSize="13">
               경유
             </text>
-            <text x="460" y="138" textAnchor="middle" fill="#6e6a61" fontFamily="IBM Plex Sans KR" fontSize="13">
+            <text x="460" y="138" textAnchor="middle" fill="#5f5b53" fontFamily="IBM Plex Sans KR" fontSize="13">
               목적 도시
             </text>
             <text x="260" y="54" textAnchor="middle" fill="#1c1b18" fontFamily="Space Grotesk" fontSize="14" fontWeight="600">

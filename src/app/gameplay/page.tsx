@@ -6,8 +6,10 @@ import { useEnterMotion } from '@/hooks/useEnterMotion';
 
 /* ── 단계별 애니메이션 다이어그램 (SMIL SVG, claude-design 포트) ── */
 
-const SUB = '#8a857c';
-const FAINT = '#a39d91';
+/* 다이어그램 SVG 텍스트 색 — tailwind foreground.secondary/muted와 같은 값.
+   카드 배경 #faf8f3 기준 6.36:1 / 5.31:1 (구 #8a857c 3.45:1, #a39d91 2.54:1은 AA 미달이었음) */
+const SUB = '#5f5b53';
+const FAINT = '#66625a';
 const LINE = '#c9c1b1';
 const TIE = '#d9d1c1';
 const RED = '#c04a2b';
@@ -497,7 +499,7 @@ export default function GameplayPage() {
                         <span className="text-[clamp(19px,2.6vw,25px)] font-bold tracking-[-0.02em] text-foreground">
                           {phase.t}
                         </span>
-                        <span className="font-display text-[12.5px] text-[#a39d91]">{phase.en}</span>
+                        <span className="font-display text-[12.5px] text-foreground-muted">{phase.en}</span>
                       </span>
                       <span className="mt-[9px] block max-w-[680px] text-[15px] font-normal leading-[1.7] text-foreground-secondary">
                         {phase.d}
@@ -521,7 +523,7 @@ export default function GameplayPage() {
                     >
                       <div ref={diagramRef} className="px-3 pb-[26px] pl-[clamp(12px,5vw,70px)]">
                         <div className="max-w-[560px] rounded-[14px] border border-[#ece7dd] bg-background-secondary px-[22px] py-5 shadow-glass">
-                          <div className="mb-[14px] font-display text-[11px] font-medium tracking-[0.07em] text-[#a39d91]">
+                          <div className="mb-[14px] font-display text-[11px] font-medium tracking-[0.07em] text-foreground-muted">
                             {diagrams[i].caption}
                           </div>
                           {diagrams[i].svg}

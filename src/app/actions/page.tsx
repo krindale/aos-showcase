@@ -137,7 +137,7 @@ export default function ActionsPage() {
                     <h3 className="text-xl font-bold leading-[1.1] tracking-[-0.02em] text-foreground">
                       {act.t}
                     </h3>
-                    <div className="mt-[3px] font-display text-xs tracking-wide text-[#a39d91]">
+                    <div className="mt-[3px] font-display text-xs tracking-wide text-foreground-muted">
                       {act.en}
                     </div>
                   </div>
@@ -149,7 +149,7 @@ export default function ActionsPage() {
                   {act.phase}
                 </div>
 
-                <p className="mb-4 text-[14.5px] leading-[1.7] text-[#54504a]">{act.d}</p>
+                <p className="mb-4 text-[14.5px] leading-[1.7] text-foreground-secondary">{act.d}</p>
 
                 {/* 효과 상세 */}
                 <ul className="mb-4 space-y-[6px]">

@@ -1,3 +1,10 @@
+import bundleAnalyzer from '@next/bundle-analyzer';
+
+// 번들 크기 계측 — `ANALYZE=true`일 때만 리포트를 연다(평소 빌드/배포엔 무영향)
+const withBundleAnalyzer = bundleAnalyzer({
+  enabled: process.env.ANALYZE === 'true',
+});
+
 /** @type {import('next').NextConfig} */
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -14,4 +21,4 @@ const nextConfig = {
   trailingSlash: true,
 };
 
-export default nextConfig;
+export default withBundleAnalyzer(nextConfig);

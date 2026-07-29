@@ -10,10 +10,10 @@ import { useEffect, useRef, useState } from 'react';
 import { isNetConfigured } from '@/net';
 import type { RoomSeat } from '@/net';
 import { useNetStore } from '@/net/netStore';
-import { uniqueSeatName } from '@/net/roomLogic';
+import { uniqueSeatName, buildRoomSeats } from '@/net/roomLogic';
 import { getMapData } from '@/utils/mapRegistry';
-import { MapId } from '@/maps/MapId';
 import { getMapProfile } from '@/maps/getMapProfile';
+import { maps } from '@/data/mapCatalog';
 import {
   ArrowLeftRight, Bot, Check, Copy, Crown, Globe, Loader2, LogOut, Pencil, Play, RefreshCw, Route, Send, Star, User, UserX, Wifi, WifiOff, X, Zap,
 } from 'lucide-react';
@@ -32,15 +32,16 @@ function mapNameOf(mapId: string): string {
 /**
  * 방을 만들 때 고를 수 있는 맵 — 온라인은 URL의 맵에 묶이지 않는다.
  * (히어로 CTA가 기본 맵으로 보내도 여기서 바꿀 수 있어야 한다는 요구)
- * 아직 플레이 불가한 맵(바베이도스)은 제외 — MapId 전체가 아니라 프로파일이 있는 것만.
+ * 기준은 mapCatalog의 playable 맵 하나로 통일 — /online 방 만들기 화면(ONLINE_MAPS)과
+ * 같은 소스라야 새 맵 추가 시 두 화면의 목록이 어긋나지 않는다 (2026-07-29 코드리뷰).
  */
-const CREATABLE_MAPS: { id: string; name: string; players: number[] }[] = Object.values(MapId)
-  .filter((id) => id !== MapId.Barbados)
-  .map((id) => {
-    const profile = getMapProfile(id);
+const CREATABLE_MAPS: { id: string; name: string; players: number[] }[] = maps
+  .filter((m) => m.playable)
+  .map((m) => {
+    const profile = getMapProfile(m.slug);
     return {
-      id,
-      name: mapNameOf(id),
+      id: m.slug,
+      name: mapNameOf(m.slug),
       players: [...profile.supportedPlayers].sort((a, b) => a - b),
     };
   });
@@ -137,18 +138,7 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
   };
 
   const handleCreate = () => {
-    // 좌석을 순차로 쌓으며 빈 사람 좌석엔 겹치지 않는 기본 이름(기차-하나/둘/…)을 부여한다.
-    // 실제 참가자가 들어오면 assignSeatForClaim(uniqueSeatName)이 그 사람 이름으로 교체.
-    const seats: RoomSeat[] = [];
-    for (let i = 0; i < playerCount; i++) {
-      if (i === 0) {
-        seats.push({ seat: 0, name: myName.trim() || '호스트', kind: 'human', clientId: null });
-      } else if (aiSeats.has(i)) {
-        seats.push({ seat: i, name: `컴퓨터-기차${['', '', 'II', 'III', 'IV', 'V'][i] ?? ''}`, kind: 'ai', clientId: null });
-      } else {
-        seats.push({ seat: i, name: uniqueSeatName(undefined, seats, i), kind: 'human', clientId: null });
-      }
-    }
+    const seats = buildRoomSeats(playerCount, myName, aiSeats);
     void hostRoom({
       mapId: createMapId,
       seats,

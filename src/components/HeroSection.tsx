@@ -6,20 +6,21 @@ import { ExternalLink, Zap } from 'lucide-react';
 import HeroBoardVignette from './HeroBoardVignette';
 import { RULEBOOK_URL } from './Navigation';
 import { useEnterMotion } from '@/hooks/useEnterMotion';
+import { maps } from '@/data/mapCatalog';
 
 /* 온라인 진입은 각각 전용 화면 — 게임 화면의 셋업 탭을 재사용하지 않는다.
    두 화면 모두 "방에 들어가는 지점"까지만 담당하고, 방이 생기면 /game/<맵>/의 대기실로 넘긴다. */
 const ONLINE_ENTRY = '/online/';
 const QUICK_JOIN_ENTRY = '/online/quick/';
 
-/* ⚠️ '수록 맵' 수는 src/app/maps/page.tsx의 maps 배열 길이와 맞춰야 한다.
-   (맵 데이터를 여기서 import하면 홈 번들에 맵 프로파일 전체가 딸려오므로 숫자만 둔다) */
+/* '수록 맵' 수는 mapCatalog에서 파생 — 맵을 추가/삭제해도 자동으로 맞는다(수동 동기화 불필요).
+   mapCatalog는 순수 데이터 배열(맵 프로파일 import 없음)이라 홈 번들 영향은 미미하다. */
 const stats = [
   { v: '1–6', l: '플레이어' },
   { v: '120분', l: '플레이 시간' },
-  { v: '11', l: '수록 맵' },
+  { v: String(maps.length), l: '수록 맵' },
   { v: '2002', l: '최초 출시' },
-] as const;
+];
 
 export default function HeroSection() {
   const { enter } = useEnterMotion();

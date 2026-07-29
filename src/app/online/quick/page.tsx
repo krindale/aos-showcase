@@ -60,8 +60,12 @@ export default function QuickJoinPage() {
 
   const handleQuickMatch = async () => {
     setMatching(true);
-    await quickMatch(myName.trim() || '게스트');
-    setMatching(false);
+    // quickMatch가 네트워크 예외로 reject해도 버튼이 '찾는 중…'에 영구히 갇히지 않게 finally에서 해제
+    try {
+      await quickMatch(myName.trim() || '게스트');
+    } finally {
+      setMatching(false);
+    }
   };
 
   if (!isNetConfigured()) {

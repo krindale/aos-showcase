@@ -19,9 +19,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Bot, ChevronLeft, ChevronRight, Globe, Loader2, User, Users, Zap } from 'lucide-react';
-import { isNetConfigured, type RoomSeat } from '@/net';
+import { isNetConfigured } from '@/net';
 import { useNetStore } from '@/net/netStore';
-import { uniqueSeatName } from '@/net/roomLogic';
+import { buildRoomSeats } from '@/net/roomLogic';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { basePath, DIFF_COLOR, maps, thumbOf } from '@/data/mapCatalog';
 import { useEnterMotion } from '@/hooks/useEnterMotion';
@@ -109,22 +109,8 @@ export default function OnlinePlayPage() {
   };
 
   const handleCreate = () => {
-    // 좌석을 순차로 쌓으며 빈 사람 자리엔 겹치지 않는 기본 이름을 부여 (OnlineLobby와 같은 규칙)
-    const seats: RoomSeat[] = [];
-    for (let i = 0; i < playerCount; i++) {
-      if (i === 0) {
-        seats.push({ seat: 0, name: myName.trim() || '호스트', kind: 'human', clientId: null });
-      } else if (aiSeats.has(i)) {
-        seats.push({
-          seat: i,
-          name: `컴퓨터-기차${['', '', 'II', 'III', 'IV', 'V'][i] ?? ''}`,
-          kind: 'ai',
-          clientId: null,
-        });
-      } else {
-        seats.push({ seat: i, name: uniqueSeatName(undefined, seats, i), kind: 'human', clientId: null });
-      }
-    }
+    // 좌석 구성은 OnlineLobby와 공유하는 buildRoomSeats 한 곳으로 (규칙 어긋남 방지)
+    const seats = buildRoomSeats(playerCount, myName, aiSeats);
     void hostRoom({
       mapId: selected.slug,
       seats,

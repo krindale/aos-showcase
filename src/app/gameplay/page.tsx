@@ -1,7 +1,9 @@
 'use client';
 
 import { useCallback, useState, type ReactNode } from 'react';
+import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
+import { ArrowRight } from 'lucide-react';
 import { useEnterMotion } from '@/hooks/useEnterMotion';
 
 /* ── 단계별 애니메이션 다이어그램 (SMIL SVG, claude-design 포트) ── */
@@ -424,10 +426,21 @@ const diagrams: { caption: string; svg: ReactNode }[] = [
   },
 ];
 
-const turnPhases = [
+/** more: 그 단계를 더 깊게 다루는 페이지로 보내는 링크 (펼친 패널 안에 표시) */
+const turnPhases: {
+  t: string;
+  en: string;
+  d: string;
+  more?: { href: string; label: string };
+}[] = [
   { t: '주식 발행', en: 'Issue Shares', d: '필요한 만큼 주식을 발행해 자금을 확보합니다. 많이 발행할수록 매 턴 지출이 무거워집니다.' },
   { t: '턴 순서 경매', en: 'Determine Player Order', d: '이번 라운드의 행동 순서를 입찰로 정합니다. 순서가 곧 우위입니다.' },
-  { t: '특수 액션 선택', en: 'Select Actions', d: '7개의 특수 액션 중 하나를 골라 이번 턴의 결정적 이점을 손에 넣습니다.' },
+  {
+    t: '특수 액션 선택',
+    en: 'Select Actions',
+    d: '7개의 특수 액션 중 하나를 골라 이번 턴의 결정적 이점을 손에 넣습니다.',
+    more: { href: '/actions/', label: '7가지 특수 액션 하나씩 보기' },
+  },
   { t: '선로 건설', en: 'Build Track', d: '도시를 잇는 선로 타일을 놓습니다. 지형에 따라 건설 비용이 달라집니다.' },
   { t: '상품 이동', en: 'Move Goods', d: '기관차 레벨까지의 거리만큼 상품을 배송하고 소득을 올립니다. 두 번 진행합니다.' },
   { t: '소득 징수', en: 'Collect Income', d: '소득 트랙의 현재 위치만큼 돈을 받습니다.' },
@@ -435,7 +448,7 @@ const turnPhases = [
   { t: '소득 감소', en: 'Income Reduction', d: '소득이 높을수록 트랙이 일정 칸 내려갑니다. 과열을 경계하세요.' },
   { t: '상품 생산', en: 'Goods Growth', d: '주사위를 굴려 도시에 새로운 상품 큐브를 보충합니다.' },
   { t: '턴 마커 전진', en: 'Advance Turn Marker', d: '턴 마커를 한 칸 전진합니다. 마지막 턴이었다면 최종 점수를 계산해 승자를 가립니다.' },
-] as const;
+];
 
 const mechanics = [
   { n: 'A — 빚', t: '주식은 빌린 돈이다', d: '발행한 주식은 매 턴 비용으로 돌아오고, 게임 종료 시 점수를 깎습니다. 언제 멈출지가 핵심입니다.' },
@@ -528,6 +541,18 @@ export default function GameplayPage() {
                           </div>
                           {diagrams[i].svg}
                         </div>
+
+                        {/* 그 단계를 더 깊게 다루는 페이지로 — 지금은 특수 액션만 별도 페이지가 있다.
+                            아코디언 트리거(button) 밖이라 인터랙티브 요소 중첩이 아니다. */}
+                        {phase.more && (
+                          <Link
+                            href={phase.more.href}
+                            className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-accent underline-offset-4 transition-colors hover:underline"
+                          >
+                            {phase.more.label}
+                            <ArrowRight className="h-[15px] w-[15px]" aria-hidden />
+                          </Link>
+                        )}
                       </div>
                     </motion.div>
                   )}

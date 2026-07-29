@@ -17,6 +17,8 @@ import {
   countOwnershipUnits,
   countUnfinishedSections,
   describeOwnershipUnits,
+  nationalizationTargets,
+  applyNationalization,
 } from '@/store/helpers/nationalization';
 import { releaseUnextendedTrack } from '@/store/helpers/boardRules';
 import { isTrackPartOfCompletedLink, findCompletedLinks, hexCoordsEqual } from '@/utils/hexGrid';
@@ -342,6 +344,74 @@ describe('복합 보조 경로로 완성한 링크의 VP', () => {
 
     expect(findAllCompletedLinks(board, P1)).toHaveLength(2);
     expect(calculateTrackScore(board, P1)).toBe(2); // 좌표 단위로 세면 1이 되어버린다
+  });
+});
+
+/**
+ * hexGrid.findCompletedLinks도 보조 경로를 인식해야 한다 — 이게 안 되면 VP만 고쳐도
+ * 완성 링크 마커·중국 국유화 대상·달 성장 도시 판정에서 여전히 빠진다.
+ * 특히 중국에서는 디스크는 소모하면서(countUnfinishedSections) 국유화 후보로는 안 떠
+ * **반납할 방법이 없어 디스크가 영구히 묶인다**.
+ */
+describe('findCompletedLinks가 보조 경로 링크를 인식한다', () => {
+  const C1 = { col: 4, row: 2 };
+  const TILE = { col: 5, row: 2 };
+  const C2 = { col: 6, row: 2 };
+
+  function boardWithSecondaryOnlyLink(primaryOwner: PlayerId | null): BoardState {
+    const s = createInitialGameState('southern-china', ['A', 'B', 'C', 'D'], []);
+    return {
+      ...s.board,
+      cities: [
+        { id: 'C1', name: 'C1', coord: C1, color: 'red' as const, cubes: [] },
+        { id: 'C2', name: 'C2', coord: C2, color: 'blue' as const, cubes: [] },
+      ],
+      towns: [],
+      townSpurs: [],
+      directLinks: [],
+      trackTiles: [{
+        id: 'cx', coord: TILE,
+        edges: [1, 4] as [number, number], owner: primaryOwner,   // 어디에도 안 닿는 경로
+        trackType: 'crossing' as const,
+        secondaryEdges: [3, 0] as [number, number], secondaryOwner: P1, // C1↔C2 (내 보조)
+        builtTurn: 1,
+      }],
+    };
+  }
+
+  it('보조 경로로 완성한 링크가 완성 링크 목록에 잡힌다 (마커·달 성장 판정의 근거)', () => {
+    const board = boardWithSecondaryOnlyLink(P2);
+    const links = findCompletedLinks(board).filter(l => l.owner === P1);
+
+    expect(links).toHaveLength(1);
+    expect(links[0].trackPaths).toEqual([{ coord: TILE, kind: 'S' }]);
+  });
+
+  it('디스크는 완성 링크 1개로 세어진다 (미완성 구간으로 중복 계산되지 않음)', () => {
+    const board = boardWithSecondaryOnlyLink(P2);
+    const d = describeOwnershipUnits(board, P1);
+
+    expect(d.completed).toBe(1);
+    expect(d.sections).toBe(0);
+    expect(d.total).toBe(1);
+  });
+
+  it('중국 국유화 후보로 뜬다 — 디스크를 반납할 수 있어야 한다', () => {
+    const board = boardWithSecondaryOnlyLink(P2);
+    const targets = nationalizationTargets(board, P1, 2); // builtTurn=1 → 당턴 아님
+    expect(targets).toHaveLength(1);
+
+    // 국유화하면 **보조 경로만** 중립화된다 — 기본 경로 주인(P2)의 철도는 그대로
+    const { board: after } = applyNationalization(board, targets[0]);
+    const t = after.trackTiles[0];
+    expect(t.secondaryOwner).toBeNull();
+    expect(t.owner).toBe(P2);        // 남의 기본 경로를 뺏지 않는다
+    expect(t.isGovernment).toBeFalsy(); // 타일 전체를 정부 트랙으로 만들지 않는다
+  });
+
+  it('기본 경로가 미소유여도 보조 링크는 성립한다 (소유자는 경로별로 판정)', () => {
+    const board = boardWithSecondaryOnlyLink(null);
+    expect(findCompletedLinks(board).filter(l => l.owner === P1)).toHaveLength(1);
   });
 });
 

@@ -28,7 +28,8 @@ interface BoardTracksProps {
   trackPathCache: Map<string, TrackPathCacheEntry>;
   completedLinks: CompletedLink[];
   disconnectedConnections: { from: HexCoord; to: HexCoord; fromEdge: number; toEdge: number }[];
-  isTrackInCompletedLink: (coord: HexCoord) => boolean;
+  /** 이 트랙 경로가 완성 링크에 속하는지 — 복합 타일은 기본(P)/보조(S)를 따로 물어야 한다 */
+  isTrackInCompletedLink: (coord: HexCoord, kind?: 'P' | 'S') => boolean;
   canRedirect: (coord: HexCoord) => boolean;
   selectTrackToRedirect: (coord: HexCoord) => void;
   onHexClick: (coord: HexCoord) => void;
@@ -257,7 +258,7 @@ export default function BoardTracks({
                 ⚠️ onClick/pointerEvents 필수 — SVG 기본값이 pointerEvents:auto라, 둘 다
                 없으면 이 원이 클릭을 삼키고 아무 일도 안 한다(내 복합 트랙 끝에서 이어
                 짓기가 "클릭이 안 먹는" 것으로 보이던 원인, 2026-07-29 사용자 보고). */}
-            {!isTrackInCompletedLink(tile.coord) && hasSecondary && tile.secondaryOwner && (
+            {!isTrackInCompletedLink(tile.coord, 'S') && hasSecondary && tile.secondaryOwner && (
               <circle
                 cx={x + 10}
                 cy={y - 10}

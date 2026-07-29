@@ -26,7 +26,7 @@ import { getDisplaySlotRange } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { hexCoordsEqual } from '@/utils/hexGrid';
 import {
-  eligibleNationalizationTargets,
+  nationalizationTargets,
   checkDiscLimitAfterBuild,
   releaseUnfinishedOwnership,
   applyNationalization,
@@ -1028,7 +1028,7 @@ export const useGameStore = create<GameStore>()(
     if (!pending || pending.playerId !== playerId) return;
     const limit = getMapProfile(pre.mapId).ownershipDiscLimit;
     if (limit === null) return;
-    const link = eligibleNationalizationTargets(pre.board, playerId, pre.currentTurn)
+    const link = nationalizationTargets(pre.board, playerId, pre.currentTurn)
       .find((l) => l.id === linkId);
     if (!link) {
       console.warn(`[WARN] nationalizeLink: 국유화 불가 링크 - ${linkId}`);

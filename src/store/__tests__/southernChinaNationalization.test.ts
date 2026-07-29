@@ -6,6 +6,7 @@ import {
   countOwnershipUnits,
   countUnfinishedSections,
   eligibleNationalizationTargets,
+  nationalizationTargets,
   checkDiscLimitAfterBuild,
   releaseUnfinishedOwnership,
 } from '@/store/helpers/nationalization';
@@ -178,19 +179,15 @@ describe('국유화 대상과 실행', () => {
     expect(eligibleNationalizationTargets(board, P1, 2).length).toBeGreaterThan(0);
   });
 
-  // ⚠️ **알려진 한계(현재 동작 박제, 2026-07-29)** — 고치지 않기로 한 엣지 케이스.
-  // 이 맵은 미완성 구간이 1개로 제한(unfinishedSectionLimit)돼 있어 실전에서 이 조합이
-  // 성립하기 어렵다는 판단(사용자). 훗날 상한을 100% 강제하려면 이 테스트가 먼저 실패한다 —
-  // 그때 ① 후보가 0일 때만 "당턴 제외"를 푸는 폴백 국유화, 또는 ② 5번째 단위를 만드는 건설의
-  // 사전 차단 중 하나를 택하고 이 테스트를 그 기대값으로 갱신할 것.
-  it('[알려진 한계] 당턴 링크뿐이라 국유화 대상이 0이면 5단위가 조용히 굳는다', () => {
+  // 상한(디스크 4개)은 불변식이다 — 당턴 제외 때문에 후보가 0이 되면 지킬 방법이 사라진다.
+  // nationalizationTargets가 "후보가 하나도 없을 때만" 당턴 제외를 푸는 폴백을 넣어 해결.
+  it('당턴 링크뿐이라 엄격 후보가 0이어도 상한은 지켜진다 (폴백 국유화)', () => {
     // 직결 구매에는 사전 게이트가 있어 "5번째 직결"은 막히지만, buildTrack/복합/가닥에는
     // 게이트가 없다 → 직결을 4번째로 산 뒤 트랙으로 5번째 링크를 완성하면 통과된다.
-    // 그 시점 내 링크가 전부 당턴 건설이면 국유화 대상이 0이라 대기도 서지 않고,
-    // 안전망(releaseUnfinishedOwnership)은 미완성 구간만 풀어 직결·완성 링크를 못 건드린다.
-    // (사용자가 실제로 목격한 "디스크 5개"는 이것이 아니라 혼합 소유 링크의 회계 증발이었을
-    //  가능성이 높다 — 그쪽은 isTrackInOwnedCompletedLink 도입으로 수정됨.)
-    setupWithFiveLinks(1); // 모든 타일 builtTurn=1 = 당턴 → 국유화 대상 0
+    // 그 시점 내 링크가 전부 당턴 건설이면 엄격 후보가 0이라, 예전엔 대기도 안 서고
+    // 안전망(releaseUnfinishedOwnership)도 미완성 구간만 풀어 5단위가 그대로 굳었다
+    // (2026-07-29 사용자 실측: "$8 페리를 짓고도 철도를 5개 소유하고 있었다").
+    setupWithFiveLinks(1); // 모든 타일 builtTurn=1 = 당턴 → 엄격 후보 0
     const s = useGameStore.getState();
     // L5(Xiamen↔Ganzhou) 제거 → 완성 링크 4개, 여기에 당턴 구매 직결 1개 = 5단위
     const trackTiles = s.board.trackTiles.filter(
@@ -208,10 +205,29 @@ describe('국유화 대상과 실행', () => {
       ),
     };
 
-    expect(countOwnershipUnits(board, P1)).toBe(5);            // 상한 4를 넘겼는데
-    expect(eligibleNationalizationTargets(board, P1, 1)).toHaveLength(0); // 국유화 대상이 없고
-    expect(checkDiscLimitAfterBuild({ board, currentTurn: 1 }, P1, 4)).toBeNull(); // 대기도 안 서고
-    expect(releaseUnfinishedOwnership(board, P1, 4)).toBeNull(); // 안전망도 못 푼다 → 5단위 고착
+    expect(countOwnershipUnits(board, P1)).toBe(5);                        // 상한 4 초과
+    expect(eligibleNationalizationTargets(board, P1, 1)).toHaveLength(0);  // 엄격 후보는 0이지만
+    expect(releaseUnfinishedOwnership(board, P1, 4)).toBeNull();           // 안전망도 못 푸는 상황
+
+    // 폴백이 당턴 링크를 후보로 열어 상한을 지킬 수 있게 한다
+    expect(nationalizationTargets(board, P1, 1).length).toBeGreaterThan(0);
+    expect(checkDiscLimitAfterBuild({ board, currentTurn: 1 }, P1, 4)).toEqual({ playerId: P1 });
+  });
+
+  it('엄격 후보가 있으면 폴백이 끼어들지 않는다 (당턴 링크는 여전히 제외)', () => {
+    // 룰 취지 유지: "방금 지은 걸 즉시 반납해 이득 보는" 것을 막는 조항은 평상시 그대로 산다.
+    setupWithFiveLinks(2); // 타일 builtTurn=1, 현재 턴 2 → 전부 엄격 후보
+    const s = useGameStore.getState();
+    const withFresh = {
+      ...s.board,
+      trackTiles: s.board.trackTiles.map((t) =>
+        t.coord.col === 4 && t.coord.row === 8 ? { ...t, builtTurn: 2 } : t
+      ),
+    };
+    const strict = eligibleNationalizationTargets(withFresh, P1, 2);
+    expect(strict.length).toBeGreaterThan(0);
+    // 폴백은 엄격 목록을 그대로 돌려준다 — 당턴 링크(L1)가 추가로 열리지 않는다
+    expect(nationalizationTargets(withFresh, P1, 2)).toHaveLength(strict.length);
   });
 
   it('직결 링크(인터어반)도 국유화 대상 — 중립화·재구매 불가·페리 VP 회수', () => {
@@ -291,7 +307,7 @@ describe('국유화 대상 소진 — 초과가 굳지 않는다 (사람 경로 
    * 5단위가 굳어 이후 건설이 영영 막히고, PhasePanel은 선택 버튼도 '다음 단계로'도 없는
    * 교착이 된다(같은 구멍의 봇 버전은 S5에서 수정).
    */
-  it('국유화 후 대상이 소진돼도 소유 단위가 상한(4) 이내로 복원된다', () => {
+  it('국유화 후에도 초과면 대기를 유지하고 한 번 더 요구한다 (폴백으로 대상이 안 마른다)', () => {
     // 완성 링크 5개 중 4개는 당턴(=국유화 불가), 1개만 이전 턴(=유일한 대상)
     const s = createInitialGameState('southern-china', ['A', 'B', 'C', 'D'], []);
     const trackTiles: TrackTile[] = [
@@ -318,9 +334,20 @@ describe('국유화 대상 소진 — 초과가 굳지 않는다 (사람 경로 
     useGameStore.setState({ nationalizationPending: { playerId: P1 } });
     useGameStore.getState().nationalizeLink(P1, targets[0].id);
 
+    // 폴백(nationalizationTargets)이 당턴 링크를 열어주므로 대상이 소진되지 않는다 →
+    // 초과가 남으면 대기를 유지하고 한 번 더 요구한다. 예전엔 대상 소진으로 안전망이
+    // 미완성 구간 소유를 **무보상 회수**했는데, 국유화(토큰+$ 보상)가 플레이어에게 낫다.
     const after = useGameStore.getState();
-    expect(after.nationalizationPending).toBeNull();          // 대기 해제
-    expect(countOwnershipUnits(after.board, P1)).toBeLessThanOrEqual(4); // 불변식 복원
+    expect(countOwnershipUnits(after.board, P1)).toBeGreaterThan(4);
+    expect(after.nationalizationPending?.playerId).toBe(P1);
+    const next = nationalizationTargets(after.board, P1, 2);
+    expect(next.length).toBeGreaterThan(0);
+
+    // 한 번 더 국유화하면 상한이 복원되고 대기가 풀린다
+    useGameStore.getState().nationalizeLink(P1, next[0].id);
+    const final = useGameStore.getState();
+    expect(countOwnershipUnits(final.board, P1)).toBeLessThanOrEqual(4); // 불변식 복원
+    expect(final.nationalizationPending).toBeNull();                     // 대기 해제
   });
 });
 

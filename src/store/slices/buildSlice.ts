@@ -30,7 +30,7 @@ import {
   releaseUnfinishedOwnership,
   canStartSectionHere,
   countOwnershipUnits,
-  eligibleNationalizationTargets,
+  nationalizationTargets,
 } from '../helpers/nationalization';
 import { applyEngineerDiscount, hasEngineerDiscount } from '../helpers/engineerDiscount';
 import { useToastStore } from '../toastStore';
@@ -88,7 +88,7 @@ export function resolveBotNationalization(set: Set, get: Get): boolean {
   while (get().nationalizationPending?.playerId === pending.playerId && guard++ < 5) {
     const st = get();
     // 타일 수 최소 링크부터 — 직결 링크(타일 0 = $8 자산)는 최후순위(가중 99)로 보호
-    const targets = eligibleNationalizationTargets(st.board, pending.playerId, st.currentTurn)
+    const targets = nationalizationTargets(st.board, pending.playerId, st.currentTurn)
       .sort((a, b) =>
         (a.trackTiles.length || 99) - (b.trackTiles.length || 99)
       );
@@ -847,7 +847,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         if (
           discLimit !== null &&
           countOwnershipUnits(state.board, currentPlayer) + 1 > discLimit &&
-          eligibleNationalizationTargets(state.board, currentPlayer, state.currentTurn).length === 0
+          nationalizationTargets(state.board, currentPlayer, state.currentTurn).length === 0
         ) {
           return deny(`소유 디스크가 부족해요 (상한 ${discLimit}개) — 국유화할 링크도 없습니다`);
         }

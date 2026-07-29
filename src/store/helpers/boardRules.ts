@@ -92,7 +92,7 @@ export function releaseUnextendedTrack(
   const ownedLinkIndex = buildOwnedLinkTileIndex(board);
   const incomplete = board.trackTiles.filter(
     t => t.owner != null && (ownerId == null || t.owner === ownerId) &&
-      !isTrackInOwnedCompletedLink(t.coord, board, t.owner, ownedLinkIndex)
+      !isTrackInOwnedCompletedLink(t.coord, board, t.owner, 'P', ownedLinkIndex)
   );
   if (incomplete.length === 0) return { board, released: 0 };
   const incByKey = new Map(incomplete.map(t => [k(t.coord), t]));

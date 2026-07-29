@@ -312,25 +312,31 @@ export function getOpenEdges(
 
 
 
+/** 링크 경로의 한 걸음 — 복합 타일은 기본(P)·보조(S) 경로가 서로 독립된 트랙이다. */
+export type LinkPathStep = { coord: HexCoord; kind: 'P' | 'S' };
+
 /**
  * 완성된 철도 링크인지 확인 (도시/마을 → 도시/마을 연결)
- * @param startCoord 시작 헥스
- * @param startEdge 시작 방향 (엣지)
- * @param board 보드 상태
- * @returns { isComplete: boolean, endCoord: HexCoord | null, trackPath: HexCoord[] }
+ *
+ * ⚠️ 복합 타일(교차/공존)은 **진입 변이 속한 경로로만** 통과한다 — 기본 edges에 있으면 P,
+ * secondaryEdges에 있으면 S. 예전엔 edges만 봐서 보조 경로로 이어진 링크를 통째로 놓쳤고,
+ * 그 결과 교차/공존으로 완성한 링크의 VP가 0이었다 (2026-07-29 사용자 지시로 수정).
+ * 이동 경로 탐색(hexGrid.checkConnectionToCity)이 쓰는 규칙과 같다.
+ *
+ * @returns { isComplete, endCoord, trackPath } — trackPath는 (좌표, 경로종류) 목록
  */
 export function isCompletedLink(
   startCoord: HexCoord,
   startEdge: number,
   board: BoardState
-): { isComplete: boolean; endCoord: HexCoord | null; trackPath: HexCoord[] } {
+): { isComplete: boolean; endCoord: HexCoord | null; trackPath: LinkPathStep[] } {
   // 시작점이 도시/마을이 아니면 false
   if (!isCityOrTown(startCoord, board)) {
     return { isComplete: false, endCoord: null, trackPath: [] };
   }
 
   const visited = new Set<string>();
-  const path: HexCoord[] = [];
+  const path: LinkPathStep[] = [];
 
   let currentCoord = startCoord;
   let currentEdge = startEdge;
@@ -341,14 +347,6 @@ export function isCompletedLink(
   while (true) {
     // 다음 헥스로 이동
     const nextCoord = getNeighborHex(currentCoord, currentEdge, board);
-    const coordKey = `${nextCoord.col},${nextCoord.row}`;
-
-    // 이미 방문한 헥스면 루프 (불완전)
-    if (visited.has(coordKey)) {
-      return { isComplete: false, endCoord: null, trackPath: path };
-    }
-
-    visited.add(coordKey);
 
     // 다음 헥스가 도시/마을이면 완성된 링크
     if (isCityOrTown(nextCoord, board)) {
@@ -362,22 +360,33 @@ export function isCompletedLink(
       return { isComplete: false, endCoord: null, trackPath: path };
     }
 
-    // 경로에 추가
-    path.push(nextCoord);
-
-    // 다음 엣지 결정 (들어온 엣지의 반대편이 트랙의 다른 엣지)
+    // 들어온 변이 어느 경로(기본/보조)에 속하는지 판정 — 그 경로로만 통과한다.
     const entryEdge = getOppositeEdge(currentEdge);
-
-    // 트랙의 두 엣지 중 들어온 엣지가 아닌 것이 나가는 엣지
-    let exitEdge: number | null = null;
-    if (track.edges[0] === entryEdge) {
-      exitEdge = track.edges[1];
-    } else if (track.edges[1] === entryEdge) {
-      exitEdge = track.edges[0];
+    let kind: 'P' | 'S';
+    let exitEdge: number | undefined;
+    if (track.edges.includes(entryEdge)) {
+      kind = 'P';
+      exitEdge = track.edges.find(e => e !== entryEdge);
+    } else if (track.secondaryEdges?.includes(entryEdge)) {
+      kind = 'S';
+      exitEdge = track.secondaryEdges.find(e => e !== entryEdge);
     } else {
-      // 트랙이 연결되지 않음 (들어온 엣지가 트랙 엣지가 아님)
+      // 어느 경로에도 연결되지 않음
       return { isComplete: false, endCoord: null, trackPath: path };
     }
+    if (exitEdge === undefined) {
+      return { isComplete: false, endCoord: null, trackPath: path };
+    }
+
+    // 순환 감지는 (헥스 + 경로종류) 단위 — 복합 타일의 두 트랙은 독립이라
+    // 한 경로가 각각을 한 번씩 지나는 것은 합법이다 (헥스 단위로 막으면 오탐).
+    const stepKey = `${nextCoord.col},${nextCoord.row}:${kind}`;
+    if (visited.has(stepKey)) {
+      return { isComplete: false, endCoord: null, trackPath: path };
+    }
+    visited.add(stepKey);
+
+    path.push({ coord: nextCoord, kind });
 
     currentCoord = nextCoord;
     currentEdge = exitEdge;
@@ -393,8 +402,8 @@ export function isCompletedLink(
 export function findAllCompletedLinks(
   board: BoardState,
   playerId: PlayerId
-): { from: HexCoord; to: HexCoord; tracks: HexCoord[] }[] {
-  const completedLinks: { from: HexCoord; to: HexCoord; tracks: HexCoord[] }[] = [];
+): { from: HexCoord; to: HexCoord; tracks: HexCoord[]; trackPaths: LinkPathStep[] }[] {
+  const completedLinks: { from: HexCoord; to: HexCoord; tracks: HexCoord[]; trackPaths: LinkPathStep[] }[] = [];
   const processedPairs = new Set<string>(); // 중복 방지
 
   // 모든 도시/마을에서 시작
@@ -408,12 +417,15 @@ export function findAllCompletedLinks(
     for (let edge = 0; edge < 6; edge++) {
       const neighborCoord = getNeighborHex(startCoord, edge, board);
 
-      // 이웃이 플레이어의 트랙인 경우만 탐색
-      const track = board.trackTiles.find(
-        t => hexCoordsEqual(t.coord, neighborCoord) && t.owner === playerId
-      );
-
+      // 이웃이 플레이어의 트랙인 경우만 탐색 — 복합 타일의 보조 경로(secondaryOwner)도
+      // 내 철도이므로, 정거장을 마주보는 변이 내 경로에 속하면 시작점으로 인정한다.
+      const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighborCoord));
       if (!track) continue;
+      const facingEdge = getOppositeEdge(edge);
+      const mineFacing =
+        (track.owner === playerId && track.edges.includes(facingEdge)) ||
+        (track.secondaryOwner === playerId && !!track.secondaryEdges?.includes(facingEdge));
+      if (!mineFacing) continue;
 
       // 완성된 링크 확인
       const result = isCompletedLink(startCoord, edge, board);
@@ -426,17 +438,20 @@ export function findAllCompletedLinks(
         if (!processedPairs.has(pairKey1) && !processedPairs.has(pairKey2)) {
           processedPairs.add(pairKey1);
 
-          // 모든 트랙이 해당 플레이어 소유인지 확인
-          const allOwned = result.trackPath.every(coord => {
-            const t = board.trackTiles.find(tile => hexCoordsEqual(tile.coord, coord));
-            return t && t.owner === playerId;
+          // 모든 트랙이 해당 플레이어 소유인지 확인 — 경로 종류별로 소유자를 본다
+          // (복합 타일은 기본/보조가 각각 다른 주인일 수 있다)
+          const allOwned = result.trackPath.every(step => {
+            const t = board.trackTiles.find(tile => hexCoordsEqual(tile.coord, step.coord));
+            if (!t) return false;
+            return step.kind === 'P' ? t.owner === playerId : t.secondaryOwner === playerId;
           });
 
           if (allOwned) {
             completedLinks.push({
               from: startCoord,
               to: result.endCoord,
-              tracks: result.trackPath,
+              tracks: result.trackPath.map(s => s.coord),
+              trackPaths: result.trackPath,
             });
           }
         }
@@ -524,11 +539,14 @@ export function calculateTrackScore(
 ): number {
   const completedLinks = findAllCompletedLinks(board, playerId);
 
-  // 완성된 링크에 포함된 트랙 타일 수 합산
+  // 완성된 링크에 포함된 트랙 구간 수 합산.
+  // ⚠️ 집계 단위는 **헥스가 아니라 (헥스 + 경로종류)** — 룰북의 "완성된 철도 링크의 각 트랙
+  // 구간당 +1점"에서 복합 타일의 두 트랙은 서로 독립된 구간이므로 각각 1점이다.
+  // (좌표만으로 세면 같은 헥스의 기본/보조가 하나로 합쳐져 점수가 누락된다.)
   const completedTrackCoords = new Set<string>();
   for (const link of completedLinks) {
-    for (const coord of link.tracks) {
-      completedTrackCoords.add(`${coord.col},${coord.row}`);
+    for (const step of link.trackPaths) {
+      completedTrackCoords.add(`${step.coord.col},${step.coord.row}:${step.kind}`);
     }
   }
 

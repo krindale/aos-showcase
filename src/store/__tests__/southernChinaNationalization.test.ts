@@ -153,6 +153,31 @@ describe('국유화 대상과 실행', () => {
     expect(targets.some((l) => l.id.startsWith('direct-'))).toBe(false);
   });
 
+  it('★ 혼합 소유 구간이 세어져야 국유화 대기·보드 하이라이트가 뜬다 (사용자 증상)', () => {
+    // 사용자 실측: 디스크를 5개 쓰고 있는데 "국유화 가능" 하이라이트가 **추후에도 계속** 안 떴다.
+    // 보드 하이라이트(GameBoard natSelecting)는 nationalizationPending이 서야만 켜지고,
+    // pending은 countOwnershipUnits가 상한 초과를 감지해야 선다. 혼합 소유 구간이 회계에서
+    // 증발하면(수정 전) 초과 자체가 감지되지 않아 대기도 하이라이트도 영영 안 뜬다.
+    setupWithFiveLinks(2);
+    const s = useGameStore.getState();
+    // L1(Nanning↔Wuzhou)의 (5,8)만 국유화 트랙으로 → L1은 더 이상 내 단일소유 완성 링크가
+    // 아니고, 남은 (4,8)은 "중립에 기댄 내 미완성 구간"이 된다.
+    const board = {
+      ...s.board,
+      trackTiles: s.board.trackTiles.map((t) =>
+        t.coord.col === 5 && t.coord.row === 8
+          ? { ...t, owner: null, isGovernment: true, isNationalized: true }
+          : t
+      ),
+    };
+
+    // 완성 링크 4개 + 혼합 구간 1개 = 5단위 (수정 전에는 그 구간이 증발해 4로 셌다)
+    expect(countOwnershipUnits(board, P1)).toBe(5);
+    // → 초과가 감지되고(대기) 후보도 있다 = 보드 하이라이트가 켜지는 조건이 성립
+    expect(checkDiscLimitAfterBuild({ board, currentTurn: 2 }, P1, 4)).toEqual({ playerId: P1 });
+    expect(eligibleNationalizationTargets(board, P1, 2).length).toBeGreaterThan(0);
+  });
+
   // ⚠️ **알려진 한계(현재 동작 박제, 2026-07-29)** — 고치지 않기로 한 엣지 케이스.
   // 이 맵은 미완성 구간이 1개로 제한(unfinishedSectionLimit)돼 있어 실전에서 이 조합이
   // 성립하기 어렵다는 판단(사용자). 훗날 상한을 100% 강제하려면 이 테스트가 먼저 실패한다 —

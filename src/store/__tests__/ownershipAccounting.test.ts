@@ -20,6 +20,7 @@ import {
 } from '@/store/helpers/nationalization';
 import { releaseUnextendedTrack } from '@/store/helpers/boardRules';
 import { isTrackPartOfCompletedLink, findCompletedLinks } from '@/utils/hexGrid';
+import { findAllCompletedLinks, calculateTrackScore } from '@/utils/trackValidation';
 import { BoardState, TrackTile, TownSpur, PlayerId } from '@/types/game';
 
 const P1: PlayerId = 'player1';
@@ -223,6 +224,80 @@ describe('마을 가닥 건설도 미소유 구간을 인수한다', () => {
     const before = useGameStore.getState().board.trackTiles.map(t => t.owner);
     expect(useGameStore.getState().buildTownSpur(TOWN, 0)).toBe(true);
     expect(useGameStore.getState().board.trackTiles.map(t => t.owner)).toEqual(before);
+  });
+});
+
+/**
+ * 복합 타일(교차/공존)의 보조 경로로 완성한 링크도 VP에 잡혀야 한다.
+ * 수정 전: findAllCompletedLinks/isCompletedLink가 primary edges만 추적해 보조 경로로 이어진
+ * 링크를 통째로 놓쳤다 → 수입은 정상 지급되는데(getPathLinkOwners) **VP만 0**이었다.
+ * 룰북 "완성된 철도 링크의 각 트랙 구간당 +1점" — 복합 타일의 두 트랙은 독립된 구간이다.
+ */
+describe('복합 보조 경로로 완성한 링크의 VP', () => {
+  const C1 = { col: 4, row: 2 };
+  const TILE = { col: 5, row: 2 };
+  const C2 = { col: 6, row: 2 };
+
+  /** C1 —[타일]— C2 한 줄. 타일의 기본 경로는 상대, 보조 경로는 나(교차). */
+  function boardWithCrossingLink(): BoardState {
+    const s = createInitialGameState('st-lucia', ['A', 'B'], []);
+    return {
+      ...s.board,
+      cities: [
+        { id: 'C1', name: 'C1', coord: C1, color: 'red' as const, cubes: [] },
+        { id: 'C2', name: 'C2', coord: C2, color: 'blue' as const, cubes: [] },
+      ],
+      towns: [],
+      townSpurs: [],
+      trackTiles: [{
+        id: 'cx-1', coord: TILE,
+        edges: [1, 4] as [number, number], owner: P2,          // 상대의 기본 경로
+        trackType: 'crossing' as const,
+        secondaryEdges: [3, 0] as [number, number], secondaryOwner: P1, // 내 보조 경로 = C1↔C2
+        builtTurn: 1,
+      }],
+    };
+  }
+
+  it('보조 경로로 두 도시를 이으면 내 완성 링크로 잡히고 VP 1점이 된다', () => {
+    const board = boardWithCrossingLink();
+    const links = findAllCompletedLinks(board, P1);
+
+    expect(links).toHaveLength(1);
+    expect(calculateTrackScore(board, P1)).toBe(1);
+  });
+
+  it('같은 타일의 기본 경로 주인은 그 링크로 점수를 받지 못한다 (자기 경로가 미완성)', () => {
+    const board = boardWithCrossingLink();
+    // 상대의 기본 경로 [1,4]는 어느 정거장에도 닿지 않는다
+    expect(calculateTrackScore(board, P2)).toBe(0);
+  });
+
+  it('기본·보조가 각각 다른 링크를 완성하면 두 구간 모두 점수에 들어간다', () => {
+    // 같은 헥스라도 독립된 두 트랙이므로 좌표 단위로 합치면 안 된다.
+    const s = createInitialGameState('st-lucia', ['A', 'B'], []);
+    const board: BoardState = {
+      ...s.board,
+      cities: [
+        { id: 'C1', name: 'C1', coord: C1, color: 'red' as const, cubes: [] },
+        { id: 'C2', name: 'C2', coord: C2, color: 'blue' as const, cubes: [] },
+        // (5,2) even row: NW(-1,-1)=(4,1), SE(0,+1)=(5,3)
+        { id: 'C3', name: 'C3', coord: { col: 4, row: 1 }, color: 'red' as const, cubes: [] },
+        { id: 'C4', name: 'C4', coord: { col: 5, row: 3 }, color: 'blue' as const, cubes: [] },
+      ],
+      towns: [],
+      townSpurs: [],
+      trackTiles: [{
+        id: 'cx-2', coord: TILE,
+        edges: [4, 1] as [number, number], owner: P1,           // C3↔C4 (내 기본)
+        trackType: 'crossing' as const,
+        secondaryEdges: [3, 0] as [number, number], secondaryOwner: P1, // C1↔C2 (내 보조)
+        builtTurn: 1,
+      }],
+    };
+
+    expect(findAllCompletedLinks(board, P1)).toHaveLength(2);
+    expect(calculateTrackScore(board, P1)).toBe(2); // 좌표 단위로 세면 1이 되어버린다
   });
 });
 

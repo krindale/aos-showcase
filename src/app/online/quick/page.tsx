@@ -109,17 +109,16 @@ export default function QuickJoinPage() {
 
           {/* 방 수가 폴링으로 계속 바뀌므로 높이를 고정해 아래가 밀리지 않게 한다 */}
           <div className="h-[clamp(300px,42vh,420px)] overflow-y-auto pr-1">
+            {/* 빈 상태에 방 만들기 버튼을 두지 않는다 — 오른쪽 카드의 "지도 고르고 방 만들기"와
+                같은 곳으로 가는 버튼이 한 화면에 둘이 된다 */}
             {joinable.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center rounded-[16px] border border-dashed border-[#ddd6c8] px-5 text-center">
                 <p className="text-[15px] font-medium text-foreground">
                   지금은 기다리는 방이 없습니다
                 </p>
                 <p className="mt-1.5 text-sm text-foreground-secondary">
-                  새 방이 열리면 여기에 바로 나타납니다. 직접 열면 친구를 코드로 부를 수 있어요.
+                  새 방이 열리면 여기에 바로 나타납니다.
                 </p>
-                <Link href="/online/" className="btn-primary mt-5 inline-block">
-                  내가 방을 열기 →
-                </Link>
               </div>
             ) : (
               <ul className="space-y-2">

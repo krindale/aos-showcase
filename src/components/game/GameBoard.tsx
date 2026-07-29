@@ -117,6 +117,21 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     }
     return m;
   }, [natTargets]);
+  /**
+   * 직결 링크(인터어반/페리) 국유화 후보 — `board.directLinks` 인덱스 → 링크 id.
+   * 직결 의사 타깃은 trackTiles가 비어 있어(nationalization.ts) 위 natTileIndex에 안 들어간다.
+   * 그래서 PhasePanel 목록에만 뜨고 보드에서는 깜빡이지도 클릭되지도 않아, "$8 링크는 디스크
+   * 취급이 아니다"라는 인상을 줬다 (2026-07-29 사용자 보고).
+   */
+  const natDirectIndex = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const link of natTargets) {
+      if (link.id.startsWith('direct-') && link.trackTiles.length === 0) {
+        m.set(Number(link.id.slice('direct-'.length)), link.id);
+      }
+    }
+    return m;
+  }, [natTargets]);
   // 마우스가 올라간 후보 링크 — 그 링크 **전체**를 강조해 "어디까지가 한 링크인지" 보여준다
   const [hoveredNatLinkId, setHoveredNatLinkId] = useState<string | null>(null);
   // 맵 데이터(그리드 크기/지형 색): mapRegistry에서 주입 — 튜토리얼 하드코딩 금지
@@ -1243,6 +1258,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           selectDestinationCity={handleSelectDestination}
           onCubeClick={handleCubeClick}
           buildDirectLink={buildDirectLink}
+          natDirectIndex={natDirectIndex}
+          onNationalizeDirect={(linkId) => nationalizeLink(currentPlayer, linkId)}
           ferryEdges={board.ferryEdges}
           buildFerryEdge={buildFerryEdge}
           allAcceptClosed={board.allAcceptClosed}

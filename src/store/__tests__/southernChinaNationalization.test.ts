@@ -125,6 +125,33 @@ describe('국유화 대상과 실행', () => {
     expect(countOwnershipUnits(after.board, P1)).toBe(4);
   });
 
+  it('스토어 buildDirectLink()로 상한을 넘기면 nationalizationPending이 선다', () => {
+    // 실제 구매 경로(buildDirectLink → afterBuildDiscCheck)의 통합 회귀 —
+    // 기존 테스트는 합성 보드로 카운트 헬퍼만 검증해 이 경로를 덮지 못했다.
+    setupWithFiveLinks(2);
+    const s = useGameStore.getState();
+    // L4(Chongqing↔Guiyang)의 타일 2개를 빼서 완성 링크 4개 = 상한 도달 상태로 만든다
+    const trackTiles = s.board.trackTiles.filter(
+      (t) => !(t.coord.col === 1 && (t.coord.row === 1 || t.coord.row === 2))
+    );
+    useGameStore.setState({
+      board: { ...s.board, trackTiles },
+      players: { ...s.players, [P1]: { ...s.players[P1], cash: 50, isAI: false } },
+      nationalizationPending: null,
+    });
+    expect(countOwnershipUnits(useGameStore.getState().board, P1)).toBe(4);
+
+    // $8 직결 링크 구매 → 5단위 초과 → 국유화 대기
+    expect(useGameStore.getState().buildDirectLink('guangzhou', 'shenzhen')).toBe(true);
+    const after = useGameStore.getState();
+    expect(countOwnershipUnits(after.board, P1)).toBe(5);
+    expect(after.nationalizationPending?.playerId).toBe(P1);
+    // 이번 턴 산 직결은 국유화 대상에서 빠지고 기존 링크만 후보가 된다
+    const targets = eligibleNationalizationTargets(after.board, P1, after.currentTurn);
+    expect(targets.length).toBeGreaterThan(0);
+    expect(targets.some((l) => l.id.startsWith('direct-'))).toBe(false);
+  });
+
   it('직결 링크(인터어반)도 국유화 대상 — 중립화·재구매 불가·페리 VP 회수', () => {
     setupWithFiveLinks(2);
     // 인터어반을 이전 턴에 구매한 상태로 만든다 (당턴 건설은 대상 제외)

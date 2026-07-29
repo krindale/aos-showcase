@@ -93,11 +93,9 @@ body {
   font-weight: 700;
   line-height: 0.92;
   letter-spacing: -0.045em;
-  /* line-height가 1 미만이라 글리프 상단(대문자 A 꼭짓점)이 라인 박스를 벗어난다.
-     히어로 section의 overflow-hidden(배경 틴트용)에 그 부분이 잘려서 여유를 준다.
-     폴백 폰트의 ascent가 큰 환경(윈도우)에서 특히 눈에 띔. */
-  padding-top: 0.09em;
-  margin-top: -0.05em;
+  /* 참고: 대문자 A의 꼭짓점이 평평한 건 Space Grotesk의 flat apex 디자인이지
+     클리핑이 아니다(2026-07-29 측정: 글리프 상단 y=290.6 vs section 클리핑 경계 y=67).
+     "A가 잘린다"는 관찰로 padding 여유를 넣었다가 원인이 아님을 확인하고 되돌렸다. */
 }
 
 /* Paper Panel (구 glass-panel — 클래스명 유지) */

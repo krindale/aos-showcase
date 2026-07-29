@@ -19,8 +19,15 @@ const PRECACHE_ASSETS = [
 // Maximum number of items in dynamic cache
 const MAX_DYNAMIC_CACHE_SIZE = 50;
 
-// 웹폰트 출처 — cross-origin이지만 STATIC_CACHE에 보관한다 (아래 cacheFirstFont).
+// 웹폰트 출처 — cross-origin이지만 캐싱한다 (아래 cacheFirstFont).
 const FONT_ORIGINS = ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'];
+// ⚠️ 폰트는 **배포 버전과 무관한 별도 캐시**에 둔다. STATIC_CACHE는 이름에 빌드 ID가 들어가
+// 배포마다 새로 만들어지고 activate가 옛것을 지우므로, 거기 두면 배포할 때마다 폰트를 다시
+// 받아야 하고 그 사이 OS 폴백으로 렌더된다 — 이 수정이 없애려던 바로 그 구간이다 (리뷰 R5).
+// 폰트 파일 URL은 내용이 바뀌면 URL도 바뀌므로 캐시를 오래 들고 있어도 안전하다. CSS(css2?…)는
+// URL이 고정이라 Google이 폰트를 갱신해도 옛 CSS를 계속 쓰는데, 그 CSS가 가리키는 폰트 파일도
+// 함께 캐시돼 있어 동작에는 문제가 없다. 강제로 새로 받아야 하면 이 v1을 올린다.
+const FONT_CACHE = 'aos-fonts-v1';
 
 /**
  * Install Event - Precache critical assets
@@ -58,10 +65,13 @@ self.addEventListener('activate', (event) => {
         return Promise.all(
           cacheNames
             .filter((cacheName) => {
-              // Remove old caches that don't match current version
+              // Remove old caches that don't match current version.
+              // FONT_CACHE는 배포 버전과 무관하게 유지한다 (위 주석 참조) — 지우면 배포마다
+              // 폰트를 다시 받아 폴백 렌더 구간이 생긴다.
               return cacheName.startsWith('aos-') &&
                      cacheName !== STATIC_CACHE &&
-                     cacheName !== DYNAMIC_CACHE;
+                     cacheName !== DYNAMIC_CACHE &&
+                     cacheName !== FONT_CACHE;
             })
             .map((cacheName) => {
               console.log('[ServiceWorker] Deleting old cache:', cacheName);
@@ -156,10 +166,14 @@ function isPageRequest(pathname) {
  * <link rel="stylesheet">로 나가는 cross-origin 요청은 no-cors라 응답이 opaque(status 0,
  * ok=false)다. 그대로 두면 폰트가 영영 캐시되지 않는다. opaque도 보관하고, 네트워크가
  * 실패하면 캐시본으로 버틴다. 용량 제한(limitCacheSize) 대상인 DYNAMIC이 아니라
- * STATIC_CACHE에 넣어 다른 자산에 밀려 쫓겨나지 않게 한다.
+ * 배포 버전과 무관한 FONT_CACHE에 넣는다 (위 FONT_CACHE 주석 참조).
+ *
+ * opaque가 되는 건 CSS 요청 하나뿐이다 — 폰트 파일(gstatic)은 @font-face src가 CORS 모드로
+ * 요청하므로 정상 cors 응답(ok=true)이다. opaque는 Cache Storage에서 큰 padding이 붙지만
+ * 1건이라 쿼터 영향은 미미하다.
  */
 async function cacheFirstFont(request) {
-  const cache = await caches.open(STATIC_CACHE);
+  const cache = await caches.open(FONT_CACHE);
   const cached = await cache.match(request);
   if (cached) return cached;
 

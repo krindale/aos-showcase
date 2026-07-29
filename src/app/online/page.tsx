@@ -287,11 +287,13 @@ export default function OnlinePlayPage() {
             />
           </label>
 
-          {selected.players.length > 1 && (
-            <div className="mb-4">
-              <span className="mb-1 block text-xs font-medium text-foreground-secondary">인원</span>
-              <div className="flex gap-2">
-                {selected.players.map((n) => (
+          {/* 인원 칸은 맵을 넘길 때마다 사라지지 않게 항상 자리를 차지한다 —
+              고정 인원 맵(몬트리올 3인 등)은 선택지 대신 그 인원을 그대로 보여준다 */}
+          <div className="mb-4">
+            <span className="mb-1 block text-xs font-medium text-foreground-secondary">인원</span>
+            <div className="flex gap-2">
+              {selected.players.length > 1 ? (
+                selected.players.map((n) => (
                   <button
                     key={n}
                     type="button"
@@ -304,16 +306,21 @@ export default function OnlinePlayPage() {
                   >
                     {n}인
                   </button>
-                ))}
-              </div>
+                ))
+              ) : (
+                <span className="flex-1 rounded-lg bg-accent py-[7px] text-center text-sm font-semibold text-[#fffdf8]">
+                  {selected.players[0]}인
+                </span>
+              )}
             </div>
-          )}
+          </div>
 
           <div className="mb-4">
             <span className="mb-1 block text-xs font-medium text-foreground-secondary">
               자리 (눌러서 봇으로)
             </span>
-            <div className="flex flex-wrap gap-[6px]">
+            {/* 2인~6인 사이를 오갈 때 줄 수가 바뀌어 아래가 밀리므로 두 줄 높이(6인 실측 66px)를 확보 */}
+            <div className="flex min-h-[66px] flex-wrap content-start gap-[6px]">
               {Array.from({ length: playerCount }, (_, i) => {
                 const isMe = i === 0;
                 const isBot = aiSeats.has(i);

@@ -4,9 +4,13 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ExternalLink, Train } from 'lucide-react';
+import { Train } from 'lucide-react';
 
-/** 공식 룰북 PDF — 퍼블리셔가 공식 사이트에서 안내하는 공개 구글 드라이브 배포본 */
+/**
+ * 공식 룰북 PDF — 퍼블리셔가 공식 사이트에서 안내하는 공개 구글 드라이브 배포본.
+ * 상단 탭에서는 뺐다(2026-07-29) — GNB에서 유일하게 사이트 밖으로 나가는 항목이라
+ * 이질적이고, 상시 내비게이션이 필요한 빈도도 아니다. 지금은 랜딩 히어로에서만 링크한다.
+ */
 export const RULEBOOK_URL =
   'https://drive.google.com/file/d/1FC5evRrUeT1gc33DLSJzed03TX6fgiiS/view';
 
@@ -14,11 +18,9 @@ export const RULEBOOK_URL =
    플레이 진입점이라는 신호가 약했고, 메뉴와 버튼이 같은 곳을 가리키면 중복이라
    버튼 하나로 합쳤다 (2026-07-29). */
 const navItems = [
-  { href: '/', label: '홈', external: false },
-  { href: '/gameplay', label: 'How to Play', external: false },
-  { href: '/actions', label: '특수 액션', external: false },
-  // 계산기 메뉴 자리를 공식 룰북 링크로 교체 (2026-07-04 — /calculator 페이지 자체는 유지)
-  { href: RULEBOOK_URL, label: '룰북', external: true },
+  { href: '/', label: '홈' },
+  { href: '/gameplay', label: 'How to Play' },
+  { href: '/actions', label: '특수 액션' },
 ] as const;
 
 /** 버밀리언 사각 + 흰 열차(lucide Train) 로고 마크 */
@@ -58,29 +60,12 @@ export default function Navigation() {
         {/* Desktop Navigation */}
         <nav className="hidden items-center gap-1 md:flex">
           {navItems.map((item) => {
-            const isActive = !item.external && activePath === item.href;
+            const isActive = activePath === item.href;
             const className = `relative rounded-lg px-[15px] py-[9px] text-sm font-medium transition-colors ${
               isActive
                 ? 'text-foreground'
                 : 'text-foreground-secondary hover:bg-glass-hover hover:text-foreground'
             }`;
-            if (item.external) {
-              // 외부(구글 드라이브) 이동임을 아이콘으로 알린다 — 내부 메뉴와 똑같아 보이면
-              // 사이트를 벗어나는지 예측할 수 없다
-              return (
-                <a
-                  key={item.href}
-                  href={item.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`${className} inline-flex items-center gap-1.5`}
-                >
-                  {item.label}
-                  <ExternalLink className="h-[13px] w-[13px]" aria-hidden />
-                  <span className="sr-only">(새 탭에서 열림)</span>
-                </a>
-              );
-            }
             return (
               <Link key={item.href} href={item.href} className={className}>
                 {item.label}
@@ -130,28 +115,12 @@ export default function Navigation() {
           >
             <div className="px-[clamp(18px,5vw,56px)] pb-4 pt-2">
               {navItems.map((item) => {
-                const isActive = !item.external && activePath === item.href;
+                const isActive = activePath === item.href;
                 const className = `block border-l-2 px-3 py-[13px] text-base font-medium transition-colors ${
                   isActive
                     ? 'border-accent text-accent'
                     : 'border-glass-border text-foreground-secondary hover:text-foreground'
                 }`;
-                if (item.external) {
-                  return (
-                    <a
-                      key={item.href}
-                      href={item.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={() => setIsMobileMenuOpen(false)}
-                      className={`${className} flex items-center gap-1.5`}
-                    >
-                      {item.label}
-                      <ExternalLink className="h-[13px] w-[13px]" aria-hidden />
-                      <span className="sr-only">(새 탭에서 열림)</span>
-                    </a>
-                  );
-                }
                 return (
                   <Link
                     key={item.href}

@@ -238,7 +238,17 @@ describe('복합 보조 경로로 완성한 링크의 VP', () => {
   const TILE = { col: 5, row: 2 };
   const C2 = { col: 6, row: 2 };
 
-  /** C1 —[타일]— C2 한 줄. 타일의 기본 경로는 상대, 보조 경로는 나(교차). */
+  /** C1 —[타일]— C2 한 줄. 타일의 기본 경로는 상대, 보조 경로는 나.
+   *  교차(crossing)와 공존(coexist)은 trackType만 다르고 두 번째 경로를 똑같이
+   *  secondaryEdges/secondaryOwner에 담으므로(비용·렌더만 갈림) 판정 경로가 동일하다. */
+  function boardWithSecondaryLink(kind: 'crossing' | 'coexist'): BoardState {
+    const b = boardWithCrossingLink();
+    return {
+      ...b,
+      trackTiles: b.trackTiles.map(t => ({ ...t, trackType: kind })),
+    };
+  }
+
   function boardWithCrossingLink(): BoardState {
     const s = createInitialGameState('st-lucia', ['A', 'B'], []);
     return {
@@ -265,6 +275,14 @@ describe('복합 보조 경로로 완성한 링크의 VP', () => {
 
     expect(links).toHaveLength(1);
     expect(calculateTrackScore(board, P1)).toBe(1);
+  });
+
+  it('공존(coexist)도 교차와 동일하게 인정된다 (trackType은 비용·렌더만 가름)', () => {
+    for (const kind of ['crossing', 'coexist'] as const) {
+      const board = boardWithSecondaryLink(kind);
+      expect(findAllCompletedLinks(board, P1)).toHaveLength(1);
+      expect(calculateTrackScore(board, P1)).toBe(1);
+    }
   });
 
   it('같은 타일의 기본 경로 주인은 그 링크로 점수를 받지 못한다 (자기 경로가 미완성)', () => {

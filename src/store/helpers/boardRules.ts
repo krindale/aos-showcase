@@ -3,7 +3,11 @@
 import { BoardState, HexCoord, PlayerId, TrackTile, GameState, GAME_CONSTANTS, TRACK_REPLACE_COSTS } from '@/types/game';
 import { hexCoordsEqual, getNeighborHex, getOppositeEdge, isBlockedEdge } from '@/utils/hexGrid';
 import { isTrackPartOfCompletedLink } from '@/utils/trackValidation';
-import { isSecondaryTrackPartOfCompletedLink } from '@/utils/hexGrid';
+import {
+  isSecondaryTrackPartOfCompletedLink,
+  buildOwnedLinkTileIndex,
+  isTrackInOwnedCompletedLink,
+} from '@/utils/hexGrid';
 import { getMapProfile } from '@/maps/getMapProfile';
 
 /**
@@ -81,9 +85,14 @@ export function releaseUnextendedTrack(
   ownerId?: PlayerId
 ): { board: BoardState; released: number } {
   const k = (c: HexCoord) => `${c.col},${c.row}`;
-  // 소유된 미완성 트랙(완성 링크의 일부가 아님)만 대상
+  // 소유된 미완성 트랙(완성 링크의 일부가 아님)만 대상.
+  // ⚠️ 완성 판정은 **소유자 인식** — 물리적 완성으로 재면 내 구간이 중립/타인 트랙에 기대
+  // 이어졌을 때 "완성"으로 오인해 해제 대상에서 빠지고, 그 구간은 완성 링크로도 안 세어
+  // 회계에서 증발한 채 영구히 굳는다 (2026-07-29).
+  const ownedLinkIndex = buildOwnedLinkTileIndex(board);
   const incomplete = board.trackTiles.filter(
-    t => t.owner != null && (ownerId == null || t.owner === ownerId) && !isTrackPartOfCompletedLink(t.coord, board)
+    t => t.owner != null && (ownerId == null || t.owner === ownerId) &&
+      !isTrackInOwnedCompletedLink(t.coord, board, t.owner, ownedLinkIndex)
   );
   if (incomplete.length === 0) return { board, released: 0 };
   const incByKey = new Map(incomplete.map(t => [k(t.coord), t]));
@@ -137,6 +146,7 @@ export function findClaimableSectionKeys(
   edges: [number, number]
 ): Set<string> {
   const k = (c: HexCoord) => `${c.col},${c.row}`;
+  const ownedLinkIndex = buildOwnedLinkTileIndex(board);
   const claimKeys = new Set<string>();
   const visited = new Set<string>([k(coord)]);
   const stack: { coord: HexCoord; edges: number[] }[] = [{ coord, edges: [...edges] }];
@@ -150,7 +160,11 @@ export function findClaimableSectionKeys(
       const nbTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, nb));
       if (!nbTrack || nbTrack.owner !== null || nbTrack.isGovernment) continue;
       if (!nbTrack.edges.includes(getOppositeEdge(e))) continue; // 변이 맞물려야 연결
-      if (isTrackPartOfCompletedLink(nb, board)) continue;
+      // 누군가의 완성 링크에 속한 타일만 제외 — 소유권은 영구이므로 뺏을 수 없다.
+      // ⚠️ 물리적 완성(isTrackPartOfCompletedLink)으로 재면 안 된다: 미소유 타일이 다른
+      // 트랙에 기대 물리적으로만 이어진 경우까지 인수를 영구 차단해, 룰상 존재할 수 없는
+      // "미소유 완성 링크"가 되돌릴 방법 없이 굳는다 (2026-07-29 사용자 실측).
+      if (ownedLinkIndex.has(k(nb))) continue;
       visited.add(key);
       claimKeys.add(key);
       stack.push({ coord: nb, edges: [...nbTrack.edges] });

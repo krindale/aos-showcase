@@ -1551,6 +1551,42 @@ export function findCompletedLinks(board: BoardState): CompletedLink[] {
 }
 
 /**
+ * 완성 링크에 속한 타일 → 그 링크의 소유자 인덱스 ("col,row" → PlayerId).
+ *
+ * ⚠️ **소유권 회계는 반드시 이 인덱스(또는 isTrackInOwnedCompletedLink)로 판정한다.**
+ * `isTrackPartOfCompletedLink`는 **소유권을 보지 않는 물리적 연결성 판정**이라, 내 타일이
+ * 국유화/미소유/타인 타일과 섞인 채 정거장↔정거장을 이으면 true를 돌려준다. 그런데
+ * `findCompletedLinks`는 타일 소유자가 전부 같아야 링크를 만들므로 그 경우 링크가 없다.
+ * 두 기준을 섞어 쓰면 그 틈에서 트랙이 회계에서 통째로 증발한다 — 완성 링크로도 안 세고
+ * 미완성 구간으로도 안 세어 디스크 0개·국유화 대상 아님·소유 마커 없음
+ * (2026-07-29 사용자 실측, 남부 중국).
+ *
+ * 타일마다 findCompletedLinks를 다시 부르면 O(n²)가 되므로 한 번 만들어 넘겨 쓸 것.
+ */
+export function buildOwnedLinkTileIndex(board: BoardState): Map<string, PlayerId> {
+  const index = new Map<string, PlayerId>();
+  for (const link of findCompletedLinks(board)) {
+    for (const c of link.trackTiles) index.set(`${c.col},${c.row}`, link.owner);
+  }
+  return index;
+}
+
+/**
+ * 이 타일이 **ownerId 단일 소유의** 완성 링크에 속하는가 (소유권 회계용).
+ * 물리적 완성 여부만 필요한 곳(건설 연결성·경로 탐색)은 isTrackPartOfCompletedLink를 쓴다.
+ * 반복 호출 시 buildOwnedLinkTileIndex로 인덱스를 만들어 index 인자로 넘길 것.
+ */
+export function isTrackInOwnedCompletedLink(
+  trackCoord: HexCoord,
+  board: BoardState,
+  ownerId: PlayerId,
+  index?: Map<string, PlayerId>
+): boolean {
+  const idx = index ?? buildOwnedLinkTileIndex(board);
+  return idx.get(`${trackCoord.col},${trackCoord.row}`) === ownerId;
+}
+
+/**
  * 달(Moon): 시드 도시(Moon Base)와 완성 링크 체인으로 이어진 도시 id 집합.
  * "선로로 연결된 도시만 성장" 판정용 — 링크 양끝(도시/마을)을 노드로 BFS (마을 경유 포함, 소유 무관).
  */

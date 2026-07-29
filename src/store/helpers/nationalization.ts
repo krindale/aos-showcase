@@ -19,6 +19,8 @@ import {
   getOppositeEdge,
   isTrackPartOfCompletedLink,
   isSecondaryTrackPartOfCompletedLink,
+  buildOwnedLinkTileIndex,
+  isTrackInOwnedCompletedLink,
 } from '@/utils/hexGrid';
 
 const key = (c: HexCoord) => `${c.col},${c.row}`;
@@ -30,8 +32,13 @@ const key = (c: HexCoord) => `${c.col},${c.row}`;
 export function countUnfinishedSections(board: BoardState, playerId: PlayerId): number {
   type Node = { coord: HexCoord; edges: [number, number] };
   const nodes: Node[] = [];
+  // ⚠️ 완성 판정은 **소유자 인식**으로 — 물리적 완성(isTrackPartOfCompletedLink)으로 재면
+  // 내 타일이 국유화/미소유/타인 타일에 기대 이어진 경우 "완성됐다"며 구간에서 빼는데,
+  // findCompletedLinks는 소유자가 섞였다고 링크를 안 만들어 완성 링크로도 안 센다
+  // → 디스크 0개로 증발 (2026-07-29 사용자 실측). hexGrid 주석 참조.
+  const ownedLinkIndex = buildOwnedLinkTileIndex(board);
   for (const t of board.trackTiles) {
-    if (t.owner === playerId && !isTrackPartOfCompletedLink(t.coord, board)) {
+    if (t.owner === playerId && !isTrackInOwnedCompletedLink(t.coord, board, playerId, ownedLinkIndex)) {
       nodes.push({ coord: t.coord, edges: t.edges });
     }
     if (
@@ -272,8 +279,9 @@ export function releaseUnfinishedOwnership(
   // ⚠️ **복합 타일의 secondary 소유도 해제 대상** — 디스크 회계(countUnfinishedSections)가
   // secondary 구간을 세므로, primary만 풀면 "내 primary 타일 0개인데 5단위"가 굳는다
   // (리뷰 S5 진단 실측: units=5인데 내 primary 타일 0·직결 0 = 전부 공존/교차 secondary).
+  const ownedLinkIndex = buildOwnedLinkTileIndex(board);
   const isPrimaryMine = (t: TrackTile) =>
-    t.owner === playerId && !isTrackPartOfCompletedLink(t.coord, board);
+    t.owner === playerId && !isTrackInOwnedCompletedLink(t.coord, board, playerId, ownedLinkIndex);
   const isSecondaryMine = (t: TrackTile) =>
     t.secondaryOwner === playerId && !!t.secondaryEdges &&
     !isSecondaryTrackPartOfCompletedLink(t.coord, board);

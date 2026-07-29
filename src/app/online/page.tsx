@@ -9,14 +9,16 @@
  *
  * 범위는 **방을 만들거나 코드로 들어가는 지점까지**다. 방이 생기면 곧바로
  * /game/<맵>/으로 넘겨 기존 대기실(좌석 승계·호스트 승계·F5 재접속이 얽힌 검증된 화면)에 맡긴다.
+ *
+ * 레이아웃: 왼쪽 맵 캐러셀 + 오른쪽 설정 = 스크롤 없이 한 화면.
  */
 
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
-import { Bot, Check, Globe, Loader2, User, Users, Zap } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Bot, ChevronLeft, ChevronRight, Globe, Loader2, User, Users, Zap } from 'lucide-react';
 import { isNetConfigured, type RoomSeat } from '@/net';
 import { useNetStore } from '@/net/netStore';
 import { uniqueSeatName } from '@/net/roomLogic';
@@ -29,32 +31,65 @@ const ONLINE_MAPS = maps
   .filter((m) => m.playable)
   .map((m) => {
     const profile = getMapProfile(m.slug);
-    return {
-      ...m,
-      players: [...profile.supportedPlayers].sort((a, b) => a - b),
-    };
+    const players = [...profile.supportedPlayers].sort((a, b) => a - b);
+    const turns = Array.from(
+      new Set(
+        profile.turnsByPlayers
+          ? players.map((n) => profile.turnsByPlayers![n] ?? profile.maxTurns)
+          : [profile.maxTurns]
+      )
+    ).sort((a, b) => a - b);
+    return { ...m, players, turnLabel: `${turns.join('·')}턴` };
   });
+
+const COUNT = ONLINE_MAPS.length;
+const wrap = (i: number) => (i + COUNT) % COUNT;
 
 export default function OnlinePlayPage() {
   const router = useRouter();
-  const { enter } = useEnterMotion();
+  const { enter, reduce } = useEnterMotion();
   const { mode, room, busy, error, hostRoom, joinRoom } = useNetStore();
 
-  const [mapSlug, setMapSlug] = useState(ONLINE_MAPS[0].slug);
+  // 캐러셀 — index와 방향(dir: 슬라이드 애니메이션이 어느 쪽에서 들어올지)
+  const [index, setIndex] = useState(0);
+  const [dir, setDir] = useState(0);
+  const selected = ONLINE_MAPS[index];
+
   const [myName, setMyName] = useState('기차-하나');
   const [roomTitle, setRoomTitle] = useState('');
   const [isPublic, setIsPublic] = useState(true);
   const [joinCode, setJoinCode] = useState('');
   const [aiSeats, setAiSeats] = useState<Set<number>>(new Set());
+  const [playerCount, setPlayerCount] = useState(ONLINE_MAPS[0].players[0]);
 
-  const selected = ONLINE_MAPS.find((m) => m.slug === mapSlug) ?? ONLINE_MAPS[0];
-  const [playerCount, setPlayerCount] = useState(selected.players[0]);
+  const go = (delta: number) => {
+    setDir(delta);
+    setIndex((i) => wrap(i + delta));
+  };
+
+  const jumpTo = (target: number) => {
+    if (target === index) return;
+    setDir(target > index ? 1 : -1);
+    setIndex(target);
+  };
 
   // 맵을 바꾸면 인원·좌석 구성을 그 맵 기준으로 되돌린다 (3인 전용 몬트리올 ← 5인 독일 등)
   useEffect(() => {
     setPlayerCount((prev) => (selected.players.includes(prev) ? prev : selected.players[0]));
     setAiSeats(new Set());
-  }, [mapSlug]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [index]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 좌우 화살표 키로도 넘긴다 (입력 중일 땐 제외)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.key === 'ArrowLeft') go(-1);
+      else if (e.key === 'ArrowRight') go(1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // 방이 만들어졌거나 입장했으면 그 맵의 게임 페이지(대기실)로 넘긴다
   useEffect(() => {
@@ -88,7 +123,7 @@ export default function OnlinePlayPage() {
       }
     }
     void hostRoom({
-      mapId: mapSlug,
+      mapId: selected.slug,
       seats,
       isPublic,
       title: isPublic ? roomTitle.trim() || `${myName.trim() || '호스트'}의 방` : undefined,
@@ -118,91 +153,137 @@ export default function OnlinePlayPage() {
   }
 
   const connecting = busy || mode !== 'offline';
+  const prev = ONLINE_MAPS[wrap(index - 1)];
+  const next = ONLINE_MAPS[wrap(index + 1)];
 
   return (
-    <div className="mx-auto max-w-[1100px] px-[clamp(18px,5vw,56px)] pb-[clamp(48px,7vw,90px)] pt-[clamp(36px,6vw,72px)]">
-      <motion.div {...enter({ y: 14, ease: 'easeOut' })}>
-        <div className="mb-3 font-display text-xs font-medium tracking-[0.16em] text-accent">
+    <div className="mx-auto max-w-[1180px] px-[clamp(18px,5vw,56px)] pb-[clamp(36px,5vw,64px)] pt-[clamp(24px,4vw,48px)]">
+      <motion.div {...enter({ y: 12, ease: 'easeOut' })} className="mb-[clamp(18px,3vw,32px)]">
+        <div className="mb-2 font-display text-xs font-medium tracking-[0.16em] text-accent">
           ONLINE / 친구와 함께
         </div>
-        <h1 className="mb-[14px] text-[clamp(28px,5vw,52px)] font-bold leading-[1.06] tracking-[-0.04em]">
-          방을 만들고 코드를 보내세요
+        <h1 className="text-[clamp(26px,4.2vw,44px)] font-bold leading-[1.08] tracking-[-0.04em]">
+          지도를 고르고 방을 여세요
         </h1>
-        <p className="max-w-[620px] text-base leading-[1.8] text-foreground-secondary">
-          설치도 가입도 없습니다. 지도를 고르고 방을 열면 여섯 자리 코드가 나옵니다 — 그걸
-          친구에게 보내면 끝입니다. 자리가 남으면 봇으로 채워 바로 시작할 수 있습니다.
-        </p>
       </motion.div>
 
-      {/* ① 지도 고르기 */}
-      <section className="mt-[clamp(30px,4vw,52px)]">
-        <h2 className="mb-4 flex items-baseline gap-2 text-[19px] font-bold tracking-[-0.02em]">
-          <span className="font-display text-sm text-accent">01</span> 지도 고르기
-        </h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {ONLINE_MAPS.map((m) => {
-            const active = m.slug === mapSlug;
-            const thumb = thumbOf(m.image);
-            return (
+      <div className="grid gap-[clamp(20px,3vw,40px)] lg:grid-cols-[minmax(0,1fr)_340px]">
+        {/* ── 왼쪽: 맵 캐러셀 ── */}
+        <section aria-label="지도 고르기">
+          <div className="relative flex items-stretch justify-center gap-2 sm:gap-3">
+            {/* 이전 맵 — 살짝 걸쳐 보이게 */}
+            <button
+              type="button"
+              onClick={() => go(-1)}
+              aria-label={`이전 지도 (${prev.nameKo})`}
+              className="relative hidden w-[52px] flex-none self-stretch overflow-hidden rounded-l-[16px] opacity-45 transition-opacity hover:opacity-80 sm:block"
+            >
+              <MapThumb map={prev} className="scale-110" />
+            </button>
+
+            {/* 현재 맵 */}
+            <div className="relative min-w-0 flex-1">
+              <AnimatePresence initial={false} custom={dir} mode="popLayout">
+                <motion.div
+                  key={selected.slug}
+                  custom={dir}
+                  initial={reduce ? false : { opacity: 0, x: dir > 0 ? 70 : -70 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={reduce ? { opacity: 0 } : { opacity: 0, x: dir > 0 ? -70 : 70 }}
+                  transition={{ duration: reduce ? 0 : 0.26, ease: 'easeOut' }}
+                  drag={reduce ? false : 'x'}
+                  dragConstraints={{ left: 0, right: 0 }}
+                  dragElastic={0.16}
+                  onDragEnd={(_, info) => {
+                    if (info.offset.x < -60) go(1);
+                    else if (info.offset.x > 60) go(-1);
+                  }}
+                  className="glass-card cursor-grab overflow-hidden active:cursor-grabbing"
+                >
+                  <div className="relative aspect-[16/10] w-full bg-[#E9E2CB]">
+                    <MapThumb map={selected} priority />
+                    <span
+                      className="absolute left-3 top-3 rounded-full px-[10px] py-1 text-[11px] font-semibold text-[#fffdf8]"
+                      style={{ background: DIFF_COLOR[selected.diff] }}
+                    >
+                      {selected.diff}
+                    </span>
+                  </div>
+                </motion.div>
+              </AnimatePresence>
+
+              {/* 화살표 — 이미지 위에 겹쳐 */}
+              <button
+                type="button"
+                onClick={() => go(-1)}
+                aria-label="이전 지도"
+                className="absolute left-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-[#ddd6c8] bg-background-secondary/90 text-foreground shadow-glass backdrop-blur-sm transition-colors hover:border-accent hover:text-accent"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={() => go(1)}
+                aria-label="다음 지도"
+                className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-[#ddd6c8] bg-background-secondary/90 text-foreground shadow-glass backdrop-blur-sm transition-colors hover:border-accent hover:text-accent"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
+
+            {/* 다음 맵 */}
+            <button
+              type="button"
+              onClick={() => go(1)}
+              aria-label={`다음 지도 (${next.nameKo})`}
+              className="relative hidden w-[52px] flex-none self-stretch overflow-hidden rounded-r-[16px] opacity-45 transition-opacity hover:opacity-80 sm:block"
+            >
+              <MapThumb map={next} className="scale-110" />
+            </button>
+          </div>
+
+          {/* 선택된 맵 정보 */}
+          <div className="mt-4 min-h-[104px] px-1 sm:px-[60px]">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h2 className="text-[clamp(20px,2.6vw,27px)] font-bold tracking-[-0.02em] text-foreground">
+                {selected.nameKo}
+              </h2>
+              <span className="font-display text-sm text-foreground-muted">{selected.name}</span>
+              <span className="font-display text-sm font-medium text-accent">
+                {selected.players.join('·')}인 · {selected.turnLabel}
+              </span>
+            </div>
+            <p className="mt-2 text-[14.5px] leading-[1.7] text-foreground-secondary">
+              {selected.description}
+            </p>
+          </div>
+
+          {/* 점 인디케이터 */}
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-[7px]">
+            {ONLINE_MAPS.map((m, i) => (
               <button
                 key={m.slug}
                 type="button"
-                onClick={() => setMapSlug(m.slug)}
-                aria-pressed={active}
-                className={`glass-card overflow-hidden text-left transition-all ${
-                  active
-                    ? 'border-accent ring-2 ring-accent'
-                    : 'hover:-translate-y-0.5 hover:border-[#d9d1c1]'
+                onClick={() => jumpTo(i)}
+                aria-label={m.nameKo}
+                aria-current={i === index}
+                className={`h-[7px] rounded-full transition-all ${
+                  i === index ? 'w-[22px] bg-accent' : 'w-[7px] bg-[#d9d1c1] hover:bg-[#c9c1b1]'
                 }`}
-              >
-                <div className="relative aspect-[16/10] w-full bg-[#E9E2CB]">
-                  {thumb && (
-                    <Image
-                      src={`${basePath}${thumb}`}
-                      alt=""
-                      fill
-                      sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-                      className="object-cover"
-                    />
-                  )}
-                  {active && (
-                    <span className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-accent text-[#fffdf8]">
-                      <Check size={14} strokeWidth={3} />
-                    </span>
-                  )}
-                  <span
-                    className="absolute left-2 top-2 rounded-full px-2 py-[3px] text-[10px] font-semibold text-[#fffdf8]"
-                    style={{ background: DIFF_COLOR[m.diff] }}
-                  >
-                    {m.diff}
-                  </span>
-                </div>
-                <div className="px-3 py-[10px]">
-                  <div className="truncate text-sm font-bold text-foreground">{m.nameKo}</div>
-                  <div className="mt-[2px] font-display text-[11px] text-foreground-muted">
-                    {m.players.join('·')}인
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </section>
+              />
+            ))}
+          </div>
+        </section>
 
-      {/* ② 자리 구성 */}
-      <section className="mt-[clamp(30px,4vw,48px)] grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <div>
-          <h2 className="mb-4 flex items-baseline gap-2 text-[19px] font-bold tracking-[-0.02em]">
-            <span className="font-display text-sm text-accent">02</span> 자리 정하기
-          </h2>
-
+        {/* ── 오른쪽: 자리 + 방 열기 ── */}
+        <section className="glass-card h-fit p-5" aria-label="방 설정">
           <label className="mb-4 block">
             <span className="mb-1 block text-xs font-medium text-foreground-secondary">내 이름</span>
             <input
               value={myName}
               onChange={(e) => setMyName(e.target.value)}
               maxLength={12}
-              className="w-full max-w-[320px] rounded-lg border border-[#ddd6c8] bg-background-secondary px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+              className="w-full rounded-lg border border-[#ddd6c8] bg-background-secondary px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
             />
           </label>
 
@@ -215,7 +296,7 @@ export default function OnlinePlayPage() {
                     key={n}
                     type="button"
                     onClick={() => setPlayerCount(n)}
-                    className={`rounded-lg px-4 py-[7px] text-sm font-semibold transition-colors ${
+                    className={`flex-1 rounded-lg py-[7px] text-sm font-semibold transition-colors ${
                       playerCount === n
                         ? 'bg-accent text-[#fffdf8]'
                         : 'bg-background-secondary text-foreground-secondary hover:bg-background-tertiary'
@@ -228,11 +309,11 @@ export default function OnlinePlayPage() {
             </div>
           )}
 
-          <div>
+          <div className="mb-4">
             <span className="mb-1 block text-xs font-medium text-foreground-secondary">
-              자리 (사람 ↔ 봇)
+              자리 (눌러서 봇으로)
             </span>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-[6px]">
               {Array.from({ length: playerCount }, (_, i) => {
                 const isMe = i === 0;
                 const isBot = aiSeats.has(i);
@@ -242,7 +323,7 @@ export default function OnlinePlayPage() {
                     type="button"
                     disabled={isMe}
                     onClick={() => toggleAiSeat(i)}
-                    className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-[7px] text-sm transition-colors ${
+                    className={`inline-flex items-center gap-1 rounded-lg border px-[9px] py-[6px] text-xs transition-colors ${
                       isMe
                         ? 'cursor-default border-accent bg-accent/10 font-semibold text-accent'
                         : isBot
@@ -250,23 +331,13 @@ export default function OnlinePlayPage() {
                           : 'border-[#ddd6c8] bg-background-secondary text-foreground'
                     }`}
                   >
-                    {isMe ? <User size={13} /> : isBot ? <Bot size={13} /> : <Users size={13} />}
-                    {isMe ? `${myName.trim() || '나'} (나)` : isBot ? '봇' : '친구 자리'}
+                    {isMe ? <User size={12} /> : isBot ? <Bot size={12} /> : <Users size={12} />}
+                    {isMe ? '나' : isBot ? '봇' : '친구'}
                   </button>
                 );
               })}
             </div>
-            <p className="mt-2 text-xs text-foreground-muted">
-              친구 자리는 코드로 들어온 사람이 채웁니다. 남은 자리는 대기실에서도 봇으로 바꿀 수 있어요.
-            </p>
           </div>
-        </div>
-
-        {/* ③ 방 열기 */}
-        <div className="glass-card h-fit p-5">
-          <h2 className="mb-4 flex items-baseline gap-2 text-[19px] font-bold tracking-[-0.02em]">
-            <span className="font-display text-sm text-accent">03</span> 방 열기
-          </h2>
 
           <button
             type="button"
@@ -304,8 +375,8 @@ export default function OnlinePlayPage() {
             )}
           </button>
 
-          <div className="my-4 flex items-center gap-3 text-[11px] text-foreground-muted">
-            <span className="h-px flex-1 bg-[#e6e1d6]" /> 이미 코드가 있다면{' '}
+          <div className="my-3 flex items-center gap-3 text-[11px] text-foreground-muted">
+            <span className="h-px flex-1 bg-[#e6e1d6]" /> 코드가 있다면{' '}
             <span className="h-px flex-1 bg-[#e6e1d6]" />
           </div>
 
@@ -336,8 +407,32 @@ export default function OnlinePlayPage() {
           >
             <Zap size={14} /> 상대가 없다면 빈 방에 바로 참가 →
           </Link>
-        </div>
-      </section>
+        </section>
+      </div>
     </div>
+  );
+}
+
+/** 캐러셀 이미지 — 카드용 축소본(thumb)만 쓴다. 원본 1600px은 /maps 라이트박스 전용 */
+function MapThumb({
+  map,
+  className = '',
+  priority = false,
+}: {
+  map: { image: string | null; nameKo: string };
+  className?: string;
+  priority?: boolean;
+}) {
+  const thumb = thumbOf(map.image);
+  if (!thumb) return <div className="h-full w-full bg-[#E9E2CB]" />;
+  return (
+    <Image
+      src={`${basePath}${thumb}`}
+      alt={`${map.nameKo} 지도`}
+      fill
+      priority={priority}
+      sizes="(max-width: 1024px) 100vw, 640px"
+      className={`object-cover ${className}`}
+    />
   );
 }

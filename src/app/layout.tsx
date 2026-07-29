@@ -35,6 +35,11 @@ export default function RootLayout({
             preconnect로 gstatic 핸드셰이크를 미리 열어 폰트 도착을 앞당긴다. */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        {/* eslint-disable-next-line @next/next/no-page-custom-font --
+            이 규칙은 Pages Router 기준("한 페이지에서만 로드된다")인데, App Router의
+            app/layout.tsx는 **모든 페이지의 루트 레이아웃**이라 경고가 성립하지 않는다.
+            next/font/google로 옮기면 규칙은 만족하지만 한글 웹폰트를 빌드 타임에 받아
+            self-host해야 해서 번들과 CI 네트워크 의존이 커진다 — 현행 유지 (리뷰 R7). */}
         <link
           rel="stylesheet"
           href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap"

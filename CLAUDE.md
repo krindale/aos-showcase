@@ -29,7 +29,7 @@ Age of Steam 보드게임의 프리미엄 비주얼 쇼케이스 웹사이트입
 
 - **Framework**: Next.js 14 (App Router, Static Export)
 - **Styling**: Tailwind CSS 3.4
-- **Animation**: Framer Motion 12 (GSAP 3.14 + @gsap/react 설치됨, 현재 미사용)
+- **Animation**: Framer Motion 12 (GSAP는 미사용으로 2026-07-29 제거)
 - **State**: Zustand 5
 - **Icons**: Lucide React
 - **Language**: TypeScript

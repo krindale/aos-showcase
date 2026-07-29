@@ -256,6 +256,7 @@ export default function MapsPage() {
                   {map.playable ? (
                     <Link
                       href={`/game/${map.slug}/`}
+                      prefetch={false}
                       onClick={clearBackTo}
                       className="inline-flex items-center gap-2 rounded-[10px] bg-accent px-4 py-[9px] text-sm font-bold text-[#fffdf8] shadow-glow transition-colors hover:bg-accent-light"
                     >
@@ -380,6 +381,7 @@ export default function MapsPage() {
                   {lightboxMap.playable ? (
                     <Link
                       href={`/game/${lightboxMap.slug}/`}
+                      prefetch={false}
                       onClick={clearBackTo}
                       className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-6 py-3 text-base font-bold text-[#fffdf8] shadow-glow transition-colors hover:bg-accent-light"
                     >

@@ -130,7 +130,9 @@ body {
   font-size: 16px;
   background: #c04a2b;
   color: #fffdf8;
-  transition: all 0.25s ease;
+  /* transition: all → 실제 hover가 바꾸는 속성만 (background+transform). 'all'은 레이아웃 속성
+     변화까지 트랜지션 후보로 검사해 윈도우에서 리플로우 비용이 커진다 (2026-07-29) */
+  transition: background-color 0.25s ease, transform 0.25s ease;
   border: none;
   cursor: pointer;
   box-shadow: 0 8px 20px -8px rgba(192, 74, 43, 0.6);
@@ -150,7 +152,7 @@ body {
   border: 1px solid #ddd6c8;
   color: #1c1b18;
   background: #faf8f3;
-  transition: all 0.25s ease;
+  transition: border-color 0.25s ease, color 0.25s ease;
   cursor: pointer;
 }
 
@@ -193,7 +195,7 @@ body {
 
 /* Card Hover Effect */
 .card-hover {
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .card-hover:hover {

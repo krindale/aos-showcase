@@ -244,13 +244,18 @@ export function validateTrackConnection(
 }
 
 /**
- * 플레이어가 트랙을 가지고 있는지 확인
+ * 플레이어가 트랙을 가지고 있는지 확인.
+ * ⚠️ 복합 타일의 보조 경로(secondaryOwner)도 내 트랙이다 — 빠뜨리면 내 primary 타일이
+ * 0개인 상황(남부 중국 국유화 직후, releaseUnextendedTrack으로 전부 풀린 직후, 첫 건설이
+ * 상대 트랙 위 교차였던 경우)에서 canBuildTrack이 "첫 트랙 = 도시 인접" 분기로 빠져
+ * 내 복합 트랙 끝에서 이어 짓기가 거부된다 (2026-07-29 사용자 보고).
+ * 판정(canBuildTrack)과 사유(getBuildBlockReason)가 이 함수를 공유하므로 미러가 자동 유지.
  */
 export function playerHasTrack(
   board: BoardState,
   playerId: PlayerId
 ): boolean {
-  return board.trackTiles.some(t => t.owner === playerId);
+  return board.trackTiles.some(t => t.owner === playerId || t.secondaryOwner === playerId);
 }
 
 /**

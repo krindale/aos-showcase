@@ -143,7 +143,8 @@ export function releaseUnextendedTrack(
 export function findClaimableSectionKeys(
   board: BoardState,
   coord: HexCoord,
-  edges: [number, number]
+  /** 시작 헥스에서 뻗어나갈 변들. 타일은 2개, 마을 가닥은 1개(가닥이 난 변)를 넘긴다. */
+  edges: number[]
 ): Set<string> {
   const k = (c: HexCoord) => `${c.col},${c.row}`;
   const ownedLinkIndex = buildOwnedLinkTileIndex(board);

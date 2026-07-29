@@ -126,6 +126,102 @@ describe('releaseUnextendedTrack도 소유자 기준으로 판정한다', () => 
   });
 });
 
+/**
+ * 마을 가닥으로 미소유 구간을 "완성"시키면 그 구간을 인수한다 (룰 IV).
+ * 인수가 없으면 미소유 완성 링크 = 룰상 존재할 수 없는 상태가 되어 수입·VP·디스크가
+ * 모두 0인 채 영구히 굳는다 (완성이라 findClaimableSectionKeys도 releaseUnextendedTrack도
+ * 손대지 못함). 튜토리얼 맵엔 마을이 없어 St. Lucia 기하를 쓴다
+ * (townHubModel.test.ts와 동일: 마을 BI(4,3) — 동쪽 이웃 (5,3)).
+ */
+describe('마을 가닥 건설도 미소유 구간을 인수한다', () => {
+  const TOWN = { col: 4, row: 3 };   // 마을 BI
+  const TILE = { col: 5, row: 3 };   // 마을 동쪽 이웃 (odd row: E = +1,0)
+  const CITY = { col: 6, row: 3 };   // TILE의 동쪽에 주입하는 도시
+
+  /** withCity=false면 반대편이 허공이라 가닥을 놔도 링크가 완성되지 않는다. */
+  function setupUnownedTileAtTown(owner: PlayerId | null, withCity = true) {
+    useGameStore.getState().initGame('st-lucia', ['Human', 'AI-2'], [{ playerIndex: 1, name: 'AI-2' }]);
+    const s0 = useGameStore.getState();
+    useGameStore.setState({
+      currentPhase: 'buildTrack',
+      currentPlayer: P1,
+      players: { ...s0.players, player1: { ...s0.players.player1, cash: 20 } },
+      phaseState: { ...s0.phaseState, builtTracksThisTurn: 0, maxTracksThisTurn: 3 },
+      board: {
+        ...s0.board,
+        cities: withCity
+          ? [...s0.board.cities, { id: 'C', name: 'C', coord: CITY, color: 'red' as const, cubes: [] }]
+          : s0.board.cities,
+        // edges [3,0]: edge3(W)=마을 쪽, edge0(E)=도시 쪽
+        trackTiles: [{
+          id: 'unowned-1', coord: TILE, edges: [3, 0] as [number, number],
+          owner, trackType: 'simple' as const, builtTurn: 1,
+        }],
+        townSpurs: [],
+      },
+    });
+  }
+
+  it('가닥으로 미소유 구간을 완성하면 그 구간이 내 소유가 된다', () => {
+    setupUnownedTileAtTown(null);
+    // 전제: 가닥이 없어 아직 미완성 (마을 쪽이 안 이어짐)
+    expect(isTrackPartOfCompletedLink(TILE, useGameStore.getState().board)).toBe(false);
+
+    // 마을(4,3)의 edge0(E) = TILE 방향 가닥
+    expect(useGameStore.getState().buildTownSpur(TOWN, 0)).toBe(true);
+
+    const f = useGameStore.getState();
+    expect(isTrackPartOfCompletedLink(TILE, f.board)).toBe(true);
+    expect(f.board.trackTiles.find(t => t.coord.col === TILE.col && t.coord.row === TILE.row)?.owner)
+      .toBe(P1);
+    // 인수 결과가 실제 소유 링크로 잡힌다 (수입·VP·디스크의 근거)
+    expect(findCompletedLinks(f.board).filter(l => l.owner === P1)).toHaveLength(1);
+  });
+
+  it('가닥을 놔도 구간이 미완성이면 인수하지 않는다', () => {
+    setupUnownedTileAtTown(null, false); // 반대편에 도시 없음
+    expect(useGameStore.getState().buildTownSpur(TOWN, 0)).toBe(true);
+
+    const f = useGameStore.getState();
+    expect(isTrackPartOfCompletedLink(TILE, f.board)).toBe(false);
+    // 미완성인 채 인수하면 builtTurn이 과거라 같은 턴 끝 releaseUnextendedTrack이 도로 푼다
+    expect(f.board.trackTiles.find(t => t.coord.col === TILE.col && t.coord.row === TILE.row)?.owner)
+      .toBeNull();
+  });
+
+  it('상대 소유 구간은 가닥으로 이어도 인수되지 않는다', () => {
+    setupUnownedTileAtTown(P2);
+    expect(useGameStore.getState().buildTownSpur(TOWN, 0)).toBe(true);
+
+    const f = useGameStore.getState();
+    expect(f.board.trackTiles.find(t => t.coord.col === TILE.col && t.coord.row === TILE.row)?.owner)
+      .toBe(P2);
+  });
+
+  it('국유화/정부 트랙(중립)은 가닥으로 이어도 인수되지 않는다', () => {
+    setupUnownedTileAtTown(null);
+    const s = useGameStore.getState();
+    useGameStore.setState({
+      board: {
+        ...s.board,
+        trackTiles: s.board.trackTiles.map(t => ({ ...t, isGovernment: true, isNationalized: true })),
+      },
+    });
+    expect(useGameStore.getState().buildTownSpur(TOWN, 0)).toBe(true);
+
+    const f = useGameStore.getState();
+    expect(f.board.trackTiles.find(t => t.coord.col === TILE.col && t.coord.row === TILE.row)?.owner)
+      .toBeNull();
+  });
+
+  it('주변에 미소유 트랙이 없으면 아무 것도 인수하지 않는다 (no-op 회귀 가드)', () => {
+    setupUnownedTileAtTown(P1); // 이미 내 트랙
+    const before = useGameStore.getState().board.trackTiles.map(t => t.owner);
+    expect(useGameStore.getState().buildTownSpur(TOWN, 0)).toBe(true);
+    expect(useGameStore.getState().board.trackTiles.map(t => t.owner)).toEqual(before);
+  });
+});
+
 describe('스토어 통합: 디스크 상한 판정이 혼합 소유 구간을 포함한다', () => {
   it('국유화 트랙에 기댄 내 구간도 디스크를 소모한다', () => {
     const s = createInitialGameState('southern-china', ['A', 'B', 'C', 'D'], []);

@@ -19,6 +19,9 @@ const PRECACHE_ASSETS = [
 // Maximum number of items in dynamic cache
 const MAX_DYNAMIC_CACHE_SIZE = 50;
 
+// 웹폰트 출처 — cross-origin이지만 STATIC_CACHE에 보관한다 (아래 cacheFirstFont).
+const FONT_ORIGINS = ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'];
+
 /**
  * Install Event - Precache critical assets
  * Triggered when service worker is first installed
@@ -81,6 +84,15 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
+  // Google Fonts는 cross-origin이지만 캐싱한다 — 이게 없으면 재방문·오프라인·PWA 설치
+  // 상태에서 웹폰트가 매번 네트워크에 의존하고, 못 받으면 OS 폴백으로 렌더된다.
+  // 그 폴백은 맥(Apple SD Gothic Neo)과 윈도우(맑은 고딕)의 한글 폭이 달라, 같은 문장이
+  // 윈도우에서만 2줄로 접힌다 (2026-07-29 사용자 보고).
+  if (FONT_ORIGINS.includes(url.origin)) {
+    event.respondWith(cacheFirstFont(request));
+    return;
+  }
+
   // Skip cross-origin requests
   if (url.origin !== location.origin) {
     return;
@@ -137,6 +149,30 @@ function isPageRequest(pathname) {
   // Next.js pages end with / or .html, or have no extension
   const hasExtension = pathname.includes('.') && !pathname.endsWith('/');
   return !hasExtension || pathname.endsWith('.html');
+}
+
+/**
+ * 웹폰트 전용 cache-first — 일반 cacheFirst는 `networkResponse.ok`만 보고 캐싱하는데,
+ * <link rel="stylesheet">로 나가는 cross-origin 요청은 no-cors라 응답이 opaque(status 0,
+ * ok=false)다. 그대로 두면 폰트가 영영 캐시되지 않는다. opaque도 보관하고, 네트워크가
+ * 실패하면 캐시본으로 버틴다. 용량 제한(limitCacheSize) 대상인 DYNAMIC이 아니라
+ * STATIC_CACHE에 넣어 다른 자산에 밀려 쫓겨나지 않게 한다.
+ */
+async function cacheFirstFont(request) {
+  const cache = await caches.open(STATIC_CACHE);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+
+  try {
+    const networkResponse = await fetch(request);
+    if (networkResponse && (networkResponse.ok || networkResponse.type === 'opaque')) {
+      await cache.put(request, networkResponse.clone());
+    }
+    return networkResponse;
+  } catch (error) {
+    console.warn('[ServiceWorker] 폰트 요청 실패:', request.url, error);
+    return cached || Response.error();
+  }
 }
 
 /**

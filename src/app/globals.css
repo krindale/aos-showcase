@@ -2,9 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Google Fonts — Space Grotesk(디스플레이/숫자) + IBM Plex Sans KR(본문)
-   실제 사용하는 웨이트(400~700)만 로드 */
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+/* Google Fonts(Space Grotesk + IBM Plex Sans KR)는 app/layout.tsx의 <link>에서 로드한다.
+   @import는 이 파일을 다 파싱한 뒤에야 요청이 시작돼 폴백 렌더 구간이 길어지고,
+   그 폴백이 OS마다 폭이 달라 윈도우에서 줄바꿈이 생겼다 (2026-07-29). */
 
 /*
  * 디자인 시스템 — "크림 페이퍼 + 버밀리언" (claude-design/Age of Steam Website Design)

@@ -93,8 +93,9 @@ const COLOR_NAMES: Record<string, string> = {
 // 보드는 store 구독형(props 없음)이라 분리가 안전하다 (2026-07-29).
 const GameBoard = dynamic(() => import('@/components/game/GameBoard'), {
   ssr: false,
+  // min-h — 부모가 높이 컨텍스트를 안 주는 경우에도 로딩 표시가 0높이로 사라지지 않게
   loading: () => (
-    <div className="flex h-full w-full items-center justify-center text-foreground-muted text-sm">
+    <div className="flex h-full min-h-[300px] w-full items-center justify-center text-foreground-muted text-sm">
       보드 불러오는 중…
     </div>
   ),

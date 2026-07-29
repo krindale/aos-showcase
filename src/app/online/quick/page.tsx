@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
@@ -19,6 +20,7 @@ import { Loader2, RefreshCw, Users, Zap } from 'lucide-react';
 import { isNetConfigured } from '@/net';
 import { useNetStore } from '@/net/netStore';
 import { getMapData } from '@/utils/mapRegistry';
+import { basePath, maps, thumbOf } from '@/data/mapCatalog';
 import { useEnterMotion } from '@/hooks/useEnterMotion';
 
 function mapNameOf(mapId: string): string {
@@ -107,14 +109,14 @@ export default function QuickJoinPage() {
             </button>
           </div>
 
-          {/* 방 수가 폴링으로 계속 바뀌므로 높이를 고정해 아래가 밀리지 않게 한다 */}
-          <div className="h-[clamp(300px,42vh,420px)] overflow-y-auto pr-1">
+          {/* 방이 있든 없든 같은 틀(밴드색 패널) 안에 담는다 — 빈 상태만 큰 카드로 채우면
+              방이 생기는 순간 영역의 외형이 통째로 바뀐다.
+              높이도 고정 — 폴링(8초)으로 방 수가 바뀔 때마다 아래가 밀리지 않게. */}
+          <div className="hex-pattern h-[clamp(300px,42vh,420px)] overflow-y-auto rounded-[18px] border border-glass-border bg-background-tertiary p-3">
             {/* 빈 상태에 방 만들기 버튼을 두지 않는다 — 오른쪽 카드의 "지도 고르고 방 만들기"와
                 같은 곳으로 가는 버튼이 한 화면에 둘이 된다 */}
             {joinable.length === 0 ? (
-              /* 점선 테두리만 두면 안이 페이지 배경 그대로라 텅 비어 보인다 —
-                 목록 항목과 같은 페이퍼 카드(glass-card)로 채워 실체감을 준다 */
-              <div className="glass-card hex-pattern flex h-full flex-col items-center justify-center px-6 text-center">
+              <div className="flex h-full flex-col items-center justify-center px-6 text-center">
                 <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-accent/10">
                   <Users className="h-6 w-6 text-accent" strokeWidth={1.8} />
                 </span>
@@ -129,23 +131,59 @@ export default function QuickJoinPage() {
               <ul className="space-y-2">
                 {joinable.map((r) => {
                   const seated = r.seats.filter((s) => s.clientId || s.kind === 'ai').length;
+                  const meta = maps.find((m) => m.slug === r.mapId);
+                  const thumb = thumbOf(meta?.image ?? null);
                   return (
                     <li key={r.code}>
                       <button
                         type="button"
                         onClick={() => void joinRoom(r.code, myName.trim() || '게스트')}
-                        className="glass-card flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:border-accent"
+                        className="glass-card group flex w-full items-center gap-3 p-3 text-left transition-all hover:-translate-y-0.5 hover:border-accent"
                       >
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-semibold text-foreground">
-                            {r.title || `${mapNameOf(r.mapId)} 방`}
+                        {/* 어느 지도인지 한눈에 — 이름만 있으면 어떤 판인지 감이 안 온다 */}
+                        <span className="relative h-[50px] w-[80px] flex-none overflow-hidden rounded-[10px] bg-[#E9E2CB]">
+                          {thumb && (
+                            <Image
+                              src={`${basePath}${thumb}`}
+                              alt=""
+                              fill
+                              sizes="80px"
+                              className="object-cover"
+                            />
+                          )}
+                        </span>
+
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-bold text-foreground">
+                            {r.title || `${meta?.nameKo ?? mapNameOf(r.mapId)} 방`}
                           </span>
-                          <span className="mt-[2px] block font-display text-xs text-foreground-muted">
-                            {mapNameOf(r.mapId)}
+                          <span className="mt-[3px] flex items-center gap-2">
+                            <span className="truncate font-display text-xs text-foreground-muted">
+                              {meta?.nameKo ?? mapNameOf(r.mapId)}
+                            </span>
+                            {/* 좌석 현황을 점으로 — 사람 착석·봇·빈자리를 한눈에 */}
+                            <span className="flex flex-none items-center gap-[3px]">
+                              {r.seats.map((s) => (
+                                <span
+                                  key={s.seat}
+                                  className={`h-[7px] w-[7px] rounded-full ${
+                                    s.clientId
+                                      ? 'bg-accent'
+                                      : s.kind === 'ai'
+                                        ? 'bg-[#c9c1b1]'
+                                        : 'border border-[#c9c1b1]'
+                                  }`}
+                                />
+                              ))}
+                            </span>
+                            <span className="flex-none font-display text-xs font-medium text-foreground-secondary">
+                              {seated}/{r.seats.length}
+                            </span>
                           </span>
                         </span>
-                        <span className="inline-flex flex-none items-center gap-1.5 rounded-full bg-background-tertiary px-3 py-1 font-display text-xs text-foreground-secondary">
-                          <Users size={12} /> {seated}/{r.seats.length}
+
+                        <span className="flex-none rounded-lg bg-accent/10 px-3 py-[7px] text-xs font-bold text-accent transition-colors group-hover:bg-accent group-hover:text-[#fffdf8]">
+                          참가 →
                         </span>
                       </button>
                     </li>

@@ -27,7 +27,10 @@ interface BoardCitiesProps {
   cottonPorts: string[] | undefined;
   /** board.directLinks (Germany Essen↔Düsseldorf 등) */
   directLinks: DirectLink[] | undefined;
-  /** Southern China 국유화 후보 직결 링크 — board.directLinks 인덱스 → 링크 id (GameBoard가 주입) */
+  /** Southern China 국유화 후보 직결 링크 — **board.directLinks 인덱스** → 링크 id (GameBoard가 주입).
+   *  ⚠️ 아래 렌더 루프의 `i`로 조회하므로 `directLinks` prop은 board.directLinks와 **순서·길이가
+   *  같아야 한다** (GameBoard의 renderDirectLinks는 map만 하므로 성립). filter/sort를 넣으면
+   *  인덱스가 어긋나 엉뚱한 링크가 후보로 뜬다 — 그때는 링크 id를 직접 실어 보낼 것. */
   natDirectIndex?: Map<number, string>;
   /** 후보 직결 링크 클릭 → 국유화 */
   onNationalizeDirect?: (linkId: string) => void;

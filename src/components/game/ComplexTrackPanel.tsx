@@ -20,13 +20,10 @@ export default function ComplexTrackPanel({
   onClose,
   onComplete,
 }: ComplexTrackPanelProps) {
-  const {
-    board,
-    players,
-    currentPlayer,
-    buildComplexTrack,
-    canBuildComplexTrack,
-  } = useGameStore();
+  // selector 없는 useGameStore()는 전체 상태 구독 — 아래 사유 계산에 이 값을 그대로 넘긴다
+  // (렌더 중 getState()로 읽으면 구독 밖 스냅샷이라 값이 어긋날 수 있다, 리뷰 R4).
+  const store = useGameStore();
+  const { board, players, currentPlayer, buildComplexTrack, canBuildComplexTrack } = store;
 
   const player = players[currentPlayer];
   const existingTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
@@ -40,12 +37,8 @@ export default function ComplexTrackPanel({
 
   // 왜 안 되는지 보여준다 — 비활성 버튼만 있으면 "그냥 안 됨"으로 보인다 (2026-07-29).
   // 판정은 canBuildComplexTrack, 문구는 그 검사 순서를 미러하는 헬퍼 한 곳에서.
-  const crossingReason = getComplexBuildBlockReason(
-    useGameStore.getState(), coord, newEdges, 'crossing'
-  );
-  const coexistReason = getComplexBuildBlockReason(
-    useGameStore.getState(), coord, newEdges, 'coexist'
-  );
+  const crossingReason = getComplexBuildBlockReason(store, coord, newEdges, 'crossing');
+  const coexistReason = getComplexBuildBlockReason(store, coord, newEdges, 'coexist');
 
   const crossingCost = TRACK_REPLACE_COSTS.simpleToCrossing;
   const coexistCost = TRACK_REPLACE_COSTS.default;

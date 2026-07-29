@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -143,7 +143,12 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
   // "지금 몇 개 쓰는지" 확인할 방법이 없었다 (2026-07-29 사용자 보고). 상한 없는 맵은 미렌더.
   const discLimit = getMapProfile(mapIdForDgel).ownershipDiscLimit;
   const board = useGameStore((s) => s.board);
-  const discUnits = discLimit !== null ? describeOwnershipUnits(board, playerId) : null;
+  // useMemo 필수 — describeOwnershipUnits는 내부에서 findCompletedLinks(정거장×6변 경로추적)를
+  // 돌리는데, 이 패널은 플레이어 수만큼 렌더된다 (리뷰 R4).
+  const discUnits = useMemo(
+    () => (discLimit !== null ? describeOwnershipUnits(board, playerId) : null),
+    [discLimit, board, playerId]
+  );
   const discTitle = discUnits
     ? `소유 디스크 ${discUnits.total}/${discLimit} — 완성 링크 ${discUnits.completed} + 미완성 구간 ${discUnits.sections} + 직결 링크 ${discUnits.directs}`
     : '';

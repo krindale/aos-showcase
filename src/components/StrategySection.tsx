@@ -3,6 +3,7 @@
 import { useRef } from 'react';
 import Link from 'next/link';
 import { motion, useInView } from 'framer-motion';
+import { useEnterMotion } from '@/hooks/useEnterMotion';
 
 /* 룰북·실전에서 뽑은 여섯 가지 승리 원칙 */
 const strategies = [
@@ -41,6 +42,7 @@ const strategies = [
 export default function StrategySection() {
   const ref = useRef<HTMLElement>(null);
   const isInView = useInView(ref, { once: true, margin: '-100px' });
+  const { enter } = useEnterMotion();
 
   return (
     <>
@@ -59,9 +61,7 @@ export default function StrategySection() {
           {strategies.map((s, i) => (
             <motion.div
               key={s.n}
-              initial={{ opacity: 0, y: 16 }}
-              animate={isInView ? { opacity: 1, y: 0 } : {}}
-              transition={{ duration: 0.45, delay: i * 0.06 }}
+              {...enter({ y: 16, delay: i * 0.06, inView: isInView })}
               className="grid grid-cols-[64px_1fr] items-start gap-[clamp(12px,2vw,22px)] border-t border-glass-border py-6"
             >
               <div className="text-right font-display text-[clamp(30px,4vw,44px)] font-semibold leading-[0.9] tracking-[-0.02em] text-[#d9d1c1]">

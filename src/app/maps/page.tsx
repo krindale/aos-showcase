@@ -8,6 +8,7 @@ import { Play, X } from 'lucide-react';
 import { getMapProfile } from '@/maps/getMapProfile';
 import type { MapRuleSummary } from '@/maps/MapProfile';
 import { createHexLayout, hexPolygonPoints } from '@/utils/miniHexMap';
+import { useEnterMotion } from '@/hooks/useEnterMotion';
 
 const basePath = process.env.NODE_ENV === 'production' ? '/aos-showcase' : '';
 
@@ -307,6 +308,7 @@ function MapVisual({
 }
 
 export default function MapsPage() {
+  const { enter, reduce } = useEnterMotion();
   const [lightboxMap, setLightboxMap] = useState<MapView | null>(null);
 
   useEffect(() => {
@@ -347,9 +349,7 @@ export default function MapsPage() {
           {MAP_VIEWS.map((map, i) => (
             <motion.div
               key={map.slug}
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, delay: i * 0.05 }}
+              {...enter({ y: 16, duration: 0.4, delay: i * 0.05 })}
               className="glass-card card-hover flex flex-col overflow-hidden"
             >
               {/* 이미지 영역 — 클릭 시 라이트박스 */}
@@ -411,7 +411,7 @@ export default function MapsPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
+            transition={{ duration: reduce ? 0 : 0.2 }}
             className="fixed inset-0 z-[100] flex items-center justify-center p-[clamp(12px,4vw,40px)]"
             onClick={() => setLightboxMap(null)}
           >
@@ -425,10 +425,10 @@ export default function MapsPage() {
 
             {/* 패널 */}
             <motion.div
-              initial={{ opacity: 0, scale: 0.96, y: 10 }}
+              initial={reduce ? false : { opacity: 0, scale: 0.96, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 10 }}
-              transition={{ duration: 0.25, ease: 'easeOut' }}
+              exit={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.96, y: 10 }}
+              transition={{ duration: reduce ? 0 : 0.25, ease: 'easeOut' }}
               onClick={(e) => e.stopPropagation()}
               className="glass-card relative flex max-h-[92vh] w-full max-w-[1100px] flex-col overflow-hidden md:h-[min(88vh,780px)] md:flex-row"
             >

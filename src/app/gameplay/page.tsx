@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { useEnterMotion } from '@/hooks/useEnterMotion';
 
 /* ── 단계별 애니메이션 다이어그램 (SMIL SVG, claude-design 포트) ── */
 
@@ -442,6 +443,18 @@ const mechanics = [
 
 export default function GameplayPage() {
   const [openPhase, setOpenPhase] = useState<number | null>(null);
+  const { reduce } = useEnterMotion();
+
+  /* 다이어그램은 SMIL(<animate>/<animateMotion>)이라 CSS로 끌 수 없다.
+     모션 최소화 설정이면 패널이 열리는 순간 SVG 애니메이션을 정지시켜
+     첫 프레임(정지 화면)만 보여준다. */
+  const diagramRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (!node || !reduce) return;
+      node.querySelectorAll('svg').forEach((svg) => svg.pauseAnimations());
+    },
+    [reduce]
+  );
 
   return (
     <div>
@@ -466,39 +479,47 @@ export default function GameplayPage() {
             const isOpen = openPhase === i;
             return (
               <div key={phase.en} className="border-t border-glass-border">
-                <div
-                  onClick={() => setOpenPhase(isOpen ? null : i)}
-                  className="grid cursor-pointer grid-cols-[58px_1fr_auto] items-start gap-[clamp(12px,3vw,28px)] rounded-xl px-3 py-[22px] transition-colors hover:bg-background-tertiary"
-                >
-                  <div className="text-right font-display text-[clamp(30px,5vw,48px)] font-semibold leading-[0.9] tracking-[-0.02em] text-[#d9d1c1]">
-                    {i + 1}
-                  </div>
-                  <div>
-                    <div className="flex flex-wrap items-baseline gap-[10px]">
-                      <h3 className="text-[clamp(19px,2.6vw,25px)] font-bold tracking-[-0.02em] text-foreground">
-                        {phase.t}
-                      </h3>
-                      <span className="font-display text-[12.5px] text-[#a39d91]">{phase.en}</span>
-                    </div>
-                    <p className="mt-[9px] max-w-[680px] text-[15px] leading-[1.7] text-foreground-secondary">
-                      {phase.d}
-                    </p>
-                  </div>
-                  <div className="self-center whitespace-nowrap font-display text-xs font-semibold text-accent">
-                    {isOpen ? '닫기 ▲' : '애니메이션 ▾'}
-                  </div>
-                </div>
+                {/* WAI-ARIA 아코디언 패턴: heading > button.
+                    button 안에는 phrasing content(span)만 — h3/p/div는 유효하지 않다. */}
+                <h3>
+                  <button
+                    type="button"
+                    onClick={() => setOpenPhase(isOpen ? null : i)}
+                    aria-expanded={isOpen}
+                    aria-controls={`phase-panel-${i}`}
+                    className="grid w-full cursor-pointer grid-cols-[58px_1fr_auto] items-start gap-[clamp(12px,3vw,28px)] rounded-xl px-3 py-[22px] text-left transition-colors hover:bg-background-tertiary"
+                  >
+                    <span className="block text-right font-display text-[clamp(30px,5vw,48px)] font-semibold leading-[0.9] tracking-[-0.02em] text-[#d9d1c1]">
+                      {i + 1}
+                    </span>
+                    <span className="block">
+                      <span className="flex flex-wrap items-baseline gap-[10px]">
+                        <span className="text-[clamp(19px,2.6vw,25px)] font-bold tracking-[-0.02em] text-foreground">
+                          {phase.t}
+                        </span>
+                        <span className="font-display text-[12.5px] text-[#a39d91]">{phase.en}</span>
+                      </span>
+                      <span className="mt-[9px] block max-w-[680px] text-[15px] font-normal leading-[1.7] text-foreground-secondary">
+                        {phase.d}
+                      </span>
+                    </span>
+                    <span className="block self-center whitespace-nowrap font-display text-xs font-semibold text-accent">
+                      {isOpen ? '닫기 ▲' : '애니메이션 ▾'}
+                    </span>
+                  </button>
+                </h3>
 
                 <AnimatePresence initial={false}>
                   {isOpen && (
                     <motion.div
-                      initial={{ opacity: 0, height: 0 }}
+                      id={`phase-panel-${i}`}
+                      initial={reduce ? false : { opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: 'auto' }}
                       exit={{ opacity: 0, height: 0 }}
-                      transition={{ duration: 0.3, ease: 'easeOut' }}
+                      transition={{ duration: reduce ? 0 : 0.3, ease: 'easeOut' }}
                       className="overflow-hidden"
                     >
-                      <div className="px-3 pb-[26px] pl-[clamp(12px,5vw,70px)]">
+                      <div ref={diagramRef} className="px-3 pb-[26px] pl-[clamp(12px,5vw,70px)]">
                         <div className="max-w-[560px] rounded-[14px] border border-[#ece7dd] bg-background-secondary px-[22px] py-5 shadow-glass">
                           <div className="mb-[14px] font-display text-[11px] font-medium tracking-[0.07em] text-[#a39d91]">
                             {diagrams[i].caption}

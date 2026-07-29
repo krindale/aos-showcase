@@ -201,3 +201,39 @@ body {
   letter-spacing: -0.02em;
   color: #1c1b18;
 }
+
+/* 키보드 포커스 표시 — 마우스 클릭에는 안 뜨고 Tab 이동에만 뜬다.
+   focus:outline-none으로 링을 지우는 곳이 있어 전역 기본값을 명시한다. */
+:focus-visible {
+  outline: 2px solid #c04a2b;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* 모션 최소화 설정 존중 (prefers-reduced-motion)
+   — 장식용 애니메이션만 끈다. 게임 화면의 화물 이동·로딩 스피너는 정보 전달
+   목적이라 여기서 정지시키지 않는다. framer-motion 진입 애니메이션은
+   src/hooks/useEnterMotion.ts가 담당. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+    scroll-snap-type: none;
+  }
+
+  .rail-dash,
+  .animate-float,
+  .animate-steam,
+  .animate-fade-in,
+  .animate-fade-in-up,
+  .animate-slide-in-left,
+  .animate-slide-in-right,
+  .animate-scale-in {
+    animation: none;
+  }
+
+  .card-hover,
+  .card-hover:hover,
+  .btn-primary:hover {
+    transform: none;
+  }
+}

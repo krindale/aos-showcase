@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import HeroBoardVignette from './HeroBoardVignette';
 import { RULEBOOK_URL } from './Navigation';
+import { useEnterMotion } from '@/hooks/useEnterMotion';
 
 const stats = [
   { v: '1–6', l: '플레이어' },
@@ -13,17 +14,15 @@ const stats = [
 ] as const;
 
 export default function HeroSection() {
+  const { enter } = useEnterMotion();
+
   return (
     <section className="hex-pattern relative overflow-hidden border-b border-glass-border">
       {/* 우상단 버밀리언 라디얼 틴트 */}
       <div className="absolute inset-0 bg-hero-gradient" />
 
       <div className="relative mx-auto grid max-w-[1200px] grid-cols-1 items-center gap-[clamp(32px,4vw,56px)] px-[clamp(18px,5vw,56px)] pb-[clamp(46px,7vw,84px)] pt-[clamp(58px,9vw,126px)] lg:grid-cols-[minmax(0,1fr)_clamp(320px,34vw,420px)]">
-        <motion.div
-          initial={{ opacity: 0, y: 14 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.45, ease: 'easeOut' }}
-        >
+        <motion.div {...enter({ y: 14, ease: 'easeOut' })}>
           {/* Badge */}
           <div className="mb-[30px] inline-flex items-center gap-[9px] rounded-full border border-[#ddd6c8] bg-[#fffdf8] px-[13px] py-[6px] font-display text-[11px] font-medium tracking-[0.14em] text-foreground-secondary">
             <span className="h-[6px] w-[6px] rounded-full bg-accent" />
@@ -56,9 +55,7 @@ export default function HeroSection() {
 
         {/* 타이틀 우측 — 움직이는 게임 샘플 (모바일에선 숨김) */}
         <motion.div
-          initial={{ opacity: 0, y: 14 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.45, ease: 'easeOut', delay: 0.12 }}
+          {...enter({ y: 14, ease: 'easeOut', delay: 0.12 })}
           className="hidden lg:block"
         >
           <HeroBoardVignette />

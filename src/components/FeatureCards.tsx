@@ -2,6 +2,7 @@
 
 import { useRef } from 'react';
 import { motion, useInView } from 'framer-motion';
+import { useEnterMotion } from '@/hooks/useEnterMotion';
 
 const features = [
   {
@@ -29,6 +30,7 @@ const features = [
 export default function FeatureCards() {
   const ref = useRef<HTMLElement>(null);
   const isInView = useInView(ref, { once: true, margin: '-100px' });
+  const { enter } = useEnterMotion();
 
   return (
     <section
@@ -45,9 +47,7 @@ export default function FeatureCards() {
         {features.map((feat, i) => (
           <motion.div
             key={feat.n}
-            initial={{ opacity: 0, y: 20 }}
-            animate={isInView ? { opacity: 1, y: 0 } : {}}
-            transition={{ duration: 0.5, delay: i * 0.08 }}
+            {...enter({ y: 20, duration: 0.5, delay: i * 0.08, inView: isInView })}
             className="glass-card card-hover px-[26px] pb-8 pt-[30px]"
           >
             <div className="font-display text-[15px] font-semibold tracking-wide text-accent">

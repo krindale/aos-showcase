@@ -11,6 +11,7 @@ import {
   ListOrdered,
   type LucideIcon,
 } from 'lucide-react';
+import { useEnterMotion } from '@/hooks/useEnterMotion';
 
 /* 룰북 기준 7가지 특수 액션 — 설명·구현 단계·상세·팁은 구 웹페이지 콘텐츠 계승 */
 const specialActions: {
@@ -96,6 +97,8 @@ const specialActions: {
 ];
 
 export default function ActionsPage() {
+  const { enter } = useEnterMotion();
+
   return (
     <div>
       {/* 헤더 */}
@@ -120,10 +123,8 @@ export default function ActionsPage() {
             return (
               <motion.div
                 key={act.n}
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, delay: i * 0.05 }}
-                className="glass-card relative flex flex-col p-7 transition-colors hover:border-accent"
+                {...enter({ y: 16, duration: 0.4, delay: i * 0.05 })}
+                className="glass-card relative flex flex-col p-7"
               >
                 <div className="absolute right-5 top-[18px] font-display text-[13px] font-semibold text-[#d9d1c1]">
                   0{act.n}

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Train } from 'lucide-react';
+import { ExternalLink, Train } from 'lucide-react';
 
 /** 공식 룰북 PDF — 퍼블리셔가 공식 사이트에서 안내하는 공개 구글 드라이브 배포본 */
 export const RULEBOOK_URL =
@@ -63,15 +63,19 @@ export default function Navigation() {
                 : 'text-foreground-secondary hover:bg-glass-hover hover:text-foreground'
             }`;
             if (item.external) {
+              // 외부(구글 드라이브) 이동임을 아이콘으로 알린다 — 내부 메뉴와 똑같아 보이면
+              // 사이트를 벗어나는지 예측할 수 없다
               return (
                 <a
                   key={item.href}
                   href={item.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={className}
+                  className={`${className} inline-flex items-center gap-1.5`}
                 >
                   {item.label}
+                  <ExternalLink className="h-[13px] w-[13px]" aria-hidden />
+                  <span className="sr-only">(새 탭에서 열림)</span>
                 </a>
               );
             }
@@ -88,11 +92,13 @@ export default function Navigation() {
               </Link>
             );
           })}
+          {/* 히어로 1차 CTA와 같은 목적지(/maps)로 통일 — 라벨이 "튜토리얼"이면
+              맵 갤러리의 튜토리얼 카드와 용어가 충돌한다 */}
           <Link
-            href="/game/tutorial/"
+            href="/maps"
             className="ml-2 rounded-[10px] bg-accent px-4 py-2 text-sm font-bold text-[#fffdf8] shadow-glow transition-colors hover:bg-accent-light"
           >
-            튜토리얼
+            플레이
           </Link>
         </nav>
 
@@ -137,9 +143,11 @@ export default function Navigation() {
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={() => setIsMobileMenuOpen(false)}
-                      className={className}
+                      className={`${className} flex items-center gap-1.5`}
                     >
                       {item.label}
+                      <ExternalLink className="h-[13px] w-[13px]" aria-hidden />
+                      <span className="sr-only">(새 탭에서 열림)</span>
                     </a>
                   );
                 }
@@ -155,11 +163,11 @@ export default function Navigation() {
                 );
               })}
               <Link
-                href="/game/tutorial/"
+                href="/maps"
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="mt-3 block rounded-xl bg-accent px-4 py-3 text-center text-base font-bold text-[#fffdf8]"
               >
-                튜토리얼
+                플레이
               </Link>
             </div>
           </motion.div>

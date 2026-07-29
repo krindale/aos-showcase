@@ -93,6 +93,11 @@ body {
   font-weight: 700;
   line-height: 0.92;
   letter-spacing: -0.045em;
+  /* line-height가 1 미만이라 글리프 상단(대문자 A 꼭짓점)이 라인 박스를 벗어난다.
+     히어로 section의 overflow-hidden(배경 틴트용)에 그 부분이 잘려서 여유를 준다.
+     폴백 폰트의 ascent가 큰 환경(윈도우)에서 특히 눈에 띔. */
+  padding-top: 0.09em;
+  margin-top: -0.05em;
 }
 
 /* Paper Panel (구 glass-panel — 클래스명 유지) */

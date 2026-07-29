@@ -42,6 +42,7 @@ type MapEntry = {
   fallbackRules?: RuleItem[];
 };
 
+/* ⚠️ 항목을 추가/삭제하면 HeroSection의 '수록 맵' 스탯 숫자도 함께 고칠 것 */
 const maps: MapEntry[] = [
   {
     slug: 'tutorial',
@@ -383,7 +384,7 @@ export default function MapsPage() {
                 <p className="mt-[14px] text-sm leading-[1.7] text-foreground-secondary">
                   {map.description}
                 </p>
-                <div className="mt-auto pt-5">
+                <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-2 pt-5">
                   {map.playable ? (
                     <Link
                       href={`/game/${map.slug}/`}
@@ -395,6 +396,13 @@ export default function MapsPage() {
                   ) : (
                     <span className="inline-block rounded-[10px] border border-[#ddd6c8] px-4 py-[9px] text-sm font-medium text-foreground-muted">
                       준비 중
+                    </span>
+                  )}
+                  {/* 11개 카드 중 초보 진입점을 표시 — 전부 같은 "플레이하기"라 어디서
+                      시작해야 할지 신호가 없었다 */}
+                  {map.slug === 'tutorial' && (
+                    <span className="font-display text-xs font-semibold tracking-wide text-accent">
+                      ← 처음이라면 여기서 시작
                     </span>
                   )}
                 </div>

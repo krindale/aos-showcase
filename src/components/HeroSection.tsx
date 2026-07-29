@@ -2,14 +2,17 @@
 
 import Link from 'next/link';
 import { motion } from 'framer-motion';
+import { ExternalLink } from 'lucide-react';
 import HeroBoardVignette from './HeroBoardVignette';
 import { RULEBOOK_URL } from './Navigation';
 import { useEnterMotion } from '@/hooks/useEnterMotion';
 
+/* ⚠️ '수록 맵' 수는 src/app/maps/page.tsx의 maps 배열 길이와 맞춰야 한다.
+   (맵 데이터를 여기서 import하면 홈 번들에 맵 프로파일 전체가 딸려오므로 숫자만 둔다) */
 const stats = [
   { v: '1–6', l: '플레이어' },
   { v: '120분', l: '플레이 시간' },
-  { v: '8', l: '수록 맵' },
+  { v: '11', l: '수록 맵' },
   { v: '2002', l: '최초 출시' },
 ] as const;
 
@@ -43,12 +46,25 @@ export default function HeroSection() {
             입찰의 수싸움 속에서 가장 번창한 철도 제국을 세우는 사람이 승리합니다.
           </p>
 
-          <div className="mt-[38px] flex flex-wrap gap-3">
-            <Link href="/gameplay">
-              <button className="btn-primary">게임 살펴보기 →</button>
+          {/* 이 사이트의 최고 자산은 실제로 플레이 가능한 게임 — 1차 CTA를 플레이로 둔다.
+              (구: 1차 "게임 살펴보기", 플레이 진입은 페이지 최하단에만 있었음)
+              Link 안에 button을 넣으면 <a><button> 중첩이라 유효하지 않은 마크업이 된다. */}
+          <div className="mt-[38px] flex flex-wrap items-center gap-3">
+            <Link href="/maps" className="btn-primary inline-block">
+              지금 플레이 →
             </Link>
-            <a href={RULEBOOK_URL} target="_blank" rel="noopener noreferrer">
-              <button className="btn-secondary">공식 룰북 (PDF)</button>
+            <Link href="/gameplay" className="btn-secondary inline-block">
+              게임 살펴보기
+            </Link>
+            <a
+              href={RULEBOOK_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-1 text-[15px] font-medium text-foreground-secondary underline-offset-4 transition-colors hover:text-accent hover:underline"
+            >
+              공식 룰북 (PDF)
+              <ExternalLink className="h-[13px] w-[13px]" aria-hidden />
+              <span className="sr-only">(새 탭에서 열림)</span>
             </a>
           </div>
         </motion.div>

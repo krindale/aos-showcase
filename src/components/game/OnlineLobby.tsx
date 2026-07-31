@@ -8,7 +8,6 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { isNetConfigured } from '@/net';
-import type { RoomSeat } from '@/net';
 import { useNetStore } from '@/net/netStore';
 import { uniqueSeatName, buildRoomSeats } from '@/net/roomLogic';
 import { getMapData } from '@/utils/mapRegistry';

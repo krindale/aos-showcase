@@ -116,11 +116,48 @@
      - 라이선스 확정 전 공개 상태가 길어지면 사이트 전체 noindex도 검토
      ※ robots는 신사협정 — 악성 봇 차단은 C3의 몫.
 
-[C3] GitHub Pages의 구조적 한계 → 프런트 교체 검토
-     GH Pages는 커스텀 헤더·WAF·rate limit·봇 차단·핫링크 방지 전부 불가.
-     퍼블릭 오픈 시 Cloudflare(무료) 프록시 or Cloudflare Pages 이전:
-       봇 대응(Bot Fight Mode)·rate limit·캐시·커스텀 도메인·CSP 헤더 확보.
-     맵 이미지 핫링크 방지도 여기서만 가능.
+[C3] 호스팅 이전 — GitHub Pages → Cloudflare Pages (2026-07-31 조사)
+     ※ 지금(팬 프로젝트·정적 쇼케이스) GH Pages는 최적. 아래는 "퍼블릭 오픈 이후"
+       부적합해지는 이유이고, 착수 시점은 L1 계약 성사 후다 (S1보다 후순위).
+
+     GH Pages를 떠나야 하는 이유 3가지:
+       ⓐ 약관 — GH Pages ToS는 "온라인 비즈니스 운영을 위한 무료 웹호스팅" 금지.
+          도네이션을 받는 라이선스 계약 서비스는 위반 소지. 계약까지 마친 뒤
+          호스팅 약관으로 내려가는 게 최악의 시나리오. (약관 원문 재확인 필요)
+       ⓑ 보안 계층을 얹을 자리가 없음 — 커스텀 HTTP 헤더(CSP·noindex), WAF,
+          rate limit, 봇 차단, 핫링크 방지가 전부 구조적으로 불가.
+          → C2(robots)·C1(크롤링)·S4(남용)의 방어 수단이 여기에 묶여 있다.
+       ⓒ private repo 배포에 유료 플랜 필요 — L2에서 repo를 private으로 돌리는
+          선택지와 정면 충돌 (라이선스 대응과 호스팅이 서로 발목을 잡는다).
+
+     후보 비교 (무료 티어 기준):
+       Cloudflare Pages : 대역폭 무제한 / 상업·도네이션 허용 / WAF·rate limit·
+                          봇 차단·_headers 전부 ★ 추천
+       Netlify          : 100GB월 / 허용 / 헤더·리다이렉트 O, WAF는 유료
+       Vercel           : 100GB월 / Hobby는 상업 이용 금지(Pro $20) / Next 본가지만
+                          지금은 output:'export'라 SSR 강점을 쓰지도 않음
+       GitHub Pages     : 100GB월(soft) / 사실상 불가 / 보안 계층 없음
+
+     Cloudflare Pages를 고른 이유:
+       - 대역폭 무제한 = 맵 webp 11장(맵당 ~200KB) + 게임 청크 340KB 서빙에 직접 이득
+       - 이 항목(C3)이 플랫폼 이전만으로 통째로 해결 — _headers로 CSP·noindex,
+         대시보드에서 Bot Fight Mode·rate limit
+       - D1(서버 권위 전환) 시 같은 플랫폼 Workers로 확장 — net 계층만 교체하는
+         기존 경로와 맞음
+       - static export 그대로 올라가 마이그레이션 비용이 작음(아래)
+
+     마이그레이션 체크리스트 (실측, 반나절 규모):
+       □ basePath '/aos-showcase' 하드코딩 6곳 — 커스텀 도메인 루트 배포면 전부
+         빈 문자열이 되어 오히려 단순해진다:
+           next.config.mjs(basePath+assetPrefix) / public/manifest.json /
+           public/sw.js(BASE_PATH) / scripts/verify-pwa.js /
+           src/app/layout.tsx / src/utils/pwaUtils.ts / src/data/mapCatalog.ts
+         → 환경변수(NEXT_PUBLIC_BASE_PATH) 1개로 통일해 두면 이전이 설정 변경으로 끝난다
+       □ deploy.yml → Cloudflare Pages 배포로 교체 (GH Actions 유지 가능)
+       □ Supabase 환경변수(URL·ANON_KEY) 이전
+       □ 기존 krindale.github.io/aos-showcase 링크 리다이렉트 유지 (이미 공유된 URL)
+       □ PWA 재검증 — start_url·sw 캐시 경로가 basePath에 묶여 있어 이전 후 필수
+       □ 이전 직후 _headers로 CSP·X-Frame-Options·noindex(게임/온라인 라우트) 적용
 
 ════════════════════════════════════════════════════════════════
 ■ P1 — 운영·신뢰 (공개 직전~직후)
@@ -161,6 +198,8 @@
      못 막는다 (설계상 수용으로 docs에 기록됨). 공개 후 문제화되면
      net → store 단방향 구조 그대로 net 계층만 자체 서버(서버 권위)로 교체.
      비용 임계점은 아래 규모별 정리 참조.
+     ※ C3에서 Cloudflare Pages로 옮겨 두면 Workers가 그 "자체 서버" 후보가 된다
+       (같은 플랫폼·같은 배포 파이프라인 — 별도 인프라 없이 승격 가능).
 
 [D2] 규모별 정리
      무료          : 동접 200(50방) / 월 400판 → O2 적용 시 1,300판
@@ -172,4 +211,8 @@
 ════════════════════════════════════════════════════════════════
   L1·L2 (라이선스 접촉 + 자산 정리) → 회신 대기 중에 S1→S2→S3→S4 (보안 일괄,
   익명 로그인이 공통 기반이라 한 브랜치로) → C2 robots (즉시 가능, 5분) →
-  계약 성사 시: O1 Pro 전환 → C3 Cloudflare → O4~O7 → 오픈 → O2·O3 → D1
+  계약 성사 시: O1 Pro 전환 → C3 Cloudflare 이전 → O4~O7 → 오픈 → O2·O3 → D1
+
+  ※ 호스팅 이전(C3)을 서두르지 말 것 — 어디에 올리든 지금은 Supabase rooms가
+    통째로 열려 있어(S1) 보안이 먼저다. 다만 C3의 basePath 환경변수 통일은
+    지금 해 두면 이전이 설정 변경만으로 끝나므로 미리 해도 손해가 없다.

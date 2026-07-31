@@ -6,17 +6,21 @@ import { usePathname } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Train } from 'lucide-react';
 
-/** 공식 룰북 PDF — 퍼블리셔가 공식 사이트에서 안내하는 공개 구글 드라이브 배포본 */
+/**
+ * 공식 룰북 PDF — 퍼블리셔가 공식 사이트에서 안내하는 공개 구글 드라이브 배포본.
+ * 상단 탭에서는 뺐다(2026-07-29) — GNB에서 유일하게 사이트 밖으로 나가는 항목이라
+ * 이질적이고, 상시 내비게이션이 필요한 빈도도 아니다. 지금은 랜딩 히어로에서만 링크한다.
+ */
 export const RULEBOOK_URL =
   'https://drive.google.com/file/d/1FC5evRrUeT1gc33DLSJzed03TX6fgiiS/view';
 
+/* 우측 강조 버튼은 온라인 플레이(/online) 전용이고, 봇과 하는 게임은 "맵" 메뉴에서
+   지도를 골라 들어간다 — 둘의 목적지가 달라 중복되지 않는다 (2026-07-29). */
 const navItems = [
-  { href: '/', label: '홈', external: false },
-  { href: '/gameplay', label: '게임플레이', external: false },
-  { href: '/actions', label: '특수 액션', external: false },
-  { href: '/maps', label: '맵', external: false },
-  // 계산기 메뉴 자리를 공식 룰북 링크로 교체 (2026-07-04 — /calculator 페이지 자체는 유지)
-  { href: RULEBOOK_URL, label: '룰북', external: true },
+  { href: '/', label: '홈' },
+  { href: '/gameplay', label: 'How to Play' },
+  { href: '/actions', label: '특수 액션' },
+  { href: '/maps', label: '맵' },
 ] as const;
 
 /** 버밀리언 사각 + 흰 열차(lucide Train) 로고 마크 */
@@ -37,8 +41,10 @@ export default function Navigation() {
   // trailingSlash: true라 pathname이 '/gameplay/'처럼 나옴 — 끝 슬래시를 떼고 비교 (루트는 '/' 유지)
   const activePath = pathname.replace(/\/+$/, '') || '/';
 
+  // backdrop-blur는 8px로 억제 — bg-background/80이 이미 불투명 80%라 시각 손실은 미미하나
+  // 스티키 헤더라 스크롤 내내 뒤 콘텐츠를 재블러해 윈도우/내장 GPU에서 스크롤이 버벅인다 (2026-07-29)
   return (
-    <header className="sticky top-0 z-50 border-b border-glass-border bg-background/80 backdrop-blur-md">
+    <header className="sticky top-0 z-50 border-b border-glass-border bg-background/80 backdrop-blur-[8px]">
       <div className="mx-auto flex h-[66px] max-w-[1200px] items-center justify-between px-[clamp(18px,5vw,56px)]">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-[11px]">
@@ -56,25 +62,12 @@ export default function Navigation() {
         {/* Desktop Navigation */}
         <nav className="hidden items-center gap-1 md:flex">
           {navItems.map((item) => {
-            const isActive = !item.external && activePath === item.href;
+            const isActive = activePath === item.href;
             const className = `relative rounded-lg px-[15px] py-[9px] text-sm font-medium transition-colors ${
               isActive
                 ? 'text-foreground'
                 : 'text-foreground-secondary hover:bg-glass-hover hover:text-foreground'
             }`;
-            if (item.external) {
-              return (
-                <a
-                  key={item.href}
-                  href={item.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={className}
-                >
-                  {item.label}
-                </a>
-              );
-            }
             return (
               <Link key={item.href} href={item.href} className={className}>
                 {item.label}
@@ -88,11 +81,12 @@ export default function Navigation() {
               </Link>
             );
           })}
+          {/* 히어로 1차 CTA와 같은 목적지(/online) — 이 사이트의 강점인 온라인 대전으로 직행 */}
           <Link
-            href="/game/tutorial/"
+            href="/online/"
             className="ml-2 rounded-[10px] bg-accent px-4 py-2 text-sm font-bold text-[#fffdf8] shadow-glow transition-colors hover:bg-accent-light"
           >
-            튜토리얼
+            온라인 플레이
           </Link>
         </nav>
 
@@ -123,26 +117,12 @@ export default function Navigation() {
           >
             <div className="px-[clamp(18px,5vw,56px)] pb-4 pt-2">
               {navItems.map((item) => {
-                const isActive = !item.external && activePath === item.href;
+                const isActive = activePath === item.href;
                 const className = `block border-l-2 px-3 py-[13px] text-base font-medium transition-colors ${
                   isActive
                     ? 'border-accent text-accent'
                     : 'border-glass-border text-foreground-secondary hover:text-foreground'
                 }`;
-                if (item.external) {
-                  return (
-                    <a
-                      key={item.href}
-                      href={item.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={() => setIsMobileMenuOpen(false)}
-                      className={className}
-                    >
-                      {item.label}
-                    </a>
-                  );
-                }
                 return (
                   <Link
                     key={item.href}
@@ -155,11 +135,11 @@ export default function Navigation() {
                 );
               })}
               <Link
-                href="/game/tutorial/"
+                href="/online/"
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="mt-3 block rounded-xl bg-accent px-4 py-3 text-center text-base font-bold text-[#fffdf8]"
               >
-                튜토리얼
+                온라인 플레이
               </Link>
             </div>
           </motion.div>

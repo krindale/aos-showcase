@@ -5,6 +5,7 @@
 // 가린다. 실제 진행/완료는 메인 GameBoard·엔진이 담당, 여기선 표시만.
 
 import { useEffect, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '@/store/gameStore';
@@ -13,7 +14,12 @@ import { GameState, HexCoord } from '@/types/game';
 import { safeTimeout } from '@/utils/safeTimers';
 import { isRecentUndoLog } from './uiEffects';
 import { useMyPlayerId } from '@/hooks/useMyPlayerId';
-import GameBoard from './GameBoard';
+
+// GameBoard를 여기서도 dynamic으로 가져와야 GamePageClient의 dynamic import와 같은 async 청크를
+// 공유해 GameBoard가 게임 초기 청크에서 빠진다. 정적 import면 오버레이 경로로 메인 청크에 도로
+// 딸려와 GamePageClient 쪽 dynamic 분리가 무효화된다 (2026-07-29 코드리뷰 발견).
+// 미니맵(fitOverlay)이라 로딩 폴백은 생략 — 잠깐 빈 상태가 무해하다.
+const GameBoard = dynamic(() => import('./GameBoard'), { ssr: false });
 
 /** 신도시 배치 팝업 유지 시간 — BoardPulses 신도시 펄스(~2.6초)를 다 보여주고 닫히게 */
 const NEW_CITY_FLASH_MS = 3500;

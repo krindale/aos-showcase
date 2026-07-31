@@ -241,7 +241,7 @@ export default function HeroBoardVignette() {
                 dur={DUR}
                 repeatCount="indefinite"
               />
-              <text x="10" y="246" fontFamily="IBM Plex Sans KR" fontSize="12.5" fill="#6e6a61">
+              <text x="10" y="246" fontFamily="IBM Plex Sans KR" fontSize="12.5" fill="#5f5b53">
                 <tspan fill="#c04a2b" fontWeight="700">
                   {step.n}{' '}
                 </tspan>

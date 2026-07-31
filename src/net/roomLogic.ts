@@ -6,6 +6,32 @@ import type { RoomSeat } from './types';
 
 const KOREAN_ORDINALS = ['하나', '둘', '셋', '넷', '다섯', '여섯'];
 
+/** 봇 좌석 이름 접미 — 좌석 index(1~) 기준. seat 0은 항상 호스트(사람)라 미사용. */
+const AI_SEAT_ORDINALS = ['', '', 'II', 'III', 'IV', 'V', 'VI'];
+
+/**
+ * 방 만들기 좌석 구성 — /online(방 만들기)과 게임 내 OnlineLobby가 공유한다.
+ * seat 0 = 호스트(사람), aiSeats에 든 좌석 = 봇, 나머지 = 겹치지 않는 기본 이름의 빈 사람 좌석.
+ * (두 화면이 각자 같은 루프를 복붙하던 것을 한 곳으로 — 규칙이 어긋나지 않게.)
+ */
+export function buildRoomSeats(
+  playerCount: number,
+  hostName: string,
+  aiSeats: Set<number>
+): RoomSeat[] {
+  const seats: RoomSeat[] = [];
+  for (let i = 0; i < playerCount; i++) {
+    if (i === 0) {
+      seats.push({ seat: 0, name: hostName.trim() || '호스트', kind: 'human', clientId: null });
+    } else if (aiSeats.has(i)) {
+      seats.push({ seat: i, name: `컴퓨터-기차${AI_SEAT_ORDINALS[i] ?? ''}`, kind: 'ai', clientId: null });
+    } else {
+      seats.push({ seat: i, name: uniqueSeatName(undefined, seats, i), kind: 'human', clientId: null });
+    }
+  }
+  return seats;
+}
+
 /**
  * 좌석 이름 중복 방지 — 다들 디폴트 이름(기차-하나)으로 들어와도
  * 좌석 순서대로 기차-하나/기차-둘/기차-셋…이 되게 한다.

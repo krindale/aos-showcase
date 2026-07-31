@@ -8,156 +8,22 @@ import { Play, X } from 'lucide-react';
 import { getMapProfile } from '@/maps/getMapProfile';
 import type { MapRuleSummary } from '@/maps/MapProfile';
 import { createHexLayout, hexPolygonPoints } from '@/utils/miniHexMap';
+import { useEnterMotion } from '@/hooks/useEnterMotion';
 
-const basePath = process.env.NODE_ENV === 'production' ? '/aos-showcase' : '';
+import {
+  basePath,
+  DIFF_COLOR,
+  maps,
+  thumbOf,
+  type MapEntry,
+  type RuleItem,
+} from '@/data/mapCatalog';
 
-type Difficulty = '입문' | '표준' | '중급' | '고급';
-
-const DIFF_COLOR: Record<Difficulty, string> = {
-  입문: '#8a857c',
-  표준: '#c04a2b',
-  중급: '#2f6b4f',
-  고급: '#3a4a78',
-};
-
-type RuleItem = { title?: string; detail: string };
-
-/**
- * 갤러리 전용 메타(diff/image/description)만 여기 두고,
- * 인원·턴 수·특수 규칙은 게임 엔진의 단일 소스(getMapProfile)에서 파생한다
- * — 페이지 하드코딩으로 인한 드리프트(예: 튜토리얼 10턴 오표기) 방지.
- */
-type MapEntry = {
-  slug: string;
-  name: string;
-  nameKo: string;
-  diff: Difficulty;
-  image: string | null;
-  description: string;
-  playable: boolean;
-  /** 프로파일이 없는(미구현) 맵의 수동 메타 */
-  manual?: { players: string; turns: string };
-  /** 프로파일 specialRules가 비어 있을 때(표준 룰 맵) 쓸 규칙 목록 */
-  fallbackRules?: RuleItem[];
-};
-
-const maps: MapEntry[] = [
-  {
-    slug: 'tutorial',
-    name: 'Tutorial',
-    nameKo: '튜토리얼',
-    diff: '입문',
-    image: '/maps/tutorial.webp',
-    description: '규칙을 익히기 위한 2인 학습용 맵. BOT과 함께 주식·경매·건설·배송의 한 사이클을 처음부터 끝까지 체험합니다.',
-    playable: true,
-    fallbackRules: [
-      { detail: '2인 학습용 — 룰북 기본 규칙 그대로 짧게 진행합니다.' },
-      { detail: '도시 4곳 + 마을 1곳(Wheeling)의 축소 보드.' },
-      { detail: '주식·경매·건설·배송·물품 성장까지 전체 사이클을 체험합니다.' },
-    ],
-  },
-  {
-    slug: 'rust-belt',
-    name: 'Rust Belt',
-    nameKo: '러스트 벨트',
-    diff: '표준',
-    image: '/maps/rust-belt.webp',
-    description: '미국 북동부 산업 지대를 배경으로 한 기본 맵. 오대호와 산악, 두 강을 낀 4~5인 대결입니다.',
-    playable: true,
-    fallbackRules: [
-      { detail: '룰북 기본 규칙으로 진행합니다.' },
-      { detail: 'Pittsburgh·Wheeling은 초기 물품 3개.' },
-      { detail: '오대호 헥스에는 트랙을 건설할 수 없습니다.' },
-    ],
-  },
-  {
-    slug: 'korea',
-    name: 'Korea',
-    nameKo: '한국',
-    diff: '고급',
-    image: '/maps/korea.webp',
-    description: '도시 색이 고정되지 않고 현재 놓인 큐브에 따라 수요가 바뀌는 독특한 맵. 평양에서 부산까지 한반도를 잇습니다.',
-    playable: true,
-  },
-  {
-    slug: 'western-us',
-    name: 'Western U.S.',
-    nameKo: '서부 미국',
-    diff: '고급',
-    image: '/maps/western-us.webp',
-    description: '태평양에서 미시시피까지 횡단하는 5~6인전. 험준한 산맥·늪, 동서 배달 보너스와 대륙횡단 보너스가 특징입니다.',
-    playable: true,
-  },
-  {
-    slug: 'southern-us',
-    name: 'Southern U.S.',
-    nameKo: '남부 미국',
-    diff: '중급',
-    image: '/maps/southern-us.webp',
-    description: '모든 마을의 면화(흰 큐브)를 4대 항구로 실어 나르는 6인전. 4턴 남북전쟁의 수입 감소 2배와 Atlanta 호황이 특징입니다.',
-    playable: true,
-  },
-  {
-    slug: 'germany',
-    name: 'Germany',
-    nameKo: '독일',
-    diff: '중급',
-    image: '/maps/germany.webp',
-    description: '외국 터미널과 헥스별 고정 건설비용, 도시 직결 링크가 있는 산업 혁명기의 독일 5~6인전입니다.',
-    playable: true,
-  },
-  {
-    slug: 'southern-china',
-    name: 'Southern China',
-    nameKo: '남부 중국',
-    diff: '고급',
-    image: '/maps/southern-china.webp',
-    description: '홍콩과 주강 삼각주를 둘러싼 4~5인전. 소유 디스크가 4개뿐이라 링크를 국유화하며 확장해야 하고, 모든 색을 받는 홍콩은 마지막 2턴에 문을 닫습니다.',
-    playable: true,
-  },
-  {
-    slug: 'montreal',
-    name: 'Montréal Métro',
-    nameKo: '몬트리올 메트로',
-    diff: '고급',
-    image: '/maps/montreal.webp',
-    description: '몬트리올 지하철망을 놓는 3인 전용전. 매 라운드 정부가 중립 링크를 무료 건설하고, 보드 위 모든 트랙이 하나의 네트워크로 이어져야 합니다.',
-    playable: true,
-  },
-  {
-    slug: 'moon',
-    name: 'The Moon',
-    nameKo: '달',
-    diff: '고급',
-    image: '/maps/moon.webp',
-    description: '달 표면에 선로를 놓는 3~4인전. 매 턴 보드 절반이 밤이 되어 검은 도시로 변하고, 맵 가장자리로 나간 선로는 반대편으로 이어집니다.',
-    playable: true,
-  },
-  {
-    slug: 'st-lucia',
-    name: 'St. Lucia',
-    nameKo: '세인트루시아',
-    diff: '중급',
-    image: '/maps/st-lucia.webp',
-    description: '2인 전용 대결 맵. 시작 도시가 없어 도시화 경쟁부터 시작하는, 작은 섬 위의 치열한 1:1 수싸움입니다.',
-    playable: true,
-  },
-  {
-    slug: 'barbados',
-    name: 'Barbados',
-    nameKo: '바베이도스',
-    diff: '중급',
-    image: '/maps/barbados.webp',
-    description: '1인 전용 솔로 맵. 작은 섬에서 모든 주식을 되사는 것을 목표로 하는 최적화 퍼즐입니다.',
-    playable: false,
-    manual: { players: '1', turns: '10턴' },
-    fallbackRules: [
-      { detail: '1인 솔로 전용 · 10턴 (룰북).' },
-      { detail: '턴당 주식 1주만 발행 가능.' },
-      { detail: '게임 종료 시 현금으로 전 주식($5)을 환매하지 못하면 패배.' },
-    ],
-  },
-];
+/* 온라인 화면(/online)에서 남긴 '나가기 시 돌아갈 곳' 표시를 지운다 —
+   여기서 시작한 게임은 나갈 때 이 갤러리로 돌아와야 한다. */
+function clearBackTo() {
+  try { window.sessionStorage.removeItem('aos-back-to'); } catch { /* noop */ }
+}
 
 type MapView = MapEntry & { players: string; turns: string; rules: RuleItem[] };
 
@@ -289,15 +155,19 @@ function MapVisual({
   map,
   sizes,
   fit = 'cover',
+  thumb = false,
 }: {
   map: MapEntry;
   sizes: string;
   fit?: 'cover' | 'contain';
+  /** 카드처럼 작게 보이는 자리는 축소본을 쓴다 (원본 1600px은 라이트박스 전용) */
+  thumb?: boolean;
 }) {
   if (!map.image) return <TutorialMiniMap />;
+  const src = (thumb ? thumbOf(map.image) : map.image) ?? map.image;
   return (
     <Image
-      src={`${basePath}${map.image}`}
+      src={`${basePath}${src}`}
       alt={`${map.nameKo} 맵`}
       fill
       sizes={sizes}
@@ -307,6 +177,7 @@ function MapVisual({
 }
 
 export default function MapsPage() {
+  const { enter, reduce } = useEnterMotion();
   const [lightboxMap, setLightboxMap] = useState<MapView | null>(null);
 
   useEffect(() => {
@@ -347,9 +218,7 @@ export default function MapsPage() {
           {MAP_VIEWS.map((map, i) => (
             <motion.div
               key={map.slug}
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, delay: i * 0.05 }}
+              {...enter({ y: 16, duration: 0.4, delay: i * 0.05 })}
               className="glass-card card-hover flex flex-col overflow-hidden"
             >
               {/* 이미지 영역 — 클릭 시 라이트박스 */}
@@ -358,7 +227,7 @@ export default function MapsPage() {
                 aria-label={`${map.nameKo} 맵 크게 보기`}
                 className="relative block aspect-[16/10] w-full cursor-zoom-in border-b border-[#ebe6dc] bg-[#E9E2CB]"
               >
-                <MapVisual map={map} sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw" />
+                <MapVisual map={map} thumb sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw" />
                 <span
                   className="absolute left-[14px] top-[14px] rounded-full px-[11px] py-[5px] text-[11px] font-semibold text-[#fffdf8]"
                   style={{ background: DIFF_COLOR[map.diff] }}
@@ -377,16 +246,18 @@ export default function MapsPage() {
                     {map.players}인 · {map.turns}
                   </span>
                 </div>
-                <div className="mt-1 font-display text-xs tracking-wide text-[#a39d91]">
+                <div className="mt-1 font-display text-xs tracking-wide text-foreground-muted">
                   {map.name}
                 </div>
                 <p className="mt-[14px] text-sm leading-[1.7] text-foreground-secondary">
                   {map.description}
                 </p>
-                <div className="mt-auto pt-5">
+                <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-2 pt-5">
                   {map.playable ? (
                     <Link
                       href={`/game/${map.slug}/`}
+                      prefetch={false}
+                      onClick={clearBackTo}
                       className="inline-flex items-center gap-2 rounded-[10px] bg-accent px-4 py-[9px] text-sm font-bold text-[#fffdf8] shadow-glow transition-colors hover:bg-accent-light"
                     >
                       <Play className="h-[14px] w-[14px]" fill="currentColor" />
@@ -395,6 +266,13 @@ export default function MapsPage() {
                   ) : (
                     <span className="inline-block rounded-[10px] border border-[#ddd6c8] px-4 py-[9px] text-sm font-medium text-foreground-muted">
                       준비 중
+                    </span>
+                  )}
+                  {/* 11개 카드 중 초보 진입점을 표시 — 전부 같은 "플레이하기"라 어디서
+                      시작해야 할지 신호가 없었다 */}
+                  {map.slug === 'tutorial' && (
+                    <span className="font-display text-xs font-semibold tracking-wide text-accent">
+                      ← 처음이라면 여기서 시작
                     </span>
                   )}
                 </div>
@@ -411,7 +289,7 @@ export default function MapsPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
+            transition={{ duration: reduce ? 0 : 0.2 }}
             className="fixed inset-0 z-[100] flex items-center justify-center p-[clamp(12px,4vw,40px)]"
             onClick={() => setLightboxMap(null)}
           >
@@ -425,10 +303,10 @@ export default function MapsPage() {
 
             {/* 패널 */}
             <motion.div
-              initial={{ opacity: 0, scale: 0.96, y: 10 }}
+              initial={reduce ? false : { opacity: 0, scale: 0.96, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 10 }}
-              transition={{ duration: 0.25, ease: 'easeOut' }}
+              exit={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.96, y: 10 }}
+              transition={{ duration: reduce ? 0 : 0.25, ease: 'easeOut' }}
               onClick={(e) => e.stopPropagation()}
               className="glass-card relative flex max-h-[92vh] w-full max-w-[1100px] flex-col overflow-hidden md:h-[min(88vh,780px)] md:flex-row"
             >
@@ -451,7 +329,7 @@ export default function MapsPage() {
                   <h3 className="text-[22px] font-bold tracking-[-0.02em] text-foreground">
                     {lightboxMap.nameKo}
                   </h3>
-                  <span className="font-display text-xs tracking-wide text-[#a39d91]">
+                  <span className="font-display text-xs tracking-wide text-foreground-muted">
                     {lightboxMap.name}
                   </span>
                 </div>
@@ -503,6 +381,8 @@ export default function MapsPage() {
                   {lightboxMap.playable ? (
                     <Link
                       href={`/game/${lightboxMap.slug}/`}
+                      prefetch={false}
+                      onClick={clearBackTo}
                       className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-6 py-3 text-base font-bold text-[#fffdf8] shadow-glow transition-colors hover:bg-accent-light"
                     >
                       <Play className="h-4 w-4" fill="currentColor" />

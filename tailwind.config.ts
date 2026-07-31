@@ -17,10 +17,12 @@ const config: Config = {
           secondary: '#faf8f3', // 카드/패널 (구 #ffffff)
           tertiary: '#e7e1d5',  // 밴드/호버 (구 #efeae1)
         },
+        // 2026-07-29 WCAG AA 대비 확보 — 배경 #efece4 기준 실측으로 조정
+        // (구 secondary #6e6a61 = 4.51:1 경계, 구 muted #8a857c = 3.07:1 미달)
         foreground: {
           DEFAULT: '#1c1b18',   // 잉크
-          secondary: '#6e6a61', // 보조 텍스트
-          muted: '#8a857c',     // 흐린 텍스트
+          secondary: '#5f5b53', // 보조 텍스트 — 5.66:1
+          muted: '#66625a',     // 흐린 텍스트 — 배경/카드/밴드 세 곳 모두 4.5:1 이상 (5.09 / 5.72 / 4.63)
         },
         // 버밀리언 악센트
         accent: {

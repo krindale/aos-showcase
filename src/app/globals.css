@@ -8,7 +8,8 @@
 
 /*
  * 디자인 시스템 — "크림 페이퍼 + 버밀리언" (claude-design/Age of Steam Website Design)
- * bg #f7f5f0 · band #efeae1 · card #ffffff · ink #1c1b18 · sub #6e6a61 · muted #8a857c
+ * bg #efece4 · band #e7e1d5 · card #faf8f3 · ink #1c1b18 · sub #5f5b53 · muted #66625a
+ * (sub/muted는 2026-07-29 WCAG AA 확보로 진해짐 — 구 #6e6a61 / #8a857c)
  * accent #c04a2b (hover #d65a39) · positive #2f6b4f · border #e6e1d6 / #ebe6dc
  */
 :root {
@@ -92,6 +93,23 @@ body {
   font-weight: 700;
   line-height: 0.92;
   letter-spacing: -0.045em;
+  /* 참고: 대문자 A의 꼭짓점이 평평한 건 Space Grotesk의 flat apex 디자인이지
+     클리핑이 아니다(2026-07-29 측정: 글리프 상단 y=290.6 vs section 클리핑 경계 y=67).
+     "A가 잘린다"는 관찰로 padding 여유를 넣었다가 원인이 아님을 확인하고 되돌렸다. */
+}
+
+/* 높이가 짧은 뷰포트(노트북 브라우저 창 등)에서는 히어로를 압축해 1차 CTA가
+   스크롤 없이 보이게 한다. 큰 화면의 초대형 타이포 임팩트는 그대로 둔다.
+   (1512×710 창 실측: 압축 전 CTA가 y=742로 첫 화면 밖) */
+@media (max-height: 800px) {
+  .hero-compact {
+    padding-top: clamp(28px, 4vw, 52px);
+    padding-bottom: clamp(26px, 3.5vw, 44px);
+  }
+
+  .hero-title {
+    font-size: clamp(44px, 8.5vw, 104px);
+  }
 }
 
 /* Paper Panel (구 glass-panel — 클래스명 유지) */
@@ -112,7 +130,9 @@ body {
   font-size: 16px;
   background: #c04a2b;
   color: #fffdf8;
-  transition: all 0.25s ease;
+  /* transition: all → 실제 hover가 바꾸는 속성만 (background+transform). 'all'은 레이아웃 속성
+     변화까지 트랜지션 후보로 검사해 윈도우에서 리플로우 비용이 커진다 (2026-07-29) */
+  transition: background-color 0.25s ease, transform 0.25s ease;
   border: none;
   cursor: pointer;
   box-shadow: 0 8px 20px -8px rgba(192, 74, 43, 0.6);
@@ -132,7 +152,7 @@ body {
   border: 1px solid #ddd6c8;
   color: #1c1b18;
   background: #faf8f3;
-  transition: all 0.25s ease;
+  transition: border-color 0.25s ease, color 0.25s ease;
   cursor: pointer;
 }
 
@@ -150,7 +170,7 @@ body {
 /* Navigation */
 .nav-link {
   position: relative;
-  color: #6e6a61;
+  color: #5f5b53;
   transition: color 0.3s ease, background 0.3s ease;
 }
 
@@ -175,7 +195,7 @@ body {
 
 /* Card Hover Effect */
 .card-hover {
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .card-hover:hover {
@@ -200,4 +220,40 @@ body {
   font-weight: 600;
   letter-spacing: -0.02em;
   color: #1c1b18;
+}
+
+/* 키보드 포커스 표시 — 마우스 클릭에는 안 뜨고 Tab 이동에만 뜬다.
+   :where()로 특이성 0 — 자체 포커스 스타일을 가진 요소(focus:ring 등)가 이걸 덮어쓰게 두고,
+   아무 표시도 없던 요소에만 기본 링을 준다. outline은 요소의 border-radius를 자동으로 따른다. */
+:where(:focus-visible) {
+  outline: 2px solid #c04a2b;
+  outline-offset: 2px;
+}
+
+/* 모션 최소화 설정 존중 (prefers-reduced-motion)
+   — 장식용 애니메이션만 끈다. 게임 화면의 화물 이동·로딩 스피너는 정보 전달
+   목적이라 여기서 정지시키지 않는다. framer-motion 진입 애니메이션은
+   src/hooks/useEnterMotion.ts가 담당. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+    scroll-snap-type: none;
+  }
+
+  .rail-dash,
+  .animate-float,
+  .animate-steam,
+  .animate-fade-in,
+  .animate-fade-in-up,
+  .animate-slide-in-left,
+  .animate-slide-in-right,
+  .animate-scale-in {
+    animation: none;
+  }
+
+  .card-hover,
+  .card-hover:hover,
+  .btn-primary:hover {
+    transform: none;
+  }
 }

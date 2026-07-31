@@ -2,11 +2,13 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 
-// 개발 모드에서 AI 디버거 활성화
-import '@/ai/debug';
+// AI 디버거(@/ai/debug)는 프로덕션 번들에서 빼려고 정적 import 대신 컴포넌트 내부에서
+// 개발 모드일 때만 동적 로드한다(아래 useEffect). 정적 `import '@/ai/debug'`는 사이드이펙트
+// 모듈이라 트리셰이킹이 안 돼 프로덕션에도 딸려왔었다 (2026-07-29).
 
 // [개발 전용] 브라우저 콘솔/게임 로그를 로컬 수신 서버(:3999)로 미러링 — 디버깅용
 if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
@@ -34,7 +36,6 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
   }
 }
 import ConfirmDialog from '@/components/game/ConfirmDialog';
-import GameBoard from '@/components/game/GameBoard';
 import GameChat from '@/components/game/GameChat';
 import OnlineLobby from '@/components/game/OnlineLobby';
 import PhaseTransition from '@/components/game/PhaseTransition';
@@ -87,8 +88,28 @@ const COLOR_NAMES: Record<string, string> = {
   yellow: '노랑',
 };
 
+// GameBoard(SVG 렌더러 + board/ 레이어들)는 게임 라우트 청크에서 가장 무거운 축이라 지연 로딩.
+// ssr:false — static export에서도 클라이언트 전용 청크로 분리돼 게임 페이지 First Load JS를 줄인다.
+// 보드는 store 구독형(props 없음)이라 분리가 안전하다 (2026-07-29).
+const GameBoard = dynamic(() => import('@/components/game/GameBoard'), {
+  ssr: false,
+  // min-h — 부모가 높이 컨텍스트를 안 주는 경우에도 로딩 표시가 0높이로 사라지지 않게
+  loading: () => (
+    <div className="flex h-full min-h-[300px] w-full items-center justify-center text-foreground-muted text-sm">
+      보드 불러오는 중…
+    </div>
+  ),
+});
+
 export default function GamePageClient({ mapId }: GamePageClientProps) {
   const router = useRouter();
+
+  // AI 디버거(window.debugAI 등)는 개발 모드에서만 동적 로드 — 프로덕션 번들 제외
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'production') {
+      import('@/ai/debug');
+    }
+  }, []);
 
   // 맵 설정 (mapRegistry에서 맵별 주입)
   const mapConfig = getMapData(mapId);
@@ -104,7 +125,13 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   const [booting, setBooting] = useState(true);
   // 진행 중 게임 이어하기 배너 (일부러 나갔다 재입장한 경우 — 자동 복원 대신 선택권)
   const [resumeAvailable, setResumeAvailable] = useState(false);
-  const [setupTab, setSetupTab] = useState<'local' | 'online'>('local');
+  /* 랜딩 히어로의 "친구와 온라인 플레이" CTA는 ?mode=online으로 온라인 탭을 바로 연다.
+     (정적 export라 useSearchParams 대신 location을 직접 읽는다 — CSR bailout·Suspense 불필요) */
+  const [setupTab, setSetupTab] = useState<'local' | 'online'>(() => {
+    if (typeof window === 'undefined') return 'local';
+    const wantsOnline = new URLSearchParams(window.location.search).get('mode') === 'online';
+    return wantsOnline && isNetConfigured() ? 'online' : 'local';
+  });
   const [playerCount, setPlayerCount] = useState(supportedPlayers[0]);
   const [playerNames, setPlayerNames] = useState<string[]>(DEFAULT_NAMES);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
@@ -332,11 +359,26 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     setShowSetup(true);
   };
 
-  // 맵 페이지로 돌아가기 (온라인이면 방도 나감) — 의도적 이탈이므로 F5 복원 마킹 해제
+  /* 나가기 — 들어온 화면으로 되돌린다 (온라인이면 방도 나감).
+     /online·/online/quick에서 방을 만들거나 입장하면 그 경로를 sessionStorage에 남겨두는데,
+     그게 있으면 거기로 돌아간다(없으면 기존대로 맵 갤러리). 안 그러면 온라인으로 들어온
+     사람이 X를 눌렀을 때 엉뚱하게 봇 게임용 맵 갤러리로 떨어진다.
+     의도적 이탈이므로 F5 복원 마킹도 해제. */
   const handleBack = () => {
-    try { window.sessionStorage.removeItem('aos-ingame'); } catch { /* noop */ }
-    if (isOnline) void leaveRoom();
-    router.push('/maps');
+    let backTo = '/maps';
+    try {
+      window.sessionStorage.removeItem('aos-ingame');
+      backTo = window.sessionStorage.getItem('aos-back-to') || '/maps';
+      window.sessionStorage.removeItem('aos-back-to');
+    } catch { /* noop */ }
+    if (isOnline) {
+      /* 방 나가기가 끝난 뒤에 이동한다 — leaveRoom은 호스트일 때 closeRoom() 왕복을
+         기다린 뒤에야 room을 비우는데(netStore), 그 전에 /online에 도착하면 그 화면의
+         "방이 있으면 대기실로" 자동 라우팅이 게임 페이지로 도로 튕겨낸다. */
+      void leaveRoom().finally(() => router.push(backTo));
+      return;
+    }
+    router.push(backTo);
   };
 
   // 온라인 방 나가기 (게임 화면 → 셋업으로)
@@ -827,8 +869,8 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   // 메인 게임 화면
   return (
     <div className={`bg-background ${isLandscape ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
-      {/* 헤더 */}
-      <header className={`fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-md border-b border-foreground/10 ${isLandscape ? 'py-1' : ''}`}>
+      {/* 헤더 — backdrop-blur 8px로 억제(스크롤 상시 재블러가 윈도우 GPU에서 버벅임 유발, 2026-07-29) */}
+      <header className={`fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-[8px] border-b border-foreground/10 ${isLandscape ? 'py-1' : ''}`}>
         <div className={`max-w-[1800px] mx-auto px-2 sm:px-4 flex items-center justify-between gap-2 sm:gap-4 ${isLandscape ? 'py-1' : 'py-2 sm:py-3'}`}>
           <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             <button

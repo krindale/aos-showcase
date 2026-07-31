@@ -10,8 +10,10 @@ import { useEffect, useRef, useState } from 'react';
 import { isNetConfigured } from '@/net';
 import type { RoomSeat } from '@/net';
 import { useNetStore } from '@/net/netStore';
-import { uniqueSeatName } from '@/net/roomLogic';
+import { uniqueSeatName, buildRoomSeats } from '@/net/roomLogic';
 import { getMapData } from '@/utils/mapRegistry';
+import { getMapProfile } from '@/maps/getMapProfile';
+import { maps } from '@/data/mapCatalog';
 import {
   ArrowLeftRight, Bot, Check, Copy, Crown, Globe, Loader2, LogOut, Pencil, Play, RefreshCw, Route, Send, Star, User, UserX, Wifi, WifiOff, X, Zap,
 } from 'lucide-react';
@@ -26,6 +28,23 @@ function mapNameOf(mapId: string): string {
     return mapId;
   }
 }
+
+/**
+ * 방을 만들 때 고를 수 있는 맵 — 온라인은 URL의 맵에 묶이지 않는다.
+ * (히어로 CTA가 기본 맵으로 보내도 여기서 바꿀 수 있어야 한다는 요구)
+ * 기준은 mapCatalog의 playable 맵 하나로 통일 — /online 방 만들기 화면(ONLINE_MAPS)과
+ * 같은 소스라야 새 맵 추가 시 두 화면의 목록이 어긋나지 않는다 (2026-07-29 코드리뷰).
+ */
+const CREATABLE_MAPS: { id: string; name: string; players: number[] }[] = maps
+  .filter((m) => m.playable)
+  .map((m) => {
+    const profile = getMapProfile(m.slug);
+    return {
+      id: m.slug,
+      name: mapNameOf(m.slug),
+      players: [...profile.supportedPlayers].sort((a, b) => a - b),
+    };
+  });
 
 interface OnlineLobbyProps {
   mapId: string;
@@ -50,6 +69,11 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
   const [joinCode, setJoinCode] = useState('');
   // 대기실 "방 나가기" 확인 (실수 클릭 방지 — 방장이 나가면 방이 닫힘)
   const [leaveConfirm, setLeaveConfirm] = useState(false);
+  // 방 만들기용 맵 — URL의 맵으로 시작하되 로비에서 바꿀 수 있다.
+  // 방을 만들면 GamePageClient가 room.mapId와 URL이 다른 걸 감지해 그 맵 페이지로 옮겨준다.
+  const [createMapId, setCreateMapId] = useState(mapId);
+  const createMapPlayers =
+    CREATABLE_MAPS.find((m) => m.id === createMapId)?.players ?? supportedPlayers;
   const [playerCount, setPlayerCount] = useState(supportedPlayers[0]);
   // 방 만들기 좌석 구성: seat 0 = 나(호스트), 나머지 기본 = 친구 자리(사람)
   const [aiSeats, setAiSeats] = useState<Set<number>>(new Set());
@@ -66,6 +90,12 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
     if (list) list.scrollTop = list.scrollHeight;
   }, [chat.length]);
 
+  // 맵을 바꾸면 인원도 그 맵이 지원하는 값으로 맞춘다 (예: 3인 전용 몬트리올 ← 5인 독일)
+  useEffect(() => {
+    setPlayerCount((prev) => (createMapPlayers.includes(prev) ? prev : createMapPlayers[0]));
+    setAiSeats(new Set());
+  }, [createMapId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // 공개방 목록: 로비 폼이 보이는 동안 8초 폴링 (Phase 4)
   useEffect(() => {
     if (room || !isNetConfigured()) return;
@@ -73,6 +103,22 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
     const timer = setInterval(() => void refreshPublicRooms(), 8000);
     return () => clearInterval(timer);
   }, [room, refreshPublicRooms]);
+
+  /* 랜딩의 "빈 방에 바로 참가하기" CTA(?mode=online&quick=1) — 진입하자마자 빠른 매칭 1회.
+     빈 방이 없으면 netStore가 안내 메시지를 세우고 그대로 로비에 머문다(방 만들기로 이어짐).
+     쿼리는 즉시 지워 새로고침/뒤로가기에서 다시 매칭되지 않게 한다. */
+  const quickTried = useRef(false);
+  useEffect(() => {
+    if (quickTried.current || room || !isNetConfigured()) return;
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('quick') !== '1') return;
+    quickTried.current = true;
+    params.delete('quick');
+    const qs = params.toString();
+    window.history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : ''));
+    void handleQuickMatch();
+  }, [room]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!isNetConfigured()) {
     return (
@@ -92,20 +138,9 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
   };
 
   const handleCreate = () => {
-    // 좌석을 순차로 쌓으며 빈 사람 좌석엔 겹치지 않는 기본 이름(기차-하나/둘/…)을 부여한다.
-    // 실제 참가자가 들어오면 assignSeatForClaim(uniqueSeatName)이 그 사람 이름으로 교체.
-    const seats: RoomSeat[] = [];
-    for (let i = 0; i < playerCount; i++) {
-      if (i === 0) {
-        seats.push({ seat: 0, name: myName.trim() || '호스트', kind: 'human', clientId: null });
-      } else if (aiSeats.has(i)) {
-        seats.push({ seat: i, name: `컴퓨터-기차${['', '', 'II', 'III', 'IV', 'V'][i] ?? ''}`, kind: 'ai', clientId: null });
-      } else {
-        seats.push({ seat: i, name: uniqueSeatName(undefined, seats, i), kind: 'human', clientId: null });
-      }
-    }
+    const seats = buildRoomSeats(playerCount, myName, aiSeats);
     void hostRoom({
-      mapId,
+      mapId: createMapId,
       seats,
       isPublic,
       title: isPublic ? roomTitle.trim() || `${myName.trim() || '호스트'}의 방` : undefined,
@@ -382,7 +417,7 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
               onChange={(e) => setChatInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && handleSendChat()}
               placeholder="메시지…"
-              className="flex-1 px-3 py-2 bg-transparent text-sm text-foreground focus:outline-none"
+              className="flex-1 px-3 py-2 bg-transparent text-sm text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
             />
             <button onClick={handleSendChat} className="px-3 text-foreground-secondary hover:text-accent">
               <Send size={14} />
@@ -483,9 +518,24 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
             className="w-full px-3 py-2 bg-background-secondary rounded-lg border border-foreground/10 text-sm text-foreground focus:border-accent focus:outline-none"
           />
         )}
-        {supportedPlayers.length > 1 && (
+        {/* 지도 선택 — 온라인 방은 URL의 맵에 묶이지 않는다 */}
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-foreground-secondary">지도</span>
+          <select
+            value={createMapId}
+            onChange={(e) => setCreateMapId(e.target.value)}
+            className="w-full rounded-lg border border-foreground/10 bg-background-secondary px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+          >
+            {CREATABLE_MAPS.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name} ({m.players.join('·')}인)
+              </option>
+            ))}
+          </select>
+        </label>
+        {createMapPlayers.length > 1 && (
           <div className="flex gap-2">
-            {[...supportedPlayers].sort((a, b) => a - b).map((n) => (
+            {createMapPlayers.map((n) => (
               <button
                 key={n}
                 onClick={() => setPlayerCount(n)}

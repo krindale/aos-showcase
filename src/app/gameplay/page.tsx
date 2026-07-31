@@ -1,12 +1,17 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
+import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
+import { ArrowRight } from 'lucide-react';
+import { useEnterMotion } from '@/hooks/useEnterMotion';
 
 /* ── 단계별 애니메이션 다이어그램 (SMIL SVG, claude-design 포트) ── */
 
-const SUB = '#8a857c';
-const FAINT = '#a39d91';
+/* 다이어그램 SVG 텍스트 색 — tailwind foreground.secondary/muted와 같은 값.
+   카드 배경 #faf8f3 기준 6.36:1 / 5.31:1 (구 #8a857c 3.45:1, #a39d91 2.54:1은 AA 미달이었음) */
+const SUB = '#5f5b53';
+const FAINT = '#66625a';
 const LINE = '#c9c1b1';
 const TIE = '#d9d1c1';
 const RED = '#c04a2b';
@@ -421,10 +426,21 @@ const diagrams: { caption: string; svg: ReactNode }[] = [
   },
 ];
 
-const turnPhases = [
+/** more: 그 단계를 더 깊게 다루는 페이지로 보내는 링크 (펼친 패널 안에 표시) */
+const turnPhases: {
+  t: string;
+  en: string;
+  d: string;
+  more?: { href: string; label: string };
+}[] = [
   { t: '주식 발행', en: 'Issue Shares', d: '필요한 만큼 주식을 발행해 자금을 확보합니다. 많이 발행할수록 매 턴 지출이 무거워집니다.' },
   { t: '턴 순서 경매', en: 'Determine Player Order', d: '이번 라운드의 행동 순서를 입찰로 정합니다. 순서가 곧 우위입니다.' },
-  { t: '특수 액션 선택', en: 'Select Actions', d: '7개의 특수 액션 중 하나를 골라 이번 턴의 결정적 이점을 손에 넣습니다.' },
+  {
+    t: '특수 액션 선택',
+    en: 'Select Actions',
+    d: '7개의 특수 액션 중 하나를 골라 이번 턴의 결정적 이점을 손에 넣습니다.',
+    more: { href: '/actions/', label: '7가지 특수 액션 하나씩 보기' },
+  },
   { t: '선로 건설', en: 'Build Track', d: '도시를 잇는 선로 타일을 놓습니다. 지형에 따라 건설 비용이 달라집니다.' },
   { t: '상품 이동', en: 'Move Goods', d: '기관차 레벨까지의 거리만큼 상품을 배송하고 소득을 올립니다. 두 번 진행합니다.' },
   { t: '소득 징수', en: 'Collect Income', d: '소득 트랙의 현재 위치만큼 돈을 받습니다.' },
@@ -432,7 +448,7 @@ const turnPhases = [
   { t: '소득 감소', en: 'Income Reduction', d: '소득이 높을수록 트랙이 일정 칸 내려갑니다. 과열을 경계하세요.' },
   { t: '상품 생산', en: 'Goods Growth', d: '주사위를 굴려 도시에 새로운 상품 큐브를 보충합니다.' },
   { t: '턴 마커 전진', en: 'Advance Turn Marker', d: '턴 마커를 한 칸 전진합니다. 마지막 턴이었다면 최종 점수를 계산해 승자를 가립니다.' },
-] as const;
+];
 
 const mechanics = [
   { n: 'A — 빚', t: '주식은 빌린 돈이다', d: '발행한 주식은 매 턴 비용으로 돌아오고, 게임 종료 시 점수를 깎습니다. 언제 멈출지가 핵심입니다.' },
@@ -442,6 +458,18 @@ const mechanics = [
 
 export default function GameplayPage() {
   const [openPhase, setOpenPhase] = useState<number | null>(null);
+  const { reduce } = useEnterMotion();
+
+  /* 다이어그램은 SMIL(<animate>/<animateMotion>)이라 CSS로 끌 수 없다.
+     모션 최소화 설정이면 패널이 열리는 순간 SVG 애니메이션을 정지시켜
+     첫 프레임(정지 화면)만 보여준다. */
+  const diagramRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (!node || !reduce) return;
+      node.querySelectorAll('svg').forEach((svg) => svg.pauseAnimations());
+    },
+    [reduce]
+  );
 
   return (
     <div>
@@ -466,45 +494,65 @@ export default function GameplayPage() {
             const isOpen = openPhase === i;
             return (
               <div key={phase.en} className="border-t border-glass-border">
-                <div
-                  onClick={() => setOpenPhase(isOpen ? null : i)}
-                  className="grid cursor-pointer grid-cols-[58px_1fr_auto] items-start gap-[clamp(12px,3vw,28px)] rounded-xl px-3 py-[22px] transition-colors hover:bg-background-tertiary"
-                >
-                  <div className="text-right font-display text-[clamp(30px,5vw,48px)] font-semibold leading-[0.9] tracking-[-0.02em] text-[#d9d1c1]">
-                    {i + 1}
-                  </div>
-                  <div>
-                    <div className="flex flex-wrap items-baseline gap-[10px]">
-                      <h3 className="text-[clamp(19px,2.6vw,25px)] font-bold tracking-[-0.02em] text-foreground">
-                        {phase.t}
-                      </h3>
-                      <span className="font-display text-[12.5px] text-[#a39d91]">{phase.en}</span>
-                    </div>
-                    <p className="mt-[9px] max-w-[680px] text-[15px] leading-[1.7] text-foreground-secondary">
-                      {phase.d}
-                    </p>
-                  </div>
-                  <div className="self-center whitespace-nowrap font-display text-xs font-semibold text-accent">
-                    {isOpen ? '닫기 ▲' : '애니메이션 ▾'}
-                  </div>
-                </div>
+                {/* WAI-ARIA 아코디언 패턴: heading > button.
+                    button 안에는 phrasing content(span)만 — h3/p/div는 유효하지 않다. */}
+                <h3>
+                  <button
+                    type="button"
+                    onClick={() => setOpenPhase(isOpen ? null : i)}
+                    aria-expanded={isOpen}
+                    aria-controls={`phase-panel-${i}`}
+                    className="grid w-full cursor-pointer grid-cols-[58px_1fr_auto] items-start gap-[clamp(12px,3vw,28px)] rounded-xl px-3 py-[22px] text-left transition-colors hover:bg-background-tertiary"
+                  >
+                    <span className="block text-right font-display text-[clamp(30px,5vw,48px)] font-semibold leading-[0.9] tracking-[-0.02em] text-[#d9d1c1]">
+                      {i + 1}
+                    </span>
+                    <span className="block">
+                      <span className="flex flex-wrap items-baseline gap-[10px]">
+                        <span className="text-[clamp(19px,2.6vw,25px)] font-bold tracking-[-0.02em] text-foreground">
+                          {phase.t}
+                        </span>
+                        <span className="font-display text-[12.5px] text-foreground-muted">{phase.en}</span>
+                      </span>
+                      <span className="mt-[9px] block max-w-[680px] text-[15px] font-normal leading-[1.7] text-foreground-secondary">
+                        {phase.d}
+                      </span>
+                    </span>
+                    <span className="block self-center whitespace-nowrap font-display text-xs font-semibold text-accent">
+                      {isOpen ? '닫기 ▲' : '애니메이션 ▾'}
+                    </span>
+                  </button>
+                </h3>
 
                 <AnimatePresence initial={false}>
                   {isOpen && (
                     <motion.div
-                      initial={{ opacity: 0, height: 0 }}
+                      id={`phase-panel-${i}`}
+                      initial={reduce ? false : { opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: 'auto' }}
                       exit={{ opacity: 0, height: 0 }}
-                      transition={{ duration: 0.3, ease: 'easeOut' }}
+                      transition={{ duration: reduce ? 0 : 0.3, ease: 'easeOut' }}
                       className="overflow-hidden"
                     >
-                      <div className="px-3 pb-[26px] pl-[clamp(12px,5vw,70px)]">
+                      <div ref={diagramRef} className="px-3 pb-[26px] pl-[clamp(12px,5vw,70px)]">
                         <div className="max-w-[560px] rounded-[14px] border border-[#ece7dd] bg-background-secondary px-[22px] py-5 shadow-glass">
-                          <div className="mb-[14px] font-display text-[11px] font-medium tracking-[0.07em] text-[#a39d91]">
+                          <div className="mb-[14px] font-display text-[11px] font-medium tracking-[0.07em] text-foreground-muted">
                             {diagrams[i].caption}
                           </div>
                           {diagrams[i].svg}
                         </div>
+
+                        {/* 그 단계를 더 깊게 다루는 페이지로 — 지금은 특수 액션만 별도 페이지가 있다.
+                            아코디언 트리거(button) 밖이라 인터랙티브 요소 중첩이 아니다. */}
+                        {phase.more && (
+                          <Link
+                            href={phase.more.href}
+                            className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-accent underline-offset-4 transition-colors hover:underline"
+                          >
+                            {phase.more.label}
+                            <ArrowRight className="h-[15px] w-[15px]" aria-hidden />
+                          </Link>
+                        )}
                       </div>
                     </motion.div>
                   )}

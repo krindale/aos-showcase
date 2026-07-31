@@ -9,7 +9,7 @@ export default function Footer() {
       <div className="mx-auto flex max-w-[1200px] flex-wrap items-center justify-between gap-[18px] px-[clamp(18px,5vw,56px)] py-10">
         <div className="flex items-center gap-[11px]">
           <LogoMark size={24} />
-          <span className="font-display text-[13.5px] font-medium text-[#54504a]">
+          <span className="font-display text-[13.5px] font-medium text-foreground-secondary">
             Age of Steam · 디자인 Martin Wallace
           </span>
         </div>

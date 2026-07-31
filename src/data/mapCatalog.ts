@@ -4,8 +4,9 @@
  * 인원·턴 수·특수 규칙은 여기 두지 않는다 — 게임 엔진의 단일 소스(getMapProfile)에서
  * 파생해야 페이지 하드코딩으로 인한 드리프트(예: 튜토리얼 10턴 오표기)가 안 생긴다.
  *
- * ⚠️ 이 파일을 홈(HeroSection 등)에서 import하지 말 것 — getMapProfile을 끌어와
- * 랜딩 번들이 무거워진다. 지금은 /maps와 /online만 로드한다.
+ * ⚠️ 이 파일은 순수 데이터로 유지할 것(게임 엔진·getMapProfile import 금지) —
+ * HeroSection('수록 맵' 스탯) 등 랜딩에서도 import하므로, 여기서 엔진을 끌어오면
+ * 랜딩 번들이 통째로 무거워진다. 프로파일 파생은 각 페이지(/maps·/online)가 직접 한다.
  */
 
 export const basePath = process.env.NODE_ENV === 'production' ? '/aos-showcase' : '';
@@ -40,7 +41,7 @@ export type MapEntry = {
   fallbackRules?: RuleItem[];
 };
 
-/* ⚠️ 항목을 추가/삭제하면 HeroSection의 '수록 맵' 스탯 숫자도 함께 고칠 것 */
+/* HeroSection의 '수록 맵' 스탯은 maps.length에서 자동 파생 — 항목 추가/삭제 시 수동 동기화 불필요 */
 
 export const maps: MapEntry[] = [
   {

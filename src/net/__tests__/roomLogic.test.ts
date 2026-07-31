@@ -1,10 +1,42 @@
 // 좌석 배정/호스트 승계 순수 규칙 테스트 (Phase 2)
 import { describe, it, expect } from 'vitest';
-import { assignSeatForClaim, isHostAbsent, pickHostSuccessor, uniqueSeatName, renameSeat } from '../roomLogic';
+import { assignSeatForClaim, buildRoomSeats, isHostAbsent, pickHostSuccessor, uniqueSeatName, renameSeat } from '../roomLogic';
 import type { RoomSeat } from '../types';
 
 const seats = (over: Partial<RoomSeat>[]): RoomSeat[] =>
   over.map((o, i) => ({ seat: i, name: `자리${i}`, kind: 'human', clientId: null, ...o }));
+
+describe('buildRoomSeats (방 만들기 좌석 구성 — /online·OnlineLobby 공유)', () => {
+  it('seat 0 = 호스트(사람, 트림된 이름), 나머지는 기본 이름의 빈 사람 좌석', () => {
+    const s = buildRoomSeats(3, '  선장 ', new Set());
+    expect(s).toHaveLength(3);
+    expect(s[0]).toMatchObject({ seat: 0, name: '선장', kind: 'human', clientId: null });
+    expect(s[1]).toMatchObject({ seat: 1, name: '기차-둘', kind: 'human', clientId: null });
+    expect(s[2]).toMatchObject({ seat: 2, name: '기차-셋', kind: 'human', clientId: null });
+  });
+
+  it('빈 호스트 이름은 "호스트"로 폴백', () => {
+    expect(buildRoomSeats(2, '   ', new Set())[0].name).toBe('호스트');
+  });
+
+  it('aiSeats 좌석은 봇 — 이름은 컴퓨터-기차/컴퓨터-기차II… (좌석 index 기준)', () => {
+    const s = buildRoomSeats(4, '호스트', new Set([1, 3]));
+    expect(s[1]).toMatchObject({ kind: 'ai', name: '컴퓨터-기차' });
+    expect(s[2]).toMatchObject({ kind: 'human', name: '기차-셋' });
+    expect(s[3]).toMatchObject({ kind: 'ai', name: '컴퓨터-기차III' });
+  });
+
+  it('인원 밖 aiSeats 잔존값은 무시 (인원을 줄였다 늘리는 UI 상태 재사용에 안전)', () => {
+    const s = buildRoomSeats(3, '호스트', new Set([2, 4]));
+    expect(s).toHaveLength(3);
+    expect(s.filter((x) => x.kind === 'ai')).toHaveLength(1);
+  });
+
+  it('6인 전 좌석 이름이 서로 겹치지 않는다', () => {
+    const s = buildRoomSeats(6, '기차-둘', new Set([3]));
+    expect(new Set(s.map((x) => x.name)).size).toBe(6);
+  });
+});
 
 describe('renameSeat', () => {
   it('이름을 바꾸고 앞뒤 공백을 트림해 저장', () => {

@@ -171,15 +171,16 @@ describe('차단 목록 (O4 — 강퇴 실효화)', () => {
     expect(dup[0].at).toBe(1000); // 갱신하지 않음
   });
 
-  it('addBan: 상한(DB check와 동일)을 넘으면 가장 오래된 차단부터 밀어낸다 — 넘기면 update가 통째로 실패한다', () => {
+  it('addBan: 상한(DB check와 동일)에 닿으면 추가하지 않고 그대로 둔다 — 퇴장만 되고 차단은 생략', () => {
     let list = [] as ReturnType<typeof addBan>;
     for (let i = 0; i < MAX_BANNED; i++) list = addBan(list, `u${i}`, `이름${i}`, i);
     expect(list).toHaveLength(MAX_BANNED);
 
-    const overflowed = addBan(list, 'u-new', '새사람', 9999);
-    expect(overflowed).toHaveLength(MAX_BANNED); // 상한 유지
-    expect(overflowed.some((b) => b.uid === 'u0')).toBe(false); // 가장 오래된 것이 빠짐
-    expect(overflowed.some((b) => b.uid === 'u-new')).toBe(true); // 방금 것은 들어감
+    const atLimit = addBan(list, 'u-new', '새사람', 9999);
+    expect(atLimit).toHaveLength(MAX_BANNED); // 상한 유지
+    expect(atLimit).toBe(list); // 같은 참조 — 호출부가 "추가 안 됨"을 판별할 수 있다
+    expect(atLimit.some((b) => b.uid === 'u-new')).toBe(false); // 새 사람은 안 들어감
+    expect(atLimit.some((b) => b.uid === 'u0')).toBe(true); // 오래된 것도 안 밀려남
   });
 
   it('removeBan: 해제하면 다시 입장할 수 있다', () => {

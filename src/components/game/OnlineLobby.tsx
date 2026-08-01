@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { isNetConfigured } from '@/net';
 import { useNetStore } from '@/net/netStore';
-import { uniqueSeatName, buildRoomSeats } from '@/net/roomLogic';
+import { uniqueSeatName, buildRoomSeats, MAX_BANNED } from '@/net/roomLogic';
 import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { maps } from '@/data/mapCatalog';
@@ -398,6 +398,13 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
             <div className="flex items-center gap-1.5 px-1 pb-1.5 text-[11px] font-semibold text-foreground-muted">
               <UserX size={12} />
               차단된 참가자 {room.banned?.length}명
+              {/* 상한에 닿으면 그 사실을 알린다 — 이후 내보내기는 차단 없이 퇴장만 되는데,
+                  말해 주지 않으면 "왜 다시 들어오지?"가 된다. 해제하면 다시 여유가 생긴다. */}
+              {(room.banned?.length ?? 0) >= MAX_BANNED && (
+                <span className="font-normal text-accent">
+                  · 최대 {MAX_BANNED}명까지 차단할 수 있어요. 더 내보내면 퇴장만 되니 필요 없는 차단은 해제해 주세요.
+                </span>
+              )}
             </div>
             {/* 최대 MAX_BANNED(50)까지 쌓일 수 있어 스크롤을 준다 — 없으면 대기실이
                 차단 목록 길이만큼 계속 늘어난다(공개방 목록과 같은 처리, 리뷰 스텝4) */}

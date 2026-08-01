@@ -102,6 +102,22 @@ export class SupabaseTransport implements NetTransport {
     this.client = createClient(url, anonKey, {
       auth: { persistSession: true, autoRefreshToken: true },
     });
+
+    /*
+     * 토큰이 갱신되면 Realtime에도 새 JWT를 넘긴다(S2).
+     * 문서: "If a new JWT is never received on the Channel, the client will be
+     *        disconnected when the JWT expires."
+     * 이 게임은 한 판이 두 시간까지 가는데 익명 세션 JWT는 그보다 짧다 —
+     * 이게 없으면 **게임 중반에 조용히 연결이 끊긴다**. private 채널로 바꾼 뒤에는
+     * 재연결도 정책 검사를 다시 타므로 토큰이 낡으면 재입장조차 실패한다.
+     */
+    this.client.auth.onAuthStateChange((event) => {
+      if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
+        void this.client.realtime.setAuth().catch((e) => {
+          console.warn('[net] Realtime 토큰 갱신 실패:', e);
+        });
+      }
+    });
   }
 
   /**
@@ -115,7 +131,12 @@ export class SupabaseTransport implements NetTransport {
   private async ensureAuth(): Promise<string | null> {
     try {
       const { data: sessionData } = await this.client.auth.getSession();
-      if (sessionData.session?.user?.id) return sessionData.session.user.id;
+      if (sessionData.session?.user?.id) {
+        // 이미 로그인돼 있어도 Realtime에는 토큰을 따로 넘겨야 한다 — private 채널의
+        // RLS가 이 JWT로 auth.uid()를 판정한다(문서: "Needed for Realtime Authorization").
+        await this.client.realtime.setAuth();
+        return sessionData.session.user.id;
+      }
 
       const { data, error } = await this.client.auth.signInAnonymously();
       if (error) {
@@ -126,6 +147,9 @@ export class SupabaseTransport implements NetTransport {
         );
         return null;
       }
+      // 새로 로그인한 경우에도 Realtime에 토큰 전달 (onAuthStateChange가 SIGNED_IN으로
+      // 잡아 주지만, 그건 비동기라 바로 뒤따르는 채널 구독보다 늦을 수 있다)
+      await this.client.realtime.setAuth();
       return data.user?.id ?? null;
     } catch (e) {
       console.warn('[net] 익명 로그인 중 예외 — anon 권한으로 계속합니다.', e);
@@ -239,6 +263,19 @@ export class SupabaseTransport implements NetTransport {
       config: {
         presence: { key: clientId },
         broadcast: { self: false }, // 자기 메시지는 자기에게 안 옴 (types.ts RoomEvents 주석 참조)
+        /*
+         * private 채널(S2) — realtime.messages RLS가 "이 방의 participant_uids에 있는 uid"만
+         * 통과시킨다. 이게 없으면 채널 이름(=방 코드)을 아는 누구나 들어와 게임·채팅을
+         * 도청하고 위조 intent·스냅샷을 보낼 수 있다. 앱 레벨 발신자 검증(from/좌석 확인)은
+         * payload를 믿는 구조라 위조를 못 막는다 — 이게 그 본체다.
+         *
+         * 참가자가 되는 유일한 경로는 join_room RPC(코드 제시) — 채널에 들어가야 참가자가
+         * 되던 고리를 그 RPC가 끊는다.
+         *
+         * 실측(2026-08-01): 익명 로그인 사용자도 authenticated 롤이라 정책을 통과한다.
+         * 비참가자는 "Unauthorized: You do not have permissions to read from this Channel topic".
+         */
+        private: true,
       },
     });
 

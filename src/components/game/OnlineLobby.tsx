@@ -622,7 +622,11 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
           <button
             onClick={handleJoin}
             disabled={busy || joinCode.trim().length < 6}
-            className="btn-secondary px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-60"
+            /* ⚠️ 폭을 고정한다 — "입장"(2자) ↔ "입장 중…"(5자)로 라벨이 바뀌면 이 버튼이
+               넓어지고, 같은 flex 행의 input(flex-1)이 그만큼 줄었다 늘어난다.
+               그게 입장 버튼을 누를 때 화면이 흔들려 보이던 실제 원인이다(실사용 피드백).
+               다른 버튼(방 만들기·빠른 매칭)은 w-full이라 라벨이 바뀌어도 폭이 안 변한다. */
+            className="btn-secondary w-[104px] flex-none px-4 py-2 rounded-lg text-center text-sm font-semibold disabled:opacity-60"
           >
             {busy ? '입장 중…' : '입장'}
           </button>

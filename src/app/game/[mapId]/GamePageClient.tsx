@@ -68,6 +68,7 @@ import {
   TURNS_BY_PLAYER_COUNT,
   ACTION_INFO,
 } from '@/types/game';
+import { hasAppHistory } from '@/utils/appNav';
 import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 
@@ -360,43 +361,49 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     setShowSetup(true);
   };
 
-  /* 나가기 = **브라우저 히스토리의 직전 페이지로**.
+  /* 나가기 = **앱 안에서 온 직전 페이지로**.
      예전엔 /online·/online/quick이 진입할 때 sessionStorage에 출발지를 남기고 나갈 때
      읽는 방식이었는데, 그 기록을 지우는 지점이 셋이나 돼서 하나만 어긋나도 조용히
-     /maps로 떨어졌다(실사용 지적). 히스토리를 쓰면 기록을 관리할 일 자체가 없다.
+     /maps로 떨어졌다(실사용 지적). 히스토리를 쓰면 관리할 기록이 없다.
 
-     폴백: 새 탭에서 /game/<맵>을 직접 열면 돌아갈 히스토리가 없다 → 맵 갤러리로.
-     (그 경우 back()은 사이트 밖으로 나가거나 아무 일도 안 한다)
+     ⚠️ 단 window.history.length로 판정하면 안 된다 — 그 값은 **다른 사이트 방문까지** 세서,
+     검색 결과에서 게임 페이지로 바로 들어온 사람이 X를 누르면 사이트 밖으로 나간다.
+     우리가 push한 횟수만 세는 hasAppHistory()로 판정한다(appNav.ts).
 
+     fallback: 앱 내 히스토리가 없을 때 어디로 갈지 — 호출부마다 다르다(아래 참조).
      의도적 이탈이므로 F5 복원 마킹(aos-ingame)은 여기서 해제한다. */
-  const goBack = () => {
+  const goBack = (fallback: () => void) => {
     try { window.sessionStorage.removeItem('aos-ingame'); } catch { /* noop */ }
-    if (typeof window !== 'undefined' && window.history.length > 1) {
+    if (hasAppHistory()) {
       router.back();
       return;
     }
-    router.push('/maps');
+    fallback();
   };
 
   /* ⚠️ 방 나가기가 **끝난 뒤에** 이동한다 — leaveRoom은 호스트일 때 closeRoom() 왕복을
      기다린 뒤에야 room을 비우는데(netStore), 그 전에 /online에 도착하면 그 화면의
      "방이 있으면 대기실로" 자동 라우팅이 게임 페이지로 도로 튕겨낸다. */
-  const leaveThenBack = () => {
-    void leaveRoom().finally(() => goBack());
+  const leaveThen = (fallback: () => void) => {
+    void leaveRoom().finally(() => goBack(fallback));
   };
 
-  /* 나가기(X·←·맵 선택) — 온라인이면 방도 나간다 */
+  /* 나가기(X·←·맵 선택) — 온라인이면 방도 나간다.
+     앱 내 히스토리가 없으면(외부/직접 진입) 맵 갤러리로 — 기존과 같은 목적지. */
   const handleBack = () => {
+    const toGallery = () => router.push('/maps');
     if (isOnline) {
-      leaveThenBack();
+      leaveThen(toGallery);
       return;
     }
-    goBack();
+    goBack(toGallery);
   };
 
-  /* 온라인 "방 나가기" — 방을 나가고 직전 페이지로 (X와 같은 목적지) */
+  /* 온라인 "방 나가기" — 방을 나가고 직전 페이지로.
+     앱 내 히스토리가 없으면 **이 페이지의 셋업 화면**에 남는다(맵 갤러리로 튕기지 않게).
+     /game/<맵>에 직접 들어와 온라인 탭에서 방을 만든 흐름이 여기 해당한다. */
   const handleLeaveRoom = () => {
-    leaveThenBack();
+    leaveThen(() => setShowSetup(true));
   };
 
   // Responsive: Reset panel state on desktop (lg breakpoint) + detect landscape

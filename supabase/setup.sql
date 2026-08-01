@@ -24,27 +24,52 @@ create table if not exists public.rooms (
 grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on public.rooms to anon, authenticated;
 
--- RLS: 시작은 허용형 (친구 규모 — 방 코드를 아는 사람만 방을 찾는 모델).
--- 인증이 없어 요청자를 구분할 수 없으므로 "참가자만/호스트만" 정책은 현재 불가능.
--- 강화가 필요해지면 익명 로그인(anonymous sign-in) 도입 후 auth.uid() 기반으로 교체.
+-- RLS: uid 기반 (S1 3단계 적용 완료, 2026-08-01)
+--
+-- ⚠️ **전제: Supabase 대시보드 > Authentication > Anonymous sign-ins 활성화.**
+--    클라이언트(supabaseTransport.ensureAuth)가 signInAnonymously로 세션을 얻어야
+--    authenticated 롤이 된다. 이게 꺼져 있으면 아래 정책에 전부 걸려 온라인이 죽는다.
+--
+-- 적용 전에는 전부 허용형(using(true))이었고, 그래서 남의 방 스냅샷·좌석·호스트를
+-- 누구나 조작할 수 있었다.
 alter table public.rooms enable row level security;
 
+-- SELECT는 의도적으로 열어 둔다(S1b 과제) — 지금 조이면 "코드로 방 찾기"와
+-- "공개방 목록"이 함께 죽는다. 둘 다 security definer RPC/뷰로 옮기고 클라이언트
+-- (fetchRoom·listPublicRooms)도 함께 바꿔야 하는 별도 작업이다.
+-- 남는 노출은 정보 열람(비공개 방 코드·스냅샷)이고, 파괴적 조작은 아래가 막는다.
 drop policy if exists "rooms_select" on public.rooms;
 create policy "rooms_select" on public.rooms
   for select to anon, authenticated using (true);
 
+-- INSERT: 로그인한 사용자만, 반드시 **자기 uid로만** 방을 만들 수 있다
 drop policy if exists "rooms_insert" on public.rooms;
 create policy "rooms_insert" on public.rooms
-  for insert to anon, authenticated with check (true);
+  for insert to authenticated
+  with check (
+    auth.uid() is not null
+    and host_uid = auth.uid()
+    and participant_uids @> array[auth.uid()]
+  );
 
+-- UPDATE: 그 방의 참가자만.
+-- ⚠️ host_uid = auth.uid()로 조이면 **호스트 승계가 불가능해진다** — 승계는 게스트가
+--    방 행을 update해 호스트를 자기로 바꾸는 동작이기 때문이다. participant_uids로 판정한다.
+--    (참가자 등록은 호스트가 claimSeat 처리 때 해 준다 — netStore.handleClaimSeat)
+-- with check로 참가자 목록이 줄어들지 않게 막는다(남을 방에서 밀어내지 못하도록).
 drop policy if exists "rooms_update" on public.rooms;
 create policy "rooms_update" on public.rooms
-  for update to anon, authenticated using (true) with check (true);
+  for update to authenticated
+  using (auth.uid() = any(participant_uids))
+  with check (participant_uids @> array[auth.uid()]);
 
--- 종료된 방 정리용 (finished만 삭제 허용)
+-- DELETE: 호스트만, 그리고 끝난 방만.
+-- 기존엔 status='finished'이기만 하면 누구나 지울 수 있었고, update로 status를
+-- finished로 바꾼 뒤 삭제하는 우회도 가능했다(그 우회는 위 update 정책이 함께 막는다).
 drop policy if exists "rooms_delete_finished" on public.rooms;
 create policy "rooms_delete_finished" on public.rooms
-  for delete to anon, authenticated using (status = 'finished');
+  for delete to authenticated
+  using (status = 'finished' and auth.uid() = host_uid);
 
 -- updated_at 자동 갱신 (search_path 고정 — Supabase 보안 어드바이저 권고)
 create or replace function public.set_updated_at()

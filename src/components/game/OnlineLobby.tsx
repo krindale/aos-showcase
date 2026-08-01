@@ -54,7 +54,7 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
   const {
     mode, room, mySeat, presentClientIds, chat, busy, error,
     publicRooms, publicRoomsLoading,
-    hostRoom, joinRoom, leaveRoom, sendChat, updateSeats, startOnlineGame,
+    hostRoom, joinRoom, leaveRoom, sendChat, updateSeats, kickSeat, unbanUser, startOnlineGame,
     refreshPublicRooms, quickMatch, renameSeat,
     moveGuideAllowed, setMoveGuideAllowed,
   } = useNetStore();
@@ -355,18 +355,12 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
                     {/* 호스트: 접속 중인 게스트 내보내기 (본인/방장 좌석 제외, 대기실 한정) */}
                     {isHost && room.status === 'waiting' && online && !isMe && seat.clientId !== room.hostClientId && (
                       <button
-                        onClick={() => {
-                          void updateSeats(
-                            room.seats.map((s) =>
-                              s.seat === seat.seat
-                                ? { ...s, clientId: null, name: uniqueSeatName(undefined, room.seats, s.seat) }
-                                : s
-                            )
-                          );
-                        }}
+                        // 좌석 비우기 + 차단(O4) — 좌석만 비우면 코드를 다시 입력해
+                        // 그대로 다시 들어왔다. 아래 "차단된 참가자" 목록에서 바로 해제할 수 있다.
+                        onClick={() => void kickSeat(seat.seat)}
                         className="p-1 rounded-full bg-red-500/10 text-red-500 hover:bg-red-500/20"
-                        title="이 게스트를 방에서 내보내기"
-                        aria-label="게스트 내보내기"
+                        title="이 게스트를 내보내고 재입장을 차단합니다"
+                        aria-label="게스트 내보내고 차단"
                       >
                         <UserX size={14} />
                       </button>
@@ -396,6 +390,34 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
             );
           })}
         </div>
+
+        {/* 차단된 참가자 (O4) — 호스트에게만, 차단이 있을 때만 나타난다.
+            평소엔 섹션 자체가 없어 대기실이 지저분해지지 않고, 내보낸 직후에만 보인다. */}
+        {isHost && (room.banned?.length ?? 0) > 0 && (
+          <div className="rounded-lg border border-foreground/10 bg-background-secondary p-2">
+            <div className="flex items-center gap-1.5 px-1 pb-1.5 text-[11px] font-semibold text-foreground-muted">
+              <UserX size={12} />
+              차단된 참가자 {room.banned?.length}명
+            </div>
+            <div className="space-y-1">
+              {room.banned?.map((b) => (
+                <div
+                  key={b.uid}
+                  className="flex items-center justify-between gap-2 rounded px-1.5 py-1 text-xs"
+                >
+                  <span className="truncate text-foreground-secondary">{b.name}</span>
+                  <button
+                    onClick={() => void unbanUser(b.uid)}
+                    className="flex-none rounded px-2 py-0.5 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/10"
+                    title={`${b.name}의 차단을 해제해 다시 입장할 수 있게 합니다`}
+                  >
+                    해제
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* 채팅 */}
         <div className="rounded-lg border border-foreground/10 bg-background-secondary">

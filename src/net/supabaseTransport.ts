@@ -11,6 +11,7 @@ import {
   type SupabaseClient,
 } from '@supabase/supabase-js';
 import type {
+  BannedEntry,
   ChatMessage,
   IntentMessage,
   NetTransport,
@@ -67,6 +68,7 @@ interface RoomRow {
   /** S1a — 구 스키마/미활성 환경에선 없을 수 있어 optional */
   participant_uids?: string[] | null;
   host_uid?: string | null;
+  banned?: BannedEntry[] | null;
 }
 
 function rowToRoomInfo(row: RoomRow): RoomInfo {
@@ -83,6 +85,7 @@ function rowToRoomInfo(row: RoomRow): RoomInfo {
     updatedAt: row.updated_at,
     participantUids: row.participant_uids ?? [],
     hostUid: row.host_uid ?? null,
+    banned: row.banned ?? [],
   };
 }
 
@@ -318,7 +321,7 @@ class SupabaseRoomConnection implements RoomConnection {
   }
 
   async updateRoom(
-    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids' | 'hostUid'>>
+    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids' | 'hostUid' | 'banned'>>
   ): Promise<void> {
     const row: Record<string, unknown> = {};
     if (patch.status !== undefined) row.status = patch.status;
@@ -329,6 +332,7 @@ class SupabaseRoomConnection implements RoomConnection {
     if (patch.isPublic !== undefined) row.is_public = patch.isPublic;
     if (patch.participantUids !== undefined) row.participant_uids = patch.participantUids;
     if (patch.hostUid !== undefined) row.host_uid = patch.hostUid;
+    if (patch.banned !== undefined) row.banned = patch.banned;
 
     const { error } = await this.client.from('rooms').update(row).eq('id', this._room.id);
     if (error) throw new Error(`방 갱신 실패: ${error.message}`);
@@ -336,7 +340,7 @@ class SupabaseRoomConnection implements RoomConnection {
   }
 
   async upsertRoom(
-    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids' | 'hostUid'>>
+    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids' | 'hostUid' | 'banned'>>
   ): Promise<void> {
     // updateRoom과 달리 방 전체를 id 기준 upsert — 방장이 나가며 closeRoom으로 삭제한 방을
     // 승계자가 그대로 되살린다(같은 id·code 유지). 있으면 update, 없으면 insert.
@@ -358,6 +362,7 @@ class SupabaseRoomConnection implements RoomConnection {
       // 즉 되살린 방이 그 자리에서 죽는다.
       host_uid: r.hostUid ?? null,
       participant_uids: r.participantUids ?? [],
+      banned: r.banned ?? [],
     };
     const { error } = await this.client.from('rooms').upsert(row);
     if (error) throw new Error(`방 복원(upsert) 실패: ${error.message}`);

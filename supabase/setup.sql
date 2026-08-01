@@ -228,6 +228,34 @@ comment on column public.rooms.participant_uids is
   '이 방에 앉은 적 있는 사용자들의 auth.uid. update 정책이 이 배열로 참가자를 판정하므로 '
   '호스트 승계자도 권한을 유지한다. clientId(좌석 식별, 탭별)와는 별개 축이다.';
 
+-- ============================================================
+-- O4: 강퇴 실효화 — 방별 차단 목록 (2026-08-01)
+--
+-- 지금까지 강퇴는 좌석의 clientId를 비우는 것뿐이라, 내보낸 사람이 방 코드를 다시
+-- 입력하면 assignSeatForClaim이 빈자리에 그대로 배정했다(차단 장치가 아예 없었다).
+--
+-- uuid[]가 아니라 jsonb인 이유: UI에 "누구를 차단했는지" 보여주려면 이름이 필요한데,
+-- 이미 나간 사람이라 좌석에서 복원할 수 없다 → [{"uid","name","at"}] 형태로 함께 저장.
+-- 강퇴 시 participant_uids에서도 빼므로 RLS update 권한이 함께 회수된다.
+--
+-- ⚠️ 한계(설계상 수용): 시크릿 창·다른 브라우저는 새 익명 uid라 우회된다. 로그인 없는
+--    서비스의 구조적 한계이고, 목표는 "내보낸 사람이 그대로 다시 들어오는 것" 방지다.
+--    clientId로 막으면 sessionStorage라 탭만 새로 열어도 뚫려 아예 무의미하다.
+-- ============================================================
+alter table public.rooms add column if not exists banned jsonb not null default '[]';
+
+alter table public.rooms drop constraint if exists rooms_banned_shape;
+alter table public.rooms add constraint rooms_banned_shape
+  check (
+    jsonb_typeof(banned) = 'array'
+    and jsonb_array_length(banned) <= 50
+    and pg_column_size(banned) <= 8192
+  );
+
+comment on column public.rooms.banned is
+  '방장이 내보낸 참가자 목록 [{uid, name, at}]. 재입장 차단용(O4, 2026-08-01). '
+  'participant_uids에서도 함께 제거하므로 RLS update 권한도 같이 회수된다.';
+
 -- SECURITY DEFINER 함수의 REST RPC 노출 차단 (어드바이저 권고)
 -- Supabase는 public 스키마 함수를 /rest/v1/rpc/<name>으로 자동 노출한다. 아래 둘은
 -- 내부용(pg_cron·트리거)인데 소유자 권한으로 돌기 때문에, 노출된 채로 두면

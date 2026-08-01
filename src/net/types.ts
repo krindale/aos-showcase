@@ -12,9 +12,34 @@ export interface RoomSeat {
   name: string;
   kind: SeatKind;
   clientId: string | null; // 착석한 클라이언트 (AI·빈자리는 null)
+  /**
+   * 착석자의 auth.uid (O4). clientId만으로는 **차단할 대상을 특정할 수 없어서** 함께 둔다 —
+   * 내보내기 시 이 값으로 banned에 넣는다. 익명 로그인이 없으면 null(차단 불가).
+   * optional: 이 필드가 없던 시절의 방 데이터와 호환.
+   */
+  uid?: string | null;
 }
 
 export type RoomStatus = 'waiting' | 'playing' | 'finished';
+
+/**
+ * 방장이 내보낸 참가자 (O4 — 재입장 차단).
+ *
+ * uid로 막는 이유: clientId는 sessionStorage라 **탭만 새로 열어도 바뀌어** 차단이 무의미하다.
+ * auth 세션 uid는 localStorage라 같은 브라우저에서 유지된다.
+ * name을 함께 저장하는 이유: 차단 목록 UI에 누구인지 보여주려면 이름이 필요한데,
+ * 이미 나간 사람이라 좌석에서 복원할 수 없다.
+ *
+ * ⚠️ 한계(설계상 수용): 시크릿 창·다른 브라우저는 새 익명 uid라 우회된다.
+ *    로그인 없는 서비스의 구조적 한계 — 목표는 "작정한 사람 차단"이 아니라
+ *    "내보낸 사람이 그대로 다시 들어오는 것" 방지다.
+ */
+export interface BannedEntry {
+  uid: string;
+  name: string;
+  /** 차단 시각 (Date.now()) — 목록 정렬·표시용 */
+  at: number;
+}
 
 export interface RoomInfo {
   id: string;
@@ -39,6 +64,11 @@ export interface RoomInfo {
    * 익명 로그인이 꺼져 있으면 비어 있을 수 있다(정책 교체 전까지는 무해).
    */
   participantUids?: string[];
+  /**
+   * 방장이 내보낸 참가자들 (O4). 강퇴 시 participant_uids에서도 함께 제거하므로
+   * RLS update 권한이 같이 회수된다 — 밴은 "재입장 차단"과 "쓰기 권한 회수"를 겸한다.
+   */
+  banned?: BannedEntry[];
 }
 
 /** 게스트 → 호스트: "하고 싶은 행동" 요청. type/payload는 Phase 1에서 store 액션 기반 union으로 구체화 */
@@ -109,11 +139,11 @@ export interface RoomConnection {
   sendChat(name: string, text: string): Promise<void>;
   /** 호스트 전용: rooms 행 갱신 (스냅샷 저장, 좌석/상태 변경, 호스트 승계) */
   updateRoom(
-    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids' | 'hostUid'>>
+    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids' | 'hostUid' | 'banned'>>
   ): Promise<void>;
   /** 호스트 전용: 방 전체를 id 기준 upsert — 승계자가 삭제된 방을 되살릴 때 (updateRoom과 달리 insert 가능) */
   upsertRoom(
-    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids' | 'hostUid'>>
+    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids' | 'hostUid' | 'banned'>>
   ): Promise<void>;
   /** 호스트 전용: 대기실 하트비트 — updated_at만 갱신 (공개방 목록의 유령 방 필터 기준) */
   touchRoom(): Promise<void>;

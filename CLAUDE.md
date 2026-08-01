@@ -521,9 +521,16 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
   `supabase/setup.sql`(Supabase MCP `apply_migration`으로 적용). 공개방 목록은 8초 폴링(+수동
   새로고침), 대기실 45초 하트비트(touchRoom)로 유령 방 필터(updated_at 2분).
 - **방 자동 정리(pg_cron)**: `setup.sql`이 `cleanup_stale_rooms()`(security definer + search_path
-  고정) + pg_cron 스케줄을 등록 — `updated_at`(스냅샷 저장·하트비트마다 갱신 = 마지막 활동)이
-  6시간 지난 waiting/playing/finished 방을 하루 2회(UTC 05:00·17:00 = KST 14:00·02:00) 자동 삭제.
-  활성 게임은 최신이라 대상 아님. 접속자 없어도 서버에서 돎(수동 SQL 정리 불필요).
+  고정) + pg_cron 스케줄을 등록 — `updated_at`(스냅샷 저장·하트비트마다 갱신 = 마지막 활동)
+  기준으로 **1시간마다** 자동 삭제하되 **상태별 조건**이다(2026-08-01):
+  `waiting`·`finished` **30분** / `playing` **6시간**. 접속자 없어도 서버에서 돎(수동 SQL 불필요).
+  (`finished`는 `closeRoom`에서만 설정되고 곧바로 delete가 뒤따르므로, 남아 있으면 그 delete가
+  실패한 잔재다 — 게임이 끝나도 status는 `playing`이라 결과 화면과 무관.)
+  ⚠️ **왜 필요한가**: 호스트가 **"나가기" 버튼**으로 나가면 `closeRoom`이 방을 즉시 지우지만,
+  **탭을 닫거나 새로고침하면 그 코드가 안 돈다** — F5 자동 재입장이 그 위에 서 있어 새로고침을
+  방 폐쇄로 처리할 수도 없다. 그래서 버려진 방이 쌓인다. 목록에서는 `updated_at` 2분 필터로
+  안 보이므로(하트비트 45초 주기) **"나간 방이 최대 2분간 목록에 남는 건 정상"**이고, DB 누적만
+  이 cron이 걷어 간다. `updated_at` 인덱스는 일부러 안 만든다(이 규모에선 쓰기 비용만 늚).
 - **검증**: `npx vitest run src/net/__tests__/` (코덱/가드/검증/좌석·승계 규칙 30개) +
   두 브라우저 탭 E2E(방 생성→입장→시작→건설/수송/경매/도시화 왕복→F5 재접속→호스트 승계).
 - **종합 설계·비용·Phase 체크리스트**: [`docs/online-multiplayer-plan.md`](docs/online-multiplayer-plan.md),
@@ -737,6 +744,13 @@ node scripts/log-server.mjs  # :3999 로그 서버 — 앱과 항상 함께 띄�
 **⚠️ store 로직(slice/hexGrid 등)을 고쳤는데 화면 동작이 그대로면 HMR을 의심할 것** — zustand
 store는 HMR로 slice 함수가 갈아끼워지지 않아 **옛 로직이 계속 돈다**(미리보기는 바뀌었는데 정산은
 옛 코드가 도는 식). `.next` 삭제 + dev 재시작 + 브라우저 강력 새로고침으로 강제 반영.
+
+**같은 함정이 `src/net`에도 있다 — 모듈 싱글턴이면 전부 해당된다.** `getTransport()`가 캐시하는
+`SupabaseTransport` 인스턴스는 HMR로 클래스가 갈려도 **옛 코드의 메서드를 그대로 들고 있다**.
+2026-08-01 실제 사고: private 채널 전환 후 로컬에서 `CHANNEL_ERROR: PrivateOnly: This project
+only allows private channels` — 새벽에 띄운 dev 서버의 옛 인스턴스가 `private: true` 없이 채널을
+만들고 있었다(코드·배포본은 정상). **강력 새로고침으로 해결**. 넷 관련 수정 후 "코드는 맞는데
+동작이 옛날"이면 원인을 코드에서 찾기 전에 새로고침부터 할 것.
 스테일 감지 가드: `gameStore.ts`의 `STORE_CODE_VERSION` — **store/slice/helpers 로직 수정 시 +1**
 하면 dev 콘솔에 `[HMR] 버전 불일치` 경고가 뜬다(버전을 안 올려도 모듈 재평가 경고는 뜸).
 강력 새로고침하면 사라진다.

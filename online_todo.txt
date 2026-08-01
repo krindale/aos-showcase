@@ -149,19 +149,32 @@
          또 Supabase 대시보드에서 Anonymous sign-ins를 먼저 켜야 한다
          (2026-08-01 확인: auth.users 0명 = 아직 미사용).
 
-[S2] Realtime 채널 보호 + 발신자 검증   ⏳ 앱 레벨 즉효약만 완료 (2026-08-01)
-     ✅ 완료: 스냅샷 from 필드 + 호스트 검증, intent 좌석 위장 차단 (netStore)
-     ⬜ 남음: Supabase Realtime private channel + authorization ← 이게 진짜 방어.
-        payload의 clientId는 클라이언트가 쓰는 값이라 앱 레벨 검사만으론 위조를 못 막는다.
-     현재: 채널 이름 = 방 코드라 코드를 알면(=S1 전엔 누구나) 채널 참여 가능.
-       ⓐ 게임·채팅 도청  ⓑ 위조 인텐트(clientId를 seats에서 읽어 위장 —
-       호스트가 그대로 실행)  ⓒ 위조 스냅샷(netStore.onSnapshot이 발신자
-       검증 없이 rev만 보고 적용 — 높은 rev로 쏘면 전 게스트 상태 오염)
-     수정:
-       - Supabase Realtime private channel + authorization (참가자만 join)
-       - 앱 레벨 즉효약(선행 가능): 게스트는 snapshot 발신 clientId가
-         room.hostClientId와 일치할 때만 적용, 호스트는 intent 발신 clientId와
-         msg.clientId 일치 검증 (transport가 발신자 메타를 실어주면 됨)
+[S2] Realtime 채널 보호 + 발신자 검증   ⏳ 코드·DB 완료, **대시보드 스위치 1개 남음**
+     ✅ 앱 레벨 즉효약 (2026-08-01): 스냅샷 from 필드 + 호스트 검증, intent 좌석 위장 차단
+     ✅ private channel 본체 (2026-08-01): realtime.messages 정책 + 클라이언트 private: true
+     ⬜ **남은 건 사용자 손 하나**: 대시보드 > Realtime Settings > "Allow public access" **끄기**
+        ⚠️ 반드시 위 클라이언트가 **배포된 뒤에** 끌 것 — 먼저 끄면 아직 public으로
+           붙는 배포본이 통신을 통째로 잃는다(문서: public broadcast는 public 채널에만 도달).
+
+     문제였던 것: 채널 이름 = 방 코드라 코드를 알면 누구나 채널 참여 가능했다.
+       ⓐ 게임·채팅 도청  ⓑ 위조 인텐트(clientId를 seats에서 읽어 위장)
+       ⓒ 위조 스냅샷(높은 rev로 쏘면 전 게스트 상태 오염)
+     앱 레벨 검사는 payload를 믿는 구조라 위조를 못 막는다 → 채널 자체를 잠근 게 본체.
+
+     적용 내용:
+       - realtime.messages에 select(수신·입장)/insert(송신) 정책
+         "'room:' || rooms.code = realtime.topic() and auth.uid() = any(participant_uids)"
+       - 참가자가 되는 유일한 경로는 join_room RPC(코드 제시) → S1b가 선행이었던 이유
+       - 클라이언트: 채널 config private: true + realtime.setAuth()
+       - 토큰 갱신(onAuthStateChange)마다 setAuth 재호출 — 없으면 JWT 만료 시
+         **게임 중반에 조용히 끊긴다**(한 판 최대 2시간 > 익명 세션 JWT 수명)
+
+     실측(Node + supabase-js, 실제 WebSocket):
+       ① 참가자    → SUBSCRIBED
+       ② 비참가자  → CHANNEL_ERROR "Unauthorized: You do not have permissions
+                     to read from this Channel topic: room:ZZRTPC"
+       ③ join_room 호출 후 → SUBSCRIBED
+     → **익명 로그인 사용자도 private 채널을 쓸 수 있다**(공식 문서에 언급이 없어 직접 확인).
 
 [S3] DB 서버측 제약 — 클라이언트 캡은 우회 가능   ✅ 완료 (2026-08-01, 프로덕션 적용)
      rooms에 check 제약 추가: title/이름 길이, seats 원소 수(≤6)·크기,

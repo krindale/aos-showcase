@@ -163,16 +163,31 @@ function MapVisual({
   /** 카드처럼 작게 보이는 자리는 축소본을 쓴다 (원본 1600px은 라이트박스 전용) */
   thumb?: boolean;
 }) {
+  // unoptimized: true(static export)라 Next의 placeholder="blur"를 못 쓰고, blurDataURL을
+  // 만들려면 이미지 처리 라이브러리가 필요해(추가 금지) CSS 스켈레톤으로 대체 — 로드 전엔
+  // 카드 톤 배경 + 은은한 펄스, 로드되면 이미지가 위에 페이드인.
+  const [loaded, setLoaded] = useState(false);
   if (!map.image) return <TutorialMiniMap />;
   const src = (thumb ? thumbOf(map.image) : map.image) ?? map.image;
   return (
-    <Image
-      src={`${basePath}${src}`}
-      alt={`${map.nameKo} 맵`}
-      fill
-      sizes={sizes}
-      className={fit === 'cover' ? 'object-cover' : 'object-contain'}
-    />
+    <>
+      {!loaded && (
+        <div
+          aria-hidden
+          className="absolute inset-0 bg-background-tertiary motion-safe:animate-pulse"
+        />
+      )}
+      <Image
+        src={`${basePath}${src}`}
+        alt={`${map.nameKo} 맵`}
+        fill
+        sizes={sizes}
+        onLoad={() => setLoaded(true)}
+        className={`${fit === 'cover' ? 'object-cover' : 'object-contain'} transition-opacity duration-300 ${
+          loaded ? 'opacity-100' : 'opacity-0'
+        }`}
+      />
+    </>
   );
 }
 
@@ -264,9 +279,23 @@ export default function MapsPage() {
                       플레이하기
                     </Link>
                   ) : (
-                    <span className="inline-block rounded-[10px] border border-[#ddd6c8] px-4 py-[9px] text-sm font-medium text-foreground-muted">
-                      준비 중
-                    </span>
+                    /* 준비 중 카드에 후속 행동이 없어 관심 있는 방문자를 놓치던 문제(UX 리뷰).
+                       정적 사이트라 "알림 받기"(이메일 수집)는 불가능하므로, 지금 바로 할 수 있는
+                       가장 가까운 경험으로 안내한다 — 바베이도스는 유일한 솔로 맵이지만
+                       어느 맵이든 상대를 봇으로 채우면 사실상 혼자 플레이가 된다. */
+                    <>
+                      <span className="inline-block rounded-[10px] border border-[#ddd6c8] px-4 py-[9px] text-sm font-medium text-foreground-muted">
+                        준비 중
+                      </span>
+                      <Link
+                        href="/game/tutorial/"
+                        prefetch={false}
+                        onClick={clearBackTo}
+                        className="text-xs font-semibold text-accent underline-offset-4 transition-colors hover:underline"
+                      >
+                        혼자 해보고 싶다면 → 봇과 튜토리얼
+                      </Link>
+                    </>
                   )}
                   {/* 11개 카드 중 초보 진입점을 표시 — 전부 같은 "플레이하기"라 어디서
                       시작해야 할지 신호가 없었다 */}
@@ -389,9 +418,20 @@ export default function MapsPage() {
                       플레이하기
                     </Link>
                   ) : (
-                    <span className="inline-block w-full rounded-xl border border-[#ddd6c8] px-6 py-3 text-center text-base font-medium text-foreground-muted">
-                      준비 중
-                    </span>
+                    /* 카드 쪽과 같은 처리 — 준비 중이어도 지금 할 수 있는 행동을 남긴다 */
+                    <div className="flex flex-col items-center gap-2">
+                      <span className="inline-block w-full rounded-xl border border-[#ddd6c8] px-6 py-3 text-center text-base font-medium text-foreground-muted">
+                        준비 중
+                      </span>
+                      <Link
+                        href="/game/tutorial/"
+                        prefetch={false}
+                        onClick={clearBackTo}
+                        className="text-[13px] font-semibold text-accent underline-offset-4 transition-colors hover:underline"
+                      >
+                        혼자 해보고 싶다면 → 봇과 튜토리얼
+                      </Link>
+                    </div>
                   )}
                 </div>
               </div>

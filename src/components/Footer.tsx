@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { Github, ExternalLink } from 'lucide-react';
 import { LogoMark } from './Navigation';
 
@@ -14,6 +15,13 @@ export default function Footer() {
           </span>
         </div>
         <div className="flex items-center gap-4">
+          {/* GNB엔 없는 계산기 진입점 — 유일한 사이트 내부 링크라 여기 둔다 (2026-08-01) */}
+          <Link
+            href="/calculator/"
+            className="text-xs font-medium text-foreground-secondary transition-colors hover:text-accent"
+          >
+            계산기
+          </Link>
           <span className="text-xs text-foreground-muted">
             팬이 제작한 비공식 컴패니언 사이트입니다.
           </span>

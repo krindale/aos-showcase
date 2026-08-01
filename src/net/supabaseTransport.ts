@@ -81,7 +81,10 @@ function rowToRoomInfo(row: RoomRow): RoomInfo {
     status: row.status,
     seats: row.seats,
     hostClientId: row.host_client_id,
-    snapshot: row.snapshot,
+    // ?? null 인 이유: public_rooms 뷰에는 snapshot 컬럼이 **없어서**(목록에 게임 상태를
+    // 싣지 않으려고 일부러 뺐다) 이 매핑이 undefined를 만든다. RoomInfo.snapshot의 타입은
+    // `unknown | null`이라 그대로 두면 타입이 거짓말을 한다(리뷰 스텝2).
+    snapshot: row.snapshot ?? null,
     updatedAt: row.updated_at,
     participantUids: row.participant_uids ?? [],
     hostUid: row.host_uid ?? null,

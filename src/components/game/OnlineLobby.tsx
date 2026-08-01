@@ -48,13 +48,22 @@ const CREATABLE_MAPS: { id: string; name: string; players: number[] }[] = maps
 interface OnlineLobbyProps {
   mapId: string;
   supportedPlayers: number[];
+  /**
+   * 대기실 "방 나가기" 처리 — **필수**(optional로 두면 안 넘겨도 조용히 옛 동작이 된다).
+   *
+   * 여기서 netStore.leaveRoom을 직접 부르지 않는 이유: 나간 뒤 **어디로 갈지**는 이 컴포넌트가
+   * 알 수 없다. /online·/online/quick에서 들어왔으면 그 화면으로 돌아가야 하는데(sessionStorage
+   * `aos-back-to`), 로비는 라우터를 모른다. 페이지(GamePageClient)의 handleLeaveRoom이 그
+   * 판단을 갖고 있으므로 그대로 위임한다 — 규칙이 두 벌이 되지 않게.
+   */
+  onLeave: () => void;
 }
 
-export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProps) {
+export default function OnlineLobby({ mapId, supportedPlayers, onLeave }: OnlineLobbyProps) {
   const {
     mode, room, mySeat, presentClientIds, chat, busy, error,
     publicRooms, publicRoomsLoading,
-    hostRoom, joinRoom, leaveRoom, sendChat, updateSeats, kickSeat, unbanUser, startOnlineGame,
+    hostRoom, joinRoom, sendChat, updateSeats, kickSeat, unbanUser, startOnlineGame,
     refreshPublicRooms, quickMatch, renameSeat,
     moveGuideAllowed, setMoveGuideAllowed,
   } = useNetStore();
@@ -509,7 +518,7 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
           cancelLabel="계속 대기"
           onConfirm={() => {
             setLeaveConfirm(false);
-            void leaveRoom();
+            onLeave(); // 방 나가기 + "들어온 화면으로 복귀" 판단은 페이지가 한다 (props 주석 참조)
           }}
           onCancel={() => setLeaveConfirm(false)}
         />

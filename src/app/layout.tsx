@@ -2,16 +2,16 @@ import type { Metadata } from "next";
 import "./globals.css";
 import SiteShell from "@/components/SiteShell";
 import { ServiceWorkerRegistration } from "./service-worker-registration";
-
-// Use basePath for production (GitHub Pages) deployment
-const basePath = process.env.NODE_ENV === 'production' ? '/aos-showcase' : '';
+import { BASE_PATH } from "@/utils/basePath";
 
 export const metadata: Metadata = {
   title: "Age of Steam | 철도왕의 시대",
   description: "19세기 철도 산업의 황금기를 배경으로 한 전략 보드게임. 트랙을 건설하고, 물품을 운송하며, 철도왕이 되어보세요.",
   keywords: ["Age of Steam", "보드게임", "철도", "전략", "Martin Wallace"],
   authors: [{ name: "Age of Steam Showcase" }],
-  manifest: `${basePath}/manifest.json`,
+  // manifest만은 절대 경로로 둔다 — <link rel="manifest">의 href는 **현재 페이지 URL**
+  // 기준으로 해석되므로, 상대 경로면 /game/korea/ 같은 하위 라우트에서 어긋난다.
+  manifest: `${BASE_PATH}/manifest.json`,
   openGraph: {
     title: "Age of Steam | 철도왕의 시대",
     description: "19세기 철도 산업의 황금기를 배경으로 한 전략 보드게임",

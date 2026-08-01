@@ -1,6 +1,8 @@
 // PWA 유틸리티 함수 - Service Worker 등록 및 관리
 // 이 파일의 모든 함수는 브라우저 환경에서만 동작합니다.
 
+import { BASE_PATH } from '@/utils/basePath';
+
 /**
  * Service Worker 등록 콜백 타입
  */
@@ -30,16 +32,13 @@ export function isServiceWorkerSupported(): boolean {
 
 /**
  * 현재 환경의 basePath 가져오기
- * @returns basePath (프로덕션: /aos-showcase, 개발: '')
+ * @returns basePath (서브패스 배포: /aos-showcase, 루트 배포·개발: '')
+ *
+ * 값 자체는 src/utils/basePath.ts가 단일 소스다 — Next.js가 라우팅·자산 경로엔
+ * basePath를 자동으로 붙여 주지만 **Service Worker 등록 경로는 예외**라 여기서 직접 붙인다.
  */
 export function getBasePath(): string {
-  if (typeof window === 'undefined') {
-    return '';
-  }
-  // Next.js는 runtime에 basePath를 자동으로 처리하지만,
-  // service worker 경로는 명시적으로 처리 필요
-  const isProd = process.env.NODE_ENV === 'production';
-  return isProd ? '/aos-showcase' : '';
+  return BASE_PATH;
 }
 
 /**

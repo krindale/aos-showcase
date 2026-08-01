@@ -98,11 +98,14 @@ let passedChecks = 0;
 // 1. Check manifest.json exists and is valid
 log('📋 Checking manifest.json...', 'yellow');
 totalChecks++;
+// start_url·아이콘 경로는 **manifest 자기 URL 기준 상대**로 둔다(2026-08-01) —
+// 배포 basePath가 바뀌어도 manifest를 고칠 필요가 없다. 따라서 여기서도 './'를 기대한다.
+// theme_color는 크림+버밀리언 리뉴얼 이후 #c04a2b — 옛 골드(#d4a853) 기대값은 오탐이었다.
 if (checkJsonContent('out/manifest.json', {
   'name': 'Age of Steam Showcase',
   'display': 'standalone',
-  'start_url': '/aos-showcase/',
-  'theme_color': '#d4a853',
+  'start_url': './',
+  'theme_color': '#c04a2b',
 }, 'Manifest configuration')) {
   passedChecks++;
 }
@@ -115,12 +118,14 @@ if (checkFile('out/sw.js', 'Service worker file')) {
 }
 
 totalChecks++;
+// BASE_PATH는 sw.js가 self.location에서 런타임 유도하므로 '/aos-showcase' 리터럴이
+// 더는 파일에 없다 — 대신 유도 로직이 살아 있는지를 본다.
 if (checkFileContent('out/sw.js', [
   'install',
   'activate',
   'fetch',
   'CACHE_VERSION',
-  '/aos-showcase',
+  'BASE_PATH',
 ], 'Service worker implementation')) {
   passedChecks++;
 }

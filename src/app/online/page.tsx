@@ -92,10 +92,9 @@ export default function OnlinePlayPage() {
   }, []);
 
   // 방이 만들어졌거나 입장했으면 그 맵의 게임 페이지(대기실)로 넘긴다.
-  // 게임 화면의 '나가기'가 맵 갤러리 대신 여기로 되돌아오도록 출발지를 남긴다.
+  // push라서 히스토리에 쌓인다 — 게임 화면의 '나가기'(router.back)가 여기로 돌아온다.
   useEffect(() => {
     if (!room) return;
-    try { window.sessionStorage.setItem('aos-back-to', '/online/'); } catch { /* noop */ }
     router.push(`/game/${room.mapId}/`);
   }, [room, router]);
 

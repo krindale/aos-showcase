@@ -102,34 +102,55 @@ export class SupabaseTransport implements NetTransport {
     this.client = createClient(url, anonKey, {
       auth: { persistSession: true, autoRefreshToken: true },
     });
+    /*
+     * ⚠️ private 채널(S2)을 쓰지만 realtime.setAuth()를 **직접 부르지 않는다** —
+     * supabase-js가 이미 두 경로로 처리하기 때문이다(v2.110 소스 확인):
+     *   ① createClient가 realtime에 accessToken 콜백(_getAccessToken = 현재 세션 토큰)을
+     *      주입하고, RealtimeClient.connect()가 "if (this.accessToken && !this._authPromise)"
+     *      로 스스로 setAuth를 부른다.
+     *   ② SupabaseClient._handleTokenChanged가 TOKEN_REFRESHED/SIGNED_IN마다
+     *      realtime.setAuth(token)을 부른다 → 장시간 게임 중 토큰 만료도 커버된다.
+     * realtime-js는 그 지점에 "avoiding race conditions with SupabaseClient's immediate
+     * setAuth call"이라 적어 뒀다 — 수동 호출을 끼우면 경합 요소만 늘고, 무인자
+     * setAuth()는 명시 토큰 모드를 콜백 모드로 되돌리는 부작용까지 있다.
+     * 실측(2026-08-01): setAuth 수동 호출 없이 참가자 SUBSCRIBED / 비참가자 Unauthorized.
+     */
   }
 
   /**
    * 익명 로그인 보장 — RLS가 auth.uid()로 참가자/호스트를 구분하기 위한 기반.
    *
-   * ⚠️ **실패해도 던지지 않는다.** 현재 RLS는 아직 anon을 허용하는 상태라, 로그인이
-   * 안 돼도 온라인은 정상 동작해야 한다. Supabase 대시보드에서 Anonymous sign-ins가
-   * 꺼져 있으면 여기서 실패하는데, 그걸 치명적으로 다루면 기능이 통째로 죽는다.
-   * 정책을 uid 기반으로 교체하는 3단계에서 비로소 필수가 된다.
+   * ⚠️ **실패하면 던진다(S2 이후).** 예전엔 "anon 권한으로 계속"하는 폴백이었지만,
+   * private 채널 정책이 `to authenticated`라 uid 없이는 **채널 입장 자체가 불가능**하다.
+   * 그대로 진행시키면 방은 만들어지는데(participant_uids 비어 있음) 정작 본인도 못 들어가,
+   * 사용자는 원인 모를 연결 실패만 본다. 여기서 끊고 이유를 화면에 보여 준다
+   * (netStore의 createRoom/joinRoom catch가 이 메시지를 error로 띄운다).
    */
-  private async ensureAuth(): Promise<string | null> {
+  private async ensureAuth(): Promise<string> {
+    const HINT =
+      '온라인 기능을 쓸 수 없습니다 — 서버 인증에 실패했습니다. ' +
+      '잠시 후 다시 시도해 주세요.';
     try {
       const { data: sessionData } = await this.client.auth.getSession();
       if (sessionData.session?.user?.id) return sessionData.session.user.id;
 
       const { data, error } = await this.client.auth.signInAnonymously();
       if (error) {
-        console.warn(
-          '[net] 익명 로그인 실패 — anon 권한으로 계속합니다. ' +
-            'Supabase 대시보드 > Authentication > Anonymous sign-ins가 꺼져 있는지 확인하세요.',
+        // 운영자용 원인 진단은 콘솔에, 사용자에겐 위 문구만
+        console.error(
+          '[net] 익명 로그인 실패. Supabase 대시보드 > Authentication > Providers > ' +
+            'Anonymous sign-ins가 꺼져 있는지 확인하세요.',
           error.message
         );
-        return null;
+        throw new Error(HINT);
       }
-      return data.user?.id ?? null;
+      const uid = data.user?.id;
+      if (!uid) throw new Error(HINT);
+      return uid;
     } catch (e) {
-      console.warn('[net] 익명 로그인 중 예외 — anon 권한으로 계속합니다.', e);
-      return null;
+      if (e instanceof Error && e.message === HINT) throw e;
+      console.error('[net] 익명 로그인 중 예외', e);
+      throw new Error(HINT);
     }
   }
 
@@ -150,9 +171,10 @@ export class SupabaseTransport implements NetTransport {
           map_id: opts.mapId,
           seats: opts.seats,
           host_client_id: clientId,
-          // uid가 null이면(익명 로그인 미활성) 컬럼도 비운다 — 지금은 정책이 anon을
-          // 허용하므로 무해하고, 활성화된 뒤 만든 방부터 채워진다.
-          ...(uid ? { host_uid: uid, participant_uids: [uid] } : {}),
+          // uid는 ensureAuth가 보장한다(없으면 이미 던졌다). private 채널 정책이
+          // participant_uids를 보므로, 이 두 컬럼이 비면 방장 본인도 못 들어간다.
+          host_uid: uid,
+          participant_uids: [uid],
         })
         .select()
         .single();
@@ -239,6 +261,19 @@ export class SupabaseTransport implements NetTransport {
       config: {
         presence: { key: clientId },
         broadcast: { self: false }, // 자기 메시지는 자기에게 안 옴 (types.ts RoomEvents 주석 참조)
+        /*
+         * private 채널(S2) — realtime.messages RLS가 "이 방의 participant_uids에 있는 uid"만
+         * 통과시킨다. 이게 없으면 채널 이름(=방 코드)을 아는 누구나 들어와 게임·채팅을
+         * 도청하고 위조 intent·스냅샷을 보낼 수 있다. 앱 레벨 발신자 검증(from/좌석 확인)은
+         * payload를 믿는 구조라 위조를 못 막는다 — 이게 그 본체다.
+         *
+         * 참가자가 되는 유일한 경로는 join_room RPC(코드 제시) — 채널에 들어가야 참가자가
+         * 되던 고리를 그 RPC가 끊는다.
+         *
+         * 실측(2026-08-01): 익명 로그인 사용자도 authenticated 롤이라 정책을 통과한다.
+         * 비참가자는 "Unauthorized: You do not have permissions to read from this Channel topic".
+         */
+        private: true,
       },
     });
 

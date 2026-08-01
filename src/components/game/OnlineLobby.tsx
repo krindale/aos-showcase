@@ -352,8 +352,11 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
                         대기 중…
                       </span>
                     )}
-                    {/* 호스트: 접속 중인 게스트 내보내기 (본인/방장 좌석 제외, 대기실 한정) */}
-                    {isHost && room.status === 'waiting' && online && !isMe && seat.clientId !== room.hostClientId && (
+                    {/* 호스트: 게스트 내보내기 (본인/방장 좌석 제외, 대기실 한정).
+                        ⚠️ **끊긴 좌석도 대상**이다 — 예전엔 online 조건이 걸려 있어, 연결이
+                        끊긴 사람은 자리를 잡고 있는데도 내보낼 수가 없었다(실사용 지적).
+                        빈 좌석(clientId 없음)만 제외한다 — 내보낼 사람이 없다. */}
+                    {isHost && room.status === 'waiting' && seat.clientId && !isMe && seat.clientId !== room.hostClientId && (
                       <button
                         // 좌석 비우기 + 차단(O4) — 좌석만 비우면 코드를 다시 입력해
                         // 그대로 다시 들어왔다. 아래 "차단된 참가자" 목록에서 바로 해제할 수 있다.

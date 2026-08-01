@@ -256,6 +256,77 @@ comment on column public.rooms.banned is
   '방장이 내보낸 참가자 목록 [{uid, name, at}]. 재입장 차단용(O4, 2026-08-01). '
   'participant_uids에서도 함께 제거하므로 RLS update 권한도 같이 회수된다.';
 
+-- ============================================================
+-- S1b: 코드 입장 RPC + 공개방 목록 뷰 (2026-08-01)
+--
+-- ① rooms_select가 using(true)면 누구나 REST로 모든 방의 코드·스냅샷·좌석 clientId를
+--    읽는다 — 비공개 방 코드가 노출되면 초대 없이 입장할 수 있다.
+-- ② S2(Realtime private channel)에는 닭과 달걀 문제가 있다: 정책을 "그 방의 참가자만
+--    채널 입장"으로 걸어야 하는데, 게스트는 채널에 들어가 claimSeat을 보내야 참가자가 된다.
+--    **참가자여야 들어가는데, 들어가야 참가자가 된다.**
+--    → 코드를 제시하면 참가자로 등록해 주는 join_room이 그 고리를 끊는다.
+-- ============================================================
+create or replace function public.join_room(p_code text)
+returns public.rooms
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  r public.rooms;
+  u uuid := auth.uid();
+begin
+  if u is null then
+    raise exception '로그인이 필요합니다' using errcode = '28000';
+  end if;
+
+  select * into r from public.rooms where code = upper(btrim(p_code));
+  if not found then
+    raise exception '방을 찾을 수 없습니다' using errcode = 'P0002';
+  end if;
+
+  -- 차단된 사람은 참가자로 등록하지 않는다(O4). 클라이언트가 이 메시지를 그대로 보여준다.
+  if exists (
+    select 1 from jsonb_array_elements(r.banned) b
+    where (b->>'uid')::uuid = u
+  ) then
+    raise exception '이 방에서 입장이 제한되었습니다.' using errcode = '42501';
+  end if;
+
+  -- 참가자 등록(멱등) — 이게 있어야 RLS update 권한과 Realtime 채널 입장이 열린다
+  if not (u = any(r.participant_uids)) then
+    update public.rooms
+       set participant_uids = participant_uids || u
+     where id = r.id
+    returning * into r;
+  end if;
+
+  return r;
+end;
+$$;
+
+-- 익명 로그인 사용자(authenticated)만. anon은 제외 — 로그인 없이는 참가자가 될 수 없다.
+revoke execute on function public.join_room(text) from public, anon;
+grant execute on function public.join_room(text) to authenticated;
+
+-- 공개방 목록 뷰 — **snapshot을 뺀다**(목록 조회만으로 진행 중 게임이 새어 나가지 않게).
+-- 공개방은 "코드를 몰라도 들어가는" 방이므로 code 노출은 의도된 것이다.
+--
+-- ⚠️ security_invoker = on 필수: 기본값(definer 뷰)이면 뷰가 **소유자 권한으로 rooms를
+--    읽어** RLS를 우회한다. 뷰 정의를 잘못 고치는 순간 구멍이 되고 어드바이저도 ERROR로
+--    잡는다(2026-08-01 리뷰에서 발견). 통제는 뷰가 아니라 rooms_select 정책 한 곳에 모은다
+--    → 정책을 조일 때 "공개·대기 중인 방"을 읽을 수 있게 예외를 두어야 이 뷰가 동작한다.
+create or replace view public.public_rooms
+  with (security_invoker = on)
+  as
+  select id, code, title, is_public, map_id, status, seats,
+         host_client_id, updated_at, created_at
+    from public.rooms
+   where is_public = true
+     and status = 'waiting';
+
+grant select on public.public_rooms to anon, authenticated;
+
 -- SECURITY DEFINER 함수의 REST RPC 노출 차단 (어드바이저 권고)
 -- Supabase는 public 스키마 함수를 /rest/v1/rpc/<name>으로 자동 노출한다. 아래 둘은
 -- 내부용(pg_cron·트리거)인데 소유자 권한으로 돌기 때문에, 노출된 채로 두면

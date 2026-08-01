@@ -10,7 +10,6 @@ import {
   type RealtimeChannel,
   type SupabaseClient,
 } from '@supabase/supabase-js';
-import { isBanned } from './roomLogic';
 import type {
   BannedEntry,
   ChatMessage,
@@ -82,7 +81,10 @@ function rowToRoomInfo(row: RoomRow): RoomInfo {
     status: row.status,
     seats: row.seats,
     hostClientId: row.host_client_id,
-    snapshot: row.snapshot,
+    // ?? null 인 이유: public_rooms 뷰에는 snapshot 컬럼이 **없어서**(목록에 게임 상태를
+    // 싣지 않으려고 일부러 뺐다) 이 매핑이 undefined를 만든다. RoomInfo.snapshot의 타입은
+    // `unknown | null`이라 그대로 두면 타입이 거짓말을 한다(리뷰 스텝2).
+    snapshot: row.snapshot ?? null,
     updatedAt: row.updated_at,
     participantUids: row.participant_uids ?? [],
     hostUid: row.host_uid ?? null,
@@ -164,21 +166,40 @@ export class SupabaseTransport implements NetTransport {
 
   async joinRoom(code: string, events: RoomEvents): Promise<RoomConnection> {
     const uid = await this.ensureAuth();
-    const room = await this.fetchRoom(code);
-    if (!room) throw new Error(`방을 찾을 수 없음: ${code}`);
 
-    // 차단 확인은 **채널을 만들기 전에**(O4). 붙은 뒤에 leave()로 되돌리면 같은 이름의
-    // 채널이 이미 subscribe된 상태로 남아, 다음 입장 시도에서
-    // "cannot add `presence` callbacks ... after `subscribe()`" 로 깨진다(실사용 확인).
-    if (isBanned(room.banned, uid)) {
-      throw new Error('이 방에서 입장이 제한되었습니다.');
+    /*
+     * 입장은 join_room RPC 한 번으로 끝낸다(S1b) — 이 RPC가 세 가지를 원자적으로 한다:
+     *   ① 코드로 방 조회(security definer라 rooms_select를 조여도 동작)
+     *   ② 차단 확인 — 거부 시 "이 방에서 입장이 제한되었습니다."를 그대로 던진다(O4)
+     *   ③ **participant_uids에 등록**
+     *
+     * ③이 왜 여기 있어야 하는가(S2의 전제): Realtime private channel 정책을 "그 방의
+     * 참가자만 입장"으로 걸면, 채널에 들어가 claimSeat을 보내야 참가자가 되는 기존 흐름은
+     * **참가자여야 들어가는데 들어가야 참가자가 되는** 고리에 빠진다. 코드를 제시하면
+     * 참가자로 만들어 주는 이 RPC가 그 고리를 끊는다.
+     *
+     * 차단 확인을 채널 생성 **전에** 두는 것도 그대로 지켜진다 — 붙은 뒤 leave()로 되돌리면
+     * 같은 이름 채널이 subscribe된 채 남아 다음 시도에서
+     * "cannot add `presence` callbacks ... after `subscribe()`"로 깨진다(실사용 확인).
+     */
+    const { data, error } = await this.client.rpc('join_room', { p_code: code });
+    if (error) {
+      // RPC가 raise한 메시지(차단·없는 방)를 그대로 올려 보낸다 — netStore의 catch가 화면에 띄운다
+      throw new Error(error.message);
     }
+    // returns public.rooms 이므로 단일 행이 온다(PostgREST가 객체로 준다)
+    const row = (Array.isArray(data) ? data[0] : data) as RoomRow | null;
+    if (!row) throw new Error(`방을 찾을 수 없음: ${code}`);
 
-    // uid는 claimSeat intent에 실려 호스트가 participant_uids에 추가한다 —
-    // 게스트는 (정책 교체 후) 방 행을 직접 쓸 수 없으므로 호스트가 대신 등록해야 한다.
-    return this.connect(room, getClientId(), events, uid);
+    return this.connect(rowToRoomInfo(row), getClientId(), events, uid);
   }
 
+  /**
+   * ⚠️ 입장 경로에서는 더 이상 쓰지 않는다(S1b) — joinRoom이 join_room RPC를 쓴다.
+   * rooms를 직접 읽으므로 **rooms_select를 조이면 참가자 아닌 사람에겐 null이 된다**.
+   * 남겨 둔 이유는 NetTransport 인터페이스의 일부이고 디버깅·점검에 쓸 수 있어서다.
+   * 새 코드에서 "코드로 방 찾기"가 필요하면 RPC 쪽을 쓸 것.
+   */
   async fetchRoom(code: string): Promise<RoomInfo | null> {
     const { data, error } = await this.client
       .from('rooms')
@@ -193,11 +214,12 @@ export class SupabaseTransport implements NetTransport {
     // 유령 방 필터: 호스트가 대기실에서 45초마다 하트비트(touchRoom)로 updated_at을 갱신하므로
     // 2분 넘게 갱신이 없는 waiting 방 = 호스트가 죽은 방 → 목록·빠른매칭에서 제외
     const freshAfter = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    // rooms가 아니라 public_rooms 뷰를 읽는다(S1b) — 뷰는 **snapshot을 빼고** 공개·대기 중인
+    // 방만 노출한다. rooms_select를 조인 뒤에도 목록이 살아 있어야 하고, 진행 중 게임
+    // 스냅샷이 목록 조회만으로 통째로 새어 나가면 안 된다.
     const { data, error } = await this.client
-      .from('rooms')
+      .from('public_rooms')
       .select()
-      .eq('is_public', true)
-      .eq('status', 'waiting')
       .gte('updated_at', freshAfter)
       .order('created_at', { ascending: true });
     if (error) throw new Error(`공개방 목록 조회 실패: ${error.message}`);

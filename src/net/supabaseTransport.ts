@@ -102,22 +102,19 @@ export class SupabaseTransport implements NetTransport {
     this.client = createClient(url, anonKey, {
       auth: { persistSession: true, autoRefreshToken: true },
     });
-
     /*
-     * 토큰이 갱신되면 Realtime에도 새 JWT를 넘긴다(S2).
-     * 문서: "If a new JWT is never received on the Channel, the client will be
-     *        disconnected when the JWT expires."
-     * 이 게임은 한 판이 두 시간까지 가는데 익명 세션 JWT는 그보다 짧다 —
-     * 이게 없으면 **게임 중반에 조용히 연결이 끊긴다**. private 채널로 바꾼 뒤에는
-     * 재연결도 정책 검사를 다시 타므로 토큰이 낡으면 재입장조차 실패한다.
+     * ⚠️ private 채널(S2)을 쓰지만 realtime.setAuth()를 **직접 부르지 않는다** —
+     * supabase-js가 이미 두 경로로 처리하기 때문이다(v2.110 소스 확인):
+     *   ① createClient가 realtime에 accessToken 콜백(_getAccessToken = 현재 세션 토큰)을
+     *      주입하고, RealtimeClient.connect()가 "if (this.accessToken && !this._authPromise)"
+     *      로 스스로 setAuth를 부른다.
+     *   ② SupabaseClient._handleTokenChanged가 TOKEN_REFRESHED/SIGNED_IN마다
+     *      realtime.setAuth(token)을 부른다 → 장시간 게임 중 토큰 만료도 커버된다.
+     * realtime-js는 그 지점에 "avoiding race conditions with SupabaseClient's immediate
+     * setAuth call"이라 적어 뒀다 — 수동 호출을 끼우면 경합 요소만 늘고, 무인자
+     * setAuth()는 명시 토큰 모드를 콜백 모드로 되돌리는 부작용까지 있다.
+     * 실측(2026-08-01): setAuth 수동 호출 없이 참가자 SUBSCRIBED / 비참가자 Unauthorized.
      */
-    this.client.auth.onAuthStateChange((event) => {
-      if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
-        void this.client.realtime.setAuth().catch((e) => {
-          console.warn('[net] Realtime 토큰 갱신 실패:', e);
-        });
-      }
-    });
   }
 
   /**
@@ -131,12 +128,7 @@ export class SupabaseTransport implements NetTransport {
   private async ensureAuth(): Promise<string | null> {
     try {
       const { data: sessionData } = await this.client.auth.getSession();
-      if (sessionData.session?.user?.id) {
-        // 이미 로그인돼 있어도 Realtime에는 토큰을 따로 넘겨야 한다 — private 채널의
-        // RLS가 이 JWT로 auth.uid()를 판정한다(문서: "Needed for Realtime Authorization").
-        await this.client.realtime.setAuth();
-        return sessionData.session.user.id;
-      }
+      if (sessionData.session?.user?.id) return sessionData.session.user.id;
 
       const { data, error } = await this.client.auth.signInAnonymously();
       if (error) {
@@ -147,9 +139,6 @@ export class SupabaseTransport implements NetTransport {
         );
         return null;
       }
-      // 새로 로그인한 경우에도 Realtime에 토큰 전달 (onAuthStateChange가 SIGNED_IN으로
-      // 잡아 주지만, 그건 비동기라 바로 뒤따르는 채널 구독보다 늦을 수 있다)
-      await this.client.realtime.setAuth();
       return data.user?.id ?? null;
     } catch (e) {
       console.warn('[net] 익명 로그인 중 예외 — anon 권한으로 계속합니다.', e);

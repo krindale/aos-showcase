@@ -310,6 +310,7 @@ src/
     ├── mapRegistry.ts          # 맵 룰 분리 레지스트리 (MapRuleConfig·columnMapping·boardDisplayScale 등)
     ├── debugConfig.ts          # 디버그 설정 (로그 카테고리 토글 + logAction 종합 액션 로깅)
     ├── basePath.ts             # ★ 배포 basePath 단일 소스 (BASE_PATH·withBasePath) — 아래 "배포" 참조
+    ├── appNav.ts                # 앱 내부 이동 흔적 (나가기가 사이트 밖으로 안 나가게) — 아래 "나가기" 참조
     ├── pwaUtils.ts             # Service Worker 등록/관리 유틸리티
     ├── safeTimers.ts           # Web Worker 기반 타이머 (백그라운드 탭 스로틀 회피, Worker 불가 시 setTimeout 폴백)
     ├── sfx.ts                  # 게임 액션 효과음 (Web Audio 합성, 파일/라이브러리 0개) — SFX_CATALOG 16종 레시피
@@ -422,6 +423,10 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
     "착석→해제"를 감지해 방을 나가고 "방장이 내보냈습니다" 안내. **끊긴 좌석도 내보낼 수 있다**
     (2026-08-01 — 예전엔 버튼에 `online` 조건이 걸려, 연결 끊긴 사람이 자리를 잡고 있어도
     내보낼 수가 없었다). 빈 좌석만 제외.
+  - **좌석 비우기는 `roomLogic.releaseSeat` 한 곳**(강퇴·자발적 퇴장·봇 전환 공용, 미러 금지).
+    ⚠️ **정체성 필드(clientId·uid)를 둘 다** 지운다 — uid를 남기면 **이미 나간 사람이 그 잔존 uid로
+    차단된다**(kickSeat의 "같은 브라우저 두 탭" 가드가 그 때문에 있다). 예전엔 세 경로에 같은 map이
+    복제돼 있었고 봇 전환만 uid를 안 지우고 있었다.
   - **자발적 퇴장 ≠ 연결 끊김(`leaveSeat` intent, 2026-08-01)**: 게스트가 "방 나가기"를 누르면
     채널을 떠나기 **전에** `leaveSeat`을 보내고, 호스트가 그 좌석을 비운다(`handleLeaveSeat`).
     이게 없으면 좌석에 clientId가 남아 호스트 화면엔 presence만 사라진 상태 = **끊김과 똑같이**
@@ -505,10 +510,21 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
 - **비용/티어**: 친구 규모(동시 수 판 이하)는 **$0**. Free 티어 동시접속 200·메시지 200만/월·
   egress 5GB. 유일한 불편은 **1주 미접속 시 프로젝트 자동 정지**(대시보드에서 수동 재개) — 공개
   서비스로 키우면 Pro $25/월.
-- **보안**: 브라우저에 들어가는 건 URL + anon(publishable) key뿐(공개 전제 키). **Service Role
-  Key는 절대 클라이언트/저장소에 넣지 않는다**(RLS 우회 관리자 키). anon만 쓰면 모든 클라이언트가
-  Supabase 입장에서 동일 익명 사용자라 "참가자/호스트 구분" RLS는 불가 → 시작은 허용형 RLS(방
-  코드를 아는 사람만 찾는 모델, 친구 규모 수용). 강화는 익명 로그인 도입 시(후순위).
+- **보안 (S1~S4 완료, 2026-08-01)**: 브라우저에 들어가는 건 URL + anon(publishable) key뿐(공개 전제 키).
+  **Service Role Key는 절대 클라이언트/저장소에 넣지 않는다**(RLS 우회 관리자 키).
+  - **익명 로그인이 전제다**(`supabaseTransport.ensureAuth` → `signInAnonymously`, `persistSession:true`).
+    정책이 전부 `to authenticated`라 **대시보드 > Authentication > Anonymous sign-ins가 꺼지면 온라인이
+    전면 중단된다**. ⚠️ `ensureAuth`는 **실패하면 던진다** — private 채널은 uid 없이 입장 자체가
+    불가능해서, 그냥 진행시키면 방은 만들어지는데 방장 본인도 못 들어가고 사용자는 원인 모를 실패만 본다.
+  - **rooms 정책**: select = (공개·대기 방) OR (내가 `participant_uids`에 있음) / insert = 내 uid로만 /
+    update = 참가자만(⚠️ 호스트로 조이면 승계 불가 — 아래 함정) / delete = 호스트 + `finished`만.
+  - **`join_room(code)` RPC (security definer)** — 코드 조회 + 차단 확인 + **참가자 등록**을 원자적으로.
+    이게 S2의 전제다: private 채널이 "참가자만 입장"이면 *채널에 들어가 claimSeat을 보내야 참가자가 되는*
+    기존 흐름은 고리에 빠진다. anon EXECUTE는 회수(로그인 없이는 참가자가 될 수 없다).
+  - **`public_rooms` 뷰** — 공개·대기 방만, **snapshot 제외**, `security_invoker=on`.
+    ⚠️ definer 뷰로 만들면 소유자 권한으로 rooms를 읽어 RLS 우회 구멍이 된다(어드바이저 ERROR).
+  - **Realtime private channel** — `realtime.messages` 정책 + 클라이언트 `private: true` + 대시보드
+    "Allow public access" **끔**. 셋 다 있어야 강제된다. 상세는 위 S2 항목·`supabase/setup.sql`.
   - **서버측 제약·rate limit은 적용됨(S3/S4, 2026-08-01)**: rooms에 code 형식·title/map_id 길이·
     seats 형태(배열·≤8·≤8KB)·snapshot 크기(≤256KB) check 제약 + 방 생성 1분 20개 상한 트리거.
     UI 캡은 anon 키로 REST를 직접 때리면 우회되므로 서버에서 막는다.
@@ -517,11 +533,13 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
     호출해 6시간 지난 방을 임의 시점에 강제 삭제**할 수 있었다(2026-08-01 어드바이저로 발견, 회수함).
     내부용 함수를 추가할 때마다 `revoke execute … from anon, authenticated, public`을 함께 쓸 것 —
     트리거·pg_cron은 호출자 권한을 보지 않으므로 동작은 불변이다.
-  - ⚠️ **RLS 본체(S1)를 조일 때의 함정**: `host_uid = auth.uid()`로 update를 제한하면 **호스트 승계가
-    불가능해진다** — 승계는 게스트가 방 행을 update하는 동작이라 정책이 호스트만 허용하면 승계자가
-    영원히 권한을 못 얻는다. `participant_uids` 같은 참가자 목록 + claimSeat에 uid 동반이 선행돼야 한다.
-    또 **DB를 먼저 조이면 배포 전까지 온라인이 전면 중단된다**(현 클라이언트는 `persistSession:false`라
-    익명 로그인을 안 해 authenticated 정책에 전부 걸림) → 순서는 반드시 코드 → 배포 → DB.
+  - ⚠️ **RLS를 조일 때의 함정(실제로 겪은 것)**: `host_uid = auth.uid()`로 update를 제한하면 **호스트
+    승계가 불가능해진다** — 승계는 게스트가 방 행을 update하는 동작이라 정책이 호스트만 허용하면
+    승계자가 영원히 권한을 못 얻는다. 그래서 update는 `participant_uids` 기준이고, 참가자 등록은
+    호스트가 claimSeat 처리 때 대신 해 준다(`handleClaimSeat`).
+    또 **DB를 먼저 조이면 배포 전까지 온라인이 전면 중단된다** → 순서는 반드시 **코드 → 배포 → DB**.
+    (S2도 같다: 클라이언트 `private:true` 배포 → 그 다음 대시보드 스위치. 반대로 하면 아직 public으로
+    붙는 배포본이 통신을 통째로 잃는다)
 - **알려진 한계(설계상 수용)**: ① 치팅 방어 없음(호스트가 클라이언트 — 친구용) — 필요 시 net만
   자체 서버로 교체해 서버 권위 승격. ② 게스트로 온라인 플레이 시 로컬 싱글 저장(persist)이 스냅샷에
   덮임. ③ 공개방 인원 수는 presence 미반영(나간 좌석도 착석 집계 가능).
@@ -544,6 +562,27 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
   두 브라우저 탭 E2E(방 생성→입장→시작→건설/수송/경매/도시화 왕복→F5 재접속→호스트 승계).
 - **종합 설계·비용·Phase 체크리스트**: [`docs/online-multiplayer-plan.md`](docs/online-multiplayer-plan.md),
   **과거 이슈 수정 이력**: [`docs/issue-log.md`](docs/issue-log.md).
+
+## 게임 화면 나가기 — "앱 안에서 온 직전 페이지로" (2026-08-01)
+
+X·←·"맵 선택"·"방 나가기" **네 버튼 전부 같은 규칙**이다(핸들러는 `handleBack`/`handleLeaveRoom` 둘,
+목적지 판정은 `goBack` 한 곳). 온라인이면 **방을 나간 뒤에** 이동한다 — 먼저 이동하면 `/online`의
+"방이 있으면 대기실로" 자동 라우팅이 게임 페이지로 도로 튕겨낸다.
+
+| 어디서 들어왔나 | 나가면 |
+|---|---|
+| `/online`·`/online/quick`에서 방 참가·생성 | 그 화면 |
+| `/maps`에서 게임 시작 | `/maps` |
+| 외부 링크·새 탭으로 게임 URL 직접 진입 | X·←·맵 선택 → `/maps` / "방 나가기" → **셋업 화면** |
+
+- **판정은 `utils/appNav.ts`** — 앱이 로드된 뒤 **우리가 `router.push`한 횟수**만 센다.
+  ⚠️ **`window.history.length`로 판정하면 안 된다** — 그 값은 다른 사이트 방문까지 세서, 검색 결과에서
+  게임 페이지로 바로 들어온 사람이 X를 누르면 `router.back()`이 **우리 사이트 밖으로 나간다**.
+- ⚠️ 이 카운터는 **일부러 sessionStorage를 안 쓴다**(모듈 메모리 = F5하면 0). 저장하면 "지우는 지점"이
+  생기고, 그걸 관리하다 어긋난 게 원래 버그였다 — 예전 `aos-back-to` 방식은 저장 2곳·소비 1곳·정리
+  2곳에 흩어져 있어 **하나만 어긋나도 조용히 `/maps`로 떨어졌다**(사용자가 반복해서 겪음). 폐기됨.
+- 게임 화면으로 넘기는 쪽(`/online`·`/online/quick`)이 `markAppNavigation()`을 호출한다.
+  `/maps`·랜딩에서 `<Link>`로 들어오는 경로는 표시하지 않는다 — 폴백이 `/maps`라 결과가 같다.
 
 ## 반응형 UI & PWA
 

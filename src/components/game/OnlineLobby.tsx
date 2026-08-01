@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { isNetConfigured } from '@/net';
 import { useNetStore } from '@/net/netStore';
-import { uniqueSeatName, buildRoomSeats, MAX_BANNED } from '@/net/roomLogic';
+import { uniqueSeatName, buildRoomSeats, releaseSeat, MAX_BANNED } from '@/net/roomLogic';
 import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { maps } from '@/data/mapCatalog';
@@ -372,10 +372,13 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
                     {isHost && !online && room.status === 'waiting' && (
                       <button
                         onClick={() => {
+                          // 사람을 빼고 봇으로. 정체성 제거는 releaseSeat 한 곳에 맡긴다 —
+                          // 예전엔 여기서 clientId만 지우고 **uid를 남겨** 그 잔존 uid로
+                          // 이미 나간 사람이 차단되는 사고가 났다(kickSeat 가드 주석 참조).
                           void updateSeats(
-                            room.seats.map((s) =>
+                            releaseSeat(room.seats, seat.seat).map((s) =>
                               s.seat === seat.seat
-                                ? { ...s, kind: 'ai' as const, name: `컴퓨터-기차${s.seat}`, clientId: null }
+                                ? { ...s, kind: 'ai' as const, name: `컴퓨터-기차${s.seat}` }
                                 : s
                             )
                           );

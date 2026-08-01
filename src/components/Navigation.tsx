@@ -44,7 +44,7 @@ export default function Navigation() {
   // backdrop-blur는 8px로 억제 — bg-background/80이 이미 불투명 80%라 시각 손실은 미미하나
   // 스티키 헤더라 스크롤 내내 뒤 콘텐츠를 재블러해 윈도우/내장 GPU에서 스크롤이 버벅인다 (2026-07-29)
   return (
-    <header className="sticky top-0 z-50 border-b border-glass-border bg-background/80 backdrop-blur-[8px]">
+    <header className="sticky-blur-header sticky top-0 z-50 border-b border-glass-border bg-background/80 backdrop-blur-[8px]">
       <div className="mx-auto flex h-[66px] max-w-[1200px] items-center justify-between px-[clamp(18px,5vw,56px)]">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-[11px]">

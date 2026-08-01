@@ -6,7 +6,13 @@
 const CACHE_VERSION = 'aos-v3';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
-const BASE_PATH = '/aos-showcase';
+// basePath를 **자기 위치에서 유도**한다 — 이 파일은 번들을 거치지 않아
+// NEXT_PUBLIC_BASE_PATH(src/utils/basePath.ts)를 읽을 수 없기 때문이다.
+// self.location.pathname = '<basePath>/sw.js' 이므로 뒤의 '/sw.js'만 떼면 된다:
+//   /aos-showcase/sw.js → '/aos-showcase'   (서브패스 배포)
+//   /sw.js              → ''                (도메인 루트 배포)
+// 하드코딩하지 않으므로 호스팅을 옮겨도 이 파일은 손댈 필요가 없다.
+const BASE_PATH = self.location.pathname.replace(/\/sw\.js$/, '');
 
 // Assets to precache during service worker installation
 const PRECACHE_ASSETS = [

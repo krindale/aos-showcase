@@ -205,7 +205,7 @@ export default function ProductionPanel() {
             <button
               onClick={() => confirmProduction()}
               disabled={!canConfirm}
-              className={`flex-1 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-all ${
+              className={`flex-1 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors ${
                 canConfirm
                   ? 'btn-primary'
                   : 'bg-foreground/10 text-foreground-secondary cursor-not-allowed'

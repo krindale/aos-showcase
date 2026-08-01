@@ -9,7 +9,9 @@
  * 랜딩 번들이 통째로 무거워진다. 프로파일 파생은 각 페이지(/maps·/online)가 직접 한다.
  */
 
-export const basePath = process.env.NODE_ENV === 'production' ? '/aos-showcase' : '';
+// basePath는 src/utils/basePath.ts가 단일 소스 — 여기선 재수출만 한다
+// (기존 `import { basePath } from '@/data/mapCatalog'` 호출부를 그대로 두기 위해).
+export { BASE_PATH as basePath } from '@/utils/basePath';
 
 export type Difficulty = '입문' | '표준' | '중급' | '고급';
 

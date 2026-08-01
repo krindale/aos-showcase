@@ -256,4 +256,16 @@ body {
   .btn-primary:hover {
     transform: none;
   }
+
+  /* 스티키 헤더(Navigation.tsx·GamePageClient.tsx 게임 헤더 — 둘 다 .sticky-blur-header)
+     backdrop-filter 완전 제거. 모션 최소화/저사양 환경은 매 프레임 재블러 비용 자체를
+     아끼는 게 목표라 8px로 낮추는 것만으론 부족하다. 블러가 빠지는 만큼 배경 알파를
+     0.8→0.96으로 올려(페이지 배경 #efece4와 거의 동색) 뒤 콘텐츠가 비쳐도 대비를 유지한다.
+     ⚠️ Tailwind 클래스 조합(.bg-background\/80.backdrop-blur-\[8px\])을 선택자로 쓰지 말 것 —
+     헤더의 유틸리티 클래스를 손대는 순간 이 규칙이 조용히 안 걸린다. 마커 클래스로 잡는다. */
+  .sticky-blur-header {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background-color: rgba(239, 236, 228, 0.96);
+  }
 }

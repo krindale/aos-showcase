@@ -102,7 +102,7 @@ export default function TurnTrack({
             {[...Array(maxTurns)].map((_, i) => (
               <div
                 key={i}
-                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium transition-all ${
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium transition-colors ${
                   i + 1 === currentTurn
                     ? 'bg-accent text-background'
                     : i + 1 < currentTurn
@@ -152,7 +152,7 @@ export default function TurnTrack({
                     />
                   )}
                   <div
-                    className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white transition-all ${
+                    className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white transition-[box-shadow,transform,opacity] ${
                       isCurrent ? 'ring-2 ring-accent ring-offset-1 ring-offset-background scale-110' : 'opacity-70'
                     }`}
                     style={{ backgroundColor: PLAYER_COLORS[player.color] }}

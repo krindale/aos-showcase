@@ -10,6 +10,12 @@ Age of Steam 보드게임의 프리미엄 비주얼 쇼케이스 웹사이트입
 ## 일반 수칙
 
 - **언어**: 모든 과정 설명, 메모리 기록, 그리고 **생각(Thought Process)**은 반드시 **한글**로 작성해야 합니다.
+- **⛔ `rules/`·`maps/`는 git에 없습니다 (2026-08-01, L2)**: 공식 룰북 PDF(14MB)와 맵 시트
+  스캔(86MB)은 저작권 자산이라 공개 repo에 재배포하지 않기로 하고 **추적을 해제**했습니다
+  (`.gitignore` 참조). **로컬에는 그대로 있고** 이 문서 곳곳이 "정본: rules/…"로 참조하지만,
+  **clone한 다른 PC에는 없습니다** — 그 환경에서 룰 원문 확인이 필요하면 사용자에게 요청하십시오.
+  ⚠️ 과거 커밋 이력에는 아직 남아 있어 GitHub에서 접근 가능합니다(완전 제거는 이력 재작성 필요).
+  `public/maps/*.webp`는 갤러리가 실제로 서빙하는 자산이라 제외 대상이 아닙니다.
 - **라이브러리**: 새로운 라이브러리를 추가하거나 기존 라이브러리를 삭제할 때는 반드시 **사용자에게 먼저 이야기(승인 요청)**해야 합니다. 임의로 추가/삭제하지 마십시오.
 - **코드리뷰 방식**: 코드리뷰는 병렬 에이전트 fan-out이 아니라 **순차(스텝바이스텝)**로 진행합니다.
   ① 리뷰 체크리스트(스텝 목록)를 먼저 만들고, ② 한 번에 한 스텝씩 수행하며, ③ 각 스텝이 끝날
@@ -97,7 +103,7 @@ colors: {
 ```
 src/
 ├── app/                        # Next.js App Router 페이지
-│   ├── page.tsx                # 랜딩 페이지 (/, HeroSection + FeatureCards + EditorialSection + CtaBand)
+│   ├── page.tsx                # 랜딩 페이지 (/, HeroSection + FeatureCards + EditorialSection + StrategySection)
 │   ├── layout.tsx              # 루트 레이아웃 (Navigation + Footer + ServiceWorkerRegistration + OfflineIndicator)
 │   ├── globals.css             # 글로벌 스타일, 유틸리티 클래스
 │   ├── error.tsx               # 라우트 에러 바운더리
@@ -116,7 +122,11 @@ src/
 │   ├── calculator/
 │   │   └── page.tsx            # 계산기 (트랙 비용, 승점, 수입 시뮬레이터)
 │   └── sfx/
+│       ├── layout.tsx          # 메타데이터 전용(noindex) — page가 'use client'라 거기선 metadata export 불가
 │       └── page.tsx            # 효과음 미리듣기 (숨은 라우트 — SFX_CATALOG 순회 카드+재생 버튼, 게이트 무시 previewSfx)
+│   # ⚠️ 색인 차단(2026-08-01): /game/[mapId]는 서버 컴포넌트라 page.tsx에 직접 metadata,
+│   #    /online·/sfx는 'use client'라 **세그먼트 layout.tsx**에 metadata를 둔다(렌더는 children 통과).
+│   #    public/robots.txt는 서브패스 배포에서 크롤러가 안 읽으므로 이 meta가 실효 방어다.
 │
 ├── ai/                         # AI 엔진 시스템 (객체 지향 아키텍처)
 │   ├── index.ts                # AI 메인 엔트리포인트 (bridge)
@@ -196,7 +206,8 @@ src/
 │   ├── Footer.tsx              # 푸터 (링크, 소셜)
 │   ├── HeroSection.tsx         # 히어로 (도트 그리드 + 스탯 바)
 │   ├── EditorialSection.tsx    # 랜딩 "왜 명작인가" 밴드 + 배송 원리 SVG
-│   ├── CtaBand.tsx             # 랜딩 하단 버밀리언 CTA 밴드
+│   ├── StrategySection.tsx     # 랜딩 "여섯 가지 승리 원칙" + 하단 밴드 → /maps 유도
+│   ├── HeroBoardVignette.tsx   # 히어로 보드 비네트
 │   ├── FeatureCards.tsx        # 핵심 경험 4카드
 │   ├── OfflineIndicator.tsx    # 오프라인/동기화 상태 표시 (PWA)
 │   └── game/                   # 게임 UI 컴포넌트
@@ -233,9 +244,10 @@ src/
 │       ├── GameChat.tsx        # 게임 중 플로팅 채팅 (보드 우측 하단 sticky, 닫힘 시 알림음)
 │       ├── ChatSenderIcon.tsx  # 채팅 발신자 아이콘 (나=왕관/호스트=별/그외=사람) — clientId·room.hostClientId로 판정, 대기실·인게임 채팅 공용
 │       ├── HostTakeoverDialog.tsx  # 호스트 연결 끊김 → 승계 여부 팝업 (게스트, 대기실/게임 중 공통). 후계자만 이어받기, 유예/응답 대기 중 호스트 복귀 시 자동 닫힘
-│       ├── BottomSheet.tsx     # 모바일용 드래그 바텀 시트 (반응형)
+│       └── BottomSheet.tsx     # 모바일용 드래그 바텀 시트 (반응형)
 │       ├── HelpOverlay.tsx     # 인게임 규칙/도움말 오버레이 (헤더 ? 버튼 → 현재 단계 강조 + 10단계 흐름·특수행동 7종·맵 특수룰·승점 공식). 콘텐츠는 PHASE_INFO/ACTION_INFO/MapProfile.specialRules 재활용, ConfirmDialog 패턴+ESC 닫기. 특수행동은 맵별 보정 — `MapProfile.actionDescription`이 있으면 그 설명으로 대체("이 맵 변경" 배지), `disabledActions`면 취소선+"사용 불가"(예: 독일 Engineer, St.Lucia Production/Turn Order). 순수 로컬 UI(스토어 읽기 전용) — 스냅샷/intents 무관
-│       └── CollapsiblePanel.tsx    # 태블릿용 접이식 사이드 패널 (반응형)
+│       # (구 CollapsiblePanel.tsx는 2026-08-01 삭제 — 어디서도 import되지 않는 데드코드였다.
+│       #  태블릿 레이아웃은 GamePageClient가 인라인 motion.div로 직접 구현한다)
 │
 ├── net/                        # 온라인 멀티 (Supabase Realtime + 호스트 권위) — gameStore와 단방향(net→store)
 │   ├── types.ts                # 전송 계층 인터페이스 (RoomInfo·IntentMessage·SnapshotMessage·NetTransport)
@@ -248,7 +260,7 @@ src/
 │   └── __tests__/              # 코덱/가드/검증/좌석·승계 규칙 30개
 │
 ├── hooks/                      # 반응형 UI 커스텀 훅
-│   ├── useMediaQuery.ts        # 미디어 쿼리 브레이크포인트 감지
+│   # (구 useMediaQuery.ts는 2026-08-01 삭제 — CollapsiblePanel과 함께 미사용 데드코드였다)
 │   ├── useOrientation.ts       # 가로/세로 방향 감지
 │   ├── useTouchGestures.ts     # 터치 제스처 (핀치 줌, 팬)
 │   └── useMyPlayerId.ts        # 내 좌석 플레이어 판정 (offline=null, online=activePlayers[mySeat]) + isMyPlayer 헬퍼 — 왕관 표시용, PhasePanel 좌석 매핑과 동일
@@ -297,6 +309,7 @@ src/
     ├── southernChinaMap.ts     # Southern China 맵 데이터 정의 (4~5인·디폴트 4인, pointy-top 네이티브, 추가비용 헥스/인터어반·페리)
     ├── mapRegistry.ts          # 맵 룰 분리 레지스트리 (MapRuleConfig·columnMapping·boardDisplayScale 등)
     ├── debugConfig.ts          # 디버그 설정 (로그 카테고리 토글 + logAction 종합 액션 로깅)
+    ├── basePath.ts             # ★ 배포 basePath 단일 소스 (BASE_PATH·withBasePath) — 아래 "배포" 참조
     ├── pwaUtils.ts             # Service Worker 등록/관리 유틸리티
     ├── safeTimers.ts           # Web Worker 기반 타이머 (백그라운드 탭 스로틀 회피, Worker 불가 시 setTimeout 폴백)
     ├── sfx.ts                  # 게임 액션 효과음 (Web Audio 합성, 파일/라이브러리 0개) — SFX_CATALOG 16종 레시피
@@ -308,7 +321,9 @@ src/
     └── testHelpers.ts          # 단위 테스트 헬퍼 함수
 
 public/
-├── manifest.json               # PWA 매니페스트
+├── robots.txt                  # 크롤러 정책 (게임/온라인/sfx Disallow) — ⚠️ 서브패스 배포에선
+│                               #   크롤러가 안 읽는다(루트 /robots.txt만 봄). 실효 방어는 각 라우트 noindex
+├── manifest.json               # PWA 매니페스트 (start_url·아이콘은 **상대 경로** — basePath 무관)
 ├── sw.js                       # Service Worker (오프라인 캐시)
 ├── icons/                      # PWA 아이콘
 └── maps/                       # 맵 이미지
@@ -334,10 +349,12 @@ docs/
 - MARTIN WALLACE · 2002 배지, 초대형 Space Grotesk 타이틀("Steam"만 버밀리언)
 - 하단 스탯 바 (1–6 플레이어 / 120분 / 7 맵 / 2002, border-left 구분)
 
-### FeatureCards / EditorialSection / CtaBand (랜딩)
+### FeatureCards / EditorialSection / StrategySection (랜딩)
 - FeatureCards: "01 / 핵심 경험" — 페이퍼 카드 4개 (선로 건설/상품 배송/주식과 자금/턴 순서 경매)
 - EditorialSection: "왜 명작인가" 밴드(#efeae1) + 상품 배송 원리 SVG(점선 레일 .rail-dash 애니메이션)
-- CtaBand: 버밀리언 라운드 밴드 → 계산기 유도
+- StrategySection: "여섯 가지 승리 원칙" 카드 + 하단 밴드 → **/maps 유도**
+  (⚠️ 예전 문서에 있던 `CtaBand.tsx`는 실존한 적이 없다 — 하단 CTA 역할은 이 컴포넌트가 하며,
+   유도 대상도 계산기가 아니라 맵 갤러리다. 계산기 진입은 Footer 링크가 담당. 2026-08-01 교정)
 - (구 GameBoardPreview 인터랙티브 헥스 프리뷰는 리뉴얼에서 제거 — backup/design-dark-gold에 있음)
 
 ### GameplayPage
@@ -459,6 +476,16 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
 - **왜 호스트 권위인가**: 전원이 각자 계산하면 조금만 달라져도 디싱크 → 호스트만 계산하고
   결과를 스냅샷으로 전파해 원천 차단. **랜덤 시드화도 불필요**(랜덤·AI가 호스트에서만 실행).
   Supabase는 게임 규칙을 모르고 메시지 전달·스냅샷 저장·채팅·방 목록만 한다.
+- **발신자 검증(S2, 2026-08-01)**: `SnapshotMessage.from`(transport가 자동으로 채움)이 `room.hostClientId`와
+  다르면 게스트가 그 스냅샷을 **버린다** — rev 가드는 순서만 보므로, 이게 없으면 채널에 들어온 아무나
+  높은 rev를 쏴서 전 게스트 상태를 덮어쓸 수 있다. intent 쪽은 `msg.seat`의 실제 착석자가 `msg.clientId`인지
+  확인해 **좌석 위장**을 막는다(둘 다 netStore의 `onSnapshot`/`onIntent` 한 곳). `from`이 없으면 통과시킨다
+  — 구버전·DB 영속본 경로 하위호환. ⚠️ payload의 clientId는 결국 클라이언트가 쓰는 값이라 위조 가능하다:
+  **완전한 방어는 Realtime private channel + authorization(S1)**이고 이건 그 전까지의 즉효약이다.
+- **keepalive는 실전송마다 재예약(O2, 2026-08-01)**: 5초 고정 interval에 "최근 전송했으면 스킵" 조건만
+  얹으면 경계에서 공백이 최대 10초로 **벌어진다**(4.9초 전 전송 → 이번 tick 스킵 → 다음까지 또 5초).
+  대신 실제 전송이 일어날 때마다 타이머를 다시 5초 뒤로 예약해 공백 상한을 정확히 5초로 고정한다
+  (`scheduleSnapshotKeepalive`). 게스트 유실은 `applySnapshotAsGuest`의 rev 점프로 계측(console.warn).
 - **스냅샷 세부**: persist 포맷 재사용하되 **logs 최근 30개만 + gzip 압축**(egress·256KB 한도 대비,
   압축 후 ~2KB). **rev(단조 증가)** 로 역순 도착 무시. 게스트 적용 시 persist `merge`의 1회성 상태
   초기화(transcontinentalEvent·incomeReductions·aiExecution)를 재사용해 "옛 모달/배지 부활" 방지.
@@ -473,6 +500,19 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
   Key는 절대 클라이언트/저장소에 넣지 않는다**(RLS 우회 관리자 키). anon만 쓰면 모든 클라이언트가
   Supabase 입장에서 동일 익명 사용자라 "참가자/호스트 구분" RLS는 불가 → 시작은 허용형 RLS(방
   코드를 아는 사람만 찾는 모델, 친구 규모 수용). 강화는 익명 로그인 도입 시(후순위).
+  - **서버측 제약·rate limit은 적용됨(S3/S4, 2026-08-01)**: rooms에 code 형식·title/map_id 길이·
+    seats 형태(배열·≤8·≤8KB)·snapshot 크기(≤256KB) check 제약 + 방 생성 1분 20개 상한 트리거.
+    UI 캡은 anon 키로 REST를 직접 때리면 우회되므로 서버에서 막는다.
+  - **SECURITY DEFINER 함수는 EXECUTE를 회수한다**: Supabase는 public 스키마 함수를
+    `/rest/v1/rpc/<name>`으로 자동 노출한다 — `cleanup_stale_rooms()`가 그대로 열려 있어 **누구나
+    호출해 6시간 지난 방을 임의 시점에 강제 삭제**할 수 있었다(2026-08-01 어드바이저로 발견, 회수함).
+    내부용 함수를 추가할 때마다 `revoke execute … from anon, authenticated, public`을 함께 쓸 것 —
+    트리거·pg_cron은 호출자 권한을 보지 않으므로 동작은 불변이다.
+  - ⚠️ **RLS 본체(S1)를 조일 때의 함정**: `host_uid = auth.uid()`로 update를 제한하면 **호스트 승계가
+    불가능해진다** — 승계는 게스트가 방 행을 update하는 동작이라 정책이 호스트만 허용하면 승계자가
+    영원히 권한을 못 얻는다. `participant_uids` 같은 참가자 목록 + claimSeat에 uid 동반이 선행돼야 한다.
+    또 **DB를 먼저 조이면 배포 전까지 온라인이 전면 중단된다**(현 클라이언트는 `persistSession:false`라
+    익명 로그인을 안 해 authenticated 정책에 전부 걸림) → 순서는 반드시 코드 → 배포 → DB.
 - **알려진 한계(설계상 수용)**: ① 치팅 방어 없음(호스트가 클라이언트 — 친구용) — 필요 시 net만
   자체 서버로 교체해 서버 권위 승격. ② 게스트로 온라인 플레이 시 로컬 싱글 저장(persist)이 스냅샷에
   덮임. ③ 공개방 인원 수는 presence 미반영(나간 좌석도 착석 집계 가능).
@@ -492,18 +532,23 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
 ## 반응형 UI & PWA
 
 ### 반응형 UI
-- `src/hooks/useMediaQuery.ts`로 브레이크포인트 감지 (모바일/태블릿/데스크톱 분기)
 - `src/hooks/useOrientation.ts`로 가로/세로 방향 감지
 - `src/hooks/useTouchGestures.ts`로 게임보드 핀치 줌/팬 제스처 지원
 - 모바일: `BottomSheet` (드래그 가능한 바텀 시트)로 게임 컨트롤 표시
-- 태블릿: `CollapsiblePanel` (접이식 사이드 패널)로 패널 표시
+- 태블릿: **GamePageClient의 인라인 motion.div**가 접이식 패널을 직접 구현
+  (⚠️ 2026-08-01: `useMediaQuery`·`CollapsiblePanel`은 어디서도 import되지 않는 데드코드여서
+   삭제했다. 브레이크포인트 분기는 Tailwind 반응형 클래스와 `useOrientation`이 담당한다)
 
 ### PWA
 - `public/manifest.json` + `public/sw.js` (Service Worker, 오프라인 캐시)
 - `src/utils/pwaUtils.ts`: SW 등록/해제/업데이트 유틸리티
 - `src/app/service-worker-registration.tsx`: 루트 레이아웃에서 SW 등록
 - `src/components/OfflineIndicator.tsx`: 오프라인/동기화 상태 표시
-- GitHub Pages 배포를 위해 manifest와 SW 경로에 basePath(`/aos-showcase`) 적용됨
+- **manifest·sw.js는 basePath를 하드코딩하지 않는다**(2026-08-01) — 정적 파일이라 번들 환경변수를
+  못 읽으므로 각자 자기 위치를 기준으로 해석한다: manifest는 상대 경로(`./`, `icons/…`),
+  sw.js는 `self.location.pathname`에서 `/sw.js`를 떼어 유도. 어디에 배포하든 자동으로 맞는다.
+  단 `<link rel="manifest">`의 href만은 절대 경로(layout.tsx가 `BASE_PATH` 사용) — 이 href는
+  **현재 페이지 URL** 기준이라 상대로 두면 `/game/korea/` 같은 하위 라우트에서 어긋난다.
 
 ## 플레이어블 게임 (`/game`)
 
@@ -764,6 +809,20 @@ npx vitest run src/ai/__tests__/fullGameSimulation.test.ts -t "executeAITurn" # 
 - `.github/workflows/deploy.yml` 자동 배포 설정됨
 - `main` 브랜치 푸시 시 자동 배포
 - basePath: `/aos-showcase`
+
+### basePath는 환경변수 하나로 (2026-08-01, 호스팅 이전 대비)
+예전엔 `process.env.NODE_ENV === 'production' ? '/aos-showcase' : ''` 판단이 **5곳에 복제**돼 있어
+(layout.tsx·mapCatalog.ts·pwaUtils.ts·sw.js·manifest.json) 한 곳만 빠뜨려도 자산이 조용히 404가 났다.
+이제 값은 `next.config.mjs`가 정해 `env`로 주입하고 **`src/utils/basePath.ts`(BASE_PATH)에서만 읽는다**.
+
+```bash
+NEXT_PUBLIC_BASE_PATH= npm run build              # 도메인 루트 배포 (Cloudflare Pages 등)
+npm run build                                     # 미설정 = 기존 동작(/aos-showcase)
+```
+`??`가 빈 문자열을 통과시키므로 `NEXT_PUBLIC_BASE_PATH=`로 루트 배포를 명시할 수 있다.
+**검증됨**: 위 한 줄만으로 자산 경로가 `/_next/…`, manifest link가 `/manifest.json`으로 나오고
+manifest·sw.js는 무수정으로 양쪽 다 동작한다 → C3(Cloudflare 이전)이 설정 변경만으로 끝난다.
+⚠️ 새 코드에서 basePath가 필요하면 `NODE_ENV`를 다시 분기하지 말고 `BASE_PATH`를 import할 것.
 
 ## 코드 컨벤션
 

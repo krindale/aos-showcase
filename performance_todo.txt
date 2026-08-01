@@ -69,3 +69,61 @@ transition: all은 브라우저가 "이 요소의 어떤 속성이든 바뀌면 
 한 가지 덧붙이면, 지금 진단은 제 환경에서 CSS 계산 결과를 분석한 것이라 "왜 느린지"의 원인 규명에는 신뢰도가 높지만, 실제 프레임 드랍 수치까지 재려면 문제가 나타나는 그 Windows 기기에서 Chrome DevTools의 Performance 탭으로 스크롤을 녹화해 "Rendering > Paint flashing"과 프레임 차트를 보시는 걸 권합니다. 특히 스크롤 중 헤더 영역이 초록색으로 계속 리페인트되는지 확인하면 backdrop-filter가 범인인지 1분 만에 검증됩니다.
 
 원하시면 backdrop-filter를 성능 안전하게 대체하는 CSS 스니펫이나, IBM Plex Sans KR 서브셋 + @font-face 셋업 예시를 바로 작성해드릴게요.
+
+
+════════════════════════════════════════════════════════════════
+■ 처리 현황 (2026-08-01)
+════════════════════════════════════════════════════════════════
+
+⚠️ 먼저: 위 진단 중 두 건은 **이미 해결된 뒤에 작성된 낡은 내용**이었다.
+   위 문장만 보고 착수하지 말고 현재 코드를 먼저 확인할 것.
+
+[이미 해결돼 있었음 — 작업 대상 아님]
+  - "backdrop-filter: blur(12px)" → 실제로는 이미 8px로 낮춰져 있었다(커밋 58788cb).
+    Navigation.tsx·GamePageClient.tsx 헤더 둘 다 backdrop-blur-[8px].
+  - "웹폰트를 하나도 번들하지 않는다(@font-face 0개, 폰트 요청 0건)" → 사실이 아니다.
+    layout.tsx <head>에 Google Fonts <link> + preconnect가 있고(2026-07-29 수정),
+    sw.js가 폰트를 배포 버전과 무관한 별도 캐시에 담는다. Mac/Windows가 서로 다른
+    폰트로 렌더돼 윈도우에서만 줄바꿈이 깨지던 문제는 그때 이미 해결됐다.
+
+[완료]
+  ① backdrop-filter — prefers-reduced-motion 대응이 빠져 있던 것을 채움
+     globals.css의 기존 reduce 블록에서 backdrop-filter를 완전 제거하고 배경 알파를
+     0.8→0.96으로 올려 대비 유지. 모션 최소화/저사양 환경은 8px로 낮추는 것만으론
+     부족하고 매 프레임 재블러 비용 자체를 없애야 하므로.
+     ⚠️ 선택자는 마커 클래스 `.sticky-blur-header`(Navigation·GamePageClient 헤더에 부여)로 잡는다.
+        Tailwind 클래스 조합(.bg-background\/80.backdrop-blur-\[8px\])을 선택자로 쓰면
+        헤더의 유틸리티 클래스를 손대는 순간 이 규칙이 조용히 안 걸린다.
+  ② transition: all → 실제 속성으로 좁힘 (16곳, 잔여 0건)
+     각 사용처의 hover/상태 분기를 읽고 실제로 바뀌는 속성만 남김:
+     색만 바뀌면 transition-colors, 복합이면 transition-[border-color,transform] 식.
+     대표: AuctionPanel(보더·배경·opacity·인라인 boxShadow), PhasePanel Repopulation
+     큐브(보더+scale), online/page.tsx 점 인디케이터(width는 레이아웃 속성이지만
+     실제 애니메이션 대상이라 의도적으로 유지).
+
+[재확인 결과 — 이미 해결됐거나 문제 없음 (2026-08-01 실측)]
+  - "게임 엔진 청크가 소개 페이지까지 프리페치로 딸려온다" → **이미 처리됨**.
+    maps/page.tsx의 게임 링크 2곳 모두 이미 prefetch={false}가 걸려 있다.
+    라우트 분리도 Next 기본 동작으로 되어 있다 — 빌드 출력 기준 홈 First Load는
+    87.5kB(shared)이고 게임 청크(340kB)는 여기 포함되지 않는다.
+  - "맵 이미지에 srcset/sizes가 없어 모바일도 데스크톱용을 받는다" → **이미 해결됨**.
+    카드는 public/maps/thumb/(폭640·q78, 장당 35~61KB)을 쓰고 sizes prop도 지정돼 있다.
+    원본(200KB대)은 라이트박스에서만 쓴다. 위 진단은 썸네일 도입(2026-07-29) 전 상태다.
+    ※ images.unoptimized:true라 Next가 srcset을 생성하지 않으므로, 추가 최적화를 하려면
+      크기별 파일을 더 만들어 <img srcSet>을 직접 쓰는 수밖에 없다 — 실익 대비 비용이 크다.
+  - "CSS purge/content 스캔 점검" → **문제 없음**.
+    tailwind.config.ts의 content는 src/pages·components·app 3개인데, 그 범위 밖
+    (src/data·hooks·utils·store)에 Tailwind 클래스 문자열이 **하나도 없음**을 확인했다.
+    즉 과다 포함도 누락도 아니다. gzip 45KB는 실제 사용 중인 유틸리티+커스텀의 크기다.
+
+[미착수 — 남은 것]
+  - 캐시 수명(max-age=600) 개선: GitHub Pages 고정 헤더라 손댈 수 없다.
+    → 호스팅 이전(online_todo C3)에 종속. 이전하면 _headers로 해결된다.
+    다만 C3의 선행 작업인 **basePath 환경변수 통일은 완료**(online_todo 참조)라
+    이전 자체는 설정 변경만으로 끝난다.
+  - 랜딩 히어로 1차 CTA(/online, First Load 311KB)는 prefetch 기본값(true)이다.
+    끄면 첫 방문 다운로드가 줄지만 **누를 확률이 가장 높은 전환 목표**라 체감이 나빠질 수 있다.
+    실측(신규 방문·모바일 스로틀) 없이 건드리지 말 것 — 트레이드오프이지 명백한 개선이 아니다.
+  - 웹폰트 셀프호스팅: 위 진단의 근거("OS별 다른 폰트로 렌더")는 이미 해소됐으므로
+    우선순위 낮음. 남은 가치는 외부 의존(Google Fonts) 제거와 C3 이후 CSP 단순화뿐이고,
+    한글 서브셋 생성에 별도 도구가 필요해 보류.

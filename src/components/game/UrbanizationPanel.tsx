@@ -50,7 +50,7 @@ export default function UrbanizationPanel() {
         <button
           onClick={() => useGameStore.getState().enterUrbanizationMode()}
           disabled={availableTiles.length === 0}
-          className={`w-full py-2 rounded-lg text-sm font-medium transition-all ${
+          className={`w-full py-2 rounded-lg text-sm font-medium transition-colors ${
             availableTiles.length > 0
               ? 'btn-primary'
               : 'bg-foreground/10 text-foreground-secondary cursor-not-allowed'

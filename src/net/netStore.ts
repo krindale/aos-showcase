@@ -146,6 +146,13 @@ let dismissedDisconnectSeats = new Set<number>();
 let rev = 0;
 let lastSyncedJson = '';
 let lastAppliedRev = 0;
+/**
+ * O3 계측: 게스트가 스냅샷을 놓친 누적 횟수(rev가 1 초과로 점프한 합).
+ * keepalive(작업1)가 실제로 게스트를 몇 번이나 구제하는지 가늠하기 위한 것 —
+ * netStore 상태로 노출하지 않고 모듈 지역 변수 + console.warn으로만 남긴다.
+ * lastAppliedRev를 0으로 되돌리는 지점(방 재입장·나가기·이중호스트 강등)마다 함께 리셋.
+ */
+let skippedSnapshotCount = 0;
 /** 마지막으로 전송한 스냅샷 페이로드 — 5초 keepalive 재전송용 (유실된 게스트 치유) */
 let lastSnapshotPayload: SnapshotMessage | null = null;
 let snapshotKeepaliveTimer: (() => void) | null = null;
@@ -210,6 +217,26 @@ export function getLastRoom(): { code: string; name: string } | null {
 }
 
 export const useNetStore = create<NetStore>()((set, get) => {
+  // ---- 호스트: 스냅샷 keepalive 재예약 ----
+  // 채널 출렁임으로 브로드캐스트를 놓친 게스트를 치유하려고 마지막 스냅샷을 주기 재전송한다.
+  // ⚠️ 5초 고정 interval에 "최근에 실전송했으면 스킵" 조건만 얹으면 경계에서 공백이 최대
+  // 10초로 벌어진다(예: 4.9초 전 실전송 → 이번 tick 스킵 → 다음 tick까지 또 5초).
+  // 대신 **실제 전송이 일어날 때마다(정상 브로드캐스트든 keepalive 자신이든) 이 타이머를
+  // 다시 SNAPSHOT_KEEPALIVE 뒤로 예약**한다 — "마지막 전송으로부터 5초"가 항상 유지되므로
+  // 공백 상한이 정확히 SNAPSHOT_KEEPALIVE(5초)로 고정된다.
+  const scheduleSnapshotKeepalive = (): void => {
+    snapshotKeepaliveTimer?.();
+    snapshotKeepaliveTimer = safeTimeout(() => {
+      const conn = connection;
+      if (!conn || !lastSnapshotPayload || get().mode !== 'host') {
+        snapshotKeepaliveTimer = null;
+        return; // 호스트 아니게 됐거나 아직 보낼 스냅샷이 없음 — 재예약 없이 종료(stopHostLoop가 정리)
+      }
+      conn.broadcastSnapshot(lastSnapshotPayload).catch(() => {});
+      scheduleSnapshotKeepalive(); // keepalive 자신도 "전송"이므로 다음 5초를 다시 예약
+    }, SNAPSHOT_KEEPALIVE);
+  };
+
   // ---- 호스트: 스냅샷 브로드캐스트 루프 ----
   const broadcastSnapshotNow = async (): Promise<void> => {
     const conn = connection;
@@ -229,6 +256,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
       lastBroadcastPhase = (synced as { currentPhase?: string }).currentPhase ?? null;
       await conn.broadcastSnapshot(lastSnapshotPayload);
       console.log(`[net] 스냅샷 전송 rev=${rev} (압축 ${bytes}B)`);
+      scheduleSnapshotKeepalive(); // 방금 실전송했으니 keepalive 카운트다운 리셋 (작업1)
       await conn.updateRoom({ snapshot: { rev, z } }); // 재접속·호스트 승계용 영속화
     } catch (e) {
       console.warn('[net] 스냅샷 전송 실패:', e);
@@ -263,12 +291,9 @@ export const useNetStore = create<NetStore>()((set, get) => {
     lastSnapshotPayload = null;
     unsubscribeStore = useGameStore.subscribe(scheduleBroadcast);
     // keepalive: 채널 출렁임으로 브로드캐스트를 놓친 게스트를 위해 최신 스냅샷을 주기 재전송.
-    // 이미 최신인 게스트는 rev 가드로 무시(no-op) — 상태가 안 바뀌어도 멈춘 게스트가 5초 내 치유된다
-    snapshotKeepaliveTimer = safeInterval(() => {
-      const conn = connection;
-      if (!conn || !lastSnapshotPayload || get().mode !== 'host') return;
-      conn.broadcastSnapshot(lastSnapshotPayload).catch(() => {});
-    }, SNAPSHOT_KEEPALIVE);
+    // 이미 최신인 게스트는 rev 가드로 무시(no-op) — 상태가 안 바뀌어도 멈춘 게스트가 5초 내 치유된다.
+    // (실제 예약/재예약은 scheduleSnapshotKeepalive — 매 실전송마다 카운트다운이 리셋된다)
+    scheduleSnapshotKeepalive();
   };
 
   const stopHostLoop = (): void => {
@@ -282,7 +307,16 @@ export const useNetStore = create<NetStore>()((set, get) => {
 
   // ---- 게스트: 스냅샷 적용 ----
   const applySnapshotAsGuest = async (msg: SnapshotMessage): Promise<void> => {
-    if (msg.rev <= lastAppliedRev) return; // 역순 도착 무시
+    if (msg.rev <= lastAppliedRev) return; // 역순 도착 무시(keepalive 재전송도 여기 걸림 — 유실 아님)
+    // O3 계측: rev가 1 초과로 점프했다 = 그 사이 스냅샷을 놓친 것(keepalive가 없었다면
+    // 게스트가 그만큼 멈춰 있었을 횟수). 판단 자료용 — 별도 상태 노출 없이 콘솔에만 남긴다.
+    if (msg.rev > lastAppliedRev + 1) {
+      const missed = msg.rev - lastAppliedRev - 1;
+      skippedSnapshotCount += missed;
+      console.warn(
+        `[net] 스냅샷 유실 감지: rev ${lastAppliedRev} → ${msg.rev} (이번 ${missed}개, 누적 ${skippedSnapshotCount})`
+      );
+    }
     lastAppliedRev = msg.rev;
     const state = await decodeSnapshot(msg.z);
     if (lastAppliedRev !== msg.rev) return; // 디코딩 중 더 새 스냅샷이 적용됨
@@ -317,10 +351,22 @@ export const useNetStore = create<NetStore>()((set, get) => {
     if (!conn || !room) return;
 
     try {
-      const name = (msg.payload as { name?: string } | undefined)?.name;
+      const payload = msg.payload as { name?: string; uid?: string | null } | undefined;
+      const name = payload?.name;
       const newSeats = assignSeatForClaim(room.seats, room.status, presentClientIds, msg.clientId, name);
-      if (newSeats && newSeats !== room.seats) {
-        await conn.updateRoom({ seats: newSeats });
+
+      // 게스트의 auth.uid를 방의 참가자 목록에 등록(S1a) — 게스트는 (정책 교체 후)
+      // 방 행을 직접 쓸 수 없으므로 호스트가 대신 넣어 준다. 이게 있어야 나중에
+      // **호스트 승계자가 update 권한을 갖는다**(host_uid만으로 조이면 승계가 막힌다).
+      const guestUid = payload?.uid;
+      const known = room.participantUids ?? [];
+      const needsUid = !!guestUid && !known.includes(guestUid);
+
+      const patch: Parameters<typeof conn.updateRoom>[0] = {};
+      if (newSeats && newSeats !== room.seats) patch.seats = newSeats;
+      if (needsUid) patch.participantUids = [...known, guestUid as string];
+      if (Object.keys(patch).length > 0) {
+        await conn.updateRoom(patch);
       }
       // 배정 불가(만석)여도 현재 좌석 상태는 재통지 — 게스트는 관전 상태로 남음
       await conn.broadcastRoom();
@@ -400,6 +446,23 @@ export const useNetStore = create<NetStore>()((set, get) => {
         return;
       }
       if (get().room?.status !== 'playing') return; // 게임 전 게임 인텐트 무시
+      // 좌석 소유권 검증 — 인텐트의 seat이 정말 그 발신자의 좌석인가.
+      // applyGameIntent는 msg.seat으로 차례를 보므로, 이 검사가 없으면 발신자가
+      // seats에서 남의 좌석 번호를 읽어 그 사람인 척 행동할 수 있다(좌석 위장).
+      const seatOwner = get().room?.seats.find((s) => s.seat === msg.seat)?.clientId;
+      if (seatOwner !== msg.clientId) {
+        console.warn(
+          `[net] 좌석 위장 인텐트 거부: ${msg.type} seat=${msg.seat} ` +
+            `발신 ${msg.clientId?.slice(0, 8)} ≠ 착석 ${seatOwner?.slice(0, 8) ?? '(빈자리)'}`
+        );
+        // 아래 !result.ok와 같은 교정이 여기서도 필요하다 — 게스트는 자기 액션을
+        // 낙관적으로 로컬 반영한 뒤 intent를 보내므로, 거부만 하고 끝내면 그 화면이
+        // 잘못된 상태로 굳는다. 위장이 아니라 좌석 정보가 일시적으로 어긋난
+        // 정상 게스트(호스트가 좌석 재배정 중)도 이 경로를 탈 수 있다.
+        lastSyncedJson = '';
+        scheduleBroadcast();
+        return;
+      }
       const result = applyGameIntent(msg);
       console.log(`[net] 인텐트 ${result.ok ? '적용' : '거부'}: ${msg.type} (seat ${msg.seat})${result.ok ? '' : ` — ${result.reason}`}`);
       if (!result.ok) {
@@ -411,6 +474,16 @@ export const useNetStore = create<NetStore>()((set, get) => {
     onSnapshot: (msg) => {
       if (stale()) return;
       if (get().mode !== 'guest') return;
+      // 발신자 검증 — 스냅샷은 **호스트만** 보낼 수 있다. rev 가드는 순서만 보므로,
+      // 이게 없으면 채널에 들어온 아무나 높은 rev를 쏴서 전 게스트 상태를 덮어쓸 수 있다.
+      // from이 없는 건 구버전 호스트이거나 DB 영속본 경로라 통과시킨다(하위호환).
+      // ⚠️ payload의 clientId는 클라이언트가 쓰는 값이라 위조 가능 — 진짜 방어는
+      //    Realtime private channel + authorization(S1). 이건 그 전까지의 즉효약이다.
+      const hostId = get().room?.hostClientId;
+      if (msg.from && hostId && msg.from !== hostId) {
+        console.warn(`[net] 호스트가 아닌 발신자의 스냅샷 무시: ${msg.from.slice(0, 8)} (호스트 ${hostId.slice(0, 8)})`);
+        return;
+      }
       void applySnapshotAsGuest(msg);
     },
     onChat: (msg) => {
@@ -433,6 +506,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
         stopHostLoop();
         stopHeartbeat();
         lastAppliedRev = 0; // 새 호스트의 첫 스냅샷부터 수용 (호스트 권위 = 승계자가 정본)
+        skippedSnapshotCount = 0; // rev 시퀀스가 새로 시작 — O3 누적치도 함께 리셋
         installGuardWithResend();
         set({ mode: 'guest' });
       }
@@ -635,10 +709,22 @@ export const useNetStore = create<NetStore>()((set, get) => {
       // upsertRoom(‌update-or-insert): 대기실 방장이 "방 나가기"로 나가면 closeRoom이 방을
       // DB에서 지운다. 승계자가 updateRoom(UPDATE)만 하면 삭제된 행을 못 살려 공개방 목록·
       // 재입장에서 방이 사라진다 → id 기준 upsert로 방을 그대로 되살린다.
+      // hostUid도 **함께** 넘긴다(리뷰 스텝2 발견) — 3단계 delete 정책이
+      // auth.uid() = host_uid라, 이게 옛 호스트 값으로 남으면 승계자가 방을 닫지 못한다.
+      // 승계자를 participant_uids에도 보강한다(claimSeat 때 등록됐어야 하지만, 익명 로그인이
+      // 늦게 켜진 방이면 비어 있을 수 있다 — 그 경우 자기 자신조차 update 권한을 잃는다).
+      const myUid = conn.uid;
+      const knownUids = conn.room.participantUids ?? [];
+      const uidPatch = myUid
+        ? {
+            hostUid: myUid,
+            ...(knownUids.includes(myUid) ? {} : { participantUids: [...knownUids, myUid] }),
+          }
+        : {};
       await conn.upsertRoom(
         newSeats
-          ? { hostClientId: conn.clientId, seats: newSeats }
-          : { hostClientId: conn.clientId }
+          ? { hostClientId: conn.clientId, seats: newSeats, ...uidPatch }
+          : { hostClientId: conn.clientId, ...uidPatch }
       );
       await conn.broadcastRoom();
       set({ room: conn.room });
@@ -816,6 +902,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
         const conn = await getTransport().joinRoom(code, makeEvents());
         connection = conn;
         lastAppliedRev = 0;
+        skippedSnapshotCount = 0; // 새 방 입장 — O3 누적치 리셋
         const snap = conn.room.snapshot as { rev?: number; z?: string } | null;
 
         // ── 호스트 복귀 (같은 탭 새로고침): 내가 아직 이 방의 호스트면 엔진을 다시 이어받는다
@@ -864,10 +951,10 @@ export const useNetStore = create<NetStore>()((set, get) => {
         // 좌석 요청 (대기실 입장·재입장·게임 중 끊긴 좌석 이어받기 — 호스트가 배정).
         // 유실 대비 동일 id로 1회 재전송
         const claimId = crypto.randomUUID();
-        await conn.sendIntent({ id: claimId, seat: -1, type: 'claimSeat', payload: { name } });
+        await conn.sendIntent({ id: claimId, seat: -1, type: 'claimSeat', payload: { name, uid: conn.uid } });
         safeTimeout(() => {
           if (get().mode === 'guest' && get().mySeat === null) {
-            void conn.sendIntent({ id: claimId, seat: -1, type: 'claimSeat', payload: { name } }).catch(() => {});
+            void conn.sendIntent({ id: claimId, seat: -1, type: 'claimSeat', payload: { name, uid: conn.uid } }).catch(() => {});
           }
         }, 2_500);
         // 게임 중 입장(재접속): 방에 저장된 최신 스냅샷 즉시 복원
@@ -912,6 +999,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
       const conn = connection;
       connection = null;
       lastAppliedRev = 0;
+      skippedSnapshotCount = 0; // 방을 나감 — O3 누적치 리셋
       set({
         mode: 'offline',
         room: null,

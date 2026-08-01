@@ -1,0 +1,26 @@
+# Age of Steam Showcase — 크롤러 정책
+#
+# ⚠️ 서브패스 배포(GitHub Pages: krindale.github.io/aos-showcase/)에서는 이 파일이
+#    실효가 없다 — 크롤러는 도메인 루트의 /robots.txt만 읽는데, 이 파일은
+#    /aos-showcase/robots.txt로 서빙되기 때문이다. 커스텀 도메인 루트 배포
+#    (C3: Cloudflare Pages 이전)로 옮기는 순간 그대로 유효해진다.
+#    그때까지 실제로 색인을 막는 것은 각 라우트의 <meta name="robots" content="noindex">
+#    (src/app/game/[mapId]/page.tsx, src/app/online/layout.tsx, src/app/sfx/layout.tsx)다.
+#
+# 경로를 두 벌 적어 둔 것도 같은 이유 — 루트 배포와 서브패스 배포 양쪽에서 동작하게.
+
+User-agent: *
+
+# 게임 화면: 플레이 상태가 URL에 없고 색인돼도 검색 결과로서 가치가 없다
+Disallow: /game/
+Disallow: /aos-showcase/game/
+
+# 온라인 로비/빠른 참가: 방 코드·좌석이 오가는 화면
+Disallow: /online/
+Disallow: /aos-showcase/online/
+
+# 효과음 검수용 숨은 라우트
+Disallow: /sfx/
+Disallow: /aos-showcase/sfx/
+
+# 쇼케이스 페이지(/, /gameplay, /actions, /maps, /calculator)는 색인 허용

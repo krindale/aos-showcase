@@ -139,7 +139,7 @@ export default function DiceRoller({ diceCount, onRoll, disabled = false, showCo
         <button
           onClick={rollDice}
           disabled={disabled || isRolling}
-          className={`w-full py-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+          className={`w-full py-3 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
             disabled || isRolling
               ? 'bg-foreground/10 text-foreground-secondary cursor-not-allowed'
               : 'bg-accent text-background hover:bg-accent-light'

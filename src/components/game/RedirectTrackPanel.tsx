@@ -99,7 +99,7 @@ export default function RedirectTrackPanel() {
                 key={edge}
                 onClick={() => handleRedirect(edge)}
                 disabled={!canAfford}
-                className={`w-full p-3 rounded-lg border transition-all flex items-center justify-between ${
+                className={`w-full p-3 rounded-lg border transition-[background-color,border-color,opacity] flex items-center justify-between ${
                   canAfford
                     ? edge === selection.currentOpenEdge
                       ? 'bg-accent/20 border-accent hover:bg-accent/30'

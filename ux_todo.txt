@@ -64,13 +64,40 @@
   - 게임 진입 로딩 표시 이미 존재 (GamePageClient "게임 복원 중…" 스피너)
   - 게임 헤더 타이틀은 이미 truncate, 맵 이름은 640px 미만에서 숨김 처리됨
 
-[미착수]
-  - 맵 카드 blur(LQIP) 플레이스홀더 — images.unoptimized:true라 blurDataURL 수동 생성 필요
-  - 카피: actions "첫 턴에는 빈 칸이 없어 무의미" → 긍정형 전환
-  - 바베이도스 "준비 중" 카드에 후속 행동(알림 받기 등)
-  - 태블릿 레이아웃 — CollapsiblePanel.tsx·hooks/useMediaQuery.ts가 완전 미사용
-    데드코드 (GamePageClient가 인라인 motion.div로 별도 구현). 구현 이중화 해소 필요
-  - 계산기(/calculator) 페이지는 살아 있으나 어느 메뉴에서도 갈 수 없는 상태
+════════════════════════════════════════════════════════════════
+■ 2차 처리 (2026-08-01) — 위 [미착수] 항목 소진
+════════════════════════════════════════════════════════════════
+
+[완료]
+  - 맵 카드 로딩 플레이스홀더 → **CSS 스켈레톤으로 해결**(LQIP 아님)
+    images.unoptimized:true라 Next 자동 placeholder="blur"를 못 쓰고, blurDataURL을
+    수동 생성하려면 이미지 처리 라이브러리 추가가 필요해(승인 사항) 방향을 바꿨다.
+    maps/page.tsx의 MapVisual에 loaded 상태 + bg-background-tertiary 스켈레톤 +
+    motion-safe:animate-pulse, 이미지는 onLoad로 opacity 0→100 페이드인.
+  - 카피: actions 06 "첫 턴에는 빈 칸이 없어 무의미" → "2턴차부터 빈 칸이 생겨 효과적"
+  - 계산기 진입 경로 복구 → **Footer에 링크 신설**
+    GNB는 4항목+CTA로 이미 폭이 차 좁은 화면에서 줄바꿈 위험이 있어 넣지 않았다.
+    푸터엔 내부 링크 목록이 아예 없었으므로(로고+문구+외부 아이콘 2개뿐) 새로 만들었다.
+  - 태블릿 레이아웃 이중화 → **데드코드 삭제로 해소**
+    CollapsiblePanel.tsx·hooks/useMediaQuery.ts를 grep으로 확인한 결과 자기 파일 밖에서
+    import되는 곳이 0건이었다. 두 파일 삭제(tsc 통과 확인). 태블릿 레이아웃은
+    GamePageClient의 인라인 motion.div가 계속 담당한다 — 이쪽이 실제 동작하는 구현이다.
+
+[사실과 달랐던 것 — 이번에 발견]
+  - CtaBand.tsx는 **실존하지 않는다**. CLAUDE.md에 랜딩 하단 CTA로 기재돼 있었으나
+    실제 랜딩은 HeroSection + FeatureCards + EditorialSection + StrategySection이고,
+    하단 밴드 역할은 StrategySection이 하며 유도 대상도 계산기가 아니라 /maps다.
+    (CLAUDE.md 2026-08-01 교정함)
+
+  - 바베이도스 "준비 중" 카드에 후속 행동 추가 (카드 + 라이트박스 두 곳)
+    "알림 받기"(이메일 수집)는 정적 사이트라 불가능하므로 방향을 바꿨다 —
+    지금 바로 할 수 있는 가장 가까운 경험으로 안내한다:
+    "혼자 해보고 싶다면 → 봇과 튜토리얼" 링크.
+    바베이도스는 유일한 솔로 맵이지만, 어느 맵이든 상대를 봇으로 채우면
+    사실상 혼자 플레이가 되므로 이게 실제로 유효한 대체 행동이다.
+
+[미착수 — 남은 것]
+  (없음 — 위 리뷰에서 제기된 항목은 모두 처리되었거나 사실과 다른 것으로 확인됨)
 
 [별도 목록]
   - 성능(번들·캐시·srcset) → performance_todo.txt

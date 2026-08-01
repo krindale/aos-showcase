@@ -256,7 +256,7 @@ export default function OnlinePlayPage() {
                 onClick={() => jumpTo(i)}
                 aria-label={m.nameKo}
                 aria-current={i === index}
-                className={`h-[7px] rounded-full transition-all ${
+                className={`h-[7px] rounded-full transition-[width,background-color] ${
                   i === index ? 'w-[22px] bg-accent' : 'w-[7px] bg-[#d9d1c1] hover:bg-[#c9c1b1]'
                 }`}
               />

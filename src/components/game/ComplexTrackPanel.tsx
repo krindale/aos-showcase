@@ -103,7 +103,7 @@ export default function ComplexTrackPanel({
             <button
               onClick={handleBuildCrossing}
               disabled={!canBuildCrossing || player.cash < crossingCost}
-              className={`w-full p-4 rounded-lg border transition-all flex items-start gap-3 ${
+              className={`w-full p-4 rounded-lg border transition-[background-color,border-color,opacity] flex items-start gap-3 ${
                 canBuildCrossing && player.cash >= crossingCost
                   ? 'bg-background/50 border-foreground/20 hover:border-accent hover:bg-accent/10'
                   : 'bg-background/30 border-foreground/10 opacity-50 cursor-not-allowed'
@@ -130,7 +130,7 @@ export default function ComplexTrackPanel({
             <button
               onClick={handleBuildCoexist}
               disabled={!canBuildCoexist || player.cash < coexistCost}
-              className={`w-full p-4 rounded-lg border transition-all flex items-start gap-3 ${
+              className={`w-full p-4 rounded-lg border transition-[background-color,border-color,opacity] flex items-start gap-3 ${
                 canBuildCoexist && player.cash >= coexistCost
                   ? 'bg-background/50 border-foreground/20 hover:border-accent hover:bg-accent/10'
                   : 'bg-background/30 border-foreground/10 opacity-50 cursor-not-allowed'

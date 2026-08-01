@@ -34,7 +34,7 @@ import {
   pickHostSuccessor,
   removeBan,
   renameSeat as renameSeatRule,
-  uniqueSeatName,
+  releaseSeat,
 } from './roomLogic';
 import { useGameStore } from '@/store/gameStore';
 import { scheduleAICheck } from '@/store/helpers/aiScheduler';
@@ -449,14 +449,9 @@ export const useNetStore = create<NetStore>()((set, get) => {
     if (!conn || !room) return;
     if (room.status !== 'waiting') return; // 게임 중 이탈은 '끊김'으로 유지
     const seat = seatOf(room, msg.clientId);
-    if (seat === null) return; // 좌석 없는 관전자 — 비울 것이 없다
+    if (seat === null) return; // 좌석 없는 관전자 — 비울 것이 없다 (강퇴 직후 재진입도 여기서 걸린다)
     try {
-      const seats = room.seats.map((s) =>
-        s.seat === seat
-          ? { ...s, clientId: null, uid: null, name: uniqueSeatName(undefined, room.seats, s.seat) }
-          : s
-      );
-      await conn.updateRoom({ seats });
+      await conn.updateRoom({ seats: releaseSeat(room.seats, seat) });
       await conn.broadcastRoom();
       set({ room: conn.room });
     } catch (e) {
@@ -1138,12 +1133,9 @@ export const useNetStore = create<NetStore>()((set, get) => {
       // UI는 online 조건으로 막지만 액션 자체도 스스로를 지켜야 한다.
       if (!target.clientId) return;
 
-      // 좌석 비우기 — 기존 내보내기와 같은 동작(게스트가 onRoom에서 감지해 나간다)
-      const seats = room.seats.map((s) =>
-        s.seat === seat
-          ? { ...s, clientId: null, uid: null, name: uniqueSeatName(undefined, room.seats, s.seat) }
-          : s
-      );
+      // 좌석 비우기 — 기존 내보내기와 같은 동작(게스트가 onRoom에서 감지해 나간다).
+      // 자발적 퇴장(handleLeaveSeat)과 **같은 규칙**을 쓴다 — roomLogic.releaseSeat 한 곳.
+      const seats = releaseSeat(room.seats, seat);
 
       // uid를 아는 경우에만 차단까지. 모르면(익명 로그인 이전 데이터) 내보내기만 하고
       // 조용히 넘어간다 — 막을 근거가 없는데 막힌 척하면 목록만 지저분해진다.

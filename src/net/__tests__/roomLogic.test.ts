@@ -1,6 +1,6 @@
 // 좌석 배정/호스트 승계 순수 규칙 테스트 (Phase 2)
 import { describe, it, expect } from 'vitest';
-import { MAX_BANNED, addBan, assignSeatForClaim, buildRoomSeats, isBanned, isHostAbsent, pickHostSuccessor, removeBan, uniqueSeatName, renameSeat } from '../roomLogic';
+import { MAX_BANNED, addBan, assignSeatForClaim, buildRoomSeats, isBanned, isHostAbsent, pickHostSuccessor, removeBan, releaseSeat, uniqueSeatName, renameSeat } from '../roomLogic';
 import type { RoomSeat } from '../types';
 
 const seats = (over: Partial<RoomSeat>[]): RoomSeat[] =>
@@ -199,5 +199,59 @@ describe('차단 목록 (O4 — 강퇴 실효화)', () => {
     const s = seats([{ clientId: 'host' }, {}]);
     const next = assignSeatForClaim(s, 'waiting', ['host'], 'guest', '손님');
     expect(next?.[1].uid).toBeNull();
+  });
+});
+
+describe('releaseSeat (좌석 비우기 — 강퇴·자발적 퇴장 공유 규칙)', () => {
+  const occupied = seats([
+    { name: '방장', clientId: 'c-host', uid: 'u-host' },
+    { name: '나가는사람', clientId: 'c-guest', uid: 'u-guest' },
+    { name: '남는사람', clientId: 'c-other', uid: 'u-other' },
+  ]);
+
+  it('정체성 필드(clientId·uid)를 둘 다 지운다', () => {
+    const next = releaseSeat(occupied, 1);
+    expect(next[1].clientId).toBeNull();
+    // uid가 남으면 이미 나간 사람이 그 잔존 uid로 차단된다(kickSeat 사고 이력)
+    expect(next[1].uid ?? null).toBeNull();
+  });
+
+  it('이름을 기본 이름으로 되돌린다 — 앞 사람 이름이 빈자리에 남지 않게', () => {
+    const next = releaseSeat(occupied, 1);
+    expect(next[1].name).not.toBe('나가는사람');
+    expect(next[1].name).toBe(uniqueSeatName(undefined, occupied, 1));
+  });
+
+  it('좌석 자체는 남긴다 — 사람만 빠지고 자리 수·kind는 그대로', () => {
+    const next = releaseSeat(occupied, 1);
+    expect(next).toHaveLength(occupied.length);
+    expect(next[1].seat).toBe(1);
+    expect(next[1].kind).toBe('human');
+  });
+
+  it('다른 좌석은 건드리지 않는다', () => {
+    const next = releaseSeat(occupied, 1);
+    expect(next[0]).toEqual(occupied[0]);
+    expect(next[2]).toEqual(occupied[2]);
+  });
+
+  it('없는 좌석 번호면 아무것도 바뀌지 않는다', () => {
+    expect(releaseSeat(occupied, 99)).toEqual(occupied);
+  });
+
+  it('원본 배열을 변형하지 않는다(불변)', () => {
+    const before = JSON.stringify(occupied);
+    releaseSeat(occupied, 1);
+    expect(JSON.stringify(occupied)).toBe(before);
+  });
+
+  it('되돌린 이름이 남은 좌석 이름과 겹치지 않는다', () => {
+    // 빈자리 기본 이름이 이미 다른 좌석에 쓰이고 있어도 충돌을 피해야 한다
+    const clash = seats([
+      { name: '기차-둘', clientId: 'c-a', uid: 'u-a' },
+      { name: '나가는사람', clientId: 'c-b', uid: 'u-b' },
+    ]);
+    const next = releaseSeat(clash, 1);
+    expect(next[1].name).not.toBe(next[0].name);
   });
 });

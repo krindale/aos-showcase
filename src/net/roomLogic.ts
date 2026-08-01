@@ -53,6 +53,26 @@ export function uniqueSeatName(
 }
 
 /**
+ * 좌석 비우기 — 사람이 앉아 있던 자리를 빈자리로 되돌린다.
+ *
+ * **강퇴(kickSeat)와 자발적 퇴장(leaveSeat)이 공유하는 한 곳**이다. 예전엔 양쪽에
+ * 같은 map이 복제돼 있었는데, 그러면 한쪽만 고쳐 어긋난다(예: uid를 안 지워
+ * 나간 사람이 그 잔존 uid로 차단되는 사고 — kickSeat 주석 참조).
+ *
+ * 이름은 기본 이름으로 되돌린다. 앞 사람 이름이 빈자리에 남아 있으면 새로 들어온
+ * 사람이 그 이름을 물려받은 것처럼 보인다.
+ *
+ * ⚠️ 정체성 필드(clientId·uid)를 **둘 다** 지운다. 좌석은 남기고(kind 유지) 사람만 뺀다.
+ */
+export function releaseSeat(seats: RoomSeat[], seat: number): RoomSeat[] {
+  return seats.map((s) =>
+    s.seat === seat
+      ? { ...s, clientId: null, uid: null, name: uniqueSeatName(undefined, seats, s.seat) }
+      : s
+  );
+}
+
+/**
  * 좌석 이름 변경 규칙 (대기실에서 본인 이름 수정).
  * - 이름은 앞뒤 공백을 트림해 저장한다.
  * - 빈 이름(트림 후 '')은 거부(null).

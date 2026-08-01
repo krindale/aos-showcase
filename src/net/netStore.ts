@@ -34,7 +34,7 @@ import {
   pickHostSuccessor,
   removeBan,
   renameSeat as renameSeatRule,
-  uniqueSeatName,
+  releaseSeat,
 } from './roomLogic';
 import { useGameStore } from '@/store/gameStore';
 import { scheduleAICheck } from '@/store/helpers/aiScheduler';
@@ -430,6 +430,35 @@ export const useNetStore = create<NetStore>()((set, get) => {
     }
   };
 
+  /**
+   * 호스트: 게스트가 **스스로 나갔다**는 통지 처리 (leaveSeat intent).
+   *
+   * 이게 없으면 게스트가 "방 나가기"를 눌러도 좌석에 clientId가 남아, 호스트 화면에는
+   * presence만 사라진 상태 = **연결 끊김과 똑같이** 보인다(실사용 지적). 자발적 퇴장은
+   * 끊김이 아니라 빈자리여야 한다.
+   *
+   * ⚠️ **대기실에서만** 좌석을 비운다. 게임 중 이탈은 끊김으로 남겨야 재접속하거나
+   * 호스트가 봇으로 전환할 수 있다 — 좌석을 지워 버리면 그 플레이어의 자리가 사라진다.
+   * 차단은 하지 않는다(제 발로 나간 사람이라 막을 이유가 없다).
+   * participantUids도 그대로 둔다 — 재입장 시 join_room이 어차피 다시 넣고, 빼 봐야
+   * 이득 없이 재입장 경로만 흔든다.
+   */
+  const handleLeaveSeat = async (msg: IntentMessage): Promise<void> => {
+    const conn = connection;
+    const { room } = get();
+    if (!conn || !room) return;
+    if (room.status !== 'waiting') return; // 게임 중 이탈은 '끊김'으로 유지
+    const seat = seatOf(room, msg.clientId);
+    if (seat === null) return; // 좌석 없는 관전자 — 비울 것이 없다 (강퇴 직후 재진입도 여기서 걸린다)
+    try {
+      await conn.updateRoom({ seats: releaseSeat(room.seats, seat) });
+      await conn.broadcastRoom();
+      set({ room: conn.room });
+    } catch (e) {
+      console.warn('[net] 퇴장 좌석 정리 실패:', e);
+    }
+  };
+
   // ---- 게스트 커밋 가드 설치 (intent 전송 + 유실 대비 동일 멱등 id 1회 재전송) ----
   // joinRoom(게스트 입장)과 이중 호스트 강등 양쪽에서 사용
   const installGuardWithResend = (): void => {
@@ -478,6 +507,10 @@ export const useNetStore = create<NetStore>()((set, get) => {
       }
       if (msg.type === 'renameSeat') {
         void handleRename(msg);
+        return;
+      }
+      if (msg.type === 'leaveSeat') {
+        void handleLeaveSeat(msg);
         return;
       }
       if (get().room?.status !== 'playing') return; // 게임 전 게임 인텐트 무시
@@ -1019,9 +1052,18 @@ export const useNetStore = create<NetStore>()((set, get) => {
       // 호스트가 대기실을 명시적으로 떠나면 방 자체를 폐쇄 (목록의 유령 방 방지).
       // 남은 사람이 승계하면 promoteToHost가 방을 DB에 다시 만든다(upsertRoom) — 아무도
       // 이어받지 않으면 방이 DB에 남지 않아 깔끔하다.
-      const { mode, room } = get();
+      const { mode, room, mySeat } = get();
       if (mode === 'host' && room?.status === 'waiting' && connection) {
         await connection.closeRoom().catch((e) => console.warn('[net] 방 폐쇄 실패:', e));
+      }
+      // 게스트가 **스스로** 나가면 호스트에게 알려 좌석을 비우게 한다. 이게 없으면
+      // 좌석에 clientId가 남아 호스트 화면에 **연결 끊김으로 보인다** — 나간 것과
+      // 끊긴 것은 다르다. 채널을 떠나기 전에 보내야 전달된다(아래 conn.leave()보다 먼저).
+      // 게임 중에는 보내지 않는다 — 그건 재접속·봇 전환 대상이라 좌석이 남아야 한다.
+      if (mode === 'guest' && room?.status === 'waiting' && mySeat !== null && connection) {
+        await connection
+          .sendIntent({ id: crypto.randomUUID(), seat: mySeat, type: 'leaveSeat', payload: {} })
+          .catch((e) => console.warn('[net] 퇴장 통지 실패:', e));
       }
       connectionGen++; // 이 연결의 이후 이벤트(늦은 CLOSED 등) 전부 무시
       removeGuestGuard();
@@ -1091,12 +1133,9 @@ export const useNetStore = create<NetStore>()((set, get) => {
       // UI는 online 조건으로 막지만 액션 자체도 스스로를 지켜야 한다.
       if (!target.clientId) return;
 
-      // 좌석 비우기 — 기존 내보내기와 같은 동작(게스트가 onRoom에서 감지해 나간다)
-      const seats = room.seats.map((s) =>
-        s.seat === seat
-          ? { ...s, clientId: null, uid: null, name: uniqueSeatName(undefined, room.seats, s.seat) }
-          : s
-      );
+      // 좌석 비우기 — 기존 내보내기와 같은 동작(게스트가 onRoom에서 감지해 나간다).
+      // 자발적 퇴장(handleLeaveSeat)과 **같은 규칙**을 쓴다 — roomLogic.releaseSeat 한 곳.
+      const seats = releaseSeat(room.seats, seat);
 
       // uid를 아는 경우에만 차단까지. 모르면(익명 로그인 이전 데이터) 내보내기만 하고
       // 조용히 넘어간다 — 막을 근거가 없는데 막힌 척하면 목록만 지저분해진다.

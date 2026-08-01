@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { isNetConfigured } from '@/net';
 import { useNetStore } from '@/net/netStore';
-import { uniqueSeatName, buildRoomSeats, MAX_BANNED } from '@/net/roomLogic';
+import { uniqueSeatName, buildRoomSeats, releaseSeat, MAX_BANNED } from '@/net/roomLogic';
 import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { maps } from '@/data/mapCatalog';
@@ -352,8 +352,11 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
                         대기 중…
                       </span>
                     )}
-                    {/* 호스트: 접속 중인 게스트 내보내기 (본인/방장 좌석 제외, 대기실 한정) */}
-                    {isHost && room.status === 'waiting' && online && !isMe && seat.clientId !== room.hostClientId && (
+                    {/* 호스트: 게스트 내보내기 (본인/방장 좌석 제외, 대기실 한정).
+                        ⚠️ **끊긴 좌석도 대상**이다 — 예전엔 online 조건이 걸려 있어, 연결이
+                        끊긴 사람은 자리를 잡고 있는데도 내보낼 수가 없었다(실사용 지적).
+                        빈 좌석(clientId 없음)만 제외한다 — 내보낼 사람이 없다. */}
+                    {isHost && room.status === 'waiting' && seat.clientId && !isMe && seat.clientId !== room.hostClientId && (
                       <button
                         // 좌석 비우기 + 차단(O4) — 좌석만 비우면 코드를 다시 입력해
                         // 그대로 다시 들어왔다. 아래 "차단된 참가자" 목록에서 바로 해제할 수 있다.
@@ -369,10 +372,13 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
                     {isHost && !online && room.status === 'waiting' && (
                       <button
                         onClick={() => {
+                          // 사람을 빼고 봇으로. 정체성 제거는 releaseSeat 한 곳에 맡긴다 —
+                          // 예전엔 여기서 clientId만 지우고 **uid를 남겨** 그 잔존 uid로
+                          // 이미 나간 사람이 차단되는 사고가 났다(kickSeat 가드 주석 참조).
                           void updateSeats(
-                            room.seats.map((s) =>
+                            releaseSeat(room.seats, seat.seat).map((s) =>
                               s.seat === seat.seat
-                                ? { ...s, kind: 'ai' as const, name: `컴퓨터-기차${s.seat}`, clientId: null }
+                                ? { ...s, kind: 'ai' as const, name: `컴퓨터-기차${s.seat}` }
                                 : s
                             )
                           );

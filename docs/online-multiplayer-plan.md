@@ -68,6 +68,13 @@
 - **Service Role Key는 절대 클라이언트/저장소에 넣지 않는다** (RLS를 우회하는 관리자 키).
 - anon key가 공개되므로 접근 제어는 RLS가 담당 — §5의 현실적 전략 참조.
 
+> **⚠️ 2026-08-01 갱신 — 아래 §4-②의 "인증 없이는 구현 불가"는 해소됐다.**
+> 익명 로그인(anonymous sign-in)을 도입해 **uid 기반 RLS가 실제로 적용됐다**(S1). 그 위에
+> Realtime private channel까지 걸어(S2) 방 코드를 알아도 참가자가 아니면 채널에 들어올 수 없다.
+> 현재 상태·정책 전문은 `supabase/setup.sql`, 운영 관점 요약은 CLAUDE.md "보안 (S1~S4 완료)".
+> 남은 한계는 **호스트가 클라이언트라는 것**(호스트 본인의 조작은 막지 못함 — 설계상 수용,
+> 필요 시 net 계층만 자체 서버로 교체).
+
 ## 4. 제안 아키텍처 대비 조정·보완 5가지 (분석 결론)
 
 사용자 제안(호스트 권위·net 분리·persist 재사용·AI 호스트 실행·승격 경로)은 그대로 채택.
@@ -87,6 +94,17 @@ anon key만 쓰면 모든 클라이언트가 Supabase 입장에서 **동일한 �
 - **강화 경로(선택, 후순위)**: Supabase **익명 로그인(anonymous sign-in)** 도입 →
   `auth.uid()`를 seats/host에 저장 → "참가자만 select, 호스트만 snapshot update" 정책이
   비로소 가능. MAU 카운트되지만 무료 5만이라 무관.
+
+> **✅ 2026-08-01 완료 — 이 "강화 경로"를 실제로 밟았다.**
+> - `rooms.host_uid` / `participant_uids` 추가, 클라이언트 `ensureAuth`(`signInAnonymously`,
+>   `persistSession:true`). 정책이 전부 `to authenticated`라 **익명 로그인이 꺼지면 온라인이 전면 중단**된다.
+> - 정책: select = (공개·대기) OR 참가자 / insert = 내 uid로만 / **update = 참가자만** / delete = 호스트+finished.
+>   ⚠️ update를 `host_uid = auth.uid()`로 조이면 **호스트 승계가 영원히 불가능해진다**(승계는 게스트가
+>   방 행을 쓰는 동작) — 이 문서가 "호스트만 수정"으로 적었던 것이 실제로는 함정이었다.
+> - `join_room(code)` RPC(security definer)가 코드 조회+차단 확인+참가자 등록을 원자적으로 처리.
+>   private channel이 "참가자만 입장"이면 *채널에 들어가야 참가자가 되는* 고리가 생기는데, 이 RPC가 끊는다.
+> - `public_rooms` 뷰(공개·대기만, snapshot 제외, `security_invoker=on`)로 목록 조회를 분리.
+> - 순서 규칙(실측): **코드 → 배포 → DB**. 반대로 하면 배포 전까지 온라인이 죽는다.
 
 ### ③ 디렉터리 구조 → 이 프로젝트 실정에 맞게 조정
 제안의 `pages/` → 이 프로젝트는 **App Router**(`src/app/`). 제안의 `src/game/gameStore.ts`

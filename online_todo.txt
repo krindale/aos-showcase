@@ -176,6 +176,23 @@
        ③ join_room 호출 후 → SUBSCRIBED
      → **익명 로그인 사용자도 private 채널을 쓸 수 있다**(공식 문서에 언급이 없어 직접 확인).
 
+     코드리뷰에서 잡은 것(2026-08-01):
+       · setAuth() 수동 호출은 **불필요**했다 — supabase-js가 connect()와
+         TOKEN_REFRESHED/SIGNED_IN에서 이미 부른다(v2.110 소스 + 무호출 실측 확인).
+         "없으면 게임 중반에 끊긴다"는 내 진단이 틀렸다. 넣지 말 것 — realtime-js가
+         "avoiding race conditions with SupabaseClient's immediate setAuth call"이라
+         적어 둔 지점이라 수동 호출은 경합만 늘린다.
+       · ensureAuth의 "실패해도 anon으로 계속" 폴백이 낡아 있었다 → 명시적 실패로.
+         정책이 to authenticated라 uid 없이는 채널 입장 자체가 불가능한데, 조용히
+         진행하면 방장 본인도 못 들어가는 방이 만들어진다.
+
+     알려진 한계(설계상 수용):
+       Realtime RLS는 **구독 시점**에만 검사한다. 강퇴로 participant_uids에서 빼면
+       재입장은 막히지만, **이미 붙어 있는 소켓은 그 자리에서 끊기지 않는다**.
+       정상 게스트는 좌석 해제를 감지해 스스로 나가므로 실사용엔 영향이 없고,
+       악의적 클라이언트가 남아 듣는 건 "차단 전까지 정상 참가자였던 사람"에 한정된다.
+       즉시 차단이 필요해지면 방 코드를 새로 발급하는 방식(채널 이름 변경)이 후보.
+
 [S3] DB 서버측 제약 — 클라이언트 캡은 우회 가능   ✅ 완료 (2026-08-01, 프로덕션 적용)
      rooms에 check 제약 추가: title/이름 길이, seats 원소 수(≤6)·크기,
      snapshot 크기 상한(pg_column_size, 예: 256KB), code 형식([A-Z2-9]{6}).

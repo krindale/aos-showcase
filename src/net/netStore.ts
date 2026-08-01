@@ -1085,6 +1085,11 @@ export const useNetStore = create<NetStore>()((set, get) => {
       if (!conn || !room || get().mode !== 'host') return;
       const target = room.seats.find((s) => s.seat === seat);
       if (!target || target.seat === 0) return; // 방장 좌석은 대상 아님
+      // 아무도 앉지 않은 좌석은 내보낼 것이 없다(리뷰 스텝3).
+      // 좌석을 비울 때 clientId만 지우고 uid는 남기는 경로가 있어(convertSeatToAI·승계),
+      // 가드가 없으면 **이미 나간 사람**이 그 잔존 uid로 차단된다.
+      // UI는 online 조건으로 막지만 액션 자체도 스스로를 지켜야 한다.
+      if (!target.clientId) return;
 
       // 좌석 비우기 — 기존 내보내기와 같은 동작(게스트가 onRoom에서 감지해 나간다)
       const seats = room.seats.map((s) =>

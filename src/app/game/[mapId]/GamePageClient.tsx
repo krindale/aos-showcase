@@ -275,6 +275,11 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     }
     if (wasOnlineRef.current) {
       wasOnlineRef.current = false;
+      /* 셋업에 머무는 경로(강퇴·승계 거절)에서도 출발지 기록을 **소진**시킨다.
+         남겨 두면 이 화면에서 새로 만든 방을 나갈 때 consumeBackTo가 그 낡은 값을 읽어
+         엉뚱하게 /online으로 튄다 — 기록은 "그 화면에서 들어왔다"는 1회용 표시다.
+         (handleLeaveRoom이 이미 소비한 경우엔 여기서 지울 게 없어 무해) */
+      try { window.sessionStorage.removeItem('aos-back-to'); } catch { /* noop */ }
       setShowSetup(true);
       setSetupTab('online');
     }

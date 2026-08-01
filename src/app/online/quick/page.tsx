@@ -154,7 +154,10 @@ export default function QuickJoinPage() {
                       <button
                         type="button"
                         onClick={() => void joinRoom(r.code, myName.trim() || '게스트')}
-                        className="glass-card group flex w-full items-center gap-3 p-3 text-left transition-[transform,border-color] hover:-translate-y-0.5 hover:border-accent"
+                        /* 이 화면의 입장 경로는 셋(목록 클릭·빠른 매칭·코드 입장)인데
+                           하나라도 진행 중이면 나머지도 잠가야 요청이 겹치지 않는다 */
+                        disabled={connecting}
+                        className="glass-card group flex w-full items-center gap-3 p-3 text-left transition-[transform,border-color] hover:-translate-y-0.5 hover:border-accent disabled:pointer-events-none disabled:opacity-60"
                       >
                         {/* 어느 지도인지 한눈에 — 이름만 있으면 어떤 판인지 감이 안 온다 */}
                         <span className="relative h-[50px] w-[80px] flex-none overflow-hidden rounded-[10px] bg-[#E9E2CB]">

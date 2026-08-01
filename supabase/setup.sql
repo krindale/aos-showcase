@@ -311,7 +311,14 @@ grant execute on function public.join_room(text) to authenticated;
 
 -- 공개방 목록 뷰 — **snapshot을 뺀다**(목록 조회만으로 진행 중 게임이 새어 나가지 않게).
 -- 공개방은 "코드를 몰라도 들어가는" 방이므로 code 노출은 의도된 것이다.
-create or replace view public.public_rooms as
+--
+-- ⚠️ security_invoker = on 필수: 기본값(definer 뷰)이면 뷰가 **소유자 권한으로 rooms를
+--    읽어** RLS를 우회한다. 뷰 정의를 잘못 고치는 순간 구멍이 되고 어드바이저도 ERROR로
+--    잡는다(2026-08-01 리뷰에서 발견). 통제는 뷰가 아니라 rooms_select 정책 한 곳에 모은다
+--    → 정책을 조일 때 "공개·대기 중인 방"을 읽을 수 있게 예외를 두어야 이 뷰가 동작한다.
+create or replace view public.public_rooms
+  with (security_invoker = on)
+  as
   select id, code, title, is_public, map_id, status, seats,
          host_client_id, updated_at, created_at
     from public.rooms

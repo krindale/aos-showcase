@@ -83,13 +83,19 @@
           uid를 실어 **호스트가 participant_uids에 등록**한다(게스트는 방 행을 직접 못 쓰므로).
         · RoomConnection.uid 노출, RoomInfo.participantUids 매핑. tsc·net 테스트 39개 통과.
 
-     ⬜ 3단계 — RLS 정책 교체: **SQL은 이미 작성돼 있다** → supabase/rls-stage3.sql
+     ✅ 3단계 — RLS 정책 교체 **완료 (2026-08-01, 프로덕션 적용)**
         insert(본인 uid로만) / update(참가자만 — 승계 가능) / delete(호스트+finished).
-        롤백 블록도 파일 안에 있다.
-        ⚠️ 적용 전제 3가지(하나라도 빠지면 온라인 전면 중단):
-          1. 위 S1a 클라이언트가 **배포**되어 있을 것
-          2. 대시보드 > Authentication > Anonymous sign-ins **활성화**
-          3. 적용 직후 두 브라우저 E2E — 특히 **호스트 승계** 경로
+        전제 충족: S1a 클라이언트 배포(PR #64) → Anonymous sign-ins 활성화 →
+        새 방에 host_uid 채워짐 확인 → host_uid 없는 구 방 2개 삭제(그대로 두면
+        update 불가로 좀비가 된다) → 적용.
+        · 어드바이저의 rls_policy_always_true 경고 2건(insert·update) **해소됨**.
+        · 익명 토큰으로 실제 REST 검증 완료:
+            ① 자기 uid로 방 생성 → 201        ② 남의 uid 위조 → 403 거부
+            ③ 비참가자 update → 0건 차단      ④ 참가자 update → 성공
+            ⑤ 승계(host_uid 갱신) → 성공      ⑥ 승계자가 방 닫기(delete) → 204
+          ⑤⑥은 리뷰에서 고친 "승계 시 host_uid 갱신"이 없었으면 실패했을 경로다.
+        · 롤백이 필요하면 supabase/rls-stage3.sql 하단 [ROLLBACK] 블록.
+        ⚠️ 이제 **Anonymous sign-ins가 꺼지면 온라인이 전면 중단된다**(정책이 authenticated 전용).
 
      ⬜ S1b — select 조이기(별도): 지금 조이면 "코드로 방 찾기"와 "공개방 목록"이 함께
         죽는다. 목록용 뷰 + get_room_by_code security definer RPC + 클라이언트

@@ -399,7 +399,9 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
               <UserX size={12} />
               차단된 참가자 {room.banned?.length}명
             </div>
-            <div className="space-y-1">
+            {/* 최대 MAX_BANNED(50)까지 쌓일 수 있어 스크롤을 준다 — 없으면 대기실이
+                차단 목록 길이만큼 계속 늘어난다(공개방 목록과 같은 처리, 리뷰 스텝4) */}
+            <div className="max-h-32 space-y-1 overflow-y-auto">
               {room.banned?.map((b) => (
                 <div
                   key={b.uid}
@@ -410,6 +412,9 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
                     onClick={() => void unbanUser(b.uid)}
                     className="flex-none rounded px-2 py-0.5 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/10"
                     title={`${b.name}의 차단을 해제해 다시 입장할 수 있게 합니다`}
+                    // 버튼 글자가 "해제"뿐이라 스크린리더로는 누구를 해제하는지 알 수 없다.
+                    // title은 보조적이므로 접근 가능한 이름을 따로 준다(리뷰 스텝4).
+                    aria-label={`${b.name} 차단 해제`}
                   >
                     해제
                   </button>

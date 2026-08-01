@@ -121,6 +121,54 @@ end;
 $$;
 
 -- ============================================================
+-- S2: Realtime private channel 정책 (2026-08-01)
+--
+-- 채널 이름이 방 코드라, 코드를 알면 누구나 채널에 들어와 게임·채팅을 도청하고
+-- 위조 intent·스냅샷을 보낼 수 있었다. 앱 레벨 발신자 검증(SnapshotMessage.from,
+-- 좌석 소유 확인)은 payload를 믿는 구조라 위조를 막지 못한다 — 이게 그 본체다.
+--
+-- 채널 이름 규칙: supabaseTransport의 `room:${room.code}` → realtime.topic()이 그 문자열.
+-- 참가자가 되는 유일한 경로는 join_room RPC(코드 제시)다.
+--
+-- ⚠️ 이 정책만으로는 아무것도 바뀌지 않는다. private이 강제되려면 **둘 다** 필요하다:
+--    ① 클라이언트 채널 config에 private: true  (배포)
+--    ② 대시보드 > Realtime Settings > "Allow public access" **끄기**
+--    순서를 지킬 것 — ②를 먼저 하면 아직 public으로 붙는 배포본이 통신을 잃는다.
+--
+-- 실측(2026-08-01): 익명 로그인 사용자도 authenticated 롤이라 이 정책을 통과한다.
+--   비참가자는 "Unauthorized: You do not have permissions to read from this Channel topic".
+-- ============================================================
+drop policy if exists "room participants can receive" on realtime.messages;
+create policy "room participants can receive"
+on realtime.messages
+for select
+to authenticated
+using (
+  exists (
+    select 1
+      from public.rooms r
+     where 'room:' || r.code = (select realtime.topic())
+       and auth.uid() = any(r.participant_uids)
+       and realtime.messages.extension in ('broadcast', 'presence')
+  )
+);
+
+drop policy if exists "room participants can send" on realtime.messages;
+create policy "room participants can send"
+on realtime.messages
+for insert
+to authenticated
+with check (
+  exists (
+    select 1
+      from public.rooms r
+     where 'room:' || r.code = (select realtime.topic())
+       and auth.uid() = any(r.participant_uids)
+       and realtime.messages.extension in ('broadcast', 'presence')
+  )
+);
+
+-- ============================================================
 -- 오래된 방 자동 정리 (마지막 활동 6시간 경과 → 삭제)
 -- pg_cron이 Supabase 서버에서 하루 2회 자동 실행 (접속자 없어도 돎).
 -- updated_at은 게임 중 스냅샷 저장·대기실 하트비트마다 갱신되므로 "마지막 활동 시각".

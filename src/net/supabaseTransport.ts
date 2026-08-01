@@ -66,6 +66,7 @@ interface RoomRow {
   updated_at: string;
   /** S1a — 구 스키마/미활성 환경에선 없을 수 있어 optional */
   participant_uids?: string[] | null;
+  host_uid?: string | null;
 }
 
 function rowToRoomInfo(row: RoomRow): RoomInfo {
@@ -81,6 +82,7 @@ function rowToRoomInfo(row: RoomRow): RoomInfo {
     snapshot: row.snapshot,
     updatedAt: row.updated_at,
     participantUids: row.participant_uids ?? [],
+    hostUid: row.host_uid ?? null,
   };
 }
 
@@ -316,7 +318,7 @@ class SupabaseRoomConnection implements RoomConnection {
   }
 
   async updateRoom(
-    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids'>>
+    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids' | 'hostUid'>>
   ): Promise<void> {
     const row: Record<string, unknown> = {};
     if (patch.status !== undefined) row.status = patch.status;
@@ -326,6 +328,7 @@ class SupabaseRoomConnection implements RoomConnection {
     if (patch.title !== undefined) row.title = patch.title;
     if (patch.isPublic !== undefined) row.is_public = patch.isPublic;
     if (patch.participantUids !== undefined) row.participant_uids = patch.participantUids;
+    if (patch.hostUid !== undefined) row.host_uid = patch.hostUid;
 
     const { error } = await this.client.from('rooms').update(row).eq('id', this._room.id);
     if (error) throw new Error(`방 갱신 실패: ${error.message}`);
@@ -333,7 +336,7 @@ class SupabaseRoomConnection implements RoomConnection {
   }
 
   async upsertRoom(
-    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids'>>
+    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids' | 'hostUid'>>
   ): Promise<void> {
     // updateRoom과 달리 방 전체를 id 기준 upsert — 방장이 나가며 closeRoom으로 삭제한 방을
     // 승계자가 그대로 되살린다(같은 id·code 유지). 있으면 update, 없으면 insert.
@@ -349,6 +352,12 @@ class SupabaseRoomConnection implements RoomConnection {
       seats: r.seats,
       host_client_id: r.hostClientId,
       snapshot: r.snapshot ?? null,
+      // ⚠️ 이 둘을 빠뜨리면 안 된다(리뷰 스텝2 발견). upsert가 insert로 떨어지는 경우
+      // — 방장이 closeRoom으로 지운 방을 승계자가 되살릴 때 — participant_uids가
+      // 기본값 '{}'로 들어가 **아무도 그 방을 update할 수 없게 된다**(3단계 정책 기준).
+      // 즉 되살린 방이 그 자리에서 죽는다.
+      host_uid: r.hostUid ?? null,
+      participant_uids: r.participantUids ?? [],
     };
     const { error } = await this.client.from('rooms').upsert(row);
     if (error) throw new Error(`방 복원(upsert) 실패: ${error.message}`);

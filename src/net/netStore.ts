@@ -709,10 +709,22 @@ export const useNetStore = create<NetStore>()((set, get) => {
       // upsertRoom(‌update-or-insert): 대기실 방장이 "방 나가기"로 나가면 closeRoom이 방을
       // DB에서 지운다. 승계자가 updateRoom(UPDATE)만 하면 삭제된 행을 못 살려 공개방 목록·
       // 재입장에서 방이 사라진다 → id 기준 upsert로 방을 그대로 되살린다.
+      // hostUid도 **함께** 넘긴다(리뷰 스텝2 발견) — 3단계 delete 정책이
+      // auth.uid() = host_uid라, 이게 옛 호스트 값으로 남으면 승계자가 방을 닫지 못한다.
+      // 승계자를 participant_uids에도 보강한다(claimSeat 때 등록됐어야 하지만, 익명 로그인이
+      // 늦게 켜진 방이면 비어 있을 수 있다 — 그 경우 자기 자신조차 update 권한을 잃는다).
+      const myUid = conn.uid;
+      const knownUids = conn.room.participantUids ?? [];
+      const uidPatch = myUid
+        ? {
+            hostUid: myUid,
+            ...(knownUids.includes(myUid) ? {} : { participantUids: [...knownUids, myUid] }),
+          }
+        : {};
       await conn.upsertRoom(
         newSeats
-          ? { hostClientId: conn.clientId, seats: newSeats }
-          : { hostClientId: conn.clientId }
+          ? { hostClientId: conn.clientId, seats: newSeats, ...uidPatch }
+          : { hostClientId: conn.clientId, ...uidPatch }
       );
       await conn.broadcastRoom();
       set({ room: conn.room });

@@ -28,6 +28,11 @@ export interface RoomInfo {
   snapshot: unknown | null; // 최신 게임 스냅샷 (재접속·호스트 승계용)
   updatedAt: string;
   /**
+   * 현재 호스트의 auth.uid (S1a). 호스트 승계 시 hostClientId와 **함께** 갱신해야 한다 —
+   * 3단계 delete 정책이 auth.uid() = host_uid라 이게 낡으면 승계자가 방을 닫지 못한다.
+   */
+  hostUid?: string | null;
+  /**
    * 이 방에 앉은 적 있는 사용자들의 auth.uid (S1a).
    * RLS의 update 정책이 이 배열로 참가자를 판정할 예정이라, **호스트 승계자도 권한을 유지**한다
    * (host_uid만으로 조이면 승계 자체가 불가능해진다 — 승계는 게스트가 방 행을 쓰는 동작이므로).
@@ -104,11 +109,11 @@ export interface RoomConnection {
   sendChat(name: string, text: string): Promise<void>;
   /** 호스트 전용: rooms 행 갱신 (스냅샷 저장, 좌석/상태 변경, 호스트 승계) */
   updateRoom(
-    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids'>>
+    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids' | 'hostUid'>>
   ): Promise<void>;
   /** 호스트 전용: 방 전체를 id 기준 upsert — 승계자가 삭제된 방을 되살릴 때 (updateRoom과 달리 insert 가능) */
   upsertRoom(
-    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids'>>
+    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids' | 'hostUid'>>
   ): Promise<void>;
   /** 호스트 전용: 대기실 하트비트 — updated_at만 갱신 (공개방 목록의 유령 방 필터 기준) */
   touchRoom(): Promise<void>;

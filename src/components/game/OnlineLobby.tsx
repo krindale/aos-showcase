@@ -627,6 +627,13 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
             {busy ? '입장 중…' : '입장'}
           </button>
         </div>
+        {/* 입장 실패 사유는 **버튼 바로 아래**에 (차단·없는 코드·만석 등).
+            예전엔 컴포넌트 맨 끝에 있어, 나타나는 순간 아래 블록들이 통째로 밀려
+            "화면이 흔들린다"고 느껴졌고 메시지도 눈에서 멀었다 (실사용 피드백).
+            min-h로 자리를 미리 잡아 두어 나타나고 사라져도 레이아웃이 움직이지 않는다. */}
+        <div className="min-h-[18px]" role="status" aria-live="polite">
+          {error && <p className="text-xs leading-[18px] text-red-500">{error}</p>}
+        </div>
       </div>
 
       {/* 공개방 목록 + 빠른 매칭 (Phase 4·5) */}
@@ -692,11 +699,6 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
         )}
       </div>
 
-      {error && (
-        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-500">
-          {error}
-        </div>
-      )}
     </div>
   );
 }

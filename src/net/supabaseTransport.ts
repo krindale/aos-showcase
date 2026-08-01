@@ -10,6 +10,7 @@ import {
   type RealtimeChannel,
   type SupabaseClient,
 } from '@supabase/supabase-js';
+import { isBanned } from './roomLogic';
 import type {
   BannedEntry,
   ChatMessage,
@@ -165,6 +166,14 @@ export class SupabaseTransport implements NetTransport {
     const uid = await this.ensureAuth();
     const room = await this.fetchRoom(code);
     if (!room) throw new Error(`방을 찾을 수 없음: ${code}`);
+
+    // 차단 확인은 **채널을 만들기 전에**(O4). 붙은 뒤에 leave()로 되돌리면 같은 이름의
+    // 채널이 이미 subscribe된 상태로 남아, 다음 입장 시도에서
+    // "cannot add `presence` callbacks ... after `subscribe()`" 로 깨진다(실사용 확인).
+    if (isBanned(room.banned, uid)) {
+      throw new Error('이 방에서 입장이 제한되었습니다.');
+    }
+
     // uid는 claimSeat intent에 실려 호스트가 participant_uids에 추가한다 —
     // 게스트는 (정책 교체 후) 방 행을 직접 쓸 수 없으므로 호스트가 대신 등록해야 한다.
     return this.connect(room, getClientId(), events, uid);

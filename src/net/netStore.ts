@@ -934,18 +934,9 @@ export const useNetStore = create<NetStore>()((set, get) => {
       }
       set({ busy: true, error: null });
       try {
+        // 차단된 사람은 transport.joinRoom이 채널을 만들기 전에 던진다(O4) —
+        // 아래 catch가 그 메시지를 그대로 error로 보여준다.
         const conn = await getTransport().joinRoom(code, makeEvents());
-
-        // 차단된 사람은 여기서 되돌린다(O4). 호스트도 claimSeat을 거부하지만, 그것만으로는
-        // **게스트 화면이 "좌석 없는 대기실"로 보여** 입장에 성공한 것처럼 느껴진다
-        // (실사용 확인: "호스트에선 안 보이는데 게스트는 들어간 것으로 나온다").
-        // 채널까지 붙기 전에 명확히 알리고 끊는다.
-        if (isBanned(conn.room.banned, conn.uid)) {
-          await conn.leave().catch(() => { /* 이미 정리됨 */ });
-          set({ busy: false, error: '이 방에서 입장이 제한되었습니다.' });
-          return;
-        }
-
         connection = conn;
         lastAppliedRev = 0;
         skippedSnapshotCount = 0; // 새 방 입장 — O3 누적치 리셋

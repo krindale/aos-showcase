@@ -209,28 +209,53 @@ export default function BoardCities({
         // 기각된 시도들: 5색 채움·동심 링 테두리·방사형 부채꼴(이름 밴드/숫자와 경쟁해 어수선),
         // 헥스 바깥 우하단 원 그래프(위치를 여러 번 조정해도 겉돌아 2026-07-27 사용자 요청으로 제거).
         const allColorCity = !!city.acceptsAllColors;
+
+        /* 겸용 도시(Montréal Atwater) — 공식 시트가 헥스를 좌/우 반반으로 인쇄한 것을 그대로 재현.
+           단색으로 두면 **화면만 보고는 두 색을 받는다는 걸 알 수 없다** — 파란 화물을 골랐는데
+           빨간 도시가 목적지로 뜨는 게 버그처럼 보인다(2026-08-01 사용자 지적).
+           좌 = city.color, 우 = extraColor.
+           ⚠️ 색을 다른 규칙으로 덮어쓰는 도시에는 적용하지 않는다(터미널·Moon Base·밤 도시·
+           동적색 맵·전색 수용) — 그쪽 표현이 우선이고, 실제로 그런 맵엔 extraColor도 없다. */
+        const splitExtraColor =
+          city.extraColor && !city.isTerminal && !city.noDemand && !night
+            && !dynamicCityColors && !allColorCity
+            ? CITY_COLORS[city.extraColor]
+            : null;
+        const splitClipId = `city-half-${city.id}`;
         // 폐쇄(마지막 2턴)되면 색 분할이 사라지고 헥스가 짙은 회색 + 빨간 테두리 — 색이
         // "없어진" 것은 비교 대상이 없으면 못 알아채므로, 테두리로 명시적 신호를 남긴다.
         const allColorClosed = allColorCity && !!allAcceptClosed;
+        /* 테두리 색·두께 — 겸용 도시는 분할 fill이 stroke의 안쪽 절반을 덮으므로 아래에서
+           같은 값으로 한 번 더 그린다(특히 목적지 골드 링이 오른쪽만 얇아 보이면 안 된다). */
+        const cityStroke = showDestRing
+          ? '#e6c77a' // 골드 악센트 (accent-light)
+          : isSourceSelected
+          ? '#ffffff'
+          : allColorClosed
+          ? '#c0392b' // 폐쇄된 전색 도시(홍콩 마지막 2턴) — 빨간 테두리로 명시
+          : '#1a1a1a'; // 터미널 수용색은 아래 안쪽 폴리곤으로 별도 표시
+        const cityStrokeWidth = allColorClosed ? 2.5 : 0.5;
 
         return (
           <g key={`city-${city.id}`}>
+            {/* 겸용 도시: 헥스의 **오른쪽 절반**만 남기는 클립 (좌=기본색 위에 우=보조색을 덮는다).
+                폭을 HEX_SIZE로 잡으면 flat-top은 정확히 절반, pointy-top(가로 반폭 ≈0.87×)은
+                넉넉히 덮는다 — 어느 쪽이든 세로 중앙선에서 갈린다. */}
+            {splitExtraColor && (
+              <defs>
+                <clipPath id={splitClipId}>
+                  <rect x={x} y={y - HEX_SIZE} width={HEX_SIZE} height={HEX_SIZE * 2} />
+                </clipPath>
+              </defs>
+            )}
             {/* 도시 헥사곤 (검은 테두리 0.5px) */}
             <polygon
               points={getHexPoints(x, y, HEX_SIZE, isFlat)}
               // 전색 수용 도시(홍콩)는 원본 시트대로 회색 — 수용 색은 숫자 박스 분할로 표시
               // (폐쇄 시 더 짙은 회색으로 "이제 안 받음"을 구분)
               fill={allColorClosed ? '#9aa0a6' : allColorCity ? '#d2d6da' : cityColor}
-              stroke={
-                showDestRing
-                  ? '#e6c77a'  // 골드 악센트 (accent-light)
-                  : isSourceSelected
-                  ? '#ffffff'
-                  : allColorClosed
-                  ? '#c0392b'  // 폐쇄된 전색 도시(홍콩 마지막 2턴) — 빨간 테두리로 명시
-                  : '#1a1a1a'  // 터미널 수용색은 아래 안쪽 폴리곤으로 별도 표시
-              }
-              strokeWidth={allColorClosed ? 2.5 : 0.5}
+              stroke={cityStroke}
+              strokeWidth={cityStrokeWidth}
               className={
                 (isCityClickable || isReachableDestination)
                   ? 'cursor-pointer hover:opacity-90 transition-opacity'
@@ -239,6 +264,28 @@ export default function BoardCities({
               onClick={handleCityClick}
             />
 
+            {/* 겸용 도시의 오른쪽 절반(보조 수요색). 테두리는 아래 폴리곤이 이미 그렸으므로
+                stroke 없음, 클릭은 아래 헥스가 받도록 pointerEvents도 끈다. */}
+            {splitExtraColor && (
+              <>
+                <polygon
+                  points={getHexPoints(x, y, HEX_SIZE, isFlat)}
+                  fill={splitExtraColor}
+                  stroke="none"
+                  clipPath={`url(#${splitClipId})`}
+                  pointerEvents="none"
+                />
+                {/* 테두리 복원 — stroke는 경로 중앙에 그려져 안쪽 절반이 위 fill에 덮인다.
+                    목적지 골드 링이 오른쪽만 얇아 보이면 "여기가 목적지"라는 신호가 약해진다. */}
+                <polygon
+                  points={getHexPoints(x, y, HEX_SIZE, isFlat)}
+                  fill="none"
+                  stroke={cityStroke}
+                  strokeWidth={cityStrokeWidth}
+                  pointerEvents="none"
+                />
+              </>
+            )}
 
             {/* 헥스 테두리 안쪽 얇은 inset 라인 (회색 도시=어두운 회색, 컬러 도시=흰색, 거의 안 보임) */}
             <polygon

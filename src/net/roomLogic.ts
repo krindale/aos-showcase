@@ -156,8 +156,18 @@ export function isBanned(banned: BannedEntry[] | undefined, uid: string | null):
 }
 
 /**
+ * 차단 목록 상한 — DB의 rooms_banned_shape check(<= 50)와 **같은 값이어야 한다**.
+ * 클라이언트가 이 한도를 모르면 51번째 강퇴에서 update가 통째로 check 위반으로 실패하고,
+ * 호스트는 "내보내기가 안 된다"만 겪게 된다(리뷰 스텝1).
+ */
+export const MAX_BANNED = 50;
+
+/**
  * 차단 목록에 추가 (중복은 갱신하지 않고 무시 — 최초 차단 시각을 보존한다).
  * 호출부는 participant_uids에서도 이 uid를 함께 빼야 RLS update 권한까지 회수된다.
+ *
+ * 상한을 넘으면 **가장 오래 전에 차단된 항목부터 밀어낸다** — 방 하나에서 50명을 넘게
+ * 내보내는 상황이라면 오래된 차단은 이미 의미가 옅고, 그보다 "지금 내보내기가 되는 것"이 중요하다.
  */
 export function addBan(
   banned: BannedEntry[] | undefined,
@@ -167,7 +177,8 @@ export function addBan(
 ): BannedEntry[] {
   const list = banned ?? [];
   if (list.some((b) => b.uid === uid)) return list;
-  return [...list, { uid, name, at }];
+  const next = [...list, { uid, name, at }];
+  return next.length > MAX_BANNED ? next.slice(next.length - MAX_BANNED) : next;
 }
 
 /** 차단 해제 */

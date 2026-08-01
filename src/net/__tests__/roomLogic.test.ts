@@ -1,6 +1,6 @@
 // 좌석 배정/호스트 승계 순수 규칙 테스트 (Phase 2)
 import { describe, it, expect } from 'vitest';
-import { addBan, assignSeatForClaim, buildRoomSeats, isBanned, isHostAbsent, pickHostSuccessor, removeBan, uniqueSeatName, renameSeat } from '../roomLogic';
+import { MAX_BANNED, addBan, assignSeatForClaim, buildRoomSeats, isBanned, isHostAbsent, pickHostSuccessor, removeBan, uniqueSeatName, renameSeat } from '../roomLogic';
 import type { RoomSeat } from '../types';
 
 const seats = (over: Partial<RoomSeat>[]): RoomSeat[] =>
@@ -169,6 +169,17 @@ describe('차단 목록 (O4 — 강퇴 실효화)', () => {
     const dup = addBan(banned, 'u-kicked', '바뀐이름', 9999);
     expect(dup).toHaveLength(1);
     expect(dup[0].at).toBe(1000); // 갱신하지 않음
+  });
+
+  it('addBan: 상한(DB check와 동일)을 넘으면 가장 오래된 차단부터 밀어낸다 — 넘기면 update가 통째로 실패한다', () => {
+    let list = [] as ReturnType<typeof addBan>;
+    for (let i = 0; i < MAX_BANNED; i++) list = addBan(list, `u${i}`, `이름${i}`, i);
+    expect(list).toHaveLength(MAX_BANNED);
+
+    const overflowed = addBan(list, 'u-new', '새사람', 9999);
+    expect(overflowed).toHaveLength(MAX_BANNED); // 상한 유지
+    expect(overflowed.some((b) => b.uid === 'u0')).toBe(false); // 가장 오래된 것이 빠짐
+    expect(overflowed.some((b) => b.uid === 'u-new')).toBe(true); // 방금 것은 들어감
   });
 
   it('removeBan: 해제하면 다시 입장할 수 있다', () => {

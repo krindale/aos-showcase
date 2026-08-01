@@ -935,6 +935,17 @@ export const useNetStore = create<NetStore>()((set, get) => {
       set({ busy: true, error: null });
       try {
         const conn = await getTransport().joinRoom(code, makeEvents());
+
+        // 차단된 사람은 여기서 되돌린다(O4). 호스트도 claimSeat을 거부하지만, 그것만으로는
+        // **게스트 화면이 "좌석 없는 대기실"로 보여** 입장에 성공한 것처럼 느껴진다
+        // (실사용 확인: "호스트에선 안 보이는데 게스트는 들어간 것으로 나온다").
+        // 채널까지 붙기 전에 명확히 알리고 끊는다.
+        if (isBanned(conn.room.banned, conn.uid)) {
+          await conn.leave().catch(() => { /* 이미 정리됨 */ });
+          set({ busy: false, error: '이 방에서 입장이 제한되었습니다.' });
+          return;
+        }
+
         connection = conn;
         lastAppliedRev = 0;
         skippedSnapshotCount = 0; // 새 방 입장 — O3 누적치 리셋
@@ -1093,7 +1104,17 @@ export const useNetStore = create<NetStore>()((set, get) => {
 
       // uid를 아는 경우에만 차단까지. 모르면(익명 로그인 이전 데이터) 내보내기만 하고
       // 조용히 넘어간다 — 막을 근거가 없는데 막힌 척하면 목록만 지저분해진다.
-      const uid = target.uid ?? null;
+      //
+      // ⚠️ **자기 자신은 절대 차단하지 않는다.** 같은 브라우저의 두 탭은 clientId는
+      // 다르지만 auth 세션(localStorage)을 공유해 **uid가 같다**. 가드가 없으면 그 상태에서
+      // 게스트를 내보내는 순간 호스트 자신의 uid가 banned에 들어가고 participant에서도
+      // 빠져 — 자기 방에 대한 RLS update 권한을 스스로 잃고 방이 그 자리에서 죽는다.
+      // (한 PC 두 탭 플레이는 이 프로젝트가 지원하는 시나리오다)
+      const targetUid = target.uid ?? null;
+      const uid = targetUid && targetUid !== conn.uid ? targetUid : null;
+      if (targetUid && !uid) {
+        console.warn('[net] 나와 같은 계정(uid)의 좌석이라 차단은 건너뛰고 내보내기만 합니다 — 같은 브라우저 두 탭');
+      }
       const patch: Parameters<typeof conn.updateRoom>[0] = { seats };
       if (uid) {
         patch.banned = addBan(room.banned, uid, target.name, Date.now());

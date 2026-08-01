@@ -10,7 +10,9 @@ import {
   type RealtimeChannel,
   type SupabaseClient,
 } from '@supabase/supabase-js';
+import { isBanned } from './roomLogic';
 import type {
+  BannedEntry,
   ChatMessage,
   IntentMessage,
   NetTransport,
@@ -67,6 +69,7 @@ interface RoomRow {
   /** S1a — 구 스키마/미활성 환경에선 없을 수 있어 optional */
   participant_uids?: string[] | null;
   host_uid?: string | null;
+  banned?: BannedEntry[] | null;
 }
 
 function rowToRoomInfo(row: RoomRow): RoomInfo {
@@ -83,6 +86,7 @@ function rowToRoomInfo(row: RoomRow): RoomInfo {
     updatedAt: row.updated_at,
     participantUids: row.participant_uids ?? [],
     hostUid: row.host_uid ?? null,
+    banned: row.banned ?? [],
   };
 }
 
@@ -162,6 +166,14 @@ export class SupabaseTransport implements NetTransport {
     const uid = await this.ensureAuth();
     const room = await this.fetchRoom(code);
     if (!room) throw new Error(`방을 찾을 수 없음: ${code}`);
+
+    // 차단 확인은 **채널을 만들기 전에**(O4). 붙은 뒤에 leave()로 되돌리면 같은 이름의
+    // 채널이 이미 subscribe된 상태로 남아, 다음 입장 시도에서
+    // "cannot add `presence` callbacks ... after `subscribe()`" 로 깨진다(실사용 확인).
+    if (isBanned(room.banned, uid)) {
+      throw new Error('이 방에서 입장이 제한되었습니다.');
+    }
+
     // uid는 claimSeat intent에 실려 호스트가 participant_uids에 추가한다 —
     // 게스트는 (정책 교체 후) 방 행을 직접 쓸 수 없으므로 호스트가 대신 등록해야 한다.
     return this.connect(room, getClientId(), events, uid);
@@ -318,7 +330,7 @@ class SupabaseRoomConnection implements RoomConnection {
   }
 
   async updateRoom(
-    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids' | 'hostUid'>>
+    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids' | 'hostUid' | 'banned'>>
   ): Promise<void> {
     const row: Record<string, unknown> = {};
     if (patch.status !== undefined) row.status = patch.status;
@@ -329,6 +341,7 @@ class SupabaseRoomConnection implements RoomConnection {
     if (patch.isPublic !== undefined) row.is_public = patch.isPublic;
     if (patch.participantUids !== undefined) row.participant_uids = patch.participantUids;
     if (patch.hostUid !== undefined) row.host_uid = patch.hostUid;
+    if (patch.banned !== undefined) row.banned = patch.banned;
 
     const { error } = await this.client.from('rooms').update(row).eq('id', this._room.id);
     if (error) throw new Error(`방 갱신 실패: ${error.message}`);
@@ -336,7 +349,7 @@ class SupabaseRoomConnection implements RoomConnection {
   }
 
   async upsertRoom(
-    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids' | 'hostUid'>>
+    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids' | 'hostUid' | 'banned'>>
   ): Promise<void> {
     // updateRoom과 달리 방 전체를 id 기준 upsert — 방장이 나가며 closeRoom으로 삭제한 방을
     // 승계자가 그대로 되살린다(같은 id·code 유지). 있으면 update, 없으면 insert.
@@ -358,6 +371,7 @@ class SupabaseRoomConnection implements RoomConnection {
       // 즉 되살린 방이 그 자리에서 죽는다.
       host_uid: r.hostUid ?? null,
       participant_uids: r.participantUids ?? [],
+      banned: r.banned ?? [],
     };
     const { error } = await this.client.from('rooms').upsert(row);
     if (error) throw new Error(`방 복원(upsert) 실패: ${error.message}`);

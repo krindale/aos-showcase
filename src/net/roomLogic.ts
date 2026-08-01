@@ -2,7 +2,7 @@
  * 방 좌석/승계 순수 규칙 (Phase 2)
  * netStore에서 분리한 결정 로직 — 연결 객체 없이 단위 테스트 가능.
  */
-import type { RoomSeat } from './types';
+import type { BannedEntry, RoomSeat } from './types';
 
 const KOREAN_ORDINALS = ['하나', '둘', '셋', '넷', '다섯', '여섯'];
 
@@ -84,7 +84,9 @@ export function assignSeatForClaim(
   status: 'waiting' | 'playing' | 'finished',
   presentClientIds: string[],
   claimClientId: string,
-  claimName?: string
+  claimName?: string,
+  /** 착석자의 auth.uid — 좌석에 함께 기록해 두어야 나중에 "이 좌석 사람"을 차단할 수 있다(O4) */
+  claimUid?: string | null
 ): RoomSeat[] | null {
   if (seats.some((s) => s.clientId === claimClientId)) return seats; // 이미 착석
 
@@ -98,7 +100,7 @@ export function assignSeatForClaim(
     if (!open) return null;
     const name = uniqueSeatName(claimName, seats, open.seat);
     return seats.map((s) =>
-      s.seat === open.seat ? { ...s, clientId: claimClientId, name } : s
+      s.seat === open.seat ? { ...s, clientId: claimClientId, name, uid: claimUid ?? null } : s
     );
   }
 
@@ -111,7 +113,9 @@ export function assignSeatForClaim(
       ? offline.find((s) => s.name === claimName.trim())
       : undefined;
     const target = byName ?? offline[0];
-    return seats.map((s) => (s.seat === target.seat ? { ...s, clientId: claimClientId } : s));
+    return seats.map((s) =>
+      s.seat === target.seat ? { ...s, clientId: claimClientId, uid: claimUid ?? null } : s
+    );
   }
 
   return null;
@@ -134,4 +138,52 @@ export function pickHostSuccessor(
 /** 호스트가 presence에서 사라졌는가 */
 export function isHostAbsent(hostClientId: string | null, presentClientIds: string[]): boolean {
   return Boolean(hostClientId) && !presentClientIds.includes(hostClientId as string);
+}
+
+// ---- 차단 목록 (O4: 강퇴 실효화) ----
+
+/**
+ * 이 uid가 방에서 차단됐는가.
+ *
+ * uid로 판정하는 이유: clientId는 sessionStorage라 **탭만 새로 열어도 바뀌어** 차단이
+ * 무의미하다. auth 세션 uid는 localStorage라 같은 브라우저에서 유지된다.
+ * uid가 없으면(익명 로그인 실패) 차단할 근거가 없으므로 통과시킨다 — 막을 방법이 없는데
+ * 막힌 것처럼 굴면 정상 사용자만 못 들어온다.
+ */
+export function isBanned(banned: BannedEntry[] | undefined, uid: string | null): boolean {
+  if (!uid || !banned?.length) return false;
+  return banned.some((b) => b.uid === uid);
+}
+
+/**
+ * 차단 목록 상한 — DB의 rooms_banned_shape check(<= 50)와 **같은 값이어야 한다**.
+ * 클라이언트가 이 한도를 모르면 51번째 강퇴에서 update가 통째로 check 위반으로 실패하고,
+ * 호스트는 "내보내기가 안 된다"만 겪게 된다(리뷰 스텝1).
+ */
+export const MAX_BANNED = 50;
+
+/**
+ * 차단 목록에 추가 (중복은 갱신하지 않고 무시 — 최초 차단 시각을 보존한다).
+ * 호출부는 participant_uids에서도 이 uid를 함께 빼야 RLS update 권한까지 회수된다.
+ *
+ * **상한(MAX_BANNED)에 도달하면 추가하지 않고 목록을 그대로 돌려준다.** 내보내기 자체는
+ * 그대로 되고 차단만 생략된다 — 오래된 차단을 말없이 밀어내면 그때 풀린 사람이 다시
+ * 들어와도 호스트는 이유를 모른다. 목록이 꽉 찼다는 사실은 UI가 알린다.
+ * 호출부는 반환값이 입력과 같은 참조인지로 "추가됐는지"를 판별할 수 있다.
+ */
+export function addBan(
+  banned: BannedEntry[] | undefined,
+  uid: string,
+  name: string,
+  at: number
+): BannedEntry[] {
+  const list = banned ?? [];
+  if (list.some((b) => b.uid === uid)) return list;
+  if (list.length >= MAX_BANNED) return list; // 상한 — 차단은 생략, 내보내기는 그대로
+  return [...list, { uid, name, at }];
+}
+
+/** 차단 해제 */
+export function removeBan(banned: BannedEntry[] | undefined, uid: string): BannedEntry[] {
+  return (banned ?? []).filter((b) => b.uid !== uid);
 }

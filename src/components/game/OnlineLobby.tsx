@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { isNetConfigured } from '@/net';
 import { useNetStore } from '@/net/netStore';
-import { uniqueSeatName, buildRoomSeats } from '@/net/roomLogic';
+import { uniqueSeatName, buildRoomSeats, MAX_BANNED } from '@/net/roomLogic';
 import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { maps } from '@/data/mapCatalog';
@@ -54,7 +54,7 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
   const {
     mode, room, mySeat, presentClientIds, chat, busy, error,
     publicRooms, publicRoomsLoading,
-    hostRoom, joinRoom, leaveRoom, sendChat, updateSeats, startOnlineGame,
+    hostRoom, joinRoom, leaveRoom, sendChat, updateSeats, kickSeat, unbanUser, startOnlineGame,
     refreshPublicRooms, quickMatch, renameSeat,
     moveGuideAllowed, setMoveGuideAllowed,
   } = useNetStore();
@@ -355,18 +355,12 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
                     {/* 호스트: 접속 중인 게스트 내보내기 (본인/방장 좌석 제외, 대기실 한정) */}
                     {isHost && room.status === 'waiting' && online && !isMe && seat.clientId !== room.hostClientId && (
                       <button
-                        onClick={() => {
-                          void updateSeats(
-                            room.seats.map((s) =>
-                              s.seat === seat.seat
-                                ? { ...s, clientId: null, name: uniqueSeatName(undefined, room.seats, s.seat) }
-                                : s
-                            )
-                          );
-                        }}
+                        // 좌석 비우기 + 차단(O4) — 좌석만 비우면 코드를 다시 입력해
+                        // 그대로 다시 들어왔다. 아래 "차단된 참가자" 목록에서 바로 해제할 수 있다.
+                        onClick={() => void kickSeat(seat.seat)}
                         className="p-1 rounded-full bg-red-500/10 text-red-500 hover:bg-red-500/20"
-                        title="이 게스트를 방에서 내보내기"
-                        aria-label="게스트 내보내기"
+                        title="이 게스트를 내보내고 재입장을 차단합니다"
+                        aria-label="게스트 내보내고 차단"
                       >
                         <UserX size={14} />
                       </button>
@@ -396,6 +390,46 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
             );
           })}
         </div>
+
+        {/* 차단된 참가자 (O4) — 호스트에게만, 차단이 있을 때만 나타난다.
+            평소엔 섹션 자체가 없어 대기실이 지저분해지지 않고, 내보낸 직후에만 보인다. */}
+        {isHost && (room.banned?.length ?? 0) > 0 && (
+          <div className="rounded-lg border border-foreground/10 bg-background-secondary p-2">
+            <div className="flex items-center gap-1.5 px-1 pb-1.5 text-[11px] font-semibold text-foreground-muted">
+              <UserX size={12} />
+              차단된 참가자 {room.banned?.length}명
+              {/* 상한에 닿으면 그 사실을 알린다 — 이후 내보내기는 차단 없이 퇴장만 되는데,
+                  말해 주지 않으면 "왜 다시 들어오지?"가 된다. 해제하면 다시 여유가 생긴다. */}
+              {(room.banned?.length ?? 0) >= MAX_BANNED && (
+                <span className="font-normal text-accent">
+                  · 최대 {MAX_BANNED}명까지 차단할 수 있어요. 더 내보내면 퇴장만 되니 필요 없는 차단은 해제해 주세요.
+                </span>
+              )}
+            </div>
+            {/* 최대 MAX_BANNED(50)까지 쌓일 수 있어 스크롤을 준다 — 없으면 대기실이
+                차단 목록 길이만큼 계속 늘어난다(공개방 목록과 같은 처리, 리뷰 스텝4) */}
+            <div className="max-h-32 space-y-1 overflow-y-auto">
+              {room.banned?.map((b) => (
+                <div
+                  key={b.uid}
+                  className="flex items-center justify-between gap-2 rounded px-1.5 py-1 text-xs"
+                >
+                  <span className="truncate text-foreground-secondary">{b.name}</span>
+                  <button
+                    onClick={() => void unbanUser(b.uid)}
+                    className="flex-none rounded px-2 py-0.5 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/10"
+                    title={`${b.name}의 차단을 해제해 다시 입장할 수 있게 합니다`}
+                    // 버튼 글자가 "해제"뿐이라 스크린리더로는 누구를 해제하는지 알 수 없다.
+                    // title은 보조적이므로 접근 가능한 이름을 따로 준다(리뷰 스텝4).
+                    aria-label={`${b.name} 차단 해제`}
+                  >
+                    해제
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* 채팅 */}
         <div className="rounded-lg border border-foreground/10 bg-background-secondary">
@@ -600,10 +634,30 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
           <button
             onClick={handleJoin}
             disabled={busy || joinCode.trim().length < 6}
-            className="btn-secondary px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-60"
+            className="btn-secondary flex-none px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-60"
           >
-            {busy ? '입장 중…' : '입장'}
+            {/* ⚠️ 라벨이 "입장"(2자) ↔ "입장 중…"(5자)로 바뀌면 버튼이 넓어지고, 같은 flex
+                행의 input(flex-1)이 그만큼 줄었다 늘어나 행 전체가 출렁인다(실사용 피드백).
+                w-[104px] 같은 고정 폭은 답이 아니었다 — flex item의 min-width는 기본이 auto라
+                콘텐츠가 그보다 넓으면 그냥 늘어나고, 그 경계는 폰트에 따라 달라진다.
+                대신 **긴 라벨을 invisible로 겹쳐 두어** 폭을 항상 그쪽에 맞춘다(폰트 무관).
+                다른 버튼(방 만들기·빠른 매칭)은 w-full이라 이 문제가 없다. */}
+            <span className="grid place-items-center">
+              <span aria-hidden className="col-start-1 row-start-1 invisible whitespace-nowrap">
+                입장 중…
+              </span>
+              <span className="col-start-1 row-start-1 whitespace-nowrap">
+                {busy ? '입장 중…' : '입장'}
+              </span>
+            </span>
           </button>
+        </div>
+        {/* 입장 실패 사유는 **버튼 바로 아래**에 (차단·없는 코드·만석 등).
+            예전엔 컴포넌트 맨 끝에 있어, 나타나는 순간 아래 블록들이 통째로 밀려
+            "화면이 흔들린다"고 느껴졌고 메시지도 눈에서 멀었다 (실사용 피드백).
+            min-h로 자리를 미리 잡아 두어 나타나고 사라져도 레이아웃이 움직이지 않는다. */}
+        <div className="min-h-[18px]" role="status" aria-live="polite">
+          {error && <p className="text-xs leading-[18px] text-red-500">{error}</p>}
         </div>
       </div>
 
@@ -670,11 +724,6 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
         )}
       </div>
 
-      {error && (
-        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-500">
-          {error}
-        </div>
-      )}
     </div>
   );
 }

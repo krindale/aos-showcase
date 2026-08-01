@@ -1,6 +1,6 @@
 // 좌석 배정/호스트 승계 순수 규칙 테스트 (Phase 2)
 import { describe, it, expect } from 'vitest';
-import { assignSeatForClaim, buildRoomSeats, isHostAbsent, pickHostSuccessor, uniqueSeatName, renameSeat } from '../roomLogic';
+import { MAX_BANNED, addBan, assignSeatForClaim, buildRoomSeats, isBanned, isHostAbsent, pickHostSuccessor, removeBan, uniqueSeatName, renameSeat } from '../roomLogic';
 import type { RoomSeat } from '../types';
 
 const seats = (over: Partial<RoomSeat>[]): RoomSeat[] =>
@@ -144,5 +144,60 @@ describe('호스트 승계', () => {
     expect(pickHostSuccessor(s, ['g2', 'g3'])).toBe('g2');
     expect(pickHostSuccessor(s, ['g3'])).toBe('g3');
     expect(pickHostSuccessor(s, [])).toBeNull();
+  });
+});
+
+describe('차단 목록 (O4 — 강퇴 실효화)', () => {
+  const banned = [{ uid: 'u-kicked', name: '기차-둘', at: 1000 }];
+
+  it('isBanned: 차단된 uid만 true', () => {
+    expect(isBanned(banned, 'u-kicked')).toBe(true);
+    expect(isBanned(banned, 'u-other')).toBe(false);
+    expect(isBanned([], 'u-kicked')).toBe(false);
+    expect(isBanned(undefined, 'u-kicked')).toBe(false);
+  });
+
+  it('isBanned: uid를 모르면(익명 로그인 실패) 통과시킨다 — 막을 근거가 없는데 막으면 정상 사용자만 손해', () => {
+    expect(isBanned(banned, null)).toBe(false);
+  });
+
+  it('addBan: 추가하되 이미 있으면 최초 차단 시각을 보존한다', () => {
+    const added = addBan(banned, 'u-new', '기차-셋', 2000);
+    expect(added).toHaveLength(2);
+    expect(added[1]).toMatchObject({ uid: 'u-new', name: '기차-셋', at: 2000 });
+
+    const dup = addBan(banned, 'u-kicked', '바뀐이름', 9999);
+    expect(dup).toHaveLength(1);
+    expect(dup[0].at).toBe(1000); // 갱신하지 않음
+  });
+
+  it('addBan: 상한(DB check와 동일)에 닿으면 추가하지 않고 그대로 둔다 — 퇴장만 되고 차단은 생략', () => {
+    let list = [] as ReturnType<typeof addBan>;
+    for (let i = 0; i < MAX_BANNED; i++) list = addBan(list, `u${i}`, `이름${i}`, i);
+    expect(list).toHaveLength(MAX_BANNED);
+
+    const atLimit = addBan(list, 'u-new', '새사람', 9999);
+    expect(atLimit).toHaveLength(MAX_BANNED); // 상한 유지
+    expect(atLimit).toBe(list); // 같은 참조 — 호출부가 "추가 안 됨"을 판별할 수 있다
+    expect(atLimit.some((b) => b.uid === 'u-new')).toBe(false); // 새 사람은 안 들어감
+    expect(atLimit.some((b) => b.uid === 'u0')).toBe(true); // 오래된 것도 안 밀려남
+  });
+
+  it('removeBan: 해제하면 다시 입장할 수 있다', () => {
+    const after = removeBan(banned, 'u-kicked');
+    expect(after).toHaveLength(0);
+    expect(isBanned(after, 'u-kicked')).toBe(false);
+  });
+
+  it('assignSeatForClaim: 착석 시 uid를 좌석에 기록한다 — 이게 있어야 나중에 그 사람을 특정해 차단할 수 있다', () => {
+    const s = seats([{ clientId: 'host' }, {}]);
+    const next = assignSeatForClaim(s, 'waiting', ['host'], 'guest', '손님', 'uid-guest');
+    expect(next?.[1]).toMatchObject({ clientId: 'guest', uid: 'uid-guest' });
+  });
+
+  it('assignSeatForClaim: uid를 안 넘기면 null로 남는다(구 데이터 호환)', () => {
+    const s = seats([{ clientId: 'host' }, {}]);
+    const next = assignSeatForClaim(s, 'waiting', ['host'], 'guest', '손님');
+    expect(next?.[1].uid).toBeNull();
   });
 });

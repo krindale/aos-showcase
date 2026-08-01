@@ -26,7 +26,16 @@ import {
   removeGuestGuard,
   type GameIntentPayload,
 } from './intents';
-import { assignSeatForClaim, isHostAbsent, pickHostSuccessor, renameSeat as renameSeatRule } from './roomLogic';
+import {
+  addBan,
+  assignSeatForClaim,
+  isBanned,
+  isHostAbsent,
+  pickHostSuccessor,
+  removeBan,
+  renameSeat as renameSeatRule,
+  uniqueSeatName,
+} from './roomLogic';
 import { useGameStore } from '@/store/gameStore';
 import { scheduleAICheck } from '@/store/helpers/aiScheduler';
 import { clearUndo } from '@/store/helpers/undo';
@@ -90,6 +99,15 @@ export interface NetStore {
   sendChat: (text: string) => void;
   /** 호스트 전용: 로비에서 좌석 구성 변경 (사람↔AI 등) */
   updateSeats: (seats: RoomSeat[]) => Promise<void>;
+  /**
+   * 호스트 전용: 게스트를 내보내고 **차단**한다 (O4, 대기실 한정).
+   * 좌석 비우기 + banned 등록 + participant_uids 제거를 한 번에 —
+   * participant에서 빠지면 RLS update 권한도 함께 회수된다.
+   * 좌석에 uid가 없으면(익명 로그인 이전 데이터) 차단 없이 내보내기만 한다.
+   */
+  kickSeat: (seat: number) => Promise<void>;
+  /** 호스트 전용: 차단 해제 — 다시 입장할 수 있게 된다 */
+  unbanUser: (uid: string) => Promise<void>;
   /**
    * 대기실에서 본인 좌석 이름 변경 (트림 저장, 중복 이름 거부).
    * 호스트는 직접 반영, 게스트는 intent로 호스트에 요청 → 스냅샷/room 통지로 확정.
@@ -353,7 +371,24 @@ export const useNetStore = create<NetStore>()((set, get) => {
     try {
       const payload = msg.payload as { name?: string; uid?: string | null } | undefined;
       const name = payload?.name;
-      const newSeats = assignSeatForClaim(room.seats, room.status, presentClientIds, msg.clientId, name);
+
+      // 차단된 사람의 재입장 거부(O4) — 좌석을 비우는 것만으로는 코드를 다시 입력하면
+      // 그대로 들어왔다. 응답을 아예 안 보내면 게스트가 "좌석 대기 중"으로 멈추므로,
+      // 좌석은 그대로 둔 채 room만 재통지해 게스트가 관전 상태임을 알게 한다.
+      if (isBanned(room.banned, payload?.uid ?? null)) {
+        console.warn(`[net] 차단된 사용자의 입장 시도 거부: ${payload?.uid?.slice(0, 8)}`);
+        await conn.broadcastRoom();
+        return;
+      }
+
+      const newSeats = assignSeatForClaim(
+        room.seats,
+        room.status,
+        presentClientIds,
+        msg.clientId,
+        name,
+        payload?.uid ?? null
+      );
 
       // 게스트의 auth.uid를 방의 참가자 목록에 등록(S1a) — 게스트는 (정책 교체 후)
       // 방 행을 직접 쓸 수 없으므로 호스트가 대신 넣어 준다. 이게 있어야 나중에
@@ -899,6 +934,8 @@ export const useNetStore = create<NetStore>()((set, get) => {
       }
       set({ busy: true, error: null });
       try {
+        // 차단된 사람은 transport.joinRoom이 채널을 만들기 전에 던진다(O4) —
+        // 아래 catch가 그 메시지를 그대로 error로 보여준다.
         const conn = await getTransport().joinRoom(code, makeEvents());
         connection = conn;
         lastAppliedRev = 0;
@@ -1039,6 +1076,67 @@ export const useNetStore = create<NetStore>()((set, get) => {
         set({ room: conn.room });
       } catch (e) {
         console.warn('[net] 좌석 갱신 실패:', e);
+      }
+    },
+
+    kickSeat: async (seat) => {
+      const conn = connection;
+      const room = get().room;
+      if (!conn || !room || get().mode !== 'host') return;
+      const target = room.seats.find((s) => s.seat === seat);
+      if (!target || target.seat === 0) return; // 방장 좌석은 대상 아님
+      // 아무도 앉지 않은 좌석은 내보낼 것이 없다(리뷰 스텝3).
+      // 좌석을 비울 때 clientId만 지우고 uid는 남기는 경로가 있어(convertSeatToAI·승계),
+      // 가드가 없으면 **이미 나간 사람**이 그 잔존 uid로 차단된다.
+      // UI는 online 조건으로 막지만 액션 자체도 스스로를 지켜야 한다.
+      if (!target.clientId) return;
+
+      // 좌석 비우기 — 기존 내보내기와 같은 동작(게스트가 onRoom에서 감지해 나간다)
+      const seats = room.seats.map((s) =>
+        s.seat === seat
+          ? { ...s, clientId: null, uid: null, name: uniqueSeatName(undefined, room.seats, s.seat) }
+          : s
+      );
+
+      // uid를 아는 경우에만 차단까지. 모르면(익명 로그인 이전 데이터) 내보내기만 하고
+      // 조용히 넘어간다 — 막을 근거가 없는데 막힌 척하면 목록만 지저분해진다.
+      //
+      // ⚠️ **자기 자신은 절대 차단하지 않는다.** 같은 브라우저의 두 탭은 clientId는
+      // 다르지만 auth 세션(localStorage)을 공유해 **uid가 같다**. 가드가 없으면 그 상태에서
+      // 게스트를 내보내는 순간 호스트 자신의 uid가 banned에 들어가고 participant에서도
+      // 빠져 — 자기 방에 대한 RLS update 권한을 스스로 잃고 방이 그 자리에서 죽는다.
+      // (한 PC 두 탭 플레이는 이 프로젝트가 지원하는 시나리오다)
+      const targetUid = target.uid ?? null;
+      const uid = targetUid && targetUid !== conn.uid ? targetUid : null;
+      if (targetUid && !uid) {
+        console.warn('[net] 나와 같은 계정(uid)의 좌석이라 차단은 건너뛰고 내보내기만 합니다 — 같은 브라우저 두 탭');
+      }
+      const patch: Parameters<typeof conn.updateRoom>[0] = { seats };
+      if (uid) {
+        patch.banned = addBan(room.banned, uid, target.name, Date.now());
+        // participant에서 빼면 RLS update 권한도 함께 회수된다 — 차단이 곧 쓰기 권한 박탈
+        patch.participantUids = (room.participantUids ?? []).filter((u) => u !== uid);
+      }
+
+      try {
+        await conn.updateRoom(patch);
+        await conn.broadcastRoom();
+        set({ room: conn.room });
+      } catch (e) {
+        console.warn('[net] 내보내기 실패:', e);
+      }
+    },
+
+    unbanUser: async (uid) => {
+      const conn = connection;
+      const room = get().room;
+      if (!conn || !room || get().mode !== 'host') return;
+      try {
+        await conn.updateRoom({ banned: removeBan(room.banned, uid) });
+        await conn.broadcastRoom();
+        set({ room: conn.room });
+      } catch (e) {
+        console.warn('[net] 차단 해제 실패:', e);
       }
     },
 

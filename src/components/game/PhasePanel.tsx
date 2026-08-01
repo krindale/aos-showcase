@@ -487,7 +487,7 @@ export default function PhasePanel() {
                     <button
                       key={`${c}-${i}`}
                       onClick={() => selectRepopulationCube(repoCube === c ? null : c)}
-                      className={`w-10 h-10 rounded-md border-2 transition-all ${
+                      className={`w-10 h-10 rounded-md border-2 transition-[border-color,transform] ${
                         repoCube === c ? 'border-accent scale-110' : 'border-glass-border'
                       }`}
                       style={{ background: CUBE_COLORS[c] }}
@@ -587,7 +587,7 @@ export default function PhasePanel() {
                         key={action}
                         onClick={() => handleSelectAction(action)}
                         disabled={taken || mapDisabled || currentPlayerData.selectedAction !== null}
-                        className={`p-2 min-h-[44px] rounded-lg text-left transition-all ${
+                        className={`p-2 min-h-[44px] rounded-lg text-left transition-[background-color,opacity] ${
                           isSelected
                             ? 'bg-accent/20 border border-accent'
                             : taken || mapDisabled

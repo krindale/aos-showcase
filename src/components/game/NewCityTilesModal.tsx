@@ -105,7 +105,7 @@ export function NewCityTilesModal({
                         key={tile.id}
                         onClick={() => !isUsed && onSelect?.(tile.id)}
                         disabled={isUsed}
-                        className={`relative flex items-center justify-center rounded-xl p-1 transition-all ${
+                        className={`relative flex items-center justify-center rounded-xl p-1 transition-[background-color,opacity,box-shadow] ${
                           isUsed
                             ? 'cursor-not-allowed opacity-50'
                             : isSelected

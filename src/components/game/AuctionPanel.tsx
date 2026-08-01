@@ -167,7 +167,7 @@ export default function AuctionPanel() {
             return (
               <div
                 key={playerId}
-                className={`relative p-3 rounded-lg border transition-all ${
+                className={`relative p-3 rounded-lg border transition-[border-color,background-color,opacity,box-shadow] ${
                   isCurrentBidder
                     ? 'border-accent bg-accent/10'
                     : hasPassed
@@ -343,7 +343,7 @@ export default function AuctionPanel() {
                           key={amount}
                           onClick={() => setBidAmount(amount)}
                           disabled={amount > maxBid}
-                          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                          className={`px-4 py-2 rounded-lg text-sm font-medium transition-[background-color,color,opacity] ${
                             bidAmount === amount
                               ? 'bg-accent text-background'
                               : 'bg-background/50 text-foreground hover:bg-background/70'

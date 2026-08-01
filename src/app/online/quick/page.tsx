@@ -142,7 +142,7 @@ export default function QuickJoinPage() {
                       <button
                         type="button"
                         onClick={() => void joinRoom(r.code, myName.trim() || '게스트')}
-                        className="glass-card group flex w-full items-center gap-3 p-3 text-left transition-all hover:-translate-y-0.5 hover:border-accent"
+                        className="glass-card group flex w-full items-center gap-3 p-3 text-left transition-[transform,border-color] hover:-translate-y-0.5 hover:border-accent"
                       >
                         {/* 어느 지도인지 한눈에 — 이름만 있으면 어떤 판인지 감이 안 온다 */}
                         <span className="relative h-[50px] w-[80px] flex-none overflow-hidden rounded-[10px] bg-[#E9E2CB]">

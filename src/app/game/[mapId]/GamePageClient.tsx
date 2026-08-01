@@ -870,7 +870,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   return (
     <div className={`bg-background ${isLandscape ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
       {/* 헤더 — backdrop-blur 8px로 억제(스크롤 상시 재블러가 윈도우 GPU에서 버벅임 유발, 2026-07-29) */}
-      <header className={`fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-[8px] border-b border-foreground/10 ${isLandscape ? 'py-1' : ''}`}>
+      <header className={`sticky-blur-header fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-[8px] border-b border-foreground/10 ${isLandscape ? 'py-1' : ''}`}>
         <div className={`max-w-[1800px] mx-auto px-2 sm:px-4 flex items-center justify-between gap-2 sm:gap-4 ${isLandscape ? 'py-1' : 'py-2 sm:py-3'}`}>
           <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             <button

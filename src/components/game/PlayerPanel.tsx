@@ -242,7 +242,7 @@ export default function PlayerPanel({ playerId, compact = false }: PlayerPanelPr
     <motion.div
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
-      className={`rounded-xl border transition-all ${
+      className={`rounded-xl border transition-[border-color,background-color,opacity] ${
         isEliminated
           ? 'border-red-500/50 bg-red-500/10 opacity-60'
           : isActive

@@ -455,6 +455,12 @@ export const useNetStore = create<NetStore>()((set, get) => {
           `[net] 좌석 위장 인텐트 거부: ${msg.type} seat=${msg.seat} ` +
             `발신 ${msg.clientId?.slice(0, 8)} ≠ 착석 ${seatOwner?.slice(0, 8) ?? '(빈자리)'}`
         );
+        // 아래 !result.ok와 같은 교정이 여기서도 필요하다 — 게스트는 자기 액션을
+        // 낙관적으로 로컬 반영한 뒤 intent를 보내므로, 거부만 하고 끝내면 그 화면이
+        // 잘못된 상태로 굳는다. 위장이 아니라 좌석 정보가 일시적으로 어긋난
+        // 정상 게스트(호스트가 좌석 재배정 중)도 이 경로를 탈 수 있다.
+        lastSyncedJson = '';
+        scheduleBroadcast();
         return;
       }
       const result = applyGameIntent(msg);

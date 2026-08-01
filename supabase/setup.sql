@@ -169,10 +169,18 @@ with check (
 );
 
 -- ============================================================
--- 오래된 방 자동 정리 (마지막 활동 6시간 경과 → 삭제)
--- pg_cron이 Supabase 서버에서 하루 2회 자동 실행 (접속자 없어도 돎).
+-- 오래된 방 자동 정리 — 상태별 조건 (2026-08-01 개정)
+-- pg_cron이 Supabase 서버에서 1시간마다 자동 실행 (접속자 없어도 돎).
 -- updated_at은 게임 중 스냅샷 저장·대기실 하트비트마다 갱신되므로 "마지막 활동 시각".
--- 활성 게임은 최신이라 대상 아님 — 버려진 waiting/playing/finished 방만 청소.
+--
+-- ⚠️ 왜 정리가 필요한가: 호스트가 **"나가기" 버튼**으로 나가면 closeRoom이 방을 즉시
+-- 지우지만, **탭을 닫거나 새로고침하면 그 코드가 안 돈다**(F5 자동 재입장이 그 위에 서
+-- 있어 새로고침을 방 폐쇄로 처리할 수도 없다). 그래서 버려진 방이 계속 쌓인다 —
+-- 목록에서는 updated_at 2분 필터로 안 보이지만 행과 스냅샷(최대 256KB)은 남는다.
+--
+-- waiting 30분: 대기실 하트비트가 45초 주기라 30분 무활동이면 아무도 안 붙어 있는 게
+--   확실하고, 그 방은 되살릴 이유가 없다.
+-- playing/finished 6시간: 게임 중 방은 재접속(F5·호스트 승계) 여지를 남긴다.
 -- ============================================================
 create extension if not exists pg_cron;
 
@@ -183,13 +191,22 @@ security definer
 set search_path = ''
 as $$
   delete from public.rooms
-  where updated_at < now() - interval '6 hours';
+  where updated_at < now() - case
+    when status = 'waiting' then interval '30 minutes'
+    else interval '6 hours'
+  end;
 $$;
 
--- 하루 2회: UTC 05:00 · 17:00 (= 한국시간 14:00 · 02:00). 같은 이름 재등록 시 갱신(pg_cron 1.6 upsert).
+-- SECURITY DEFINER 함수는 public 스키마에 있으면 /rest/v1/rpc/<name>으로 자동 노출된다 —
+-- 안 막으면 누구나 호출해 임의 시점에 방을 강제 삭제할 수 있다(2026-08-01 실제로 열려 있었음).
+revoke execute on function public.cleanup_stale_rooms() from anon, authenticated, public;
+
+-- 1시간마다. 이 행 수(수십)에서는 seq scan이어도 마이크로초라 부하가 사실상 없고,
+-- 누적이 최대 1시간으로 묶인다. 같은 이름 재등록 시 갱신(pg_cron 1.6 upsert).
+-- updated_at 인덱스는 일부러 안 만든다 — 이 규모에선 쓰기 비용만 는다(수천 행대가 되면 재검토).
 select cron.schedule(
   'cleanup-stale-rooms',
-  '0 5,17 * * *',
+  '0 * * * *',
   $$ select public.cleanup_stale_rooms(); $$
 );
 

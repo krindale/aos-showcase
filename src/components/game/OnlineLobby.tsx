@@ -622,13 +622,22 @@ export default function OnlineLobby({ mapId, supportedPlayers }: OnlineLobbyProp
           <button
             onClick={handleJoin}
             disabled={busy || joinCode.trim().length < 6}
-            /* ⚠️ 폭을 고정한다 — "입장"(2자) ↔ "입장 중…"(5자)로 라벨이 바뀌면 이 버튼이
-               넓어지고, 같은 flex 행의 input(flex-1)이 그만큼 줄었다 늘어난다.
-               그게 입장 버튼을 누를 때 화면이 흔들려 보이던 실제 원인이다(실사용 피드백).
-               다른 버튼(방 만들기·빠른 매칭)은 w-full이라 라벨이 바뀌어도 폭이 안 변한다. */
-            className="btn-secondary w-[104px] flex-none px-4 py-2 rounded-lg text-center text-sm font-semibold disabled:opacity-60"
+            className="btn-secondary flex-none px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-60"
           >
-            {busy ? '입장 중…' : '입장'}
+            {/* ⚠️ 라벨이 "입장"(2자) ↔ "입장 중…"(5자)로 바뀌면 버튼이 넓어지고, 같은 flex
+                행의 input(flex-1)이 그만큼 줄었다 늘어나 행 전체가 출렁인다(실사용 피드백).
+                w-[104px] 같은 고정 폭은 답이 아니었다 — flex item의 min-width는 기본이 auto라
+                콘텐츠가 그보다 넓으면 그냥 늘어나고, 그 경계는 폰트에 따라 달라진다.
+                대신 **긴 라벨을 invisible로 겹쳐 두어** 폭을 항상 그쪽에 맞춘다(폰트 무관).
+                다른 버튼(방 만들기·빠른 매칭)은 w-full이라 이 문제가 없다. */}
+            <span className="grid place-items-center">
+              <span aria-hidden className="col-start-1 row-start-1 invisible whitespace-nowrap">
+                입장 중…
+              </span>
+              <span className="col-start-1 row-start-1 whitespace-nowrap">
+                {busy ? '입장 중…' : '입장'}
+              </span>
+            </span>
           </button>
         </div>
         {/* 입장 실패 사유는 **버튼 바로 아래**에 (차단·없는 코드·만석 등).

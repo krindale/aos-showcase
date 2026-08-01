@@ -19,6 +19,7 @@ import { motion } from 'framer-motion';
 import { Loader2, RefreshCw, Users, Zap } from 'lucide-react';
 import { isNetConfigured } from '@/net';
 import { useNetStore } from '@/net/netStore';
+import { markAppNavigation } from '@/utils/appNav';
 import { getMapData } from '@/utils/mapRegistry';
 import { basePath, maps, thumbOf } from '@/data/mapCatalog';
 import { useEnterMotion } from '@/hooks/useEnterMotion';
@@ -35,12 +36,15 @@ export default function QuickJoinPage() {
   const router = useRouter();
   const { enter } = useEnterMotion();
   const {
-    room, error, publicRooms, publicRoomsLoading,
+    room, error, busy, mode, publicRooms, publicRoomsLoading,
     refreshPublicRooms, quickMatch, joinRoom,
   } = useNetStore();
 
   const [myName, setMyName] = useState('게스트');
   const [matching, setMatching] = useState(false);
+  const [joinCode, setJoinCode] = useState('');
+  // 입장 중이거나 이미 방에 들어간 상태면 중복 요청을 막는다 (/online과 같은 판정)
+  const connecting = busy || mode !== 'offline';
 
   // 공개방 목록 8초 폴링 (로비와 같은 주기)
   useEffect(() => {
@@ -51,10 +55,11 @@ export default function QuickJoinPage() {
   }, [room, refreshPublicRooms]);
 
   // 자리를 잡았으면 그 방의 맵 페이지(대기실)로.
-  // 게임 화면의 '나가기'가 맵 갤러리 대신 여기로 되돌아오도록 출발지를 남긴다.
+  // push라서 히스토리에 쌓인다 — 게임 화면의 '나가기'(router.back)가 여기로 돌아온다.
   useEffect(() => {
     if (!room) return;
-    try { window.sessionStorage.setItem('aos-back-to', '/online/quick/'); } catch { /* noop */ }
+    // 게임 화면의 '나가기'(router.back)가 여기로 돌아올 수 있음을 표시 — appNav.ts 참조
+    markAppNavigation();
     router.push(`/game/${room.mapId}/`);
   }, [room, router]);
 
@@ -66,6 +71,15 @@ export default function QuickJoinPage() {
     } finally {
       setMatching(false);
     }
+  };
+
+  /* 코드로 입장 — 친구가 만든 비공개 방은 목록에 안 뜨므로 여기서도 들어갈 수 있어야 한다.
+     성공하면 room이 생기고 위 효과가 /game/<맵>/으로 넘긴다(빠른 매칭과 같은 경로).
+     실패(없는 방·차단)는 netStore가 error에 담아 아래에서 함께 표시된다. */
+  const handleJoin = () => {
+    const code = joinCode.trim().toUpperCase();
+    if (!code || connecting) return;
+    void joinRoom(code, myName.trim() || '게스트');
   };
 
   if (!isNetConfigured()) {
@@ -142,7 +156,10 @@ export default function QuickJoinPage() {
                       <button
                         type="button"
                         onClick={() => void joinRoom(r.code, myName.trim() || '게스트')}
-                        className="glass-card group flex w-full items-center gap-3 p-3 text-left transition-[transform,border-color] hover:-translate-y-0.5 hover:border-accent"
+                        /* 이 화면의 입장 경로는 셋(목록 클릭·빠른 매칭·코드 입장)인데
+                           하나라도 진행 중이면 나머지도 잠가야 요청이 겹치지 않는다 */
+                        disabled={connecting}
+                        className="glass-card group flex w-full items-center gap-3 p-3 text-left transition-[transform,border-color] hover:-translate-y-0.5 hover:border-accent disabled:pointer-events-none disabled:opacity-60"
                       >
                         {/* 어느 지도인지 한눈에 — 이름만 있으면 어떤 판인지 감이 안 온다 */}
                         <span className="relative h-[50px] w-[80px] flex-none overflow-hidden rounded-[10px] bg-[#E9E2CB]">
@@ -213,7 +230,9 @@ export default function QuickJoinPage() {
           <button
             type="button"
             onClick={handleQuickMatch}
-            disabled={matching}
+            /* connecting까지 보는 이유: 코드 입장이 진행 중일 때 이 버튼을 누르면
+               두 입장 요청이 겹친다(코드 입장 추가로 새로 생긴 경로) */
+            disabled={matching || connecting}
             className="btn-primary w-full disabled:opacity-60"
           >
             {matching ? (
@@ -230,6 +249,35 @@ export default function QuickJoinPage() {
             자리가 남은 방에 자동으로 들어갑니다. 왼쪽 목록에서 직접 골라도 됩니다.
           </p>
 
+          {/* 코드로 입장 — 친구가 만든 비공개 방은 목록에 안 뜨므로 이 경로가 필요하다.
+              UI는 /online의 코드 입장과 같은 모양으로 맞춘다(두 화면을 오가도 낯설지 않게). */}
+          <div className="my-4 flex items-center gap-3 text-[11px] text-foreground-muted">
+            <span className="h-px flex-1 bg-[#e6e1d6]" /> 코드가 있다면{' '}
+            <span className="h-px flex-1 bg-[#e6e1d6]" />
+          </div>
+
+          <div className="flex gap-2">
+            <input
+              value={joinCode}
+              onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+              /* isComposing 확인 — 한글 IME 조합 중 Enter가 입력 확정과 겹쳐 두 번 발동하는 걸 막는다 */
+              onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && handleJoin()}
+              placeholder="방 코드"
+              maxLength={8}
+              aria-label="방 코드"
+              className="min-w-0 flex-1 rounded-lg border border-[#ddd6c8] bg-background-secondary px-3 py-2 font-display text-sm tracking-widest text-foreground focus:border-accent focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={handleJoin}
+              disabled={connecting || !joinCode.trim()}
+              className="btn-secondary px-4 py-2 text-sm disabled:opacity-50"
+            >
+              입장
+            </button>
+          </div>
+
+          {/* 빠른 매칭·코드 입장 공통 에러 자리 — 두 액션 아래에 둬야 어느 쪽이 실패해도 눈에 띈다 */}
           {error && <p className="mt-3 text-sm text-accent">{error}</p>}
 
           <div className="my-4 flex items-center gap-3 text-[11px] text-foreground-muted">

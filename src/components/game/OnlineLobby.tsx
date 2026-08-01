@@ -52,9 +52,9 @@ interface OnlineLobbyProps {
    * 대기실 "방 나가기" 처리 — **필수**(optional로 두면 안 넘겨도 조용히 옛 동작이 된다).
    *
    * 여기서 netStore.leaveRoom을 직접 부르지 않는 이유: 나간 뒤 **어디로 갈지**는 이 컴포넌트가
-   * 알 수 없다. /online·/online/quick에서 들어왔으면 그 화면으로 돌아가야 하는데(sessionStorage
-   * `aos-back-to`), 로비는 라우터를 모른다. 페이지(GamePageClient)의 handleLeaveRoom이 그
-   * 판단을 갖고 있으므로 그대로 위임한다 — 규칙이 두 벌이 되지 않게.
+   * 알 수 없다(로비는 라우터를 모른다). 나가기는 방을 떠난 뒤 브라우저 히스토리의 직전
+   * 페이지로 돌아가는데, 그 판단은 페이지(GamePageClient)의 handleLeaveRoom이 갖고 있으므로
+   * 그대로 위임한다 — 규칙이 두 벌이 되지 않게.
    */
   onLeave: () => void;
 }

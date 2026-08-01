@@ -21,6 +21,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Bot, ChevronLeft, ChevronRight, Globe, Loader2, User, Users, Zap } from 'lucide-react';
 import { isNetConfigured } from '@/net';
 import { useNetStore } from '@/net/netStore';
+import { markAppNavigation } from '@/utils/appNav';
 import { buildRoomSeats } from '@/net/roomLogic';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { basePath, DIFF_COLOR, maps, thumbOf } from '@/data/mapCatalog';
@@ -92,10 +93,11 @@ export default function OnlinePlayPage() {
   }, []);
 
   // 방이 만들어졌거나 입장했으면 그 맵의 게임 페이지(대기실)로 넘긴다.
-  // 게임 화면의 '나가기'가 맵 갤러리 대신 여기로 되돌아오도록 출발지를 남긴다.
+  // push라서 히스토리에 쌓인다 — 게임 화면의 '나가기'(router.back)가 여기로 돌아온다.
   useEffect(() => {
     if (!room) return;
-    try { window.sessionStorage.setItem('aos-back-to', '/online/'); } catch { /* noop */ }
+    // 게임 화면의 '나가기'(router.back)가 여기로 돌아올 수 있음을 표시 — appNav.ts 참조
+    markAppNavigation();
     router.push(`/game/${room.mapId}/`);
   }, [room, router]);
 

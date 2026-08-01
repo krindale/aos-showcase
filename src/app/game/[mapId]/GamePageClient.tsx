@@ -68,6 +68,7 @@ import {
   TURNS_BY_PLAYER_COUNT,
   ACTION_INFO,
 } from '@/types/game';
+import { hasAppHistory } from '@/utils/appNav';
 import { getMapData } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
 
@@ -275,11 +276,6 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     }
     if (wasOnlineRef.current) {
       wasOnlineRef.current = false;
-      /* 셋업에 머무는 경로(강퇴·승계 거절)에서도 출발지 기록을 **소진**시킨다.
-         남겨 두면 이 화면에서 새로 만든 방을 나갈 때 consumeBackTo가 그 낡은 값을 읽어
-         엉뚱하게 /online으로 튄다 — 기록은 "그 화면에서 들어왔다"는 1회용 표시다.
-         (handleLeaveRoom이 이미 소비한 경우엔 여기서 지울 게 없어 무해) */
-      try { window.sessionStorage.removeItem('aos-back-to'); } catch { /* noop */ }
       setShowSetup(true);
       setSetupTab('online');
     }
@@ -365,53 +361,49 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     setShowSetup(true);
   };
 
-  /* 들어온 화면 경로를 꺼내 온다(1회용 — 읽으면서 지운다).
-     /online·/online/quick은 방을 만들거나 입장할 때 자기 경로를 sessionStorage에 남긴다.
-     ⚠️ X(handleBack)와 "방 나가기"(handleLeaveRoom)가 **같은 규칙**을 쓰게 하는 한 곳이다.
-     예전엔 X만 이걸 읽고 방 나가기는 무시해서, /online에서 방을 만들고 나간 사람이
-     그 화면 대신 게임 페이지 셋업에 남았다(사용자 지적).
-     의도적 이탈이므로 F5 복원 마킹(aos-ingame)도 함께 해제한다. */
-  const consumeBackTo = (): string | null => {
-    try {
-      window.sessionStorage.removeItem('aos-ingame');
-      const backTo = window.sessionStorage.getItem('aos-back-to');
-      window.sessionStorage.removeItem('aos-back-to');
-      return backTo;
-    } catch {
-      return null; /* 스토리지 차단 브라우저 */
+  /* 나가기 = **앱 안에서 온 직전 페이지로**.
+     예전엔 /online·/online/quick이 진입할 때 sessionStorage에 출발지를 남기고 나갈 때
+     읽는 방식이었는데, 그 기록을 지우는 지점이 셋이나 돼서 하나만 어긋나도 조용히
+     /maps로 떨어졌다(실사용 지적). 히스토리를 쓰면 관리할 기록이 없다.
+
+     ⚠️ 단 window.history.length로 판정하면 안 된다 — 그 값은 **다른 사이트 방문까지** 세서,
+     검색 결과에서 게임 페이지로 바로 들어온 사람이 X를 누르면 사이트 밖으로 나간다.
+     우리가 push한 횟수만 세는 hasAppHistory()로 판정한다(appNav.ts).
+
+     fallback: 앱 내 히스토리가 없을 때 어디로 갈지 — 호출부마다 다르다(아래 참조).
+     의도적 이탈이므로 F5 복원 마킹(aos-ingame)은 여기서 해제한다. */
+  const goBack = (fallback: () => void) => {
+    try { window.sessionStorage.removeItem('aos-ingame'); } catch { /* noop */ }
+    if (hasAppHistory()) {
+      router.back();
+      return;
     }
+    fallback();
   };
 
-  /* 방 나가기가 끝난 뒤에 이동한다 — leaveRoom은 호스트일 때 closeRoom() 왕복을
+  /* ⚠️ 방 나가기가 **끝난 뒤에** 이동한다 — leaveRoom은 호스트일 때 closeRoom() 왕복을
      기다린 뒤에야 room을 비우는데(netStore), 그 전에 /online에 도착하면 그 화면의
      "방이 있으면 대기실로" 자동 라우팅이 게임 페이지로 도로 튕겨낸다. */
-  const leaveThenGo = (to: string) => {
-    void leaveRoom().finally(() => router.push(to));
+  const leaveThen = (fallback: () => void) => {
+    void leaveRoom().finally(() => goBack(fallback));
   };
 
-  /* 나가기(X) — 들어온 화면으로 되돌린다 (온라인이면 방도 나감).
-     출발지 기록이 없으면 기존대로 맵 갤러리로. 안 그러면 온라인으로 들어온 사람이
-     X를 눌렀을 때 엉뚱하게 봇 게임용 맵 갤러리로 떨어진다. */
+  /* 나가기(X·←·맵 선택) — 온라인이면 방도 나간다.
+     앱 내 히스토리가 없으면(외부/직접 진입) 맵 갤러리로 — 기존과 같은 목적지. */
   const handleBack = () => {
-    const backTo = consumeBackTo() || '/maps';
+    const toGallery = () => router.push('/maps');
     if (isOnline) {
-      leaveThenGo(backTo);
+      leaveThen(toGallery);
       return;
     }
-    router.push(backTo);
+    goBack(toGallery);
   };
 
-  /* 온라인 "방 나가기" — 들어온 화면이 있으면 거기로, 없으면 게임 페이지 셋업으로.
-     ("없는 경우" = /game/<map>에 직접 들어와 온라인 탭에서 방을 만든 흐름 — 그땐
-      돌아갈 바깥 화면이 없으니 셋업에 남는 기존 동작이 맞다) */
+  /* 온라인 "방 나가기" — 방을 나가고 직전 페이지로.
+     앱 내 히스토리가 없으면 **이 페이지의 셋업 화면**에 남는다(맵 갤러리로 튕기지 않게).
+     /game/<맵>에 직접 들어와 온라인 탭에서 방을 만든 흐름이 여기 해당한다. */
   const handleLeaveRoom = () => {
-    const backTo = consumeBackTo();
-    if (backTo) {
-      leaveThenGo(backTo);
-      return;
-    }
-    void leaveRoom();
-    setShowSetup(true);
+    leaveThen(() => setShowSetup(true));
   };
 
   // Responsive: Reset panel state on desktop (lg breakpoint) + detect landscape

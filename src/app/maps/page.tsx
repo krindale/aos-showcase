@@ -19,12 +19,6 @@ import {
   type RuleItem,
 } from '@/data/mapCatalog';
 
-/* 온라인 화면(/online)에서 남긴 '나가기 시 돌아갈 곳' 표시를 지운다 —
-   여기서 시작한 게임은 나갈 때 이 갤러리로 돌아와야 한다. */
-function clearBackTo() {
-  try { window.sessionStorage.removeItem('aos-back-to'); } catch { /* noop */ }
-}
-
 type MapView = MapEntry & { players: string; turns: string; rules: RuleItem[] };
 
 function resolveView(entry: MapEntry): MapView {
@@ -272,7 +266,6 @@ export default function MapsPage() {
                     <Link
                       href={`/game/${map.slug}/`}
                       prefetch={false}
-                      onClick={clearBackTo}
                       className="inline-flex items-center gap-2 rounded-[10px] bg-accent px-4 py-[9px] text-sm font-bold text-[#fffdf8] shadow-glow transition-colors hover:bg-accent-light"
                     >
                       <Play className="h-[14px] w-[14px]" fill="currentColor" />
@@ -290,7 +283,6 @@ export default function MapsPage() {
                       <Link
                         href="/game/tutorial/"
                         prefetch={false}
-                        onClick={clearBackTo}
                         className="text-xs font-semibold text-accent underline-offset-4 transition-colors hover:underline"
                       >
                         혼자 해보고 싶다면 → 봇과 튜토리얼
@@ -411,7 +403,6 @@ export default function MapsPage() {
                     <Link
                       href={`/game/${lightboxMap.slug}/`}
                       prefetch={false}
-                      onClick={clearBackTo}
                       className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-6 py-3 text-base font-bold text-[#fffdf8] shadow-glow transition-colors hover:bg-accent-light"
                     >
                       <Play className="h-4 w-4" fill="currentColor" />
@@ -426,7 +417,6 @@ export default function MapsPage() {
                       <Link
                         href="/game/tutorial/"
                         prefetch={false}
-                        onClick={clearBackTo}
                         className="text-[13px] font-semibold text-accent underline-offset-4 transition-colors hover:underline"
                       >
                         혼자 해보고 싶다면 → 봇과 튜토리얼

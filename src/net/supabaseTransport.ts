@@ -64,6 +64,8 @@ interface RoomRow {
   host_client_id: string | null;
   snapshot: unknown | null;
   updated_at: string;
+  /** S1a — 구 스키마/미활성 환경에선 없을 수 있어 optional */
+  participant_uids?: string[] | null;
 }
 
 function rowToRoomInfo(row: RoomRow): RoomInfo {
@@ -78,6 +80,7 @@ function rowToRoomInfo(row: RoomRow): RoomInfo {
     hostClientId: row.host_client_id,
     snapshot: row.snapshot,
     updatedAt: row.updated_at,
+    participantUids: row.participant_uids ?? [],
   };
 }
 
@@ -85,8 +88,41 @@ export class SupabaseTransport implements NetTransport {
   private readonly client: SupabaseClient;
 
   constructor(url: string, anonKey: string) {
-    // 인증 미사용(익명) — 세션 저장 비활성화로 localStorage 오염 방지
-    this.client = createClient(url, anonKey, { auth: { persistSession: false } });
+    // 익명 로그인(S1a, 2026-08-01) — 세션을 **유지해야** 한다.
+    // persistSession:false면 새로고침마다 uid가 바뀌어 "내가 만든 방"을 잃는다.
+    // localStorage를 쓰지만 저장되는 건 익명 세션 토큰뿐이다.
+    this.client = createClient(url, anonKey, {
+      auth: { persistSession: true, autoRefreshToken: true },
+    });
+  }
+
+  /**
+   * 익명 로그인 보장 — RLS가 auth.uid()로 참가자/호스트를 구분하기 위한 기반.
+   *
+   * ⚠️ **실패해도 던지지 않는다.** 현재 RLS는 아직 anon을 허용하는 상태라, 로그인이
+   * 안 돼도 온라인은 정상 동작해야 한다. Supabase 대시보드에서 Anonymous sign-ins가
+   * 꺼져 있으면 여기서 실패하는데, 그걸 치명적으로 다루면 기능이 통째로 죽는다.
+   * 정책을 uid 기반으로 교체하는 3단계에서 비로소 필수가 된다.
+   */
+  private async ensureAuth(): Promise<string | null> {
+    try {
+      const { data: sessionData } = await this.client.auth.getSession();
+      if (sessionData.session?.user?.id) return sessionData.session.user.id;
+
+      const { data, error } = await this.client.auth.signInAnonymously();
+      if (error) {
+        console.warn(
+          '[net] 익명 로그인 실패 — anon 권한으로 계속합니다. ' +
+            'Supabase 대시보드 > Authentication > Anonymous sign-ins가 꺼져 있는지 확인하세요.',
+          error.message
+        );
+        return null;
+      }
+      return data.user?.id ?? null;
+    } catch (e) {
+      console.warn('[net] 익명 로그인 중 예외 — anon 권한으로 계속합니다.', e);
+      return null;
+    }
   }
 
   async createRoom(
@@ -94,6 +130,7 @@ export class SupabaseTransport implements NetTransport {
     events: RoomEvents
   ): Promise<RoomConnection> {
     const clientId = getClientId();
+    const uid = await this.ensureAuth();
     for (let attempt = 0; attempt < 5; attempt++) {
       const code = generateRoomCode();
       const { data, error } = await this.client
@@ -105,10 +142,13 @@ export class SupabaseTransport implements NetTransport {
           map_id: opts.mapId,
           seats: opts.seats,
           host_client_id: clientId,
+          // uid가 null이면(익명 로그인 미활성) 컬럼도 비운다 — 지금은 정책이 anon을
+          // 허용하므로 무해하고, 활성화된 뒤 만든 방부터 채워진다.
+          ...(uid ? { host_uid: uid, participant_uids: [uid] } : {}),
         })
         .select()
         .single();
-      if (!error) return this.connect(rowToRoomInfo(data as RoomRow), clientId, events);
+      if (!error) return this.connect(rowToRoomInfo(data as RoomRow), clientId, events, uid);
       if (error.code !== UNIQUE_VIOLATION) {
         throw new Error(`방 생성 실패: ${error.message}`);
       }
@@ -117,9 +157,12 @@ export class SupabaseTransport implements NetTransport {
   }
 
   async joinRoom(code: string, events: RoomEvents): Promise<RoomConnection> {
+    const uid = await this.ensureAuth();
     const room = await this.fetchRoom(code);
     if (!room) throw new Error(`방을 찾을 수 없음: ${code}`);
-    return this.connect(room, getClientId(), events);
+    // uid는 claimSeat intent에 실려 호스트가 participant_uids에 추가한다 —
+    // 게스트는 (정책 교체 후) 방 행을 직접 쓸 수 없으므로 호스트가 대신 등록해야 한다.
+    return this.connect(room, getClientId(), events, uid);
   }
 
   async fetchRoom(code: string): Promise<RoomInfo | null> {
@@ -148,7 +191,12 @@ export class SupabaseTransport implements NetTransport {
   }
 
   /** 채널 구독 완료까지 대기 후 연결 객체 반환 */
-  private connect(room: RoomInfo, clientId: string, events: RoomEvents): Promise<RoomConnection> {
+  private connect(
+    room: RoomInfo,
+    clientId: string,
+    events: RoomEvents,
+    uid: string | null = null
+  ): Promise<RoomConnection> {
     // room 브로드캐스트 핸들러에서 참조할 연결 객체 (구독 완료 시 할당)
     let conn: SupabaseRoomConnection | null = null;
     const channel = this.client.channel(`room:${room.code}`, {
@@ -195,7 +243,7 @@ export class SupabaseTransport implements NetTransport {
           if (!resolved) {
             resolved = true;
             clearTimeout(timeout);
-            conn = new SupabaseRoomConnection(this.client, channel, room, clientId);
+            conn = new SupabaseRoomConnection(this.client, channel, room, clientId, uid);
             resolve(conn);
           }
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
@@ -223,7 +271,9 @@ class SupabaseRoomConnection implements RoomConnection {
     private readonly client: SupabaseClient,
     private readonly channel: RealtimeChannel,
     room: RoomInfo,
-    public readonly clientId: string
+    public readonly clientId: string,
+    /** 익명 로그인 uid — 미활성이면 null. claimSeat에 실어 호스트가 participant_uids에 등록한다 */
+    public readonly uid: string | null = null
   ) {
     this._room = room;
   }
@@ -249,7 +299,9 @@ class SupabaseRoomConnection implements RoomConnection {
   }
 
   async broadcastSnapshot(snapshot: SnapshotMessage): Promise<void> {
-    await this.broadcast('snapshot', snapshot);
+    // 발신자를 transport가 채운다(sendIntent와 같은 방식) — 호출부가 잊어버릴 수 없게.
+    // 게스트는 이 값으로 "정말 호스트가 보낸 스냅샷인지" 거른다.
+    await this.broadcast('snapshot', { ...snapshot, from: this.clientId });
   }
 
   async broadcastRoom(): Promise<void> {
@@ -264,7 +316,7 @@ class SupabaseRoomConnection implements RoomConnection {
   }
 
   async updateRoom(
-    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic'>>
+    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids'>>
   ): Promise<void> {
     const row: Record<string, unknown> = {};
     if (patch.status !== undefined) row.status = patch.status;
@@ -273,6 +325,7 @@ class SupabaseRoomConnection implements RoomConnection {
     if (patch.hostClientId !== undefined) row.host_client_id = patch.hostClientId;
     if (patch.title !== undefined) row.title = patch.title;
     if (patch.isPublic !== undefined) row.is_public = patch.isPublic;
+    if (patch.participantUids !== undefined) row.participant_uids = patch.participantUids;
 
     const { error } = await this.client.from('rooms').update(row).eq('id', this._room.id);
     if (error) throw new Error(`방 갱신 실패: ${error.message}`);
@@ -280,7 +333,7 @@ class SupabaseRoomConnection implements RoomConnection {
   }
 
   async upsertRoom(
-    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic'>>
+    patch: Partial<Pick<RoomInfo, 'status' | 'seats' | 'snapshot' | 'hostClientId' | 'title' | 'isPublic' | 'participantUids'>>
   ): Promise<void> {
     // updateRoom과 달리 방 전체를 id 기준 upsert — 방장이 나가며 closeRoom으로 삭제한 방을
     // 승계자가 그대로 되살린다(같은 id·code 유지). 있으면 update, 없으면 insert.

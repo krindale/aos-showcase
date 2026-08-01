@@ -105,3 +105,108 @@ select cron.schedule(
   '0 5,17 * * *',
   $$ select public.cleanup_stale_rooms(); $$
 );
+
+-- ============================================================
+-- S3: 서버측 제약 — 클라이언트 캡은 우회 가능하다 (2026-08-01)
+--
+-- 이름 12자·방제 20자 같은 제한은 UI에만 있어, anon 키로 REST를 직접 때리면
+-- 수 MB짜리 방제나 스냅샷을 넣어 DB와 공개방 목록을 오염시킬 수 있다.
+-- 값은 UI 캡보다 넉넉하다 — "정상 사용의 상한"이 아니라 "명백한 남용의 하한"이 목적이라
+-- UI 문구를 조금 손볼 때마다 제약이 깨지지 않는다. NULL은 3값 논리로 통과한다.
+-- ============================================================
+alter table public.rooms drop constraint if exists rooms_code_format;
+alter table public.rooms add constraint rooms_code_format
+  check (code ~ '^[A-Z2-9]{6,8}$');
+
+alter table public.rooms drop constraint if exists rooms_title_len;
+alter table public.rooms add constraint rooms_title_len
+  check (length(title) <= 60);
+
+alter table public.rooms drop constraint if exists rooms_map_id_len;
+alter table public.rooms add constraint rooms_map_id_len
+  check (length(map_id) <= 40);
+
+-- 좌석: 배열이어야 하고 최대 인원(6인 맵)+여유. 원소별 이름 길이는 전체 바이트로 갈음
+-- (jsonb 원소를 하나씩 검사하는 표현식은 비싸고, 남용 차단엔 총량이면 충분).
+alter table public.rooms drop constraint if exists rooms_seats_shape;
+alter table public.rooms add constraint rooms_seats_shape
+  check (
+    jsonb_typeof(seats) = 'array'
+    and jsonb_array_length(seats) <= 8
+    and pg_column_size(seats) <= 8192
+  );
+
+-- 스냅샷 실측 최대 약 4.9KB(gzip+base64). 256KB = Realtime 메시지 한도와 같은 자리수로,
+-- 정상의 50배 여유를 두면서 수 MB 투입은 막는다.
+alter table public.rooms drop constraint if exists rooms_snapshot_size;
+alter table public.rooms add constraint rooms_snapshot_size
+  check (pg_column_size(snapshot) <= 262144);
+
+-- ============================================================
+-- S4: 방 생성 남용 방지 (2026-08-01)
+--
+-- rooms_insert는 with check (true) — 무제한이라 스크립트로 공개방 목록을 마비시킬 수 있다.
+-- uid당 제한이 이상적이지만 익명 로그인(S1) 전에는 요청자를 구분할 수 없고, IP는
+-- PostgREST 경유라 신뢰성 있게 얻을 수 없다. 그래서 "정상 사용이라면 절대 닿지 않는
+-- 총량"을 상한으로 둔다 — 1분에 방 20개는 명백한 남용이다.
+-- S1에서 익명 로그인이 들어오면 여기에 uid별 조건을 덧붙여 촘촘하게 만든다.
+-- ============================================================
+create or replace function public.enforce_room_creation_rate_limit()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  recent_count int;
+begin
+  select count(*) into recent_count
+  from public.rooms
+  where created_at > now() - interval '1 minute';
+
+  if recent_count >= 20 then
+    raise exception '방 생성이 일시적으로 제한되었습니다. 잠시 후 다시 시도해 주세요.'
+      using errcode = 'check_violation';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists rooms_rate_limit on public.rooms;
+create trigger rooms_rate_limit
+  before insert on public.rooms
+  for each row execute function public.enforce_room_creation_rate_limit();
+
+-- ============================================================
+-- S1a: 인증 주체(auth.uid) 컬럼 — 정책은 아직 걸지 않는다 (2026-08-01)
+--
+-- 순서가 중요하다. RLS를 uid 기반으로 바꾸는 순간 익명 로그인을 하지 않는 배포본은
+-- 전부 접근 불가가 되므로(온라인 전면 중단), 아래 순서를 지켜야 한다:
+--   ① 컬럼 추가 (nullable — 기존 코드에 영향 0)          ← 이 블록
+--   ② 클라이언트가 익명 로그인 + 컬럼을 채우도록 수정 → **배포**
+--   ③ 그 뒤에 RLS 정책 교체                              ← supabase/rls-stage3.sql
+--
+-- participant_uids가 왜 필요한가: update를 host_uid = auth.uid()로만 조이면
+-- **호스트 승계가 불가능해진다**(승계 = 게스트가 방 행을 써서 호스트를 자기로 바꾸는 동작).
+-- 그래서 "이 방의 참가자"를 따로 들고 참가자면 쓸 수 있게 한다.
+-- ============================================================
+alter table public.rooms add column if not exists host_uid uuid;
+alter table public.rooms add column if not exists participant_uids uuid[] not null default '{}';
+
+create index if not exists rooms_participant_uids_idx
+  on public.rooms using gin (participant_uids);
+
+comment on column public.rooms.host_uid is
+  '방을 만든 익명 사용자의 auth.uid. 호스트 승계 시 갱신된다. (S1a, 2026-08-01)';
+comment on column public.rooms.participant_uids is
+  '이 방에 앉은 적 있는 사용자들의 auth.uid. update 정책이 이 배열로 참가자를 판정하므로 '
+  '호스트 승계자도 권한을 유지한다. clientId(좌석 식별, 탭별)와는 별개 축이다.';
+
+-- SECURITY DEFINER 함수의 REST RPC 노출 차단 (어드바이저 권고)
+-- Supabase는 public 스키마 함수를 /rest/v1/rpc/<name>으로 자동 노출한다. 아래 둘은
+-- 내부용(pg_cron·트리거)인데 소유자 권한으로 돌기 때문에, 노출된 채로 두면
+-- anon이 cleanup_stale_rooms()를 직접 호출해 방을 임의 시점에 강제 삭제할 수 있다.
+-- EXECUTE를 회수해도 동작은 불변 — 트리거와 cron은 호출자 권한을 보지 않는다.
+revoke execute on function public.cleanup_stale_rooms() from anon, authenticated, public;
+revoke execute on function public.enforce_room_creation_rate_limit() from anon, authenticated, public;

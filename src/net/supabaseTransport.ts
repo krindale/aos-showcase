@@ -120,29 +120,37 @@ export class SupabaseTransport implements NetTransport {
   /**
    * 익명 로그인 보장 — RLS가 auth.uid()로 참가자/호스트를 구분하기 위한 기반.
    *
-   * ⚠️ **실패해도 던지지 않는다.** 현재 RLS는 아직 anon을 허용하는 상태라, 로그인이
-   * 안 돼도 온라인은 정상 동작해야 한다. Supabase 대시보드에서 Anonymous sign-ins가
-   * 꺼져 있으면 여기서 실패하는데, 그걸 치명적으로 다루면 기능이 통째로 죽는다.
-   * 정책을 uid 기반으로 교체하는 3단계에서 비로소 필수가 된다.
+   * ⚠️ **실패하면 던진다(S2 이후).** 예전엔 "anon 권한으로 계속"하는 폴백이었지만,
+   * private 채널 정책이 `to authenticated`라 uid 없이는 **채널 입장 자체가 불가능**하다.
+   * 그대로 진행시키면 방은 만들어지는데(participant_uids 비어 있음) 정작 본인도 못 들어가,
+   * 사용자는 원인 모를 연결 실패만 본다. 여기서 끊고 이유를 화면에 보여 준다
+   * (netStore의 createRoom/joinRoom catch가 이 메시지를 error로 띄운다).
    */
-  private async ensureAuth(): Promise<string | null> {
+  private async ensureAuth(): Promise<string> {
+    const HINT =
+      '온라인 기능을 쓸 수 없습니다 — 서버 인증에 실패했습니다. ' +
+      '잠시 후 다시 시도해 주세요.';
     try {
       const { data: sessionData } = await this.client.auth.getSession();
       if (sessionData.session?.user?.id) return sessionData.session.user.id;
 
       const { data, error } = await this.client.auth.signInAnonymously();
       if (error) {
-        console.warn(
-          '[net] 익명 로그인 실패 — anon 권한으로 계속합니다. ' +
-            'Supabase 대시보드 > Authentication > Anonymous sign-ins가 꺼져 있는지 확인하세요.',
+        // 운영자용 원인 진단은 콘솔에, 사용자에겐 위 문구만
+        console.error(
+          '[net] 익명 로그인 실패. Supabase 대시보드 > Authentication > Providers > ' +
+            'Anonymous sign-ins가 꺼져 있는지 확인하세요.',
           error.message
         );
-        return null;
+        throw new Error(HINT);
       }
-      return data.user?.id ?? null;
+      const uid = data.user?.id;
+      if (!uid) throw new Error(HINT);
+      return uid;
     } catch (e) {
-      console.warn('[net] 익명 로그인 중 예외 — anon 권한으로 계속합니다.', e);
-      return null;
+      if (e instanceof Error && e.message === HINT) throw e;
+      console.error('[net] 익명 로그인 중 예외', e);
+      throw new Error(HINT);
     }
   }
 
@@ -163,9 +171,10 @@ export class SupabaseTransport implements NetTransport {
           map_id: opts.mapId,
           seats: opts.seats,
           host_client_id: clientId,
-          // uid가 null이면(익명 로그인 미활성) 컬럼도 비운다 — 지금은 정책이 anon을
-          // 허용하므로 무해하고, 활성화된 뒤 만든 방부터 채워진다.
-          ...(uid ? { host_uid: uid, participant_uids: [uid] } : {}),
+          // uid는 ensureAuth가 보장한다(없으면 이미 던졌다). private 채널 정책이
+          // participant_uids를 보므로, 이 두 컬럼이 비면 방장 본인도 못 들어간다.
+          host_uid: uid,
+          participant_uids: [uid],
         })
         .select()
         .single();

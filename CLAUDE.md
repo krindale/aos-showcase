@@ -522,8 +522,10 @@ Supabase Realtime + **호스트 권위** 동기화. 종합 설계·비용·조�
   새로고침), 대기실 45초 하트비트(touchRoom)로 유령 방 필터(updated_at 2분).
 - **방 자동 정리(pg_cron)**: `setup.sql`이 `cleanup_stale_rooms()`(security definer + search_path
   고정) + pg_cron 스케줄을 등록 — `updated_at`(스냅샷 저장·하트비트마다 갱신 = 마지막 활동)
-  기준으로 **1시간마다** 자동 삭제하되 **상태별 조건**이다(2026-08-01): `waiting` **30분** /
-  `playing`·`finished` **6시간**. 접속자 없어도 서버에서 돎(수동 SQL 정리 불필요).
+  기준으로 **1시간마다** 자동 삭제하되 **상태별 조건**이다(2026-08-01):
+  `waiting`·`finished` **30분** / `playing` **6시간**. 접속자 없어도 서버에서 돎(수동 SQL 불필요).
+  (`finished`는 `closeRoom`에서만 설정되고 곧바로 delete가 뒤따르므로, 남아 있으면 그 delete가
+  실패한 잔재다 — 게임이 끝나도 status는 `playing`이라 결과 화면과 무관.)
   ⚠️ **왜 필요한가**: 호스트가 **"나가기" 버튼**으로 나가면 `closeRoom`이 방을 즉시 지우지만,
   **탭을 닫거나 새로고침하면 그 코드가 안 돈다** — F5 자동 재입장이 그 위에 서 있어 새로고침을
   방 폐쇄로 처리할 수도 없다. 그래서 버려진 방이 쌓인다. 목록에서는 `updated_at` 2분 필터로

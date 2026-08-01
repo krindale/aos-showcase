@@ -179,8 +179,11 @@ with check (
 -- 목록에서는 updated_at 2분 필터로 안 보이지만 행과 스냅샷(최대 256KB)은 남는다.
 --
 -- waiting 30분: 대기실 하트비트가 45초 주기라 30분 무활동이면 아무도 안 붙어 있는 게
---   확실하고, 그 방은 되살릴 이유가 없다.
--- playing/finished 6시간: 게임 중 방은 재접속(F5·호스트 승계) 여지를 남긴다.
+--   확실하고(40배 여유), 그 방은 되살릴 이유가 없다.
+-- finished 30분: `finished`는 **closeRoom에서만** 설정되고 곧바로 delete가 뒤따른다 —
+--   남아 있다는 건 그 delete가 실패한 잔재라는 뜻이지 누가 보고 있는 방이 아니다
+--   (게임이 끝나도 status는 playing으로 남으므로 결과 화면과 무관). 목록에도 안 뜬다.
+-- playing 6시간: 재접속(F5·호스트 승계)·게임 종료 결과 화면 여지를 남긴다.
 -- ============================================================
 create extension if not exists pg_cron;
 
@@ -192,7 +195,7 @@ set search_path = ''
 as $$
   delete from public.rooms
   where updated_at < now() - case
-    when status = 'waiting' then interval '30 minutes'
+    when status in ('waiting', 'finished') then interval '30 minutes'
     else interval '6 hours'
   end;
 $$;

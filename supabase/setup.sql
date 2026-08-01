@@ -34,13 +34,27 @@ grant select, insert, update, delete on public.rooms to anon, authenticated;
 -- 누구나 조작할 수 있었다.
 alter table public.rooms enable row level security;
 
--- SELECT는 의도적으로 열어 둔다(S1b 과제) — 지금 조이면 "코드로 방 찾기"와
--- "공개방 목록"이 함께 죽는다. 둘 다 security definer RPC/뷰로 옮기고 클라이언트
--- (fetchRoom·listPublicRooms)도 함께 바꿔야 하는 별도 작업이다.
--- 남는 노출은 정보 열람(비공개 방 코드·스냅샷)이고, 파괴적 조작은 아래가 막는다.
+-- SELECT: 공개·대기 방 + 내가 참가한 방만 (S1b 2단계, 2026-08-01 적용)
+--
+-- 이전엔 using(true)라 누구나 모든 방의 코드·스냅샷·좌석 clientId를 읽었다.
+-- 이제 두 갈래만 허용한다:
+--   ① 공개·대기 중인 방 — 공개방 목록이 동작해야 하고, 애초에 "코드를 몰라도 들어가는" 방이다.
+--      status='waiting'으로 한정하므로 **진행 중 게임 스냅샷은 이 경로로 새지 않는다**.
+--   ② 내가 참가자인 방 — join_room RPC로 코드를 제시해야 참가자가 된다.
+--
+-- ⚠️ to anon을 남기는 이유: 클라이언트의 listPublicRooms는 ensureAuth를 부르지 않아
+--    로그인 전에도 목록을 조회한다. authenticated 전용으로 하면 공개방 목록이 죽는다.
+--    anon은 auth.uid()가 null이라 ②를 통과할 수 없으므로 공개방만 본다.
+--
+-- 남는 노출(설계상 수용): **공개·대기 방의 코드**는 여전히 읽힌다. 그 방들은 원래
+-- 코드 없이도 들어가는 방이라 실익이 없다. 비공개 방 코드와 진행 중 스냅샷은 막힌다.
 drop policy if exists "rooms_select" on public.rooms;
 create policy "rooms_select" on public.rooms
-  for select to anon, authenticated using (true);
+  for select to anon, authenticated
+  using (
+    (is_public and status = 'waiting')
+    or (auth.uid() is not null and auth.uid() = any(participant_uids))
+  );
 
 -- INSERT: 로그인한 사용자만, 반드시 **자기 uid로만** 방을 만들 수 있다
 drop policy if exists "rooms_insert" on public.rooms;

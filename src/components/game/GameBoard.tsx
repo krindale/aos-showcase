@@ -518,16 +518,17 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     if (!svg || typeof svg.getScreenCTM !== 'function') return null;
     const ctm = svg.getScreenCTM();
     if (!ctm || !ctm.a) return null;
-    const inv = ctm.inverse();
     return {
       unitsPerPixel: 1 / ctm.a,
       // 렌더 쪽 scale 원점과 동일해야 한다 (아래 <g transform>의 translate(중심) 참조)
       center: { x: viewLeft + viewWidth / 2, y: viewTop + viewHeight / 2 },
+      // 역행렬은 여기서(=핀치 앵커를 구할 때만) 계산한다 — 팬 경로는 unitsPerPixel만 쓰므로
+      // 위에서 미리 만들면 매 프레임 쓰지도 않을 inverse()를 돌리게 된다.
       toContent: (clientX: number, clientY: number) => {
         const pt = svg.createSVGPoint();
         pt.x = clientX;
         pt.y = clientY;
-        const p = pt.matrixTransform(inv);
+        const p = pt.matrixTransform(ctm.inverse());
         return { x: p.x, y: p.y };
       },
     };

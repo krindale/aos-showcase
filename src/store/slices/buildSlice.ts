@@ -597,6 +597,9 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       ).length;
 
       // 가닥은 자동 생성하지 않음 — 타일만 1카운트. 마을 연결은 마을 클릭(buildTownSpur)으로.
+      // ⚠️ 이 배열이 **항상 비어 있다는 전제**로 위의 현금 검사(player.cash < cost)가 교체비만
+      //    본다. 아래 차감은 마을 비용까지 빼므로, 여기에 실제로 가닥을 채우게 되면 검사도
+      //    calcTownSpurCost를 포함하도록 함께 고쳐야 한다(안 그러면 현금이 음수가 된다).
       const complexSpurs: { townCoord: HexCoord; edge: number }[] = [];
       const newBuiltCount = state.phaseState.builtTracksThisTurn + 1;
 
@@ -1014,6 +1017,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       if (crossesBlockedEdge(state.board, coord, newEdges)) return false;
 
       // 가닥은 자동 생성하지 않음 — 타일만 1카운트. 마을 연결은 마을 클릭(buildTownSpur)으로.
+      // ⚠️ complexSpurs와 동일 — 비어 있다는 전제로 위 현금 검사가 교체비만 본다(위 주석 참조).
       const redirectSpurs: { townCoord: HexCoord; edge: number }[] = [];
 
       captureUndo(state, `트랙 방향 전환 (${coord.col},${coord.row})`);

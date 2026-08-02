@@ -900,6 +900,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   // 팝업을 열 수 있는 조건일 때만 콜백을 넘긴다 — BoardCities는 존재 여부만 보고 판단한다.
   // 화물을 이미 골랐으면 도시 클릭은 "목적지 선택"이어야 하므로 넘기지 않는다.
   const canPickCubeByCity =
+    !fitOverlay && // 미니맵은 관전용 — 콜백을 넘기면 팝업이 뜨지도 않는데 상태만 세팅된다
     isNarrow &&
     moveGoodsPhase &&
     !boardInteractionBlocked &&

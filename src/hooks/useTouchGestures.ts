@@ -151,11 +151,16 @@ export function useTouchGestures(
     [onPositionChange]
   );
 
-  /** 화면 픽셀 → 콘텐츠 단위 배율 (metrics가 없으면 1:1) */
-  const unitsPerPixel = useCallback(() => {
-    const m = getMetrics?.();
-    return m && Number.isFinite(m.unitsPerPixel) && m.unitsPerPixel > 0 ? m.unitsPerPixel : 1;
-  }, [getMetrics]);
+  /**
+   * 화면 픽셀 → 콘텐츠 단위 배율 (metrics가 없거나 값이 이상하면 1:1).
+   * ⚠️ metrics 조회는 `getScreenCTM()`+`inverse()`라 레이아웃을 강제할 수 있다. touchmove는
+   * 60fps로 들어오므로 **핸들러당 한 번만 조회해** 이 함수에 넘긴다(프레임당 2회 조회 금지).
+   */
+  const resolveUnitsPerPixel = useCallback(
+    (m: TransformMetrics | null | undefined) =>
+      m && Number.isFinite(m.unitsPerPixel) && m.unitsPerPixel > 0 ? m.unitsPerPixel : 1,
+    []
+  );
 
   // 터치 상태를 추적하기 위한 ref
   const touchStateRef = useRef({
@@ -272,11 +277,11 @@ export function useTouchGestures(
         );
 
         const mid = getMidpoint(touches[0], touches[1]);
-        const upp = unitsPerPixel();
+        const m = getMetrics?.(); // 프레임당 1회만 (getScreenCTM은 레이아웃 강제 가능)
+        const upp = resolveUnitsPerPixel(m);
         let next = { ...st.initialPosition };
         if (st.pinchAnchor) {
           // 앵커가 화면에서 제자리에 있도록 보정: pos' = pos + (s0 - s')*(anchor - C)
-          const m = getMetrics?.();
           const c = m?.center ?? { x: 0, y: 0 };
           const k = st.initialScale - newScale;
           next = { x: next.x + k * (st.pinchAnchor.x - c.x), y: next.y + k * (st.pinchAnchor.y - c.y) };
@@ -294,10 +299,17 @@ export function useTouchGestures(
         e.preventDefault();
         const dxPx = touches[0].clientX - st.startPoint.x;
         const dyPx = touches[0].clientY - st.startPoint.y;
-        // 8px 이상 움직이면 팬으로 간주 (손가락 흔들림은 탭으로 유지)
-        if (!st.moved && Math.hypot(dxPx, dyPx) > 8) st.moved = true;
-        if (!st.moved) return;
-        const upp = unitsPerPixel();
+        // 8px 이상 움직이면 팬으로 간주 (손가락 흔들림은 탭으로 유지).
+        // 임계를 넘는 순간을 **새 기준으로 다시 잡는다** — 안 그러면 그동안 쌓인 8px이
+        // 한 프레임에 통째로 적용돼 보드가 툭 튄다.
+        if (!st.moved) {
+          if (Math.hypot(dxPx, dyPx) <= 8) return;
+          st.moved = true;
+          st.startPoint = { x: touches[0].clientX, y: touches[0].clientY };
+          st.initialPosition = { ...positionRef.current };
+          return;
+        }
+        const upp = resolveUnitsPerPixel(getMetrics?.());
         applyPosition(
           clampPosition(
             {
@@ -309,7 +321,7 @@ export function useTouchGestures(
         );
       }
     },
-    [minScale, maxScale, getDistance, getMidpoint, getMetrics, unitsPerPixel, clampPosition, applyScale, applyPosition]
+    [minScale, maxScale, getDistance, getMidpoint, getMetrics, resolveUnitsPerPixel, clampPosition, applyScale, applyPosition]
   );
 
   const onTouchEnd = useCallback(
@@ -362,7 +374,7 @@ export function useTouchGestures(
       mouseStateRef.current.moved = true;
     }
     if (!mouseStateRef.current.moved) return;
-    const upp = unitsPerPixel();
+    const upp = resolveUnitsPerPixel(getMetrics?.());
     applyPosition(
       clampPosition(
         {
@@ -372,7 +384,7 @@ export function useTouchGestures(
         scaleRef.current
       )
     );
-  }, [unitsPerPixel, clampPosition, applyPosition]);
+  }, [getMetrics, resolveUnitsPerPixel, clampPosition, applyPosition]);
 
   /**
    * 마우스 드래그 종료 (데스크톱 팬)

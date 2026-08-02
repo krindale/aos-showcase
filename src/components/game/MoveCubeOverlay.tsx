@@ -67,7 +67,9 @@ export default function MoveCubeOverlay() {
   // (자기 자신의 철도 건설은 메인 보드에서 직접 클릭하므로 우측 팝업이 컨트롤을 가리지 않게 제외.
   //  오프라인 핫시트는 myPlayerId=null — 사람 차례는 항상 조작자 본인 화면이라 봇 차례만 표시)
   // 개인 설정으로 미니맵을 통째로 끌 수 있다 (표시 전용 — 이동/건설/정산 로직과 무관).
-  // ⚠️ 아래 훅들(useEffect·useState)보다 먼저 return하면 훅 순서가 깨지므로, 렌더 조건에만 섞는다.
+  // ⚠️ 여기서 `if (!minimapEnabled) return null`로 끊지 않고 아래 렌더 조건(show)에만 섞는다.
+  // 지금은 이 아래에 훅이 없어 조기 return도 동작하지만, 나중에 훅이 하나라도 추가되면 그 순간
+  // 훅 순서가 깨진다(Rules of Hooks). 조건부 표시는 조건부 렌더로 처리하는 편이 안전하다.
   const minimapEnabled = useGameSettingsStore((s) => s.minimapEnabled);
   const myPlayerId = useMyPlayerId();
   const isAITurn = players[currentPlayer]?.isAI ?? false;

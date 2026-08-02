@@ -90,7 +90,10 @@ describe('독일 미완성 제거: 이번 턴 교차(secondary) 되돌림', () =
     const { board, refund } = removeIncompleteNewTracks(b, TURN, 'player1', 1);
     expect(board.trackTiles).toHaveLength(0);       // 미완성 타일 제거
     expect(board.townSpurs).toHaveLength(0);        // 고아 가닥도 제거 ❌ 수정 전: 남았음
-    expect(refund).toBe(2 + 1);                     // 평지 타일 $2 + 가닥 $1
+    // 평지 타일 $2 + 가닥 $1 + **마을 기본료 $1** — 그 마을의 이번 턴 가닥이 전부 사라지므로
+    // 청구했던 기본료도 함께 돌려준다 (2026-08-02 룰북 정합: 마을 $1 + 트랙당 $1).
+    // 일부만 남으면 기본료는 유지된다(boardRules의 baseRefunded 참조).
+    expect(refund).toBe(2 + 1 + 1);
   });
 
   it('마을 가닥: 변 너머 구간이 완성 링크면 가닥 유지', () => {

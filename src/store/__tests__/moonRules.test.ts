@@ -234,7 +234,10 @@ describe('달 AI 튜닝 훅 (2026-07-21)', () => {
     expect(moon.aiPlanExpensesNetOfIncome).toBe(true);
     // 몬트리올도 동일 병리(만성 저수입 차입 자기증폭)로 훅 적용 (2026-07-25, 100시드 게이트)
     const montreal = getMapProfile('montreal');
-    expect(montreal.aiNoBuildIssueLastTurns).toBe(6); // 9라운드 중 T4~9
+    // 9라운드 중 T5~9. 2026-08-02 마을 기본료 도입 후 재스윕에서 6→5로 교체 —
+    // 비용이 오르며 파산이 4/5/6에서 0.80~0.81로 평평해져 "파산 최소"라는 기존 근거가 사라졌고,
+    // VP는 5가 최고(10.97 vs 6의 10.36)였다. 스윕 이력은 MontrealMapProfile 주석 참조.
+    expect(montreal.aiNoBuildIssueLastTurns).toBe(5);
     expect(montreal.aiPlanExpensesNetOfIncome).toBe(true);
     for (const other of ['germany', 'korea', 'rust-belt', 'western-us']) {
       expect(getMapProfile(other).aiNoBuildIssueLastTurns).toBe(0);

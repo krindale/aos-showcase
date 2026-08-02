@@ -8,6 +8,13 @@ import { useGameStore } from '@/store/gameStore';
 import { useGameSettingsStore } from '@/store/gameSettingsStore';
 import type { GamePhase } from '@/types/game';
 
+/**
+ * 모바일 바텀시트 자동 조절 기준 — 이 단계들은 보드를 봐야 하므로 시트를 내리고,
+ * 나머지(주식·경매·행동 선택·정산·물품성장)는 패널이 커야 하므로 올린다.
+ * 모듈 상수로 두어야 effect 의존성에서 새 배열 참조 문제가 생기지 않는다.
+ */
+const BOARD_FOCUSED_PHASES: GamePhase[] = ['buildTrack', 'moveGoods', 'governmentLink'];
+
 // AI 디버거(@/ai/debug)는 프로덕션 번들에서 빼려고 정적 import 대신 컴포넌트 내부에서
 // 개발 모드일 때만 동적 로드한다(아래 useEffect). 정적 `import '@/ai/debug'`는 사이드이펙트
 // 모듈이라 트리셰이킹이 안 돼 프로덕션에도 딸려왔었다 (2026-07-29).
@@ -255,21 +262,20 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   // ⚠️ 자동이되 고정이 아니다 — 아래 effect는 "내가 조작할 수 있는 단계로 바뀌는 순간"에만
   // 한 번 값을 밀어 넣고, 그 뒤 사용자가 끌어 올리거나 내린 상태는 다음 전환까지 유지된다.
   // (매 렌더 강제하면 사용자가 내린 시트가 도로 올라가 조작을 뺏는다)
-  const BOARD_FOCUSED_PHASES: GamePhase[] = ['buildTrack', 'moveGoods', 'governmentLink'];
+  // ⚠️ 트리거를 currentPlayer에 걸면 안 된다 — 경매(determinePlayerOrder)는 입찰이 돌 때마다
+  // currentPlayer가 바뀌어서 **같은 단계 안에서** effect가 계속 재실행된다. 그러면 사용자가
+  // 보드를 보려고 내려둔 시트가 다음 입찰자로 넘어갈 때마다 도로 올라온다(= 고정과 다름없음).
+  // 그래서 트리거는 "지금 내가 조작할 수 있는 단계"뿐이다:
+  //   조건 불충족(설정 off·관전·봇 차례) → null → 아무것도 안 함(사용자가 맞춘 높이 유지)
+  //   내 차례가 오면 null → 단계로 바뀌며 1회 조정, 같은 단계에서 차례만 도는 동안은 그대로.
   const autoSheetEnabled = useGameSettingsStore((s) => s.autoSheetEnabled);
   const [sheetExpanded, setSheetExpanded] = useState(false);
-  // 봇 차례엔 건드리지 않는다 (자동 진행 중 시트가 혼자 오르내리면 방해만 된다)
-  const autoSheetTurnKey =
-    autoSheetEnabled && canInteract && !actingPlayerState?.isAI
-      ? `${currentPhase}:${actingPlayer}`
-      : null;
+  const autoSheetPhase =
+    autoSheetEnabled && canInteract && !actingPlayerState?.isAI ? currentPhase : null;
   useEffect(() => {
-    if (!autoSheetTurnKey) return;
-    const phase = autoSheetTurnKey.split(':')[0] as GamePhase;
-    setSheetExpanded(!BOARD_FOCUSED_PHASES.includes(phase));
-    // BOARD_FOCUSED_PHASES는 렌더마다 새 배열이지만 내용이 상수라 의존성에서 제외한다
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoSheetTurnKey]);
+    if (!autoSheetPhase) return;
+    setSheetExpanded(!BOARD_FOCUSED_PHASES.includes(autoSheetPhase));
+  }, [autoSheetPhase]);
 
   // 온라인 방 상태 → 화면 전환 (호스트 initGame / 게스트 스냅샷 수신 후 status가 playing)
   // booting 해제도 여기서 — F5 자동 재입장 성공 시 셋업을 거치지 않고 곧장 보드/대기실로

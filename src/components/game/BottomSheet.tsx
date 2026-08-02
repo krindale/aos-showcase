@@ -7,8 +7,15 @@ import { ChevronUp, ChevronDown } from 'lucide-react';
 interface BottomSheetProps {
   /** Content to display inside the bottom sheet */
   children: ReactNode;
-  /** Initial state of the sheet (default: collapsed) */
+  /** Initial state of the sheet (default: collapsed) — uncontrolled 모드에서만 쓰인다 */
   defaultExpanded?: boolean;
+  /**
+   * 펼침 상태를 밖에서 쥐고 싶을 때 (controlled). 주면 이 값이 표시 상태가 되고,
+   * 드래그·탭 조작은 `onExpandedChange`로 부모에게 넘어간다 — 부모가 그 값을 반영하면
+   * **사용자 조작은 그대로 살아 있고**, 부모가 원할 때(단계 전환 등)만 값을 바꿔 제안할 수 있다.
+   * 즉 "자동 조절하되 고정하지는 않는" 동작이 이 prop으로 구현된다.
+   */
+  expanded?: boolean;
   /** Callback when expanded state changes */
   onExpandedChange?: (expanded: boolean) => void;
   /** Height when collapsed (default: '30%') */
@@ -39,20 +46,29 @@ interface BottomSheetProps {
 export default function BottomSheet({
   children,
   defaultExpanded = false,
+  expanded,
   onExpandedChange,
   collapsedHeight = '30%',
   expandedHeight = '70%',
 }: BottomSheetProps) {
-  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const [internalExpanded, setInternalExpanded] = useState(defaultExpanded);
+  // expanded를 주면 controlled — 표시 상태는 부모 값을 따른다
+  const isControlled = expanded !== undefined;
+  const isExpanded = isControlled ? expanded : internalExpanded;
+
+  /** 사용자 조작으로 상태를 바꾼다 (controlled면 부모에게 위임) */
+  const setExpandedByUser = useCallback(
+    (next: boolean) => {
+      if (!isControlled) setInternalExpanded(next);
+      onExpandedChange?.(next);
+    },
+    [isControlled, onExpandedChange]
+  );
 
   // Toggle expanded/collapsed state
   const toggleExpanded = useCallback(() => {
-    setIsExpanded((prev) => {
-      const newState = !prev;
-      onExpandedChange?.(newState);
-      return newState;
-    });
-  }, [onExpandedChange]);
+    setExpandedByUser(!isExpanded);
+  }, [isExpanded, setExpandedByUser]);
 
   // Handle drag end to determine if we should toggle
   // Optimized for 60fps with reduced threshold for better responsiveness
@@ -63,20 +79,14 @@ export default function BottomSheet({
 
       // If dragged up significantly or fast upward velocity, expand
       if (info.offset.y < -threshold || velocity < -400) {
-        if (!isExpanded) {
-          setIsExpanded(true);
-          onExpandedChange?.(true);
-        }
+        if (!isExpanded) setExpandedByUser(true);
       }
       // If dragged down significantly or fast downward velocity, collapse
       else if (info.offset.y > threshold || velocity > 400) {
-        if (isExpanded) {
-          setIsExpanded(false);
-          onExpandedChange?.(false);
-        }
+        if (isExpanded) setExpandedByUser(false);
       }
     },
-    [isExpanded, onExpandedChange]
+    [isExpanded, setExpandedByUser]
   );
 
   return (

@@ -6,7 +6,19 @@ import { CITY_COLORS, NewCityTileId } from '@/types/game';
 import { X, Building2 } from 'lucide-react';
 import { NewCityTilesModal } from './NewCityTilesModal';
 
-export default function UrbanizationPanel() {
+/**
+ * 도시화 UI. **두 변형으로 나뉜다** — 화면 전체를 덮어야 하는 부분(타일 선택 모달·배치 안내
+ * 배너)이 우측 패널/모바일 바텀시트 **안에서** 렌더되면 안 되기 때문이다:
+ * 그 조상들이 transform(framer-motion)·contain을 걸고 있어 `position: fixed`의 기준이
+ * 뷰포트가 아니라 그 패널 박스가 되고, overflow까지 걸려 패널 안에 갇힌다.
+ * - `variant="panel"`  : "도시화 시작" 카드 (우측 패널/바텀시트 안에서 렌더)
+ * - `variant="overlay"`: 타일 선택 모달 + 배치 안내 배너 (GamePageClient 최상위에서 1회 렌더)
+ */
+export default function UrbanizationPanel({
+  variant = 'panel',
+}: {
+  variant?: 'panel' | 'overlay';
+} = {}) {
   const {
     ui,
     newCityTiles,
@@ -31,8 +43,9 @@ export default function UrbanizationPanel() {
   // 사용 가능한 타일 목록
   const availableTiles = newCityTiles.filter(tile => !tile.used);
 
-  // 도시화 모드가 아니면 버튼만 표시
+  // 도시화 모드가 아니면 버튼만 표시 (패널 안 카드 — 오버레이 변형은 이 상태에서 할 일이 없다)
   if (!ui.urbanizationMode) {
+    if (variant === 'overlay') return null;
     return (
       <div className="glass-card p-4 rounded-xl">
         <div className="flex items-center justify-between mb-3">
@@ -62,6 +75,10 @@ export default function UrbanizationPanel() {
     );
   }
 
+  // 여기부터는 화면 전체 기준으로 떠야 하는 fixed 영역 — 패널 변형은 렌더하지 않는다
+  // (패널 안에서 렌더하면 조상의 transform 때문에 패널 박스 안에 갇힌다)
+  if (variant === 'panel') return null;
+
   // 타일 선택 완료: 전체 화면 모달을 접고 보드 클릭을 막지 않는 플로팅 배너로 전환
   // (모달을 띄운 채로는 마을 클릭이 모달 배경에 먹혀 도시화가 취소되는 문제)
   if (ui.selectedNewCityTile) {
@@ -70,7 +87,12 @@ export default function UrbanizationPanel() {
       <motion.div
         initial={{ opacity: 0, y: -16 }}
         animate={{ opacity: 1, y: 0 }}
-        className="fixed top-20 left-1/2 -translate-x-1/2 z-40 glass-card rounded-xl px-4 py-3 flex items-center gap-3 shadow-xl border border-accent/30"
+        // ⚠️ `left-1/2 -translate-x-1/2`로 가운데 정렬하면 안 된다 — translate는 그린 뒤의
+        // 시각 이동이라 레이아웃 폭에는 영향이 없어서, shrink-to-fit 폭의 상한이
+        // "뷰포트 − left" = 화면의 절반으로 묶인다. 좁은 모바일(400px)에서는 그 절반 안에
+        // 아바타+텍스트+버튼 2개가 들어가느라 안내 문구가 **한 글자씩 세로로** 쪼개졌다.
+        // inset-x + mx-auto + w-fit이면 가용 폭은 화면 전체(여백 제외)이면서 가운데 정렬된다.
+        className="fixed top-20 inset-x-3 z-40 mx-auto w-fit max-w-[calc(100vw-1.5rem)] glass-card rounded-xl px-3 py-2.5 md:px-4 md:py-3 flex items-center gap-2 md:gap-3 shadow-xl border border-accent/30"
       >
         {selectedTile && (
           <div

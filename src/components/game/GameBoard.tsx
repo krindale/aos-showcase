@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useCallback, useEffect, useState } from 'react';
+import { useMemo, useCallback, useEffect, useRef, useState } from 'react';
 import BoardPulses from './BoardPulses';
 import BoardTracks from './board/BoardTracks';
 import BoardTowns from './board/BoardTowns';
@@ -508,17 +508,39 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
       .map(t => ({ terrain: t, name: NAME[t] ?? t, cost: costByTerrain.get(t)! }));
   }, [mapData.hexCostMode, board.hexTiles]);
 
-  // 터치 제스처 (핀치 줌, 팬) 지원
+  // 터치 제스처 (핀치 줌, 팬) 지원.
+  const svgRef = useRef<SVGSVGElement>(null);
+  // getMetrics: 화면 픽셀 ↔ viewBox 좌표 축척을 SVG의 CTM에서 실측해 넘긴다. 이게 없으면
+  // 훅이 "화면 1px = viewBox 1단위"로 계산해, 폭 1500짜리 보드를 360px 화면에서 끌 때
+  // 손가락 100px에 보드는 24px만 따라오는 "찔끔 이동"이 된다.
+  const getGestureMetrics = useCallback(() => {
+    const svg = svgRef.current;
+    if (!svg || typeof svg.getScreenCTM !== 'function') return null;
+    const ctm = svg.getScreenCTM();
+    if (!ctm || !ctm.a) return null;
+    return {
+      unitsPerPixel: 1 / ctm.a,
+      // 렌더 쪽 scale 원점과 동일해야 한다 (아래 <g transform>의 translate(중심) 참조)
+      center: { x: viewLeft + viewWidth / 2, y: viewTop + viewHeight / 2 },
+      // 역행렬은 여기서(=핀치 앵커를 구할 때만) 계산한다 — 팬 경로는 unitsPerPixel만 쓰므로
+      // 위에서 미리 만들면 매 프레임 쓰지도 않을 inverse()를 돌리게 된다.
+      toContent: (clientX: number, clientY: number) => {
+        const pt = svg.createSVGPoint();
+        pt.x = clientX;
+        pt.y = clientY;
+        const p = pt.matrixTransform(ctm.inverse());
+        return { x: p.x, y: p.y };
+      },
+    };
+  }, [viewLeft, viewTop, viewWidth, viewHeight]);
+
   const {
     scale,
     position,
-    handleTouchStart,
-    handleTouchMove,
-    handleTouchEnd,
     handleMouseDown,
     handleMouseMove,
     handleMouseUp,
-    isMousePanning,
+    isPanGesture,
     zoomIn,
     zoomOut,
     resetZoom,
@@ -527,6 +549,14 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     maxScale: 3.0,
     contentWidth: viewWidth,
     contentHeight: viewHeight,
+    // 확대 상태에선 화면에 보이는 보드 크기의 30%만큼 더 끌 수 있게 여유를 준다 —
+    // 가장자리에서 정확히 멈추면 맨 끝 헥스가 늘 화면 모서리에 붙어 있어 조작이 어렵다.
+    overpanRatio: 0.3,
+    // 터치는 훅이 non-passive 네이티브 리스너로 직접 등록한다 (React onTouch*는 passive라
+    // preventDefault가 무시돼 두 손가락 제스처를 브라우저 페이지 확대가 가로챈다).
+    // 미니맵(fitOverlay)은 조작 대상이 아니므로 ref를 주지 않아 등록 자체가 일어나지 않는다.
+    targetRef: fitOverlay ? undefined : svgRef,
+    getMetrics: getGestureMetrics,
   });
 
   // 완성된 링크 계산 (소유 마커 표시용)
@@ -696,7 +726,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   const handleHexClick = useCallback(
     (coord: HexCoord) => {
       if (boardInteractionBlocked) return; // 내 차례가 아니면 무시 (봇/타인 차례 보호)
-      if (isMousePanning()) return; // 마우스 드래그(팬) 직후의 클릭은 무시
+      if (isPanGesture()) return; // 드래그(팬)·핀치 직후의 클릭은 무시 (마우스·터치 공통)
 
       // Southern China 국유화 선택 — 대기 중엔 **다른 건설 조작보다 먼저** 가로챈다.
       // 대기가 풀릴 때까지 건설이 어차피 막혀 있으므로(buildSlice), 여기서 잡지 않으면
@@ -806,7 +836,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     //    함께 바뀌어(applyNationalization·undo·스냅샷 적용) 실전에서 드러나지 않지만,
     //    board 불변인 채 대기만 바뀌는 경로가 하나라도 생기면 즉시 옛 클로저가 남아
     //    "대기가 풀렸는데 보드 클릭이 계속 먹통"이 된다. handleHexHover는 이미 포함돼 있다.
-    [currentPhase, ui.buildMode, ui.sourceHex, ui.targetHex, board, currentPlayer, isValidConnectionPoint, isBuildableTarget, getExitEdgeForCoord, selectSourceHex, selectTargetHex, selectExitDirection, redirectTrack, resetBuildMode, canBuildTownSpur, buildTownSpur, boardInteractionBlocked, natSelecting, natTileIndex, nationalizeLink]
+    [currentPhase, ui.buildMode, ui.sourceHex, ui.targetHex, board, currentPlayer, isValidConnectionPoint, isBuildableTarget, getExitEdgeForCoord, selectSourceHex, selectTargetHex, selectExitDirection, redirectTrack, resetBuildMode, canBuildTownSpur, buildTownSpur, boardInteractionBlocked, natSelecting, natTileIndex, nationalizeLink, isPanGesture]
   );
 
   // 헥스 호버 핸들러
@@ -930,8 +960,14 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
       {/* 보드 헤더 (오버레이 모드에선 숨김) */}
       {!fitOverlay && (
       <div className="px-4 py-3 bg-background-secondary/50 border-b border-foreground/10 rounded-t-xl">
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-foreground-secondary">
+        <div className="flex items-center justify-between gap-2">
+          {/* ⚠️ 안내 문구는 buildMode(idle→source→target)마다 길이가 달라, 좁은 화면에서는
+              클릭할 때마다 1줄↔2줄을 오간다. 그러면 헤더 높이가 20px씩 변하고 바로 아래
+              보드가 통째로 위아래로 점프한다 — "건설할 때마다 레이아웃이 흔들리는" 원인.
+              모바일에서는 2줄 높이를 미리 확보해 문구가 짧아도 높이가 그대로이게 하고,
+              혹시 더 긴 문구가 들어와도 2줄에서 자른다. (md 이상은 항상 1줄이라 원래대로) */}
+          <div className="flex-1 min-w-0 min-h-[2.5rem] md:min-h-0 flex items-center">
+          <span className="text-sm text-foreground-secondary line-clamp-2">
             {currentPhase === 'buildTrack' && ui.urbanizationMode && '파란색 테두리의 마을을 클릭하여 신규 도시를 배치하세요'}
             {currentPhase === 'buildTrack' && !ui.urbanizationMode && ui.buildMode === 'idle' && '도시/기존 트랙 클릭 → 이어 짓기, Shift+클릭 → 방향 전환'}
             {currentPhase === 'buildTrack' && !ui.urbanizationMode && ui.buildMode === 'source_selected' && '노란색 헥스를 클릭하여 트랙을 건설하세요'}
@@ -946,6 +982,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             {currentPhase === 'governmentLink' && ui.buildMode === 'target_selected' && '트랙이 나갈 방향을 클릭하세요 (곡선/직선 선택)'}
             {currentPhase !== 'buildTrack' && currentPhase !== 'moveGoods' && currentPhase !== 'governmentLink' && mapData.name}
           </span>
+          </div>
           <div className="flex items-center gap-2 shrink-0">
             <span className="text-xs text-accent whitespace-nowrap">
               {players[currentPlayer].name}의 차례
@@ -960,27 +997,34 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
       {/* SVG 보드 — 호버링 HUD(줌/신도시/차례 배지)는 motion.div 밖 형제 레이어로 분리 (아래 참조) */}
       <div className={fitOverlay ? undefined : 'relative'}>
       <svg
+        ref={svgRef}
         width="100%"
         height={fitOverlay ? undefined : undefined}
         viewBox={`${viewLeft} ${viewTop + (!fitOverlay && scale < 1 ? (viewHeight * (1 - scale)) / 2 : 0)} ${viewWidth} ${!fitOverlay && scale < 1 ? viewHeight * scale : viewHeight}`}
         preserveAspectRatio="xMidYMid meet"
         className="block"
-        onTouchStart={fitOverlay ? undefined : handleTouchStart}
-        onTouchMove={fitOverlay ? undefined : handleTouchMove}
-        onTouchEnd={fitOverlay ? undefined : handleTouchEnd}
+        // 터치(핀치 줌·팬)는 useTouchGestures가 non-passive 네이티브 리스너로 직접 등록한다 —
+        // 여기에 React onTouch*를 함께 달면 같은 제스처가 두 번 처리된다.
         onMouseDown={fitOverlay ? undefined : handleMouseDown}
         onMouseMove={fitOverlay ? undefined : handleMouseMove}
         onMouseUp={fitOverlay ? undefined : handleMouseUp}
         onMouseLeave={fitOverlay ? undefined : handleMouseUp}
         style={{
           touchAction: 'none',
+          // 보드를 끌 때 도시/마을 이름 같은 SVG 텍스트가 드래그 선택(파랗게 잡힘)되지 않도록.
+          // 보드는 읽는 화면이지 복사하는 화면이 아니므로 선택 자체를 끈다.
+          // WebkitUserSelect: 사파리/구형 크롬, WebkitTouchCallout: iOS 롱프레스 선택 팝업 방지.
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
+          WebkitTouchCallout: 'none',
           // 데스크톱: 확대(scale>1) 상태에서만 드래그로 이동 가능 → grab 커서
           ...(fitOverlay ? {} : { cursor: scale > 1 ? 'grab' : 'default' }),
           // 오버레이: 우측 팝업 폭(100%)에 맞춰 비율 유지, 세로 제한.
-          // ⚠️ 미니맵 컨테이너(MoveCubeOverlay)가 max-h-[70vh] + overflow-hidden이므로
-          // svg 최대 높이는 반드시 "70vh − 헤더 바(~33px)" 안에 들어와야 한다 — 이전 74vh는
-          // 컨테이너보다 커서 세로로 긴 맵(독일·한국·St.Lucia)의 하단이 잘렸다 (2026-07-26).
-          ...(fitOverlay ? { maxHeight: 'calc(70vh - 44px)', display: 'block' } : {}),
+          // ⚠️ svg 최대 높이는 반드시 "컨테이너 높이 − 헤더 바(~33px)" 안에 들어와야 한다 —
+          // 이전 74vh는 컨테이너(70vh)보다 커서 세로로 긴 맵(독일·한국·St.Lucia)의 하단이
+          // 잘렸다 (2026-07-26). 그 컨테이너 높이는 MoveCubeOverlay가 --aos-mini-h로 정하고
+          // (모바일에선 더 작다) 여기서 그대로 받아 쓴다 — 폴백 70vh는 변수 없이 쓰일 때 대비.
+          ...(fitOverlay ? { maxHeight: 'calc(var(--aos-mini-h, 70vh) - 44px)', display: 'block' } : {}),
         }}
         shapeRendering="geometricPrecision" // 벡터 품질 우선 (확대 시 선명)
       >

@@ -87,9 +87,44 @@ export default function TurnTrack({
 
         {/* 현재 단계 (약어) */}
         <div className="flex items-center">
-          <span className="text-xs text-accent font-medium truncate max-w-[120px]">
+          <span className="text-xs text-accent font-medium truncate max-w-[96px]">
             {phaseInfo.name}
           </span>
+        </div>
+
+        {/* 구분선 */}
+        <div className="w-px h-4 bg-foreground/10" />
+
+        {/* 플레이어 순서 — 데스크톱의 "순서" 영역을 헤더 폭에 맞춰 압축한 것.
+            번호·라벨을 빼고 **왼쪽부터가 곧 1번**인 색 원만 늘어놓는다(6인 맵도 70px).
+            현재 차례는 accent 링, 내 플레이어는 왕관 — 데스크톱과 같은 시각 언어. */}
+        <div className="flex items-center gap-[2px]">
+          {playerOrder.map((playerId, index) => {
+            const player = players[playerId];
+            if (!player) return null;
+            const isCurrent = playerId === currentPlayer;
+            const isMe = isMyPlayer(playerId, player.isAI, myPlayerId);
+            return (
+              <div key={playerId} className="relative">
+                {isMe && (
+                  <Crown
+                    className="absolute left-1/2 -translate-x-1/2 -top-[10px] w-[10px] h-[10px] drop-shadow"
+                    fill={CROWN_GOLD}
+                    strokeWidth={2}
+                    style={{ color: CROWN_INK }}
+                    aria-label="내 플레이어"
+                  />
+                )}
+                <div
+                  className={`w-2.5 h-2.5 rounded-full transition-[box-shadow,opacity] ${
+                    isCurrent ? 'ring-2 ring-accent' : 'opacity-55'
+                  }`}
+                  style={{ backgroundColor: PLAYER_COLORS[player.color] }}
+                  title={`${index + 1}번: ${player.name}${isMe ? ' (나)' : ''}`}
+                />
+              </div>
+            );
+          })}
         </div>
       </div>
 

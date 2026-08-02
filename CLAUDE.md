@@ -235,8 +235,8 @@ src/
 │       ├── DiceRoller.tsx      # 주사위 굴리기 UI (1회 굴린 뒤 버튼 숨김 — 재굴림 방지)
 │       ├── DebugPanel.tsx      # 디버그 패널 UI
 │       ├── TranscontinentalModal.tsx  # 대륙횡단 연결 팝업 (Western US: 보너스 수령자·연속성 해제 안내)
-│       ├── MoveCubeOverlay.tsx # 화물 이동·건설 관전·신도시 배치 중 보드 미니맵 (모든 맵, 우측 하단 fit). 표시: 화물 이동(전원), 봇/온라인 타인 차례 건설(관전), 내 도시화 마을 고르기, 신도시 배치 직후 플래시(전원, newCityEvent 3.5초). 이동 중엔 헤더에 "출발→도착 (N링크)" 경로 표시
-│       ├── GameSettingsDialog.tsx  # 게임 설정 창 (줌 옆 ⚙, z-30 HUD 레이어 = 관전 중에도 열림) — 운송 가이드/운송 확인/효과음/좌표 스위치 (gameSettingsStore, 전부 로컬 개인 설정)
+│       ├── MoveCubeOverlay.tsx # 화물 이동·건설 관전·신도시 배치 중 보드 미니맵 (모든 맵, 우측 하단 fit). 표시: 화물 이동(전원), 봇/온라인 타인 차례 건설(관전), 내 도시화 마을 고르기, 신도시 배치 직후 플래시(전원, newCityEvent 3.5초). 이동 중엔 헤더에 "출발→도착 (N링크)" 경로 표시. 크기는 데스크톱 clamp(280,30vw,440)/70vh · 모바일 60vw/42vh이고, **높이는 `--aos-mini-h` 한 곳에서 정해 GameBoard fitOverlay svg가 `calc(var(--aos-mini-h) - 44px)`로 받는다**(둘이 어긋나면 세로로 긴 맵의 미니맵 하단이 잘린다)
+│       ├── GameSettingsDialog.tsx  # 게임 설정 창 (줌 옆 ⚙, z-30 HUD 레이어 = 관전 중에도 열림) — 운송 가이드/운송 확인/효과음/아래 패널 자동 조절/좌표 스위치 (gameSettingsStore, 전부 로컬 개인 설정)
 │       ├── TransportConfirmDialog.tsx  # 화물 운송 확인 창 (기본 on) — 목적지 클릭 시 "출발→도착·링크별 수익 귀속(getPathLinkOwners 미러)" 확인 후 커밋. GameBoard가 selectDestinationCity를 래핑해 인터셉트(봇·경로 선택 모드는 통과)
 │       ├── Toaster.tsx         # 화면 상단 토스트 렌더러 (toastStore 구독, safeTimeout 자동 사라짐)
 │       ├── PhaseTransition.tsx # 단계 전환 안내 팝업 (마지막 플레이어 행동 확인용, pointer-events-none 순수 안내)
@@ -244,7 +244,7 @@ src/
 │       ├── GameChat.tsx        # 게임 중 플로팅 채팅 (보드 우측 하단 sticky, 닫힘 시 알림음)
 │       ├── ChatSenderIcon.tsx  # 채팅 발신자 아이콘 (나=왕관/호스트=별/그외=사람) — clientId·room.hostClientId로 판정, 대기실·인게임 채팅 공용
 │       ├── HostTakeoverDialog.tsx  # 호스트 연결 끊김 → 승계 여부 팝업 (게스트, 대기실/게임 중 공통). 후계자만 이어받기, 유예/응답 대기 중 호스트 복귀 시 자동 닫힘
-│       └── BottomSheet.tsx     # 모바일용 드래그 바텀 시트 (반응형)
+│       └── BottomSheet.tsx     # 모바일용 드래그 바텀 시트 (반응형). `expanded` prop을 주면 controlled — GamePageClient가 단계별 자동 조절과 드래그 조작을 같은 state로 공유한다(아래 "바텀시트 자동 조절")
 │       ├── HelpOverlay.tsx     # 인게임 규칙/도움말 오버레이 (헤더 ? 버튼 → 현재 단계 강조 + 10단계 흐름·특수행동 7종·맵 특수룰·승점 공식). 콘텐츠는 PHASE_INFO/ACTION_INFO/MapProfile.specialRules 재활용, ConfirmDialog 패턴+ESC 닫기. 특수행동은 맵별 보정 — `MapProfile.actionDescription`이 있으면 그 설명으로 대체("이 맵 변경" 배지), `disabledActions`면 취소선+"사용 불가"(예: 독일 Engineer, St.Lucia Production/Turn Order). 순수 로컬 UI(스토어 읽기 전용) — 스냅샷/intents 무관
 │       # (구 CollapsiblePanel.tsx는 2026-08-01 삭제 — 어디서도 import되지 않는 데드코드였다.
 │       #  태블릿 레이아웃은 GamePageClient가 인라인 motion.div로 직접 구현한다)
@@ -262,7 +262,7 @@ src/
 ├── hooks/                      # 반응형 UI 커스텀 훅
 │   # (구 useMediaQuery.ts는 2026-08-01 삭제 — CollapsiblePanel과 함께 미사용 데드코드였다)
 │   ├── useOrientation.ts       # 가로/세로 방향 감지
-│   ├── useTouchGestures.ts     # 터치 제스처 (핀치 줌, 팬)
+│   ├── useTouchGestures.ts     # 터치 제스처 (핀치 줌, 팬) — ⚠️ 팬 delta는 `getMetrics().unitsPerPixel`(GameBoard가 getScreenCTM으로 실측)을 곱해야 한다. 안 곱하면 "화면 1px = viewBox 1단위"라 큰 보드가 손가락을 못 따라온다. 터치는 `targetRef`로 **non-passive 네이티브 등록**(React onTouch*는 passive라 preventDefault가 무시돼 브라우저 페이지 확대가 핀치를 가로챈다)
 │   └── useMyPlayerId.ts        # 내 좌석 플레이어 판정 (offline=null, online=activePlayers[mySeat]) + isMyPlayer 헬퍼 — 왕관 표시용, PhasePanel 좌석 매핑과 동일
 │
 ├── store/                      # 상태 관리 (2026-07-03 slice 분리 — 전부 "코드 그대로 이동", 로직 무변경)
@@ -270,7 +270,7 @@ src/
 │   │                           #   executeAITurn·issueShare·selectAction·nextPhase/endTurn·undoLastAction·
 │   │                           #   placeNewCity·addLog·persist 설정 + slice 합성(...createXxxSlice(set, get))
 │   ├── toastStore.ts           # 화면 상단 토스트(별도 zustand — gameStore와 분리, 스냅샷 미동기화 = 로컬 UI)
-│   ├── gameSettingsStore.ts    # 게임 개인 설정(별도 zustand, localStorage) — 운송 가이드(기본 on)/운송 확인 창(기본 on)/효과음(기본 on)/좌표(세션). 방 설정 GameState.moveGuideAllowed=false면 가이드는 개인 설정 무관 강제 off(잠김)
+│   ├── gameSettingsStore.ts    # 게임 개인 설정(별도 zustand, localStorage) — 운송 가이드(기본 on)/운송 확인 창(기본 on)/효과음(기본 on)/아래 패널 자동 조절(기본 on)/좌표(세션). 방 설정 GameState.moveGuideAllowed=false면 가이드는 개인 설정 무관 강제 off(잠김)
 │   ├── helpers/                # 모듈 레벨 헬퍼 (set/get 클로저 밖 순수 함수)
 │   │   ├── undo.ts             # 실행 취소 스냅샷 스택(undoSnapshots 싱글턴)·captureUndo·getUndoLabel
 │   │   ├── boardRules.ts       # crossesBlockedEdge·findMissingTownSpurs·releaseUnextendedTrack·removeIncompleteNewTracks·hasIncompleteNewTracks
@@ -593,6 +593,42 @@ X·←·"맵 선택"·"방 나가기" **네 버튼 전부 같은 규칙**이다(
 - 태블릿: **GamePageClient의 인라인 motion.div**가 접이식 패널을 직접 구현
   (⚠️ 2026-08-01: `useMediaQuery`·`CollapsiblePanel`은 어디서도 import되지 않는 데드코드여서
    삭제했다. 브레이크포인트 분기는 Tailwind 반응형 클래스와 `useOrientation`이 담당한다)
+
+#### ⛔ fixed 오버레이는 패널 안에서 렌더하지 않는다 (2026-08-02)
+미니맵(`MoveCubeOverlay`)·도시화 모달/배너 같은 **`position: fixed` 오버레이는 반드시
+`GamePageClient` 최상위에서 1회만** 렌더한다. `renderPanelContent()` 안(= 우측 패널·바텀시트)에
+두면 세 가지가 한꺼번에 깨진다:
+1. **transform이 걸린 조상은 fixed의 기준 박스가 된다** — 바텀시트는 framer-motion 드래그
+   transform + `translateZ(0)`, 태블릿 패널은 `x` 애니메이션이 있어서, 뷰포트가 아니라 그 패널
+   박스 기준으로 위치가 잡힌다.
+2. `contain: layout style paint` + `overflow-y-auto`에 잘려 패널 안에 갇힌다.
+3. `renderPanelContent()`는 **데스크톱 패널과 바텀시트 양쪽에서 호출**되므로 이중 마운트된다
+   (미니맵은 `GameBoard`를 통째로 한 번 더 그려 렌더 비용이 2배가 됐다).
+패널 안에 있어야 하는 부분과 섞여 있으면 `UrbanizationPanel`처럼 `variant`로 나눈다
+(`"panel"` = 도시화 시작 카드 / `"overlay"` = 타일 선택 모달·배치 안내 배너).
+⚠️ 같은 이유로 **`left-1/2 -translate-x-1/2` 가운데 정렬도 금지** — translate는 그린 뒤의 시각
+이동이라 레이아웃 폭 상한이 "뷰포트 − left" = 화면 절반으로 묶인다. 좁은 모바일에서 그 절반
+안에 아바타+텍스트+버튼이 들어가느라 안내 문구가 **한 글자씩 세로로** 쪼개진 적이 있다
+(실전 버그). `inset-x-N + mx-auto + w-fit`을 쓸 것. 명시적 폭(`w-[...]`)이 있으면 안전하다(`Toaster`).
+
+#### 바텀시트 자동 조절 (2026-08-02)
+단계마다 보드가 필요한지가 다른데 높이가 늘 같아서, 행동 선택 때마다 시트를 올렸다가 건설하려고
+다시 내려야 했다. **보드를 봐야 하는 단계**(`BOARD_FOCUSED_PHASES` = buildTrack·moveGoods·
+governmentLink)는 시트를 내리고, 나머지(주식·경매·행동 선택·정산·물품성장)는 올린다.
+- **자동이되 고정이 아니다** — `BottomSheet`를 controlled(`expanded` prop)로 두고 자동 조절과
+  드래그·탭이 같은 state를 공유한다. 자동은 트리거 시점에 1회 제안일 뿐이고, 사용자가 바꾼
+  높이는 다음 전환까지 유지된다.
+- ⚠️ **트리거를 `currentPlayer`에 걸면 안 된다** — 경매(`determinePlayerOrder`)는 입찰이 돌 때마다
+  `currentPlayer`가 바뀌어 **같은 단계 안에서** effect가 재실행되고, 내려둔 시트가 다음 입찰자로
+  넘어갈 때마다 도로 올라온다(= 고정과 다름없음). 트리거는 "지금 내가 조작할 수 있는 단계"
+  (`autoSheetPhase` — 설정 off·관전·봇 차례면 null)뿐이다.
+- 개인 설정 `gameSettingsStore.autoSheetEnabled`(⚙ "아래 패널 자동 조절", 기본 on)로 끌 수 있다.
+
+#### 보드 헤더 안내 문구는 높이를 고정한다
+`GameBoard` 헤더 문구는 `ui.buildMode`(idle→source→target)마다 길이가 달라, 좁은 화면에서
+클릭할 때마다 1↔2줄을 오가며 **헤더 높이가 변해 보드 전체가 위아래로 점프**했다("건설할 때마다
+화면이 흔들림", 실전 버그). 모바일은 `min-h-[2.5rem] md:min-h-0` + `line-clamp-2`로 2줄 높이를
+미리 확보한다. 문구를 추가·수정할 때 이 제약을 깨지 말 것.
 
 ### PWA
 - `public/manifest.json` + `public/sw.js` (Service Worker, 오프라인 캐시)

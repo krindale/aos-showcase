@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
+import { useGameSettingsStore } from '@/store/gameSettingsStore';
+import type { GamePhase } from '@/types/game';
 
 // AI 디버거(@/ai/debug)는 프로덕션 번들에서 빼려고 정적 import 대신 컴포넌트 내부에서
 // 개발 모드일 때만 동적 로드한다(아래 useEffect). 정적 `import '@/ai/debug'`는 사이드이펙트
@@ -244,6 +246,30 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   const PLAYER_PHASES = ['issueShares', 'determinePlayerOrder', 'selectActions', 'buildTrack', 'moveGoods'];
   const canInteract =
     !isOnline || isMyTurn || (netMode === 'host' && !PLAYER_PHASES.includes(currentPhase));
+
+  // ── 모바일 바텀시트 높이 자동 조절 ────────────────────────────────────────────
+  // 단계마다 "보드를 봐야 하는지"가 다르다: 행동 선택·경매·주식은 보드를 볼 필요가 없어
+  // 패널이 커야 하고, 건설·운송은 반대로 보드가 넓어야 한다. 예전엔 모든 단계가 같은
+  // 높이(접힘 30vh)여서, 행동 선택 때마다 시트를 끌어올렸다가 건설하려고 다시 내려야 했다.
+  //
+  // ⚠️ 자동이되 고정이 아니다 — 아래 effect는 "내가 조작할 수 있는 단계로 바뀌는 순간"에만
+  // 한 번 값을 밀어 넣고, 그 뒤 사용자가 끌어 올리거나 내린 상태는 다음 전환까지 유지된다.
+  // (매 렌더 강제하면 사용자가 내린 시트가 도로 올라가 조작을 뺏는다)
+  const BOARD_FOCUSED_PHASES: GamePhase[] = ['buildTrack', 'moveGoods', 'governmentLink'];
+  const autoSheetEnabled = useGameSettingsStore((s) => s.autoSheetEnabled);
+  const [sheetExpanded, setSheetExpanded] = useState(false);
+  // 봇 차례엔 건드리지 않는다 (자동 진행 중 시트가 혼자 오르내리면 방해만 된다)
+  const autoSheetTurnKey =
+    autoSheetEnabled && canInteract && !actingPlayerState?.isAI
+      ? `${currentPhase}:${actingPlayer}`
+      : null;
+  useEffect(() => {
+    if (!autoSheetTurnKey) return;
+    const phase = autoSheetTurnKey.split(':')[0] as GamePhase;
+    setSheetExpanded(!BOARD_FOCUSED_PHASES.includes(phase));
+    // BOARD_FOCUSED_PHASES는 렌더마다 새 배열이지만 내용이 상수라 의존성에서 제외한다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSheetTurnKey]);
 
   // 온라인 방 상태 → 화면 전환 (호스트 initGame / 게스트 스냅샷 수신 후 status가 playing)
   // booting 해제도 여기서 — F5 자동 재입장 성공 시 셋업을 거치지 않고 곧장 보드/대기실로
@@ -866,14 +892,12 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       {/* 현재 단계 */}
       <PhasePanel />
 
-      {/* 도시화 패널 (트랙 건설 단계에서 Urbanization 행동 선택 시) */}
+      {/* 도시화 "시작" 카드 (트랙 건설 단계에서 Urbanization 행동 선택 시).
+          타일 선택 모달·배치 안내 배너는 fixed라 이 안에 두면 패널에 갇힌다 → 최상위에서 렌더 */}
       <UrbanizationPanel />
 
       {/* 생산 패널 (물품 성장 단계에서 Production 행동 선택 시) */}
       <ProductionPanel />
-
-      {/* 화물 이동 시 전체 맵을 화면에 꽉 차게 보여주는 오버레이 (큰 맵 가독성) */}
-      <MoveCubeOverlay />
 
       {/* 건설 실패 사유 등 화면 상단 토스트 (로컬 UI, 스냅샷 미동기화) */}
       <Toaster />
@@ -1046,10 +1070,12 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       {/* Mobile: Bottom Sheet (visible only on <768px) */}
       <div className="md:hidden">
         <BottomSheet
-          defaultExpanded={false}
+          // controlled — 단계 전환 시 자동 조절(위 autoSheetTurnKey effect)과 사용자의
+          // 드래그/탭 조작이 같은 state를 공유한다. 자동은 제안일 뿐 잠그지 않는다.
+          expanded={sheetExpanded}
+          onExpandedChange={setSheetExpanded}
           collapsedHeight={isLandscape ? '15vh' : '30vh'}
           expandedHeight={isLandscape ? '40vh' : '70vh'}
-          onExpandedChange={() => {}}
         >
           <div className="space-y-4">
             {/* In landscape, show only critical info */}
@@ -1068,6 +1094,19 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
           </div>
         </BottomSheet>
       </div>
+
+      {/* ⚠️ 아래 fixed 오버레이들은 **반드시 이 최상위에서 1회만** 렌더한다.
+          우측 패널(태블릿 접이식 motion.div)·모바일 BottomSheet 안에 두면
+          ① 조상의 transform이 fixed의 기준을 뷰포트 → 그 패널 박스로 바꾸고,
+          ② overflow/contain에 잘려 패널 안에 갇히며,
+          ③ 데스크톱 패널과 바텀시트 양쪽에 renderPanelContent()가 있어 이중 마운트된다
+             (미니맵은 GameBoard를 통째로 한 번 더 그리므로 렌더 비용도 2배). */}
+
+      {/* 화물 이동·건설 관전·신도시 배치 중 전체 맵 미니맵 */}
+      <MoveCubeOverlay />
+
+      {/* 도시화: 신규 도시 타일 선택 모달 + 배치 안내 배너 */}
+      <UrbanizationPanel variant="overlay" />
 
       {/* 복합 트랙 선택 모달 */}
       {ui.complexTrackSelection && (

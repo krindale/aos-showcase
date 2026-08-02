@@ -65,8 +65,18 @@ function SettingRow({
 
 export default function GameSettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const moveGuideAllowed = useGameStore((s) => s.moveGuideAllowed ?? true);
-  const { moveGuideEnabled, transportConfirmEnabled, sfxEnabled, showCoords, toggleMoveGuide, toggleTransportConfirm, toggleSfx, toggleShowCoords } =
-    useGameSettingsStore();
+  const {
+    moveGuideEnabled,
+    transportConfirmEnabled,
+    sfxEnabled,
+    autoSheetEnabled,
+    showCoords,
+    toggleMoveGuide,
+    toggleTransportConfirm,
+    toggleSfx,
+    toggleAutoSheet,
+    toggleShowCoords,
+  } = useGameSettingsStore();
 
   // 스크롤락 + ESC 닫기 (ConfirmDialog 패턴)
   useEffect(() => {
@@ -132,6 +142,12 @@ export default function GameSettingsDialog({ open, onClose }: { open: boolean; o
               description="건설·운송·주사위 등 게임 액션에 짧은 효과음을 재생합니다"
               on={sfxEnabled}
               onToggle={toggleSfx}
+            />
+            <SettingRow
+              label="아래 패널 자동 조절"
+              description="모바일에서 내 차례가 되면 단계에 맞춰 아래 패널을 올리거나 내립니다 (행동 선택·경매는 올리고, 건설·운송은 내려 보드를 넓게). 자동으로 맞춘 뒤에도 직접 끌어 바꿀 수 있습니다"
+              on={autoSheetEnabled}
+              onToggle={toggleAutoSheet}
             />
             <SettingRow
               label="좌표 표시"

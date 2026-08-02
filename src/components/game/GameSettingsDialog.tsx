@@ -70,11 +70,13 @@ export default function GameSettingsDialog({ open, onClose }: { open: boolean; o
     transportConfirmEnabled,
     sfxEnabled,
     autoSheetEnabled,
+    minimapEnabled,
     showCoords,
     toggleMoveGuide,
     toggleTransportConfirm,
     toggleSfx,
     toggleAutoSheet,
+    toggleMinimap,
     toggleShowCoords,
   } = useGameSettingsStore();
 
@@ -142,6 +144,12 @@ export default function GameSettingsDialog({ open, onClose }: { open: boolean; o
               description="건설·운송·주사위 등 게임 액션에 짧은 효과음을 재생합니다"
               on={sfxEnabled}
               onToggle={toggleSfx}
+            />
+            <SettingRow
+              label="미니맵"
+              description="화물 이동·상대 건설 관전·신도시 배치 때 보드 전체를 작게 보여줍니다 (우측 하단)"
+              on={minimapEnabled}
+              onToggle={toggleMinimap}
             />
             <SettingRow
               label="아래 패널 자동 조절"

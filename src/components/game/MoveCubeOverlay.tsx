@@ -9,6 +9,7 @@ import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '@/store/gameStore';
+import { useGameSettingsStore } from '@/store/gameSettingsStore';
 import { hexCoordsEqual } from '@/utils/hexGrid';
 import { GameState, HexCoord } from '@/types/game';
 import { safeTimeout } from '@/utils/safeTimers';
@@ -65,13 +66,18 @@ export default function MoveCubeOverlay() {
   // 또는 신도시 배치 직후 플래시(전원 — 배치 위치의 펄스를 미니맵으로 보여줌).
   // (자기 자신의 철도 건설은 메인 보드에서 직접 클릭하므로 우측 팝업이 컨트롤을 가리지 않게 제외.
   //  오프라인 핫시트는 myPlayerId=null — 사람 차례는 항상 조작자 본인 화면이라 봇 차례만 표시)
+  // 개인 설정으로 미니맵을 통째로 끌 수 있다 (표시 전용 — 이동/건설/정산 로직과 무관).
+  // ⚠️ 여기서 `if (!minimapEnabled) return null`로 끊지 않고 아래 렌더 조건(show)에만 섞는다.
+  // 지금은 이 아래에 훅이 없어 조기 return도 동작하지만, 나중에 훅이 하나라도 추가되면 그 순간
+  // 훅 순서가 깨진다(Rules of Hooks). 조건부 표시는 조건부 렌더로 처리하는 편이 안전하다.
+  const minimapEnabled = useGameSettingsStore((s) => s.minimapEnabled);
   const myPlayerId = useMyPlayerId();
   const isAITurn = players[currentPlayer]?.isAI ?? false;
   const isOthersTurn = myPlayerId !== null && currentPlayer !== myPlayerId;
   const showForMove = !!movingCube;
   const showForBuild = currentPhase === 'buildTrack' && (isAITurn || isOthersTurn);
   const showForUrbanize = currentPhase === 'buildTrack' && urbanizationMode && !isAITurn;
-  const show = showForMove || showForBuild || showForUrbanize || !!newCityFlash;
+  const show = minimapEnabled && (showForMove || showForBuild || showForUrbanize || !!newCityFlash);
 
   // 화물 이동 경로 요약: "출발 → 도착 (N링크)". 정거장(도시/마을)만 세어 링크수 = 정거장-1.
   // path[0]=출발, path[last]=도착. 도시는 이름, 마을은 "마을"(도시화되면 "신도시"), 트랙 위 시작

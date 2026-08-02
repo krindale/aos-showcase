@@ -233,8 +233,8 @@ src/
 │       ├── DiceRoller.tsx      # 주사위 굴리기 UI (1회 굴린 뒤 버튼 숨김 — 재굴림 방지)
 │       ├── DebugPanel.tsx      # 디버그 패널 UI
 │       ├── TranscontinentalModal.tsx  # 대륙횡단 연결 팝업 (Western US: 보너스 수령자·연속성 해제 안내)
-│       ├── MoveCubeOverlay.tsx # 화물 이동·건설 관전·신도시 배치 중 보드 미니맵 (모든 맵, 우측 하단 fit). 표시: 화물 이동(전원), 봇/온라인 타인 차례 건설(관전), 내 도시화 마을 고르기, 신도시 배치 직후 플래시(전원, newCityEvent 3.5초). 이동 중엔 헤더에 "출발→도착 (N링크)" 경로 표시. 크기는 데스크톱 clamp(280,30vw,440)/70vh · 모바일 60vw/42vh이고, **높이는 `--aos-mini-h` 한 곳에서 정해 GameBoard fitOverlay svg가 `calc(var(--aos-mini-h) - 44px)`로 받는다**(둘이 어긋나면 세로로 긴 맵의 미니맵 하단이 잘린다)
-│       ├── GameSettingsDialog.tsx  # 게임 설정 창 (줌 옆 ⚙, z-30 HUD 레이어 = 관전 중에도 열림) — 운송 가이드/운송 확인/효과음/아래 패널 자동 조절/좌표 스위치 (gameSettingsStore, 전부 로컬 개인 설정)
+│       ├── MoveCubeOverlay.tsx # 화물 이동·건설 관전·신도시 배치 중 보드 미니맵 (모든 맵, 우측 하단 fit). 표시: 화물 이동(전원), 봇/온라인 타인 차례 건설(관전), 내 도시화 마을 고르기, 신도시 배치 직후 플래시(전원, newCityEvent 3.5초). 이동 중엔 헤더에 "출발→도착 (N링크)" 경로 표시. 개인 설정 ⚙ '미니맵'으로 끌 수 있다(기본 on — 끄면 네 경우 모두 미표시, 표시 전용이라 진행 무관). 크기는 데스크톱 clamp(280,30vw,440)/70vh · 모바일 60vw/42vh이고, **높이는 `--aos-mini-h` 한 곳에서 정해 GameBoard fitOverlay svg가 `calc(var(--aos-mini-h) - 44px)`로 받는다**(둘이 어긋나면 세로로 긴 맵의 미니맵 하단이 잘린다)
+│       ├── GameSettingsDialog.tsx  # 게임 설정 창 (줌 옆 ⚙, z-30 HUD 레이어 = 관전 중에도 열림) — 운송 가이드/운송 확인/효과음/미니맵/아래 패널 자동 조절/좌표 스위치 (gameSettingsStore, 전부 로컬 개인 설정)
 │       ├── TransportConfirmDialog.tsx  # 화물 운송 확인 창 (기본 on) — 목적지 클릭 시 "출발→도착·링크별 수익 귀속(getPathLinkOwners 미러)" 확인 후 커밋. GameBoard가 selectDestinationCity를 래핑해 인터셉트(봇·경로 선택 모드는 통과)
 │       ├── Toaster.tsx         # 화면 상단 토스트 렌더러 (toastStore 구독, safeTimeout 자동 사라짐)
 │       ├── PhaseTransition.tsx # 단계 전환 안내 팝업 (마지막 플레이어 행동 확인용, pointer-events-none 순수 안내)
@@ -268,7 +268,7 @@ src/
 │   │                           #   executeAITurn·issueShare·selectAction·nextPhase/endTurn·undoLastAction·
 │   │                           #   placeNewCity·addLog·persist 설정 + slice 합성(...createXxxSlice(set, get))
 │   ├── toastStore.ts           # 화면 상단 토스트(별도 zustand — gameStore와 분리, 스냅샷 미동기화 = 로컬 UI)
-│   ├── gameSettingsStore.ts    # 게임 개인 설정(별도 zustand, localStorage) — 운송 가이드(기본 on)/운송 확인 창(기본 on)/효과음(기본 on)/아래 패널 자동 조절(기본 on)/좌표(세션). 방 설정 GameState.moveGuideAllowed=false면 가이드는 개인 설정 무관 강제 off(잠김)
+│   ├── gameSettingsStore.ts    # 게임 개인 설정(별도 zustand, localStorage) — 운송 가이드(기본 on)/운송 확인 창(기본 on)/효과음(기본 on)/미니맵(기본 on)/아래 패널 자동 조절(기본 on)/좌표(세션). 방 설정 GameState.moveGuideAllowed=false면 가이드는 개인 설정 무관 강제 off(잠김)
 │   ├── helpers/                # 모듈 레벨 헬퍼 (set/get 클로저 밖 순수 함수)
 │   │   ├── undo.ts             # 실행 취소 스냅샷 스택(undoSnapshots 싱글턴)·captureUndo·getUndoLabel
 │   │   ├── boardRules.ts       # crossesBlockedEdge·findMissingTownSpurs·releaseUnextendedTrack·removeIncompleteNewTracks·hasIncompleteNewTracks

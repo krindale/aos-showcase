@@ -61,6 +61,12 @@ interface BoardCitiesProps {
   onRepopCityClick?: (cityId: string) => void;
   selectDestinationCity: (coord: HexCoord) => void;
   onCubeClick: (cityId: string, cubeIndex: number) => void;
+  /**
+   * 모바일 화물 선택 팝업 열기 — **지정된 경우에만** 도시 클릭이 화물 선택으로 동작한다.
+   * GameBoard가 "좁은 화면 + 화물 미선택 + 내가 이번 라운드에 아직 이동 안 함"일 때만
+   * 넘기므로, 여기서는 존재 여부만 보면 된다.
+   */
+  onPickCityCube?: (cityId: string) => void;
   buildDirectLink: (cityA: string, cityB: string) => void;
   /** Southern China: 구매식 페리 변 (서안 헥스 ↔ Hong Kong) — 직결 링크와 같은 표현/클릭 */
   ferryEdges?: FerryEdge[];
@@ -89,6 +95,7 @@ export default function BoardCities({
   onHexClick,
   selectDestinationCity,
   onCubeClick,
+  onPickCityCube,
   buildDirectLink,
   ferryEdges,
   buildFerryEdge,
@@ -199,6 +206,14 @@ export default function BoardCities({
             onRepopCityClick(city.id);
           } else if (currentPhase === 'buildTrack' || currentPhase === 'governmentLink') {
             onHexClick(city.coord);
+          } else if (isMoveGoodsPhase && onPickCityCube && city.cubes.length > 0) {
+            // 모바일: 화물을 아직 안 골랐을 때 도시를 누르면 그 도시의 화물 팝업을 연다.
+            // (보드의 큐브는 18px 간격이라 좁은 화면에서 손가락으로 짚기 어렵다)
+            // ⚠️ 목적지 분기보다 **앞**이어야 한다 — onPickCityCube가 넘어왔다는 건 GameBoard가
+            // "화물 미선택"을 확인했다는 뜻이라 목적지 선택은 애초에 성립하지 않는다. 뒤에 두면
+            // ui.reachableDestinations에 이전 선택의 잔재가 남았을 때 목적지 분기가 먼저 잡아
+            // selectDestinationCity를 부르고(고른 화물이 없으니 무반응) 팝업이 안 뜬다.
+            onPickCityCube(city.id);
           } else if (isMoveGoodsPhase && isReachableDestination) {
             selectDestinationCity(city.coord);
           }
@@ -257,7 +272,8 @@ export default function BoardCities({
               stroke={cityStroke}
               strokeWidth={cityStrokeWidth}
               className={
-                (isCityClickable || isReachableDestination)
+                // 모바일 화물 팝업 대상(화물 있는 도시)도 눌리는 곳으로 보여야 한다
+                (isCityClickable || isReachableDestination || (!!onPickCityCube && isMoveGoodsPhase && city.cubes.length > 0))
                   ? 'cursor-pointer hover:opacity-90 transition-opacity'
                   : ''
               }

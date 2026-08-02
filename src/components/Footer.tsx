@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { Github, ExternalLink } from 'lucide-react';
 import { LogoMark } from './Navigation';
 
@@ -15,13 +14,8 @@ export default function Footer() {
           </span>
         </div>
         <div className="flex items-center gap-4">
-          {/* GNB엔 없는 계산기 진입점 — 유일한 사이트 내부 링크라 여기 둔다 (2026-08-01) */}
-          <Link
-            href="/calculator/"
-            className="text-xs font-medium text-foreground-secondary transition-colors hover:text-accent"
-          >
-            계산기
-          </Link>
+          {/* (2026-08-02) 계산기 페이지 제거 — 실제로 쓰이지 않았고, 마을 비용 공식이 게임
+              엔진과 어긋난 채 남아 있어 오히려 혼동을 줬다. 이 자리에 있던 링크도 함께 삭제. */}
           <span className="text-xs text-foreground-muted">
             팬이 제작한 비공식 컴패니언 사이트입니다.
           </span>

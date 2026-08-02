@@ -23,4 +23,4 @@ Disallow: /aos-showcase/online/
 Disallow: /sfx/
 Disallow: /aos-showcase/sfx/
 
-# 쇼케이스 페이지(/, /gameplay, /actions, /maps, /calculator)는 색인 허용
+# 쇼케이스 페이지(/, /gameplay, /actions, /maps)는 색인 허용

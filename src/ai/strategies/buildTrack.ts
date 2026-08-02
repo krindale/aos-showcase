@@ -16,6 +16,7 @@ import {
 import { hexCoordsEqual, hexDistance, getNeighborHex, getOppositeEdge, playerEdgesAtTrack, cityEverAcceptsCube, cityAcceptsCube } from '@/utils/hexGrid';
 // 순수 헬퍼(types+hexGrid만 의존)라 ai→store 순환 없음 — 디스크 카운트는 store와 동일 소스 공유
 import { countOwnershipUnits } from '@/store/helpers/nationalization';
+import { townCostFor, hasTouchedTownThisTurn } from '@/store/helpers/townCost';
 import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, incrementInvestedTracks } from '../strategy/state';
 import { getNextTargetRoute, findNextTargetRoute, getTopPriorityRoutes } from '../strategy/selector';
 import { getMapAIConfig } from '../strategy/mapConfig';
@@ -375,7 +376,10 @@ function countMissingTrackWork(
   if (!from || !to) return null;
   const path = findOptimalPathAvoidingOpponent(from.coord, to.coord, board, playerId, undefined, false);
   if (path.length < 3) return null;
-  const spurCost = getMapProfile(state.mapId).townSpurCost;
+  // 마을 비용은 실제 청구식(helpers/townCost)과 같은 기준으로 추정한다 — 기본료를 빼먹으면
+  // 게이트가 "지을 수 있다"고 통과시킨 뒤 현금이 모자라 착공만 하고 못 끝낸다.
+  const townSpurPrice = (townCoord: HexCoord) =>
+    townCostFor(state.mapId, 1, hasTouchedTownThisTurn(board, townCoord, state.currentTurn, playerId));
 
   const isCityAt = (c: HexCoord) => board.cities.some(ci => hexCoordsEqual(ci.coord, c));
   const townAt = (c: HexCoord) => board.towns.find(t => hexCoordsEqual(t.coord, c) && t.newCityColor === null);
@@ -410,7 +414,7 @@ function countMissingTrackWork(
     for (const [end, toward] of [[a, a + 1], [b, b - 1]] as const) {
       if (townAt(path[end]) && needsMySpur(path[end], path[toward])) {
         tiles++;
-        cost += spurCost;
+        cost += townSpurPrice(path[end]);
       }
     }
     if (tiles > 0) return { tiles, cost };

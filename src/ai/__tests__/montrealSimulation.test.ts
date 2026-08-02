@@ -115,6 +115,11 @@ interface MResult {
   masterConnected: boolean;
   repopulations: number;
   actionBans: number;
+  /** 도시화된 마을 수 — 이 맵은 물품 성장이 없어 신도시(셋업 화물 1개 동반)가
+   *  화물·목적지를 늘리는 몇 안 되는 수단이다. 계측이 없어 현황을 몰랐다(2026-08-02 추가) */
+  urbanized: number;
+  /** 종료 시 맵에 남은 화물 — 배달 병목이 "화물 고갈"인지 판별용 */
+  cubesLeft: number;
 }
 
 function runMontrealGame(seed: number): MResult {
@@ -284,6 +289,8 @@ function runMontrealGame(seed: number): MResult {
     govIncomplete,
     masterConnected: isMasterNetworkConnected(f.board),
     repopulations, actionBans,
+    urbanized: f.board.towns.filter(t => t.newCityColor !== null).length,
+    cubesLeft: f.board.cities.reduce((n, c) => n + c.cubes.length, 0),
   };
 }
 
@@ -314,6 +321,7 @@ describe('Montréal Métro 3 AI 전체 게임 — 특수룰 실동작 + 베이�
     console.log(`평균 DGEL: ${avg(results.flatMap(r => PLAYERS.map(p => r.dgel[p] ?? 0))).toFixed(2)}`);
     console.log(`건설/배달: ${avg(results.map(r => r.builds)).toFixed(1)} / ${avg(results.map(r => r.deliveries)).toFixed(1)}`);
     console.log(`정부 트랙: 평균 ${avg(results.map(r => r.govTracks)).toFixed(1)}개, 미완성 ${avg(results.map(r => r.govIncomplete)).toFixed(2)}개`);
+    console.log(`도시화: ${avg(results.map(r => r.urbanized)).toFixed(2)}개/게임, 종료 시 맵 잔여 화물: ${avg(results.map(r => r.cubesLeft)).toFixed(1)}개`);
     console.log(`Repopulation: ${avg(results.map(r => r.repopulations)).toFixed(1)}회/게임, 무입찰 페널티: ${avg(results.map(r => r.actionBans)).toFixed(1)}명/게임`);
     console.log(`파산: ${avg(results.map(r => r.bankruptcies)).toFixed(2)}명/게임, 완주 턴: ${JSON.stringify(results.map(r => r.finalTurn))}`);
     console.log(`마스터 네트워크 연결: ${results.filter(r => r.masterConnected).length}/${seeds}`);

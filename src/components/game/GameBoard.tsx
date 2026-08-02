@@ -39,6 +39,8 @@ import { CITY_COLORS, CUBE_COLORS, PLAYER_COLORS, HexCoord, PlayerId, TerrainTyp
 import { NewCityTilesModal } from './NewCityTilesModal';
 import GameSettingsDialog from './GameSettingsDialog';
 import TransportConfirmDialog, { TransportPreview } from './TransportConfirmDialog';
+import CubePickerDialog from './CubePickerDialog';
+import { useIsNarrowViewport } from '@/hooks/useIsNarrowViewport';
 import { shadeColor, hexVertex } from './board/boardGeometry';
 import { useMyPlayerId } from '@/hooks/useMyPlayerId';
 import { useNetStore } from '@/net/netStore';
@@ -885,14 +887,47 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     [board.townSpurs, isFlat, terrainColors.plain, currentTurn]
   );
 
+  // ── 모바일 화물 선택 팝업 ─────────────────────────────────────────────────────
+  // 도시의 화물 큐브는 18px 간격으로 붙어 있어 좁은 화면에서는 특정 큐브를 손가락으로 짚기가
+  // 거의 불가능하다. 그래서 모바일에서는 **도시를 누르면** 그 도시의 화물을 팝업에 펼쳐 고른다.
+  // 데스크톱은 큐브 직접 클릭이 더 빠르므로 그대로 둔다.
+  // (마을은 원래부터 헥스 클릭 = 큐브 선택이고 큐브도 1개뿐이라 대상이 아니다)
+  const isNarrow = useIsNarrowViewport();
+  const [cubePickerCityId, setCubePickerCityId] = useState<string | null>(null);
+  const alreadyMovedThisRound = useGameStore(
+    (s) => !!s.phaseState.playerMoves[s.currentPlayer]
+  );
+  // 팝업을 열 수 있는 조건일 때만 콜백을 넘긴다 — BoardCities는 존재 여부만 보고 판단한다.
+  // 화물을 이미 골랐으면 도시 클릭은 "목적지 선택"이어야 하므로 넘기지 않는다.
+  const canPickCubeByCity =
+    isNarrow &&
+    moveGoodsPhase &&
+    !boardInteractionBlocked &&
+    !ui.selectedCube &&
+    !ui.movingCube &&
+    !alreadyMovedThisRound;
+  const cubePickerCity = cubePickerCityId
+    ? board.cities.find((c) => c.id === cubePickerCityId) ?? null
+    : null;
+  // 단계·차례가 바뀌면 열려 있던 팝업을 닫는다 (스냅샷으로 남의 차례가 되는 경우 포함)
+  useEffect(() => {
+    if (!canPickCubeByCity) setCubePickerCityId(null);
+  }, [canPickCubeByCity]);
+
   const handleCubeClick = useCallback(
     (cityId: string, cubeIndex: number) => {
       if (boardInteractionBlocked) return; // 내 차례가 아니면 무시 (봇/타인 차례 보호)
-      if (currentPhase === 'moveGoods') {
-        selectCube(cityId, cubeIndex);
+      if (currentPhase !== 'moveGoods') return;
+      // 모바일 팝업 모드에서는 **큐브를 직접 눌러도** 팝업을 연다. 큐브가 도시 헥스의 꽤 넓은
+      // 면적을 차지해서, 도시를 누른다고 누른 게 큐브에 맞는 일이 잦다 — 그때만 팝업이 안 뜨면
+      // "될 때도 있고 안 될 때도 있는" UI가 된다. (도시 큐브만 — 마을/트랙 큐브는 그대로)
+      if (canPickCubeByCity && !cityId.startsWith('town:') && !cityId.startsWith('track:')) {
+        setCubePickerCityId(cityId);
+        return;
       }
+      selectCube(cityId, cubeIndex);
     },
-    [currentPhase, selectCube, boardInteractionBlocked]
+    [currentPhase, selectCube, boardInteractionBlocked, canPickCubeByCity]
   );
 
   // 헥스 렌더링 여부 확인
@@ -1310,6 +1345,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           onHexClick={handleHexClick}
           selectDestinationCity={handleSelectDestination}
           onCubeClick={handleCubeClick}
+          onPickCityCube={canPickCubeByCity ? setCubePickerCityId : undefined}
           buildDirectLink={buildDirectLink}
           natDirectIndex={natDirectIndex}
           onNationalizeDirect={(linkId) => nationalizeLink(currentPlayer, linkId)}
@@ -1621,6 +1657,23 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
       }}
       onCancel={() => setTransportConfirm(null)}
     />
+    {/* 모바일 화물 선택 팝업 — 도시를 누르면 그 도시 화물을 크게 펼쳐 고른다.
+        고르고 나면 selectCube가 목적지 링·경로를 띄우는 기존 흐름 그대로다. */}
+    {!fitOverlay && (
+      <CubePickerDialog
+        open={!!cubePickerCity}
+        cityName={cubePickerCity?.name ?? ''}
+        cubes={cubePickerCity?.cubes ?? []}
+        onPick={(cubeIndex) => {
+          // ⚠️ handleCubeClick을 부르면 안 된다 — 그건 "모바일이면 큐브 탭을 팝업으로 되돌리는"
+          // 핸들러라, 여기서 부르면 selectCube 대신 팝업을 다시 열고 끝난다(화물이 안 골라져
+          // 수송 가이드가 안 뜬다). 팝업은 이미 선택 UI이므로 스토어 액션을 직접 호출한다.
+          if (cubePickerCity) selectCube(cubePickerCity.id, cubeIndex);
+          setCubePickerCityId(null);
+        }}
+        onClose={() => setCubePickerCityId(null)}
+      />
+    )}
     </>
   );
 }

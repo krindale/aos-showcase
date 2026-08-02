@@ -52,7 +52,7 @@ export function decideAuctionBid(state: GameState, playerId: PlayerId): AuctionD
   const lambda = cashToVPRate(state, playerId) || LAMBDA_BASE;
 
   // 자금 상한: 건설 예산 + 운영비는 절대 침범 금지 (파산 방지 안전판)
-  const expenses = player.issuedShares + player.engineLevel;
+  const expenses = player.issuedShares + player.engineLevel + (player.dgel ?? 0); // DGEL 포함 (payExpenses와 동일)
   const cashCeiling = Math.max(0, player.cash - plan.buildBudget - expenses);
   // 뒤 순번 1번 입찰 보너스(맵별 격리, Western US) — 평범한 턴에 뒤 순번이 1번을 따내 순서 순환 유도.
   const rank = state.playerOrder.indexOf(playerId);
@@ -131,7 +131,7 @@ export function decideTurnOrderOffer(
   const lambda = cashToVPRate(state, playerId) || LAMBDA_BASE;
 
   // 자금 상한: 건설 예산 + 운영비는 절대 침범 금지
-  const expenses = player.issuedShares + player.engineLevel;
+  const expenses = player.issuedShares + player.engineLevel + (player.dgel ?? 0); // DGEL 포함 (payExpenses와 동일)
   const cashCeiling = Math.max(0, player.cash - plan.buildBudget - expenses);
   // 교대 선공권(St. Lucia)은 매 턴 firstSeatCost($5)를 내는 구조라, 1회성 경매용 firstSeatBidCeiling
   // ($3~5 바닥)을 쓰면 과지불→파산(조기 종료)한다. 바닥 없는 직접 환산(floor(절실함/λ))으로 보수적

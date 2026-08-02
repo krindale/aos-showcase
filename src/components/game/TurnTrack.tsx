@@ -77,9 +77,32 @@ export default function TurnTrack({
     <>
       {/* Mobile: Compact view - only show turn and phase */}
       <div className="flex md:hidden items-center gap-2">
-        {/* 턴 표시 (간략) */}
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-foreground-secondary">T{currentTurn}</span>
+        {/* 턴 표시 (간략) — 남은 라운드를 알 수 있게 최대 턴까지 (T3/8).
+            마지막 두 턴은 색으로 강조한다: 남은 턴 수는 주식 발행·건설 투자 판단을 통째로
+            뒤집는 정보인데, 작은 숫자만으로는 "이제 끝이다"가 눈에 안 들어온다.
+            폭은 그대로이고 색만 바뀌므로 헤더 레이아웃에는 영향이 없다. */}
+        <div
+          className={`flex items-center gap-1 whitespace-nowrap rounded-md px-1.5 py-0.5 ${
+            currentTurn >= maxTurns
+              ? 'bg-accent text-background' // 마지막 턴 — 반전 칩으로 확실히
+              : currentTurn === maxTurns - 1
+              ? 'bg-accent/15 text-accent'
+              : 'bg-foreground/[0.06] text-foreground'
+          }`}
+          title={
+            currentTurn >= maxTurns
+              ? '마지막 턴입니다'
+              : `${maxTurns}턴 중 ${currentTurn}턴 — ${maxTurns - currentTurn}턴 남음`
+          }
+        >
+          {/* 약자("T")는 처음 보면 무엇인지 모른다 — 폭을 더 쓰더라도 "라운드"로 명시한다.
+              그 폭은 헤더의 게임 이름을 모바일에서 감춰 확보했다(GamePageClient).
+              라벨은 작고 흐리게, 숫자는 크고 굵게 두어 위계를 준다(숫자가 정보의 본체). */}
+          <span className={`text-[10px] ${currentTurn >= maxTurns ? 'opacity-80' : 'opacity-70'}`}>라운드</span>
+          <span className="font-display text-sm font-bold tabular-nums leading-none">
+            {currentTurn}
+            <span className="opacity-60">/{maxTurns}</span>
+          </span>
         </div>
 
         {/* 구분선 */}
@@ -87,7 +110,7 @@ export default function TurnTrack({
 
         {/* 현재 단계 (약어) */}
         <div className="flex items-center">
-          <span className="text-xs text-accent font-medium truncate max-w-[96px]">
+          <span className="text-xs text-accent font-medium truncate max-w-[76px]">
             {phaseInfo.name}
           </span>
         </div>
@@ -97,8 +120,11 @@ export default function TurnTrack({
 
         {/* 플레이어 순서 — 데스크톱의 "순서" 영역을 헤더 폭에 맞춰 압축한 것.
             번호·라벨을 빼고 **왼쪽부터가 곧 1번**인 색 원만 늘어놓는다(6인 맵도 70px).
-            현재 차례는 accent 링, 내 플레이어는 왕관 — 데스크톱과 같은 시각 언어. */}
-        <div className="flex items-center gap-[2px]">
+            현재 차례는 accent 링, 내 플레이어는 왕관 — 데스크톱과 같은 시각 언어.
+            경매 중이면 아래 줄에 "다음 턴 순서"가 겹쳐 뜬다(아래 absolute 블록). */}
+        {/* shrink-0 — 폭이 모자랄 때 제목·단계명은 말줄임으로 양보하지만, 순서 원은 개수가
+            곧 정보라 찌그러지면 안 된다 */}
+        <div className="relative flex shrink-0 items-center gap-[2px]">
           {playerOrder.map((playerId, index) => {
             const player = players[playerId];
             if (!player) return null;
@@ -125,6 +151,46 @@ export default function TurnTrack({
               </div>
             );
           })}
+
+          {/* 경매 중: 확정되어 가는 **다음 턴 순서**를 현재 순서 바로 아래에 보여준다.
+              ⚠️ absolute로 겹쳐 띄우는 게 핵심이다 — 헤더 흐름에 넣으면 경매 단계에서만
+              헤더가 높아지고, 그만큼 바로 아래 보드가 밀린다(건설 중 화면이 흔들리던 것과
+              같은 유형의 문제). 헤더는 z-50이고 overflow가 없어 아래로 넘쳐도 그려진다.
+              표시 전용이라 pointer-events는 끈다. */}
+          {showNewOrder && newOrderSlots && (
+            <motion.div
+              initial={{ opacity: 0, y: -3 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="pointer-events-none absolute left-0 top-[calc(100%+3px)] flex items-center gap-[2px]"
+              aria-label="다음 턴 순서"
+            >
+              {newOrderSlots.map((pid, index) => {
+                const player = pid ? players[pid] : null;
+                return player ? (
+                  <motion.div
+                    key={`${index}-${pid}`}
+                    initial={{ scale: 0, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={POP_SPRING}
+                    // 위 줄(현재 순서)과 확실히 구분되게 "예정" 스타일 — 옅게 + 얇은 테두리.
+                    // 라벨을 넣을 폭이 없으므로 질감으로 확정/예정을 가른다.
+                    className="h-2 w-2 rounded-full opacity-55 ring-1 ring-foreground/25"
+                    style={{ backgroundColor: PLAYER_COLORS[player.color] }}
+                    title={`${index + 1}번(예상): ${player.name}`}
+                  />
+                ) : (
+                  // 아직 안 정해진 자리 — 데스크톱과 같은 점선 표기
+                  <div
+                    key={`${index}-empty`}
+                    className="h-2 w-2 rounded-full border border-dashed border-foreground/40"
+                    title={`${index + 1}번(미정)`}
+                  />
+                );
+              })}
+            </motion.div>
+          )}
         </div>
       </div>
 

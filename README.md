@@ -119,7 +119,6 @@ Supabase Realtime을 전송 계층으로 쓰는 **호스트 권위(host-authorit
 | **게임플레이** | `/gameplay` | 9단계 턴 타임라인 아코디언 + SVG 애니메이션 다이어그램 |
 | **특수 행동** | `/actions` | 7가지 특수 행동 카드 (3D 플립) |
 | **맵 갤러리** | `/maps` | 8개 맵 카드 그리드 (난이도 배지 + 플레이 버튼) |
-| **계산기** | `/calculator` | 트랙 비용 · 현금 흐름 · 예상 승점 시뮬레이터 |
 
 ## 기술 스택
 
@@ -174,7 +173,7 @@ npm run dev
 ```
 aos_showcase/
 ├── src/
-│   ├── app/                # Next.js App Router 페이지 (랜딩·게임·갤러리·계산기)
+│   ├── app/                # Next.js App Router 페이지 (랜딩·게임·갤러리)
 │   │   └── game/[mapId]/   #   동적 게임 라우트 (맵별 SSG)
 │   ├── ai/                 # AI 엔진 (ΔVP 의사결정·A* 경로탐색·맵별 전략·디버거)
 │   ├── maps/               # 맵 프로파일 (다형성 — 맵별 규칙을 상속 override)

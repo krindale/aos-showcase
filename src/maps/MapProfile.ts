@@ -181,9 +181,12 @@ export abstract class MapProfile {
   /** 셋업에 사용하는 신규 도시 타일 id 목록 (null = 전부 A~H).
    *  Moon: 공식 룰 "검은 신규 도시 제거" — 이 구현의 타일 색 기준 검은 4장(E~H) 제거 → A·B·C·D. */
   get availableNewCityTiles(): string[] | null { return null; }
-  /** 마을 가닥(스퍼) 1개 건설 비용 ($). 기본 $1.
-   *  Moon: 공식 룰 "마을 $2 + 트랙 구간당 $1"의 스퍼 모델 근사 — 가닥당 $2. */
+  /** 마을 가닥(스퍼) 1개 건설 비용 ($). 룰북 "마을로 연결되는 트랙당 $1". */
   get townSpurCost(): number { return 1; }
+  /** 마을 기본료 ($) — 룰북 "마을 $1 + 트랙당 $1"의 앞항. 그 마을을 이번 턴 처음 건드릴 때 1회.
+   *  Moon은 공식이 "마을 $2 + 트랙 구간당 $1"이라 기본료만 $2다.
+   *  ⚠️ 계산은 helpers/townCost.ts 한 곳에서 — 청구 지점이 네 곳으로 흩어져 있다. */
+  get townBaseCost(): number { return 1; }
 
   // ── UI: 규칙 안내 문구 (기본 = 표준 맵, 특수룰 없음) ──
   /** 단계 설명 (PHASE_INFO 기반, 맵별 수치 보정). buildTrack은 buildsPerTurn을 반영 —
@@ -292,6 +295,18 @@ export abstract class MapProfile {
    * 비용 무료라 행동권을 지킬 수 있다. 기본 false = 기존 가치 기반 참여 판단 그대로.
    */
   get aiAuctionAlwaysParticipate(): boolean { return false; }
+
+  /**
+   * 도시화 ΔVP에 더할 맵 고정 가산 ($ 아닌 VP). 기본 0 = 기존 동작.
+   *
+   * 물품 성장이 없는 맵에서는 신도시가 화물을 늘리는 몇 안 되는 수단이고, 특히 신도시 타일에
+   * 셋업 화물이 딸려 오는 맵(Montréal `NewCityTile.setupCube`)은 도시화 한 번이
+   * "화물 +1 + 영구 목적지 +1"이다. 기본 평가(planUrbanization)는 목적지 가치만 보므로
+   * 그 화물 몫이 빠진다.
+   * ⚠️ 크게 주면 안 된다 — 같은 취지로 Repopulation 가치를 올렸다가 행동 한 칸의 기회비용에
+   * 밀려 VP가 −11.55 났다(selectAction 주석). 행동은 턴당 하나뿐이다.
+   */
+  get aiUrbanizationBonus(): number { return 0; }
 
   /**
    * AI 턴 예산(turnPlan.cashNeeded)에서 **운영비를 income으로 상계**할지 (기본 false = 현재 동작).

@@ -119,8 +119,6 @@ src/
 │   │   └── page.tsx            # 특수 행동 페이지 (7개 3D 플립 카드)
 │   ├── maps/
 │   │   └── page.tsx            # 맵 갤러리 (7개 맵 슬라이더)
-│   ├── calculator/
-│   │   └── page.tsx            # 계산기 (트랙 비용, 승점, 수입 시뮬레이터)
 │   └── sfx/
 │       ├── layout.tsx          # 메타데이터 전용(noindex) — page가 'use client'라 거기선 metadata export 불가
 │       └── page.tsx            # 효과음 미리듣기 (숨은 라우트 — SFX_CATALOG 순회 카드+재생 버튼, 게이트 무시 previewSfx)
@@ -355,7 +353,7 @@ docs/
 - EditorialSection: "왜 명작인가" 밴드(#efeae1) + 상품 배송 원리 SVG(점선 레일 .rail-dash 애니메이션)
 - StrategySection: "여섯 가지 승리 원칙" 카드 + 하단 밴드 → **/maps 유도**
   (⚠️ 예전 문서에 있던 `CtaBand.tsx`는 실존한 적이 없다 — 하단 CTA 역할은 이 컴포넌트가 하며,
-   유도 대상도 계산기가 아니라 맵 갤러리다. 계산기 진입은 Footer 링크가 담당. 2026-08-01 교정)
+   유도 대상도 계산기가 아니라 맵 갤러리다. 2026-08-01 교정. 계산기 페이지 자체는 2026-08-02 제거)
 - (구 GameBoardPreview 인터랙티브 헥스 프리뷰는 리뉴얼에서 제거 — backup/design-dark-gold에 있음)
 
 ### GameplayPage
@@ -366,11 +364,10 @@ docs/
 ### ActionsPage
 - 7개 특수 액션 페이퍼 카드 (lucide 아이콘 + 영문 병기 + TIP 푸터), 3열 그리드
 
-### CalculatorPage
-스테퍼(±버튼) 기반 3카드 계산기 — 전부 룰북 공식:
-1. **선로 건설 비용**: 평지 $2 / 강 $3 / 산 $4 / 복합 추가비 / 마을($1+트랙당 $1)
-2. **현금 흐름**: 소득 − (주식+기관차) = 순이익, 음수면 파산 경고
-3. **예상 점수**: 소득×3 + 완성 링크 트랙 구간×1 − 주식×3
+### (제거됨) CalculatorPage — 2026-08-02
+`/calculator` 라우트와 Footer 링크를 삭제했다. 실제로 쓰이지 않았고, 마을 비용 공식이 게임
+엔진과 어긋난 채(계산기는 룰북대로 "$1+트랙당 $1", 엔진은 기본료 누락) 남아 있어 오히려
+혼동을 줬다 — 엔진 쪽을 룰북에 맞추면서 함께 정리했다.
 
 ### MapsPage
 페이퍼 카드 그리드 (3열). 카드 = 맵 이미지(16:10) + 난이도 배지(입문/표준/중급/고급) +
@@ -790,6 +787,17 @@ AI는 객체 지향 아키텍처(`AIPlayer`/`AIPlayerManager`/`AIDebugger`) + **
 
 **게임 엔진 메커니즘 (현재 동작)**:
 - **마을 가닥(스퍼) 모델**: 마을 헥스엔 타일 배치 불가 — 원→변 가닥(`buildTownSpur`)으로 연결. 타일 1개=1카운트, 가닥은 그 마을을 이번 턴 처음 변경할 때만 1카운트(가닥 개수 무관). 이동/완성/배달 판정은 가닥 있는 변으로만.
+- **마을 연결 비용은 `helpers/townCost.ts` 한 곳에서** (룰북 IV: **마을 $1 + 연결 트랙당 $1**):
+  기본료(`MapProfile.townBaseCost`, 표준 $1)는 **그 마을을 이번 턴 처음 건드릴 때 1회** — 건설
+  카운트와 같은 기준이다. 거기에 새 가닥마다 `townSpurCost`(표준 $1). 그래서 가닥 1개 $2 ·
+  3개 $4로 룰북의 "가장 싼 마을 타일 $2 / 가장 비싼 $5"와 맞는다. Moon은 공식이 "마을 $2 +
+  트랙당 $1"이라 기본료만 $2. 정부 가닥(Montréal)은 무료. ⚠️ **2026-08-02까지 기본료가 통째로
+  빠져 있어**(가닥 수 × $1) 마을 경유 건설이 항상 $1씩 쌌다 — 청구 지점이 buildTrack·복합·
+  방향전환·buildTownSpur 네 곳에 흩어져 있어 헬퍼로 통일했고, `canBuildTownSpur`의 현금 검사와
+  AI 예상 비용(`aiRouteBuildGate`)·환불(`removeIncompleteNewTracks`)도 같은 식을 쓴다.
+  회귀: `store/__tests__/townCost.test.ts`(룰북 경계값 박제). 밸런스 영향은
+  [docs/ai-auction-baseline-100seed.md](docs/ai-auction-baseline-100seed.md) 2026-08-02 표.
+  (실제로 가닥을 만드는 경로는 `buildTownSpur` 하나다 — 나머지 셋의 spurs 배열은 항상 비어 있다)
 - **건설 제한**: 턴당 3개(Engineer 4). 모든 건설 경로(buildTrack/복합/방향전환/마을가닥)가 `builtTracksThisTurn` 카운트 검사.
 - **독일 Engineer 절반 할인(`engineerHalfCost`)**: 룰북은 "트랙 1개를 절반 비용(올림)"이고 **지형·비용 하한 조건이 없다**(평지 $2도 $1). 타일을 하나씩 커밋하는 구조라 플레이어 선택 대신 **이번 빌더 턴 최고가 타일 1개**가 절반이 되도록 매 건설마다 차액을 정산한다 — `helpers/engineerDiscount.ts`의 `applyEngineerDiscount`(청구 `buildSlice` + 토스트 추정 `buildReason` 공유, 미러 금지). 총액은 건설 순서와 무관하게 `정가합 − floor(최고가/2)`. 상태는 `PhaseState.engineerMaxTileCost`/`engineerDiscountGiven`(빌더마다 리셋). 독일은 트랙 상한이 **3개**(Engineer라도 4개 아님).
 - **건설 비용 안내(`MapProfile.buildCostHint`)**: 지형 비용을 바꾸는 맵(fixedCost 주입)은 반드시 override — 안 하면 `PhasePanel`이 표준값($2/$3/$4)을 띄워 실제 청구액과 어긋난다 (서부 늪·강 $4·산 $5, 한국 산 $3, 독일 숫자 헥스 $6~$12).

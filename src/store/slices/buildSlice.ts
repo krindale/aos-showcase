@@ -33,16 +33,16 @@ import {
   nationalizationTargets,
 } from '../helpers/nationalization';
 import { applyEngineerDiscount, hasEngineerDiscount } from '../helpers/engineerDiscount';
+import { calcTownSpurCost, townCostFor } from '../helpers/townCost';
 import { useToastStore } from '../toastStore';
 import { computeTranscontinental } from '../helpers/transcontinental';
 
 type Set = StoreApi<GameStore>['setState'];
 type Get = StoreApi<GameStore>['getState'];
 
-// 마을 가닥(스퍼) 건설 비용 — 가닥은 타일 건설 시 자동 생성되지 않고,
-// 마을 클릭(buildTownSpur)으로만 별도 건설된다 (첫 진입 1카운트, 비용 가닥당 기본 $1).
-// 맵 오버라이드: MapProfile.townSpurCost (Moon $2 — 공식 "마을 \$2+트랙당\$1"의 스퍼 근사)
-const townSpurCost = (mapId: string) => getMapProfile(mapId).townSpurCost;
+// 마을 연결 비용은 helpers/townCost.ts 한 곳에서 계산한다 (룰북: 마을 $1 + 연결 트랙당 $1).
+// 청구 지점이 buildTrack·복합·방향전환·buildTownSpur 네 곳이라, 각자 곱셈을 쓰면 한 곳만
+// 어긋나도 조용히 요금이 틀린다 — 실제로 2026-08-02까지 기본료가 통째로 빠져 있었다.
 
 /** buildSlice가 제공하는 액션 — 인터페이스 정의는 gameStore(GameStore)에 그대로, Pick으로 참조 */
 export type BuildSlice = Pick<
@@ -357,8 +357,8 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         engineerMaxTileCost = d.engineerMaxTileCost;
         engineerDiscountGiven = d.engineerDiscountGiven;
       }
-      // 마을 안 가닥 비용 (가닥당 $1)
-      cost += newSpurs.length * townSpurCost(state.mapId);
+      // 마을 연결 비용 (룰북: 마을 $1 + 연결 트랙당 $1) — 계산은 helpers/townCost 한 곳
+      cost += calcTownSpurCost(state.mapId, state.board, newSpurs, state.currentTurn, currentPlayer);
 
       if (player.cash < cost) {
         console.warn(`[WARN] buildTrack: 현금 부족 - 필요: $${cost}, 보유: $${player.cash}`);
@@ -597,6 +597,9 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       ).length;
 
       // 가닥은 자동 생성하지 않음 — 타일만 1카운트. 마을 연결은 마을 클릭(buildTownSpur)으로.
+      // ⚠️ 이 배열이 **항상 비어 있다는 전제**로 위의 현금 검사(player.cash < cost)가 교체비만
+      //    본다. 아래 차감은 마을 비용까지 빼므로, 여기에 실제로 가닥을 채우게 되면 검사도
+      //    calcTownSpurCost를 포함하도록 함께 고쳐야 한다(안 그러면 현금이 음수가 된다).
       const complexSpurs: { townCoord: HexCoord; edge: number }[] = [];
       const newBuiltCount = state.phaseState.builtTracksThisTurn + 1;
 
@@ -626,7 +629,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
           ...state.players,
           [currentPlayer]: {
             ...player,
-            cash: player.cash - cost - complexSpurs.length * townSpurCost(state.mapId),
+            cash: player.cash - cost - calcTownSpurCost(state.mapId, state.board, complexSpurs, state.currentTurn, currentPlayer),
           },
         },
         undoCount: undoSnapshots.length,
@@ -688,7 +691,9 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       if (state.phaseState.builtTracksThisTurn + townCount > state.phaseState.maxTracksThisTurn) return false;
       const player = state.players[state.currentPlayer];
       // 정부 가닥은 무료 (비용 무관 — 원본 룰: Cost is not relevant)
-      if (!player || (!isGovSpur && player.cash < targetCount * townSpurCost(state.mapId))) return false;
+      // 현금 검사도 실제 청구식과 같아야 한다 — 기본료를 빼먹으면 "지을 수 있다"고 통과시킨 뒤
+      // buildTownSpur가 현금 부족으로 되돌아온다.
+      if (!player || (!isGovSpur && player.cash < townCostFor(state.mapId, targetCount, builtThisTurn))) return false;
       return true;
     },
 
@@ -712,7 +717,8 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         e => hexCoordsEqual(e.townCoord, townCoord) && e.builtTurn === state.currentTurn && e.owner === spurOwner
       );
       const townCount = builtThisTurn ? 0 : 1;
-      const cost = isGovSpur ? 0 : missing.length * townSpurCost(state.mapId);
+      // 룰북: 마을 $1(턴 첫 변경 시 1회) + 연결 트랙당 $1 — 카운트와 같은 기준
+      const cost = isGovSpur ? 0 : townCostFor(state.mapId, missing.length, builtThisTurn);
       const newBuiltCount = state.phaseState.builtTracksThisTurn + townCount;
 
       const newSpurs = missing.map((sp, i) => ({
@@ -1011,6 +1017,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       if (crossesBlockedEdge(state.board, coord, newEdges)) return false;
 
       // 가닥은 자동 생성하지 않음 — 타일만 1카운트. 마을 연결은 마을 클릭(buildTownSpur)으로.
+      // ⚠️ complexSpurs와 동일 — 비어 있다는 전제로 위 현금 검사가 교체비만 본다(위 주석 참조).
       const redirectSpurs: { townCoord: HexCoord; edge: number }[] = [];
 
       captureUndo(state, `트랙 방향 전환 (${coord.col},${coord.row})`);
@@ -1046,7 +1053,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
           ...state.players,
           [currentPlayer]: {
             ...player,
-            cash: player.cash - cost - redirectSpurs.length * townSpurCost(state.mapId),
+            cash: player.cash - cost - calcTownSpurCost(state.mapId, state.board, redirectSpurs, state.currentTurn, currentPlayer),
           },
         },
         undoCount: undoSnapshots.length,

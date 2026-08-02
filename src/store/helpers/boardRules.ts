@@ -332,7 +332,8 @@ export function removeIncompleteNewTracks(
   board: BoardState,
   currentTurn: number,
   playerId: PlayerId,
-  spurCost: number = 1 // 마을 가닥 1개 환불액 (MapProfile.townSpurCost — 호출부가 전달)
+  spurCost: number = 1, // 마을 가닥 1개 환불액 (MapProfile.townSpurCost — 호출부가 전달)
+  townBaseCost: number = 1 // 마을 기본료 (MapProfile.townBaseCost) — 그 마을 가닥이 **전부** 사라질 때만 환불
 ): { board: BoardState; refund: number; removed: { tiles: number; crossings: number; spurs: number } } {
   const k = (c: HexCoord) => `${c.col},${c.row}`;
   const incomplete = getIncompleteNewTracks(board, currentTurn, playerId);
@@ -384,6 +385,21 @@ export function removeIncompleteNewTracks(
   const townSpurs = (board.townSpurs ?? []).filter(
     sp => !(sp.owner === playerId && sp.builtTurn === currentTurn && orphanSet.has(`${k(sp.townCoord)}:${sp.edge}`))
   );
+  // 마을 기본료 환불 — 청구가 "그 마을 턴 첫 변경 시 1회"이므로, 환불도 **그 마을에서 이번 턴
+  // 내 가닥이 하나도 안 남을 때만** 1회다. 일부만 제거되면 여전히 그 마을을 건드린 상태라
+  // 기본료는 유지된다(안 그러면 가닥을 여러 개 지었다 하나만 지워도 기본료가 공짜가 된다).
+  const baseRefunded = new Set<string>();
+  for (const sp of orphanSpurs) {
+    const key = k(sp.townCoord);
+    if (baseRefunded.has(key)) continue;
+    const stillMine = townSpurs.some(
+      s => s.owner === playerId && s.builtTurn === currentTurn && k(s.townCoord) === key
+    );
+    if (!stillMine) {
+      baseRefunded.add(key);
+      refund += townBaseCost;
+    }
+  }
   return {
     board: { ...board, trackTiles, townSpurs },
     refund,

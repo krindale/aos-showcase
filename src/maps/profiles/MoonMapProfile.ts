@@ -110,8 +110,9 @@ export class MoonMapProfile extends StandardMapProfile {
   /** 공식 룰: "검은 신규 도시 타일 제거" — 이 구현의 타일 색(E~H=검정) 기준 A·B·C·D(빨/파/보/노) 유지.
    *  밤쪽 도시가 이미 검은 도시 역할을 하므로 검은 신도시는 게임에서 제외된다. */
   override get availableNewCityTiles(): string[] | null { return ['A', 'B', 'C', 'D']; }
-  /** 공식 룰: 마을 $2 + 트랙 구간당 $1 — 스퍼 모델 근사로 가닥당 $2 (표준 $1) */
-  override get townSpurCost(): number { return 2; }
+  /** 공식 룰: 마을 $2 + 트랙 구간당 $1 — 기본료만 $2로 올리고 가닥당은 표준($1) 그대로.
+   *  (2026-08-02 이전엔 기본료 개념이 없어 "가닥당 $2"로 근사했었다) */
+  override get townBaseCost(): number { return 2; }
 
   /** 달: 예비금 면제의 배달 판정은 현재 상태로 — 밤인 목적지는 이번 턴 회수 불가 */
   override get aiExemptionUsesCurrentDemand(): boolean { return true; }

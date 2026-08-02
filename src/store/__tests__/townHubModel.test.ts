@@ -95,7 +95,9 @@ describe('마을 가닥(스퍼) 모델', () => {
     const f = useGameStore.getState();
     expect(f.phaseState.builtTracksThisTurn).toBe(1); // 마을 첫 진입 1카운트
     expect((f.board.townSpurs ?? []).length).toBe(1);
-    expect(f.players.player1.cash).toBe(20 - 1); // 가닥 $1
+    // 룰북 IV: 마을 $1(턴 첫 변경 1회) + 연결 트랙당 $1 → 가닥 1개 = $2
+    // (2026-08-02 기본료 복원 전에는 $1만 청구해 룰북의 "가장 싼 마을 타일 $2"와 어긋났다)
+    expect(f.players.player1.cash).toBe(20 - 2);
     expect(playerConnectsToTown({ col: 4, row: 3 }, f.board, 'player1')).toBe(true); // 연결 완성
     // 빠진 가닥이 더 없으므로 재건설 불가
     expect(useGameStore.getState().canBuildTownSpur({ col: 4, row: 3 })).toBe(false);
@@ -208,7 +210,9 @@ describe('마을 가닥(스퍼) 모델', () => {
     const f = useGameStore.getState();
     expect(f.phaseState.builtTracksThisTurn).toBe(1); // 가닥 2개여도 타일 1개 변경 = 카운트 1
     expect((f.board.townSpurs ?? []).length).toBe(2); // 가닥은 2개 연결
-    expect(f.players.player1.cash).toBe(20 - 2); // 가닥당 $1 × 2
+    // 룰북 IV: 마을 $1(1회) + 가닥당 $1 × 2 = $3 — 출구 2개짜리 마을 타일 비용과 일치.
+    // 기본료는 가닥 수와 무관하게 한 번만 붙는다(같은 마을·같은 턴).
+    expect(f.players.player1.cash).toBe(20 - 3);
   });
 
   it('카운트 3(소진)이어도 같은 턴 이미 연결한 마을은 추가 가닥 연결 가능 (0카운트)', () => {

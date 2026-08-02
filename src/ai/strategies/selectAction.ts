@@ -161,7 +161,9 @@ function evaluateActionDeltaVP(
       if (state.activePlayers.length >= 3) {
         const urbanPlan = planUrbanizationCached(state, playerId);
         if (!urbanPlan) return 0.2;
-        return Math.max(0.2, urbanPlan.deltaVP);
+        // 맵 가산(aiUrbanizationBonus): 성장 없는 맵에서 신도시가 달고 오는 셋업 화물 몫.
+        // 배치할 곳이 없으면(urbanPlan null) 가산도 없다 — 못 쓰는 행동을 부풀리지 않는다.
+        return Math.max(0.2, urbanPlan.deltaVP + getMapProfile(state.mapId).aiUrbanizationBonus);
       }
       return 0.2;
     }
@@ -472,6 +474,15 @@ function evaluateProduction(state: GameState): number {
   const config = getMapAIConfig(state);
   if (state.currentTurn >= config.totalTurns) return 0;
 
+  // ⚠️ 기각된 실험 (2026-08-02): Montréal은 production이 Repopulation(주머니 3개 → 1개를 맵에
+  // 배치)이고 물품 성장 단계도 없어 "유일한 화물 보충 수단"이다. 그런데 이 맵은 물품 디스플레이가
+  // 0칸이라 아래 hasEmptySlot이 영원히 false → 가치 0 → 100게임 내내 미선택이었다(실측 0.0회).
+  // 그래서 "맵에 남은 화물이 적을수록 가치↑"(상한 3.0)로 평가하게 해봤더니 **크게 악화**했다:
+  //   VP 10.36 → −1.19 · income 11.63 → 8.05 · 파산 0.81 → 1.40 · 건설 39.0 → 35.2
+  //   (배달도 40.4 → 34.5, 완주 턴이 4~6턴 조기 종료로 무너짐)
+  // 이유: **행동은 턴당 하나뿐**이라 Repopulation을 고르면 First Build·Locomotive·Urbanization을
+  // 포기하게 된다. 화물 1개의 값어치가 그 기회비용보다 훨씬 작았다. 봇이 안 고르던 게 옳았다.
+  // → 화물 보충이 정말 병목이라면 "행동을 소비하지 않는" 다른 축에서 풀어야 한다.
   const hasEmptySlot = state.goodsDisplay.slots.some(s => s === null);
   return hasEmptySlot ? 0.3 : 0;
 }

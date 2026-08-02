@@ -6,6 +6,7 @@ import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
 import { useGameSettingsStore } from '@/store/gameSettingsStore';
+import { useIsNarrowViewport } from '@/hooks/useIsNarrowViewport';
 import type { GamePhase } from '@/types/game';
 
 /**
@@ -270,6 +271,8 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   //   내 차례가 오면 null → 단계로 바뀌며 1회 조정, 같은 단계에서 차례만 도는 동안은 그대로.
   const autoSheetEnabled = useGameSettingsStore((s) => s.autoSheetEnabled);
   const [sheetExpanded, setSheetExpanded] = useState(false);
+  // 모바일 판정 단일 소스 — 바텀시트 렌더와 보드의 모바일 전용 동작이 같은 값을 쓴다
+  const isNarrowLayout = useIsNarrowViewport();
   const autoSheetPhase =
     autoSheetEnabled && canInteract && !actingPlayerState?.isAI ? currentPhase : null;
   useEffect(() => {
@@ -929,8 +932,10 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
             >
               <ArrowLeft size={18} className="text-foreground-secondary sm:w-5 sm:h-5" />
             </button>
+            {/* 모바일에서는 제목을 작게 줄여 "라운드 3/8" 칩과 플레이어 순서에 폭을 내준다
+                (숨기지는 않는다). truncate + min-w-0이라 더 좁아지면 알아서 말줄임된다. */}
             <div className="min-w-0">
-              <h1 className="text-sm sm:text-lg font-bold text-foreground truncate">Age of Steam</h1>
+              <h1 className="text-xs sm:text-lg font-bold text-foreground truncate">Age of Steam</h1>
               <p className="text-xs text-foreground-secondary hidden sm:block">{mapConfig.name}</p>
             </div>
           </div>
@@ -1073,8 +1078,11 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
         </div>
       </main>
 
-      {/* Mobile: Bottom Sheet (visible only on <768px) */}
-      <div className="md:hidden">
+      {/* Mobile: Bottom Sheet — 렌더 여부를 CSS(md:hidden)가 아니라 `useIsNarrowViewport()`로
+          정한다. 이 훅이 **모바일 판정의 단일 소스**여서, "바텀시트가 있다 = 모바일"이 문자 그대로
+          성립한다(게임 보드의 화물 선택 팝업도 같은 값을 본다). 덤으로 데스크톱에서는 시트가 아예
+          마운트되지 않아 renderPanelContent()가 두 번 렌더되던 것도 사라진다. */}
+      {isNarrowLayout && (
         <BottomSheet
           // controlled — 단계 전환 시 자동 조절(위 autoSheetTurnKey effect)과 사용자의
           // 드래그/탭 조작이 같은 state를 공유한다. 자동은 제안일 뿐 잠그지 않는다.
@@ -1099,7 +1107,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
             )}
           </div>
         </BottomSheet>
-      </div>
+      )}
 
       {/* ⚠️ 아래 fixed 오버레이들은 **반드시 이 최상위에서 1회만** 렌더한다.
           우측 패널(태블릿 접이식 motion.div)·모바일 BottomSheet 안에 두면

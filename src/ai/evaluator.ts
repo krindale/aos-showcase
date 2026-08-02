@@ -94,7 +94,10 @@ export function calculateExpectedExpenses(state: GameState, playerId: PlayerId):
   const player = state.players[playerId];
   if (!player) return 0;
 
-  return player.issuedShares + player.engineLevel;
+  // ⚠️ 실제 청구식(settlementSlice payExpenses)과 같아야 한다: 주식 + 일반 엔진 + DGEL.
+  // Montréal의 정부 전용 엔진(DGEL)도 매 턴 유지비가 붙는데 여기서 빠져 있어 운영비를
+  // 과소평가했다(다른 맵은 dgel=0이라 항등). issueShares·turnPlan은 이미 포함하고 있었다.
+  return player.issuedShares + player.engineLevel + (player.dgel ?? 0);
 }
 
 /**
@@ -147,7 +150,7 @@ export function calculateMinCashReserve(state: GameState, playerId: PlayerId): n
   const player = state.players[playerId];
   if (!player) return 0;
 
-  const expenses = player.issuedShares + player.engineLevel;
+  const expenses = player.issuedShares + player.engineLevel + (player.dgel ?? 0); // DGEL 포함 (payExpenses와 동일)
   const expectedIncome = Math.max(0, player.income);
 
   // 수입 감소(-3 VP/건)와 주식 발행(-3 VP/주 + 영구 비용) 비교:

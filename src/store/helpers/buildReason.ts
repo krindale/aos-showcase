@@ -80,6 +80,11 @@ export function getBuildBlockReason(
     return '지금은 여기에 건설할 수 없어요';
   }
 
+  // canBuildTrack 미러: 복합 타일은 buildTrack 교체 경로 미지원 — 전환은 트랙 클릭(경로 인식
+  // redirectTrack)으로만. canRedirectTrack이 복합을 허용하게 된 2026-08-04 이후에도 이 거부는 유지.
+  if (existingTrack && existingTrack.trackType !== 'simple') {
+    return '교차/공존 타일은 트랙을 직접 클릭해 방향을 바꿔 주세요';
+  }
   if (existingTrack && !canRedirectTrack(coord, board, currentPlayer)) {
     return '이미 트랙이 있어 여기엔 지을 수 없어요';
   }

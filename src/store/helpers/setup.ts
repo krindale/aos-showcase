@@ -164,6 +164,20 @@ export function createInitialGameState(
     return { ...city, cubes };
   });
 
+  // 셋업 큐브 대체 배치 (England: London에 뽑힌 파랑 → 주사위로 NW/NE. 다른 맵은 항등이라 무변경)
+  // 대상 도시가 배열 앞/뒤 어디에 있어도 동작하도록 전 도시 배치 후 일괄 이동한다.
+  for (const city of citiesWithCubes) {
+    if (city.isTerminal || city.cubes.length === 0) continue;
+    const kept: CubeColor[] = [];
+    for (const cube of city.cubes) {
+      const destId = setupRules.redirectCubePlacement(city.id, cube);
+      const dest = destId !== city.id ? citiesWithCubes.find(c => c.id === destId) : null;
+      if (dest) dest.cubes.push(cube);
+      else kept.push(cube);
+    }
+    city.cubes = kept;
+  }
+
   // 헥스 큐브 셋업 (공식 맵: "1 Good: Every Plain and River space")
   // 마을 헥스는 제외 — AoS 룰북 용어상 마을 칸은 'Town hex'로 plain hex와 구분됨
   const hexTilesWithCubes = setupRules.hexCubeSetup

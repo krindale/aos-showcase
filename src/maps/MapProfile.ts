@@ -89,6 +89,13 @@ export abstract class MapProfile {
    */
   isCityNumberBoxBlack(_cityId: string, _demandColor: string): boolean { return false; }
 
+  // ── Southern England 특수룰 (기본값 = 항등) ──
+  /** 셋업·물품 성장에서 도시에 큐브가 놓이기 직전 호출 — 실제 배치될 도시 id를 반환.
+   *  England(v2 시트): 파란 큐브가 London에 놓이려 하면 주사위 1-4 → North West, 5-6 → North East.
+   *  (파랑 목적지가 London뿐이라, London 안의 파랑은 배달 불가능한 데드 큐브가 되기 때문)
+   *  기본 = 그대로(항등) — 다른 맵 동작 무변경. */
+  redirectCubePlacement(cityId: string, color: CubeColor): string { void color; return cityId; }
+
   // ── 한국(Korea) 특수룰 (기본값 = 영향 없음) ──
   /** 도시화 시 물품 디스플레이에서 신도시 위로 옮길 큐브 수 (Korea: 2). 0이면 신도시는 빈 회색. */
   get urbanizeFromDisplayCount(): number { return 0; }

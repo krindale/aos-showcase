@@ -111,6 +111,15 @@ export const maps: MapEntry[] = [
     playable: true,
   },
   {
+    slug: 'southern-england',
+    name: 'Southern England',
+    nameKo: '영국 남부',
+    diff: '표준',
+    image: '/maps/southern-england.webp',
+    description: '웨일스 산악과 세번·트렌트·템스 강을 낀 잉글랜드 남부 5~6인전. 유일한 파랑 도시 London으로 향하는 장거리 배달이 승부처입니다.',
+    playable: true,
+  },
+  {
     slug: 'southern-china',
     name: 'Southern China',
     nameKo: '남부 중국',

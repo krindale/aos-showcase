@@ -95,6 +95,15 @@ import {
   createSouthernChinaBoardState,
 } from './southernChinaMap';
 import {
+  SOUTHERN_ENGLAND_MAP,
+  SOUTHERN_ENGLAND_CITIES,
+  SOUTHERN_ENGLAND_TOWNS,
+  SOUTHERN_ENGLAND_COLUMN_MAPPING,
+  SOUTHERN_ENGLAND_COLORS,
+  SOUTHERN_ENGLAND_TOWN_NAMES,
+  createSouthernEnglandBoardState,
+} from './southernEnglandMap';
+import {
   SOUTHERN_US_MAP,
   SOUTHERN_US_CITIES,
   SOUTHERN_US_TOWNS,
@@ -454,6 +463,34 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     rules: { ...DEFAULT_MAP_RULES },
     createBoardState: createSouthernChinaBoardState,
     goodsCubeCounts: DEFAULT_CUBE_COUNTS, // 룰북 표준 — 검정 화물은 신도시(E~H)로 배달 + HK는 전색 수용
+  },
+
+  'southern-england': {
+    id: SOUTHERN_ENGLAND_MAP.id,
+    name: SOUTHERN_ENGLAND_MAP.name,
+    nameKo: SOUTHERN_ENGLAND_MAP.nameKo,
+    description: SOUTHERN_ENGLAND_MAP.description,
+    supportedPlayers: SOUTHERN_ENGLAND_MAP.supportedPlayers,
+    cols: SOUTHERN_ENGLAND_MAP.cols,
+    rows: SOUTHERN_ENGLAND_MAP.rows,
+    startCol: SOUTHERN_ENGLAND_MAP.startCol,
+    maxTurns: SOUTHERN_ENGLAND_MAP.maxTurns,
+    turnsByPlayers: SOUTHERN_ENGLAND_MAP.turnsByPlayers,
+    cities: SOUTHERN_ENGLAND_CITIES,
+    towns: SOUTHERN_ENGLAND_TOWNS,
+    columnMapping: SOUTHERN_ENGLAND_COLUMN_MAPPING,
+    townNames: SOUTHERN_ENGLAND_TOWN_NAMES,
+    hideLakeHexes: true,         // 바다/외곽은 안 그려 잉글랜드 해안 윤곽 표현
+    orientation: 'flat',         // flat-top 보드 — 전치 저장 + 렌더 전치 (Rust Belt 등과 동일)
+    colors: {
+      terrain: SOUTHERN_ENGLAND_COLORS.terrain,
+      background: SOUTHERN_ENGLAND_COLORS.background,
+      border: SOUTHERN_ENGLAND_COLORS.border,
+    },
+    // 특수 규칙(NW 큐브 3/신도시 B 제거/London 파랑 대체)은 MapProfile getter로 주입 — 여기선 표준 플래그
+    rules: { ...DEFAULT_MAP_RULES },
+    createBoardState: createSouthernEnglandBoardState,
+    goodsCubeCounts: DEFAULT_CUBE_COUNTS, // 룰북 표준 — 검정 화물은 도시화(E~H)로 배달
   },
 
   korea: {

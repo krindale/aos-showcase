@@ -6,6 +6,7 @@ import {
   hexCoordsEqual,
   isCityOrTown,
   isTrackPartOfCompletedLink,
+  isSecondaryTrackPartOfCompletedLink,
 } from './hexGrid';
 
 export {
@@ -564,17 +565,60 @@ export function calculateTrackScore(
  * 특정 트랙이 미완성 구간의 끝점인지 확인
  * (한쪽 엣지만 다른 트랙/도시에 연결되어 있고, 다른 쪽은 빈 헥스거나 연결 안 됨)
  */
+/** 복합 타일의 두 경로 구분 — P = 기본(edges), S = 보조(secondaryEdges) */
+export type TrackPathKind = 'P' | 'S';
+
+/**
+ * 방향 전환 대상 경로 선택 (복합 타일 지원).
+ * 룰 IV: "복합 트랙은 다른 플레이어 소유 트랙이 유지되도록 방향 전환해야 한다" — 즉 복합
+ * 타일도 조건(경로 소유가 미소유/내 것 + 완성 링크 아님)을 만족하는 **경로 단위**로 전환
+ * 가능하다. 단순 타일은 P. 두 경로 다 가능하면 내 소유 경로 우선(자기 트랙을 고치려는
+ * 경우가 일반). 조건 만족 경로가 없으면 null (2026-08-04, 공존 위 미소유 경로 전환 불가 수정).
+ */
+export function pickRedirectPath(
+  trackCoord: HexCoord,
+  board: BoardState,
+  currentPlayer: PlayerId
+): TrackPathKind | null {
+  const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, trackCoord));
+  if (!track || track.isGovernment) return null;
+  const candidates: TrackPathKind[] =
+    track.trackType !== 'simple' && track.secondaryEdges ? ['P', 'S'] : ['P'];
+  const ok = (k: TrackPathKind): boolean => {
+    const owner = k === 'P' ? track.owner : track.secondaryOwner ?? null;
+    if (owner !== null && owner !== currentPlayer) return false;
+    const complete = k === 'P'
+      ? isTrackPartOfCompletedLink(trackCoord, board)
+      : isSecondaryTrackPartOfCompletedLink(trackCoord, board);
+    return !complete;
+  };
+  const valid = candidates.filter(ok);
+  if (valid.length === 0) return null;
+  if (valid.length === 1) return valid[0];
+  const mine = valid.find(k => (k === 'P' ? track.owner : track.secondaryOwner) === currentPlayer);
+  return mine ?? valid[0];
+}
+
 export function isEndpointOfIncompleteSection(
   trackCoord: HexCoord,
-  board: BoardState
+  board: BoardState,
+  /** 판정할 경로 (복합 타일). 기본 P = 기존 동작 항등. */
+  path: TrackPathKind = 'P'
 ): { isEndpoint: boolean; connectedEdge: number | null; openEdge: number | null } {
   const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, trackCoord));
   if (!track) {
     return { isEndpoint: false, connectedEdge: null, openEdge: null };
   }
+  const pathEdges = path === 'P' ? track.edges : track.secondaryEdges;
+  if (!pathEdges || pathEdges.length !== 2) {
+    return { isEndpoint: false, connectedEdge: null, openEdge: null };
+  }
 
-  // 완성된 링크의 일부인지 확인
-  if (isTrackPartOfCompletedLink(trackCoord, board)) {
+  // 완성된 링크의 일부인지 확인 (경로 단위)
+  const complete = path === 'P'
+    ? isTrackPartOfCompletedLink(trackCoord, board)
+    : isSecondaryTrackPartOfCompletedLink(trackCoord, board);
+  if (complete) {
     return { isEndpoint: false, connectedEdge: null, openEdge: null };
   }
 
@@ -583,7 +627,7 @@ export function isEndpointOfIncompleteSection(
   let connectedEdge: number | null = null;
   let openEdge: number | null = null;
 
-  for (const edge of track.edges) {
+  for (const edge of pathEdges) {
     const neighborCoord = getNeighborHex(trackCoord, edge, board);
     const oppositeEdge = getOppositeEdge(edge);
 
@@ -622,22 +666,10 @@ export function canRedirectTrack(
   board: BoardState,
   currentPlayer: PlayerId
 ): boolean {
-  const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, trackCoord));
-  if (!track) return false;
-
-  // 정부 트랙(Montréal)은 중립 — 플레이어가 방향 전환/소유권 획득 불가
-  if (track.isGovernment) return false;
-
-  // 복합 트랙은 방향 전환 불가 (단순 트랙만 가능)
-  if (track.trackType !== 'simple') return false;
-
-  // 소유자 확인 (소유자 없거나 현재 플레이어 소유)
-  if (track.owner !== null && track.owner !== currentPlayer) return false;
-
-  // 완성된 링크의 일부인지 확인 (완성된 링크는 수정 불가)
-  if (isTrackPartOfCompletedLink(trackCoord, board)) return false;
-
-  return true;
+  // 경로 단위 판정으로 위임 — 복합 타일도 조건 만족 경로가 있으면 전환 가능 (룰 IV:
+  // "복합 트랙은 다른 플레이어 소유 트랙이 유지되도록 방향 전환해야 한다").
+  // 정부 트랙 거부·소유/완성 검사는 pickRedirectPath 내부에서 경로별로 수행된다.
+  return pickRedirectPath(trackCoord, board, currentPlayer) !== null;
 }
 
 /**
@@ -647,18 +679,26 @@ export function canRedirectTrack(
 export function getRedirectableEdges(
   trackCoord: HexCoord,
   board: BoardState,
-  currentPlayer: PlayerId
+  currentPlayer: PlayerId,
+  /** 대상 경로 (복합 타일). 미지정 시 pickRedirectPath로 자동 선택 — 호출부 전부가 같은
+   *  선택을 공유해야 하므로 반드시 이 함수와 동일한 픽 로직을 쓴다. */
+  path?: TrackPathKind
 ): { currentOpenEdge: number; availableEdges: number[] } | null {
   const track = board.trackTiles.find(t => hexCoordsEqual(t.coord, trackCoord));
   if (!track) return null;
 
-  const { connectedEdge, openEdge } = isEndpointOfIncompleteSection(trackCoord, board);
+  const k: TrackPathKind = path ?? pickRedirectPath(trackCoord, board, currentPlayer) ?? 'P';
+  const pathEdges = (k === 'P' ? track.edges : track.secondaryEdges) ?? track.edges;
+  // 다른 경로가 쓰는 변 — 새 방향으로 쓸 수 없다 (두 경로는 변을 공유하지 않는다)
+  const otherEdges: number[] = k === 'P' ? track.secondaryEdges ?? [] : track.edges;
+
+  const { connectedEdge, openEdge } = isEndpointOfIncompleteSection(trackCoord, board, k);
 
   // 끝점이 아니더라도 리다이렉트를 시도할 수 있도록 허용 (AI 보정 등)
   // 연결된 엣지가 없으면 첫 번째 엣지를 기준으로 삼음
-  const actualConnectedEdge = connectedEdge !== null ? connectedEdge : track.edges[0];
+  const actualConnectedEdge = connectedEdge !== null ? connectedEdge : pathEdges[0];
   void actualConnectedEdge; // 향후 확장용
-  const actualOpenEdge = openEdge !== null ? openEdge : track.edges[1];
+  const actualOpenEdge = openEdge !== null ? openEdge : pathEdges[1];
 
   // 가능한 방향들 (연결된 엣지 제외, 막힌 방향 제외)
   const availableEdges: number[] = [];
@@ -666,6 +706,9 @@ export function getRedirectableEdges(
   for (let edge = 0; edge < 6; edge++) {
     // 현재 연결된 엣지는 제외
     if (edge === connectedEdge) continue;
+
+    // 복합 타일: 다른 경로가 쓰는 변은 불가 (그 경로를 침범 — 룰: 타 경로 유지)
+    if (otherEdges.includes(edge)) continue;
 
     // 현재 열린 엣지도 선택지에 포함 (같은 방향 유지 가능)
     const neighborCoord = getNeighborHex(trackCoord, edge, board);

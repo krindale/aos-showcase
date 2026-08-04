@@ -18,6 +18,7 @@ import {
   getRedirectableEdges,
   getRedirectTargetHexes,
   isEndpointOfIncompleteSection,
+  pickRedirectPath,
   calculateTrackScore,
 } from '@/utils/trackValidation';
 import {
@@ -672,16 +673,17 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
       const state = get();
       const currentPlayer = state.currentPlayer;
 
-      // 방향 전환 가능한지 확인
-      if (!canRedirectTrack(coord, state.board, currentPlayer)) {
+      // 방향 전환 가능한지 확인 + 대상 경로 선택 (복합 타일 — redirectTrack과 동일 픽 로직 공유)
+      const redirectPath = pickRedirectPath(coord, state.board, currentPlayer);
+      if (!redirectPath) {
         return false;
       }
 
       // 방향 전환 가능한 엣지 정보 가져오기
-      const redirectInfo = getRedirectableEdges(coord, state.board, currentPlayer);
+      const redirectInfo = getRedirectableEdges(coord, state.board, currentPlayer, redirectPath);
       if (!redirectInfo) return false;
 
-      const { isEndpoint, connectedEdge } = isEndpointOfIncompleteSection(coord, state.board);
+      const { isEndpoint, connectedEdge } = isEndpointOfIncompleteSection(coord, state.board, redirectPath);
       if (!isEndpoint || connectedEdge === null) return false;
 
       // 방향 전환 선택 UI 표시

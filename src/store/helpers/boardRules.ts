@@ -132,6 +132,99 @@ export function releaseUnextendedTrack(
 }
 
 /**
+ * 방향 전환/기존 타일 교체가 **물리적으로 완성된 링크**를 만들 때의 소유권 정규화 (룰 보완).
+ *
+ * 룰 IV는 "방향 전환만으로는 연장으로 인정되지 않는다"(= 인수 없음)지만, **미소유 타일을 방향
+ * 전환해 내 미완성 구간과 이어 링크가 완성되는 경우**는 룰이 상정하지 않은 상태를 만든다 —
+ * 완성 링크는 소유 디스크 하나가 얹히는 단일 소유 단위인데, 절반은 내 것·절반은 미소유로 굳는다.
+ * 방치하면 ① 소유자 인식 완성 판정(findCompletedLinks)에 안 잡혀 내 타일이
+ * releaseUnextendedTrack에서 "미연장 미완성"으로 해제되고 ② 그 결과 "미소유 완성 링크"가 되어
+ * 인수(미완성 구간 전용)도 해제도 불가능한 영구 동결이 된다 — 2026-07-29 "회계 증발"의
+ * 방향 전환 발병 경로 (2026-08-04 southern-england 실전: 미소유 (2,9) 전환 → 내 (3,9)와 링크
+ * 완성 → 다음 턴 차례말 해제로 (3,9)까지 미소유 동결, docs/issue-log.md).
+ *
+ * 정규화: 전환된 타일이 속한 물리 링크(primary/secondary 경로 인식 체인)가 양끝 정거장에
+ * 도달(완성)했고, 링크 구성 경로의 소유자 집합이 {행위자, 미소유}뿐이며 미소유가 하나라도 있으면
+ * 미소유 경로를 행위자 소유로 귀속한다. 타 플레이어 경로가 하나라도 섞여 있으면 아무것도 하지
+ * 않는다(전환 규칙상 타인 트랙 직접 연결 자체가 금지라 통상 도달 불가 — 방어 조건).
+ * 미완성이면 아무것도 하지 않는다 — 룰 원문대로 "방향 전환만으로는 인수 없음" 유지.
+ */
+export function claimCompletedLinkAfterRedirect(
+  board: BoardState,
+  coord: HexCoord,
+  playerId: PlayerId,
+  /** 전환된 경로 (복합 타일 방향 전환 시 'S' 가능). 기본 P. */
+  pathKind: 'P' | 'S' = 'P'
+): { board: BoardState; claimed: number } {
+  const start = board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
+  const startEdges = pathKind === 'P' ? start?.edges : start?.secondaryEdges;
+  if (!start || !startEdges || startEdges.length !== 2) return { board, claimed: 0 };
+
+  // 체인 원소: 어느 타일의 어느 경로(P=기본 edges / S=secondaryEdges)를 지나는가
+  type ChainStep = { tile: TrackTile; kind: 'P' | 'S' };
+  const chain: ChainStep[] = [{ tile: start, kind: pathKind }];
+
+  // 한 방향으로 정거장까지 물리 체인 추적 (checkConnectionToCity와 동일 규칙 —
+  // 도시는 전 변 연결, 마을은 진입 변에 가닥이 있어야 연결, 복합은 진입 변이 속한 경로로만 통과)
+  const walk = (fromEdge: number): boolean => {
+    let curHex = coord;
+    let curEdge = fromEdge;
+    const visited = new Set<string>([`${coord.col},${coord.row}`]);
+    while (true) {
+      const next = getNeighborHex(curHex, curEdge, board);
+      const key = `${next.col},${next.row}`;
+      if (board.cities.some(c => hexCoordsEqual(c.coord, next))) return true;
+      const town = board.towns.some(t => hexCoordsEqual(t.coord, next) && t.newCityColor === null);
+      if (town) {
+        const entry = getOppositeEdge(curEdge);
+        return (board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, next) && sp.edge === entry);
+      }
+      if (visited.has(key)) return false;
+      visited.add(key);
+      const nextTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, next));
+      if (!nextTrack) return false;
+      const entry = getOppositeEdge(curEdge);
+      let kind: 'P' | 'S' | null = null;
+      let pathEdges: number[] | null = null;
+      if (nextTrack.edges.includes(entry)) { kind = 'P'; pathEdges = nextTrack.edges; }
+      else if (nextTrack.secondaryEdges?.includes(entry)) { kind = 'S'; pathEdges = nextTrack.secondaryEdges; }
+      if (!kind || !pathEdges) return false;
+      const exit = pathEdges.find(e => e !== entry);
+      if (exit === undefined) return false;
+      chain.push({ tile: nextTrack, kind });
+      curHex = next;
+      curEdge = exit;
+    }
+  };
+
+  // 양끝 모두 정거장 도달 = 물리 완성. 미완성이면 정규화 없음.
+  if (!walk(startEdges[0]) || !walk(startEdges[1])) return { board, claimed: 0 };
+
+  // 소유자 집합 검사: {행위자, null}뿐이어야 하고, 귀속할 미소유 경로가 있어야 한다.
+  const ownerOf = (s: ChainStep) => (s.kind === 'P' ? s.tile.owner : s.tile.secondaryOwner ?? null);
+  if (chain.some(s => { const o = ownerOf(s); return o !== null && o !== playerId; })) {
+    return { board, claimed: 0 };
+  }
+  const toClaim = chain.filter(s => ownerOf(s) === null && !s.tile.isGovernment);
+  if (toClaim.length === 0) return { board, claimed: 0 };
+
+  const claimP = new Set(toClaim.filter(s => s.kind === 'P').map(s => `${s.tile.coord.col},${s.tile.coord.row}`));
+  const claimS = new Set(toClaim.filter(s => s.kind === 'S').map(s => `${s.tile.coord.col},${s.tile.coord.row}`));
+  const k = (c: HexCoord) => `${c.col},${c.row}`;
+  const updated = board.trackTiles.map(t => {
+    const pk = claimP.has(k(t.coord));
+    const sk = claimS.has(k(t.coord));
+    if (!pk && !sk) return t;
+    return {
+      ...t,
+      ...(pk ? { owner: playerId } : {}),
+      ...(sk ? { secondaryOwner: playerId } : {}),
+    };
+  });
+  return { board: { ...board, trackTiles: updated }, claimed: toClaim.length };
+}
+
+/**
  * 룰(IV) 소유권 주장: 새 타일(coord/edges)이 미소유 미완성 트랙 구간에 이어지면(연장) 그 구간
  * 전체의 소유권을 건설자가 가져간다 — "다른 플레이어가 미소유 미완성 구간을 연장하면 소유권 주장
  * 가능". 방향 전환은 연장이 아니므로(룰: "방향 전환만으로는 연장으로 인정되지 않음") 호출하지 않는다.

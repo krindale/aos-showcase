@@ -18,13 +18,14 @@ import {
   canRedirectTrack,
   getRedirectableEdges,
   isEndpointOfIncompleteSection,
+  pickRedirectPath,
   isTrackPartOfCompletedLink,
   touchesClaimableUnownedTrack,
 } from '@/utils/trackValidation';
 import { hexCoordsEqual, getNeighborHex } from '@/utils/hexGrid';
 import { debugLog, logAction } from '@/utils/debugConfig';
 import { captureUndo, undoSnapshots } from '../helpers/undo';
-import { crossesBlockedEdge, findMissingTownSpurs, touchesMasterNetwork, findClaimableSectionKeys } from '../helpers/boardRules';
+import { crossesBlockedEdge, findMissingTownSpurs, touchesMasterNetwork, findClaimableSectionKeys, claimCompletedLinkAfterRedirect } from '../helpers/boardRules';
 import {
   checkDiscLimitAfterBuild,
   releaseUnfinishedOwnership,
@@ -190,6 +191,12 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       }
 
       if (existingTrack) {
+        // 복합 타일 교체는 buildTrack 경로 미지원 — 이 경로는 기본 edges만 덮어써 보조 경로와
+        // 충돌한다. 복합의 방향 전환은 경로 인식 redirectTrack으로만 (canRedirectTrack이 복합을
+        // 허용하게 된 2026-08-04 이후에도 기존 거부 동작 유지).
+        if (existingTrack.trackType !== 'simple') {
+          return false;
+        }
         // 리다이렉트 가능 여부 확인
         if (!canRedirectTrack(coord, board, currentPlayer)) {
           return false;
@@ -395,7 +402,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         : new Set<string>();
       const claimKeyOf = (c: HexCoord) => `${c.col},${c.row}`;
 
-      const newTrackTiles = existingTrack
+      let newTrackTiles = existingTrack
         ? state.board.trackTiles.map(t => hexCoordsEqual(t.coord, coord) ? newTrack : t)
         : [
             ...state.board.trackTiles.map(t =>
@@ -403,6 +410,23 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
             ),
             newTrack,
           ];
+
+      // 기존 타일 교체(방향 전환 상당)로 물리 링크가 완성되면 소유 정규화 — 미소유 타일을
+      // 전환해 내 구간과 잇는 순간 "소유 혼합 완성 링크"가 생겨, 다음 차례말 해제에서 내
+      // 타일까지 미소유로 동결되던 버그 방지 (2026-08-04, claimCompletedLinkAfterRedirect 주석).
+      let redirectClaimCount = 0;
+      if (existingTrack && !isGovBuild) {
+        const norm = claimCompletedLinkAfterRedirect(
+          { ...state.board, trackTiles: newTrackTiles }, coord, currentPlayer
+        );
+        if (norm.claimed > 0) {
+          newTrackTiles = norm.board.trackTiles;
+          redirectClaimCount = norm.claimed;
+          logAction('trackBuilding', 'redirectLinkClaim', {
+            player: currentPlayer, coord, claimed: norm.claimed, turn: state.currentTurn,
+          });
+        }
+      }
 
       // 큐브가 트랙 위로 이동했으면 헥스에서 제거
       const newHexTiles = (hexCube && !existingTrack)
@@ -455,7 +479,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
             turn: state.currentTurn,
             phase: state.currentPhase,
             player: currentPlayer,
-            action: `${isGovBuild ? '정부 링크 트랙 건설' : '트랙 건설'} (${coord.col}, ${coord.row})${newSpurs.length > 0 ? ` + 마을 가닥 ${newSpurs.length}개` : ''}${skippedSpurCount > 0 ? ' (마을 미연결 — 다음 턴 마을 클릭으로 가닥 건설)' : ''}${claimKeys.size > 0 ? ` + 미소유 구간 ${claimKeys.size}타일 소유권 인수` : ''} - $${cost} [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`,
+            action: `${isGovBuild ? '정부 링크 트랙 건설' : '트랙 건설'} (${coord.col}, ${coord.row})${newSpurs.length > 0 ? ` + 마을 가닥 ${newSpurs.length}개` : ''}${skippedSpurCount > 0 ? ' (마을 미연결 — 다음 턴 마을 클릭으로 가닥 건설)' : ''}${claimKeys.size > 0 ? ` + 미소유 구간 ${claimKeys.size}타일 소유권 인수` : ''}${redirectClaimCount > 0 ? ` + 완성 링크 미소유 ${redirectClaimCount}타일 소유권 귀속` : ''} - $${cost} [${newBuiltCount}/${state.phaseState.maxTracksThisTurn}]`,
             timestamp: Date.now(),
           },
         ],
@@ -990,8 +1014,10 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       const track = state.board.trackTiles.find(t => hexCoordsEqual(t.coord, coord));
       if (!track) return false;
 
-      // 방향 전환 정보 확인
-      const redirectInfo = getRedirectableEdges(coord, state.board, currentPlayer);
+      // 대상 경로 선택 (복합 타일: 조건 만족 경로 — 단순 타일은 P) + 방향 전환 정보 확인
+      const redirectPath = pickRedirectPath(coord, state.board, currentPlayer);
+      if (!redirectPath) return false;
+      const redirectInfo = getRedirectableEdges(coord, state.board, currentPlayer, redirectPath);
       if (!redirectInfo) return false;
 
       // 유효한 방향인지 확인
@@ -1006,8 +1032,8 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
         return false;
       }
 
-      // 연결된 엣지 확인 (유지되는 엣지)
-      const { connectedEdge } = isEndpointOfIncompleteSection(coord, state.board);
+      // 연결된 엣지 확인 (유지되는 엣지) — 선택한 경로 기준
+      const { connectedEdge } = isEndpointOfIncompleteSection(coord, state.board, redirectPath);
       if (connectedEdge === null) return false;
 
       // 새 엣지 설정
@@ -1025,14 +1051,31 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       // 트랙 업데이트 — 룰(IV): "방향 전환만으로는 연장으로 인정되지 않는다" → 소유권을 얻지
       // 못한다 (내 트랙은 내 것 그대로, 미소유 트랙은 미소유 그대로. builtTurn도 유지해
       // releaseUnextendedTrack이 연장으로 오인하지 않게). 소유권 인수는 새 타일 연장(buildTrack)으로만.
-      const updatedTrack: TrackTile = {
-        ...track,
-        edges: newEdges,
-      };
+      // 선택한 경로의 변만 교체 — 복합 타일의 다른 경로는 그대로 유지 (룰: 타 경로 보존)
+      const updatedTrack: TrackTile = redirectPath === 'S'
+        ? { ...track, secondaryEdges: newEdges }
+        : { ...track, edges: newEdges };
 
-      const updatedTrackTiles = state.board.trackTiles.map(t =>
+      let updatedTrackTiles = state.board.trackTiles.map(t =>
         hexCoordsEqual(t.coord, coord) ? updatedTrack : t
       );
+
+      // 방향 전환으로 물리 링크가 완성되면 소유 정규화 — 미소유 타일을 전환해 내 구간과 잇는
+      // 순간 "소유 혼합 완성 링크"가 생겨, 다음 차례말 해제에서 내 타일까지 미소유로 동결되던
+      // 버그 방지 (2026-08-04, claimCompletedLinkAfterRedirect 주석 참조).
+      let redirectClaimCount = 0;
+      {
+        const norm = claimCompletedLinkAfterRedirect(
+          { ...state.board, trackTiles: updatedTrackTiles }, coord, currentPlayer, redirectPath
+        );
+        if (norm.claimed > 0) {
+          updatedTrackTiles = norm.board.trackTiles;
+          redirectClaimCount = norm.claimed;
+          logAction('trackBuilding', 'redirectLinkClaim', {
+            player: currentPlayer, coord, claimed: norm.claimed, turn: state.currentTurn,
+          });
+        }
+      }
 
       set({
         board: {
@@ -1084,7 +1127,7 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
             turn: state.currentTurn,
             phase: state.currentPhase,
             player: currentPlayer,
-            action: `트랙 방향 전환 (${coord.col}, ${coord.row}) - $${cost} [${state.phaseState.builtTracksThisTurn + 1}/${state.phaseState.maxTracksThisTurn}]`,
+            action: `트랙 방향 전환 (${coord.col}, ${coord.row})${redirectClaimCount > 0 ? ` + 완성 링크 미소유 ${redirectClaimCount}타일 소유권 귀속` : ''} - $${cost} [${state.phaseState.builtTracksThisTurn + 1}/${state.phaseState.maxTracksThisTurn}]`,
             timestamp: Date.now(),
           },
         ],

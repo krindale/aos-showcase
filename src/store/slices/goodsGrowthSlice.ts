@@ -291,13 +291,15 @@ export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
           diceCounts[result] = (diceCounts[result] || 0) + 1;
         }
 
+        const mapProfile = getMapProfile(state.mapId);
         // noOwnColorCubes: 도시 자기 색 화물은 도시에 배치하지 않음 (튜토리얼)
-        const skipOwnColor = getMapProfile(state.mapId).noOwnColorCubes;
+        const skipOwnColor = mapProfile.noOwnColorCubes;
         // 한국: 평양·수원은 물품 성장 안 받음 (columnMapping에서 이미 제외되지만 방어 가드)
-        const noGrowthCityIds = new Set(getMapProfile(state.mapId).noGrowthCityIds);
+        const noGrowthCityIds = new Set(mapProfile.noGrowthCityIds);
 
-        // 게스트에게도 보여줄 결과(도시별 추가된 큐브 색) 수집 — goodsGrowthEvent로 스냅샷 동기화
-        const eventResults: { cityName: string; cubes: CubeColor[] }[] = [];
+        // 도시별 실제 배치 결과 누적 — 대체 배치(England: London 파랑 → NW/NE)로 열의 도시와
+        // 실제 배치 도시가 다를 수 있어, 열 단위가 아니라 도착 도시 단위로 모아서 이벤트를 만든다.
+        const gainedByCity = new Map<string, CubeColor[]>();
 
         // 주사위 번호 → 그 번호를 공유하는 모든 도시 열에서 각각 count개씩 도시로 이동
         for (const [diceStr, count] of Object.entries(diceCounts)) {
@@ -309,28 +311,36 @@ export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
             if (!city) continue;
 
             // 위에서부터 큐브 가져오기 (자기 색 큐브는 건너뛰고 다음 큐브를 가져옴)
-            const movedCubes: CubeColor[] = [];
-            for (let i = 0; i < col.rowCount && movedCubes.length < count; i++) {
+            let drawn = 0;
+            for (let i = 0; i < col.rowCount && drawn < count; i++) {
               const slotIdx = col.startIndex + i;
               const cube = newSlots[slotIdx];
               if (cube && (!skipOwnColor || cube !== city.color)) {
-                city.cubes.push(cube);
                 newSlots[slotIdx] = null;
-                movedCubes.push(cube);
+                drawn++;
+                // 대체 배치 훅 (England: London의 파랑 → 주사위로 NW/NE. 다른 맵은 항등)
+                const destId = mapProfile.redirectCubePlacement(col.cityId, cube);
+                const dest = (destId !== city.id ? newCities.find(c => c.id === destId) : null) ?? city;
+                dest.cubes.push(cube);
+                gainedByCity.set(dest.id, [...(gainedByCity.get(dest.id) ?? []), cube]);
               }
             }
-
-            if (movedCubes.length > 0) {
-              eventResults.push({ cityName: city.name, cubes: movedCubes });
-              newLogs.push({
-                turn: state.currentTurn,
-                phase: state.currentPhase,
-                player: state.currentPlayer,
-                action: `물품 성장: ${city.name}에 ${movedCubes.length}개 추가`,
-                timestamp: Date.now(),
-              });
-            }
           }
+        }
+
+        // 게스트에게도 보여줄 결과(도시별 추가된 큐브 색) 수집 — goodsGrowthEvent로 스냅샷 동기화
+        const eventResults: { cityName: string; cubes: CubeColor[] }[] = [];
+        for (const [cityId, cubes] of Array.from(gainedByCity.entries())) {
+          const city = newCities.find(c => c.id === cityId);
+          if (!city || cubes.length === 0) continue;
+          eventResults.push({ cityName: city.name, cubes });
+          newLogs.push({
+            turn: state.currentTurn,
+            phase: state.currentPhase,
+            player: state.currentPlayer,
+            action: `물품 성장: ${city.name}에 ${cubes.length}개 추가`,
+            timestamp: Date.now(),
+          });
         }
 
         // Germany: Berlin은 매 물품 성장마다 주머니에서 무작위 큐브 1개를 받는다

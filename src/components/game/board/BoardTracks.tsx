@@ -72,6 +72,22 @@ export default function BoardTracks({
           ? PLAYER_COLORS[players[tile.secondaryOwner].color]
           : '#888';
 
+        // 복합 타일은 경로가 헥스 중심을 지나지 않는다 — 소유 디스크를 "자기 경로 위"(중앙 침목)에
+        // 붙여 어느 경로의 소유인지 보이게 한다. 예전 고정 오프셋(x+10, y-10)은 다른 경로 위에
+        // 얹힐 수 있었다 (2026-08-04 사용자 보고: 공존 보조 디스크가 미소유 기본 경로 위에 떠
+        // "미소유 철로가 남의 소유로 바뀐" 것처럼 보임 — 실제 소유 데이터는 정상이었다).
+        const midTie = (arr: { x: number; y: number }[]) =>
+          arr.length > 0 ? arr[Math.floor(arr.length / 2)] : null;
+        const primaryAnchor = (hasSecondary ? midTie(ties) : null) ?? { x, y };
+        let secondaryAnchor = midTie(secondaryTies) ?? { x: x + 10, y: y - 10 };
+        // 교차(두 직선)는 두 경로가 중앙에서 겹친다 — 디스크가 포개지면 보조를 1/4 지점으로 비켜 앉힌다
+        if (
+          secondaryTies.length > 1 &&
+          Math.hypot(secondaryAnchor.x - primaryAnchor.x, secondaryAnchor.y - primaryAnchor.y) < 14
+        ) {
+          secondaryAnchor = secondaryTies[Math.floor(secondaryTies.length / 4)];
+        }
+
         // 방향 전환 가능 여부 확인
         const isRedirectable = isBuildPhase && canRedirect(tile.coord);
         // 미소유(디스크 빠진) 트랙 — 룰 IV: 새 타일로 연장하면 소유권 인수 가능.
@@ -243,8 +259,8 @@ export default function BoardTracks({
                 소유 디스크를 제거하므로 마커를 그리지 않음 (룰: 파산 미완성 트랙 디스크 제거) */}
             {!isTrackInCompletedLink(tile.coord) && tile.owner !== null && (
               <circle
-                cx={x}
-                cy={y}
+                cx={primaryAnchor.x}
+                cy={primaryAnchor.y}
                 r="7"
                 fill={ownerColor}
                 stroke={isRedirectable && isBuildModeIdle ? '#ffa500' : '#1a1a1a'}
@@ -260,8 +276,8 @@ export default function BoardTracks({
                 짓기가 "클릭이 안 먹는" 것으로 보이던 원인, 2026-07-29 사용자 보고). */}
             {!isTrackInCompletedLink(tile.coord, 'S') && hasSecondary && tile.secondaryOwner && (
               <circle
-                cx={x + 10}
-                cy={y - 10}
+                cx={secondaryAnchor.x}
+                cy={secondaryAnchor.y}
                 r="5"
                 fill={secondaryOwnerColor}
                 stroke="#1a1a1a"

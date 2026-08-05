@@ -76,9 +76,13 @@ export default function GoodsGrowthPanel() {
   const productionPending =
     !!productionPlayer && !productionPlayer.isAI && !phaseState.productionUsed;
 
-  // 주사위 수 = 탈락하지 않은 활성 플레이어 수 × 맵별 배수 (표준 1, 달 2)
+  // 주사위 수 = 탈락하지 않은 활성 플레이어 수 × 맵별 배수 (표준 1, 달 2).
+  // Scotland(growthDiceSplit): 인원 무관 고정 — 앞 light개는 라이트 열, 뒤 dark개는 다크(E~H) 열.
   const activePlayers = Object.values(players).filter(p => !p.eliminated);
-  const diceCount = activePlayers.length * getMapProfile(mapId).growthDicePerPlayer;
+  const diceSplit = getMapProfile(mapId).growthDiceSplit;
+  const diceCount = diceSplit
+    ? diceSplit.light + diceSplit.dark
+    : activePlayers.length * getMapProfile(mapId).growthDicePerPlayer;
 
   // 열의 시작 인덱스 (앞 열들의 rowCount 누적)
   const startIndexOf = (columnIndex: number): number =>
@@ -132,9 +136,11 @@ export default function GoodsGrowthPanel() {
       return results;
     }
 
-    // 주사위 결과 카운트
+    // 주사위 결과 카운트 — 분할 맵(Scotland)은 라이트 몫만 도시 열 미리보기에 반영
+    // (다크 몫은 신도시 E~H 전용인데 이 미리보기는 원래 신도시 열을 표시하지 않는다)
+    const lightDice = diceSplit ? diceResults.slice(0, diceSplit.light) : diceResults;
     const diceCountMap: Record<number, number> = {};
-    diceResults.forEach(d => {
+    lightDice.forEach(d => {
       diceCountMap[d] = (diceCountMap[d] || 0) + 1;
     });
 

@@ -40,9 +40,39 @@ import { debugLog } from '@/utils/debugConfig';
 export type TrackBuildDecision =
   | { action: 'build'; coord: HexCoord; edges: [number, number] }
   | { action: 'buildComplex'; coord: HexCoord; edges: [number, number]; trackType: 'crossing' | 'coexist' }
-  | { action: 'buildSpur'; townCoord: HexCoord } // 마을 가닥 단독 건설 (미연결 트랙의 연결 완성)
+  | { action: 'buildSpur'; townCoord: HexCoord; edge?: number } // 마을 가닥 단독 건설 (edge 지정 = 그 변만 — 인접 도시 링크)
   | { action: 'buildDirectLink'; cityA: string; cityB: string } // 직결 링크/인터어반/페리 구매
   | { action: 'skip' }; // 건설 스킵
+
+/**
+ * 경로의 인접 [정거장,정거장] 스텝에서 한쪽이 마을이면 마을 쪽 변 가닥이 그 링크의 실체다
+ * (Scotland Ayr↔Glasgow $2 — 마을 기본료 $1 + 가닥 $1). 가닥이 없으면 그 가닥 건설 결정을
+ * 돌려준다 (해당 없음/이미 있음/현금 부족이면 null). 인접 마을-도시 쌍은 Scotland 하나뿐이라
+ * 타 맵에선 절대 발화하지 않는다 (2026-08-05 전 맵 스캔).
+ */
+function adjacentStationSpurNeeded(
+  board: GameState['board'],
+  aCoord: HexCoord,
+  bCoord: HexCoord,
+  cash: number,
+): TrackBuildDecision | null {
+  const townAt = (c: HexCoord) =>
+    board.towns.some(t => hexCoordsEqual(t.coord, c) && t.newCityColor === null);
+  const cityAt = (c: HexCoord) => board.cities.some(ci => hexCoordsEqual(ci.coord, c));
+  let townCoord: HexCoord | null = null;
+  let stationCoord: HexCoord | null = null;
+  if (townAt(aCoord) && cityAt(bCoord)) { townCoord = aCoord; stationCoord = bCoord; }
+  else if (townAt(bCoord) && cityAt(aCoord)) { townCoord = bCoord; stationCoord = aCoord; }
+  if (!townCoord || !stationCoord) return null;
+  const edge = getEdgeBetweenHexes(townCoord, stationCoord, board);
+  if (edge < 0) return null;
+  const exists = (board.townSpurs ?? []).some(
+    sp => hexCoordsEqual(sp.townCoord, townCoord!) && sp.edge === edge
+  );
+  if (exists) return null;
+  if (cash < 2) return null; // 마을 기본료 $1 + 가닥 $1 (턴 첫 변경 기준 근사)
+  return { action: 'buildSpur', townCoord, edge };
+}
 
 // ===== 모듈 레벨: 건설 실패 좌표 추적 (턴 기반 자동 초기화) =====
 const failedBuildCoords: Map<string, { turn: number; coords: HexCoord[] }> = new Map();
@@ -145,7 +175,9 @@ function evaluateDirectLinkPurchase(
     // 성장으로 화물이 계속 공급돼 회수가 지속된다. 그 외 고가 링크(GZ↔SZ 인터어반)는
     // 끝점 큐브 소진 후 가치가 죽는데 $8 + 슬롯 + 디스크를 잠근다
     // (100시드: 무차별 구매 14.26→10.53, 문턱 3 12.10 — 전부 회귀).
-    if (dl.cost > 2 && !a.acceptsAllColors && !b.acceptsAllColors) continue;
+    // 예외: 도시화 게이트 링크(Scotland 페리, requiresCities)는 양끝이 도시가 된 시점
+    // 자체가 희소해 아래 큐브 문턱(3)만으로 판정한다 — 홍콩 게이트는 중국 전용 회귀 근거.
+    if (dl.cost > 2 && !a.acceptsAllColors && !b.acceptsAllColors && !dl.requiresCities) continue;
     // 같은 링크를 더 싸게 만드는 1타일 대안이 있으면 사지 않는다 — SZ↔HK $8은 (9,8) 타일
     // $5(트랙 VP까지 +1)로 대체 가능해 직결 구매가 순손실이었다 (100시드 −2.2의 주범).
     // GZ↔HK(사이가 바다뿐)·Germany $2(대안 타일도 $2 이상)는 통과.
@@ -829,6 +861,12 @@ function tryDirectPathBuild(
           || board.towns.some(t => hexCoordsEqual(t.coord, prevCoord) && t.newCityColor === null);
 
         if (prevIsCity) {
+          // 인접 마을↔도시 스텝(Scotland Ayr↔Glasgow): 마을 쪽 변 가닥이 그 링크다 — 없으면 먼저 짓는다
+          const spurNeed = adjacentStationSpurNeeded(board, pathCoord, optimalPath[i - 1], player.cash);
+          if (spurNeed) {
+            debugLog.trackBuilding(`[직접 경로] 인접 정거장 링크 가닥 건설 (${pathCoord.col},${pathCoord.row})`);
+            return spurNeed;
+          }
           frontierIndex = i;
           continue;
         }
@@ -953,6 +991,12 @@ function tryDirectPathBuild(
       // 허브(도시/마을) 헥스 처리: 도착지면 경로 완성, 중간이면 건너뜀 (타일 배치 불가/불필요)
       if (board.cities.some(c => hexCoordsEqual(c.coord, nextCoord))
         || board.towns.some(t => hexCoordsEqual(t.coord, nextCoord) && t.newCityColor === null)) {
+        // 인접 마을↔도시 스텝: 직전 정거장이 마을이면 그 변 가닥이 링크 — 완성/통과 전에 짓는다
+        const spurNeed = adjacentStationSpurNeeded(board, optimalPath[nextIndex - 1], nextCoord, player.cash);
+        if (spurNeed) {
+          debugLog.trackBuilding(`[직접 경로] 인접 정거장 링크 가닥 건설 → (${nextCoord.col},${nextCoord.row}) 방향`);
+          return spurNeed;
+        }
         if (hexCoordsEqual(nextCoord, targetCity.coord)) {
           debugLog.trackBuilding(`[직접 경로] 도착 도시(${nextCoord.col},${nextCoord.row}) 도달 → 경로 완성`);
           return null;

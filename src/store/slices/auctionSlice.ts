@@ -262,7 +262,16 @@ export function createAuctionSlice(set: Set, get: Get): AuctionSlice {
           const playerBid = bids[player] || 0;
 
           // 비용 계산
-          if (i === 0) {
+          // Scotland 변형(auctionLoserPaysHalf): 포기자 전원 절반(올림) — 위치 무관
+          // (v2 시트: "Losing bidder pays 1/2 (rounded up)". 승자는 표준대로 전액.)
+          if (getMapProfile(state.mapId).auctionLoserPaysHalf) {
+            if (playerBid > 0) {
+              newPlayers[player] = {
+                ...newPlayers[player],
+                cash: Math.max(0, newPlayers[player].cash - Math.ceil(playerBid / 2)),
+              };
+            }
+          } else if (i === 0) {
             // 첫 번째 포기자: $0 지불
             // 이미 cash 변경 없음
           } else if (i === lastDropoutIndex) {

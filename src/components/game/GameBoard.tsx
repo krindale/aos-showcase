@@ -155,11 +155,19 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     return m;
   }, [mapData]);
   const renderDirectLinks = useMemo(
-    () => board.directLinks?.map(dl => ({
-      ...dl,
-      faces: dl.faces ?? directLinkFacesByPair.get(`${dl.cityA}|${dl.cityB}`),
-    })),
-    [board.directLinks, directLinkFacesByPair]
+    () => board.directLinks?.map(dl => {
+      // 끝점 좌표 해석: 도시 → 마을 폴백 (Scotland 페리 — 도시화 전엔 끝점이 마을 id라
+      // cities에서 안 잡힌다. 좌표를 함께 넘겨 잠재 항로도 점선으로 표시).
+      const coordOf = (id: string) =>
+        board.cities.find(c => c.id === id)?.coord ?? board.towns.find(t => t.id === id)?.coord;
+      return {
+        ...dl,
+        faces: dl.faces ?? directLinkFacesByPair.get(`${dl.cityA}|${dl.cityB}`),
+        coordA: coordOf(dl.cityA),
+        coordB: coordOf(dl.cityB),
+      };
+    }),
+    [board.directLinks, board.cities, board.towns, directLinkFacesByPair]
   );
   const mapProfile = useMemo(() => getMapProfile(mapId), [mapId]);
   const terrainColors = mapData.colors.terrain;
@@ -190,7 +198,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   const riverHexKeys = useMemo(() => {
     const s = new Set<string>();
     board.hexTiles.forEach(h => {
-      if (h.terrain === 'river') s.add(`${h.coord.col},${h.coord.row}`);
+      // riverEdges가 있으면 지형이 산이어도 강줄기를 그린다 (Scotland 산+강 $5 헥스)
+      if (h.terrain === 'river' || h.riverEdges) s.add(`${h.coord.col},${h.coord.row}`);
     });
     return s;
   }, [board.hexTiles]);
@@ -296,7 +305,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   const riverEdgeMap = useMemo(() => {
     const m = new Map<string, [number, number]>();
     board.hexTiles.forEach(h => {
-      if (h.terrain === 'river' && h.riverEdges) m.set(`${h.coord.col},${h.coord.row}`, h.riverEdges);
+      // 산+강(Scotland $5) 헥스도 명시 강 방향을 따른다 — terrain 무관 riverEdges 우선
+      if (h.riverEdges) m.set(`${h.coord.col},${h.coord.row}`, h.riverEdges);
     });
     return m;
   }, [board.hexTiles]);
@@ -1165,8 +1175,9 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                   />
                 )}
                 {/* 강 헥스: 인접 강 헥스와 변에서 이어지는 연속 강줄기 (철도 타일처럼 흐름).
-                    헥스 모양 clipPath로 강줄기가 외곽선을 넘어가지 않게 가둔다. */}
-                {terrain === 'river' && !isHighlighted && (
+                    헥스 모양 clipPath로 강줄기가 외곽선을 넘어가지 않게 가둔다.
+                    산+강 헥스(Scotland $5)는 산 지형 위에 riverEdges로 강줄기만 얹는다. */}
+                {(terrain === 'river' || !!hexTile?.riverEdges) && !isHighlighted && (
                   <>
                     <clipPath id={`river-clip-${col}-${row}`}>
                       <polygon points={getHexPoints(x, y, HEX_SIZE, isFlat)} />

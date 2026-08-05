@@ -156,6 +156,15 @@ export const maps: MapEntry[] = [
     playable: true,
   },
   {
+    slug: 'scotland',
+    name: 'Scotland',
+    nameKo: '스코틀랜드',
+    diff: '중급',
+    image: '/maps/scotland.webp',
+    description: '2인 전용 8턴. 하이랜드 산악을 돌아 도시를 잇고, 마을을 도시화해 Belfast·Stornoway행 페리 항로를 여는 스코틀랜드 맵입니다.',
+    playable: true,
+  },
+  {
     slug: 'barbados',
     name: 'Barbados',
     nameKo: '바베이도스',

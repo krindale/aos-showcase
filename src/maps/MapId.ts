@@ -16,4 +16,5 @@ export enum MapId {
   Moon = 'moon',
   SouthernChina = 'southern-china',
   SouthernEngland = 'southern-england',
+  Scotland = 'scotland',
 }

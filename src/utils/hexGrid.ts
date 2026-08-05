@@ -1208,6 +1208,26 @@ export function trackOwnerForEntry(track: TrackTile, entryEdge: number | null): 
   return track.owner;
 }
 
+/** 인접 마을↔도시 "가닥만으로 완성된 링크"(사이 타일 0개 — Scotland Ayr↔Glasgow)의 소유자.
+ *  한쪽이 마을·다른쪽이 도시이고 마을의 그 변 가닥이 있으면 가닥 소유자를 돌려준다.
+ *  (도시는 모든 변이 암묵 연결이라 도시 쪽 조건은 존재만 확인. 인접 마을-마을 쌍은 현재
+ *  어떤 맵에도 없어 다루지 않는다.) 정산(moveSlice.completeCubeMove)과 미러 공유. */
+export function adjacentSpurLinkOwner(
+  board: BoardState, a: HexCoord, b: HexCoord
+): PlayerId | null {
+  const pairs: [HexCoord, HexCoord][] = [[a, b], [b, a]];
+  for (const [townC, cityC] of pairs) {
+    if (!board.towns.some(t => hexCoordsEqual(t.coord, townC))) continue;
+    if (!board.cities.some(c => hexCoordsEqual(c.coord, cityC))) continue;
+    const spur = (board.townSpurs ?? []).find(
+      sp => hexCoordsEqual(sp.townCoord, townC) &&
+        hexCoordsEqual(getNeighborHex(townC, sp.edge, board), cityC)
+    );
+    if (spur) return spur.owner ?? null;
+  }
+  return null;
+}
+
 export function getPathLinkOwners(path: HexCoord[], board: BoardState): (PlayerId | null)[] {
   const owners: (PlayerId | null)[] = [];
   const isStopAt = (coord: HexCoord) =>
@@ -1236,6 +1256,9 @@ export function getPathLinkOwners(path: HexCoord[], board: BoardState): (PlayerI
         const dl = (board.directLinks ?? []).find(d => d.owner &&
           ((d.cityA === a.id && d.cityB === b.id) || (d.cityA === b.id && d.cityB === a.id)));
         if (dl?.owner) owner = dl.owner;
+      } else {
+        // 인접 마을↔도시 가닥 링크 (Scotland Ayr↔Glasgow) — 가닥 소유자에게 귀속
+        owner = adjacentSpurLinkOwner(board, path[linkStartIndex], path[i]);
       }
     }
     owners.push(owner);

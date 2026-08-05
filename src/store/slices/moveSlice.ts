@@ -9,7 +9,7 @@ import type { StoreApi } from 'zustand';
 import type { GameStore } from '../gameStore';
 import { HexCoord, PlayerId, GAME_CONSTANTS, MovingCubeContext } from '@/types/game';
 import { getMapProfile } from '@/maps/getMapProfile';
-import { hexCoordsEqual, findTrackCubeDeliveries, getConnectingEdge, trackOwnerForEntry, getNeighborHex } from '@/utils/hexGrid';
+import { hexCoordsEqual, findTrackCubeDeliveries, getConnectingEdge, trackOwnerForEntry, getNeighborHex, adjacentSpurLinkOwner } from '@/utils/hexGrid';
 import { logAction } from '@/utils/debugConfig';
 import { effectiveEngineLevel } from '@/utils/gameLogic';
 import { releaseAILock } from '../helpers/aiScheduler';
@@ -377,6 +377,13 @@ export function createMoveSlice(set: Set, get: Get): MoveSlice {
                 ((d.cityA === a.id && d.cityB === b.id) || (d.cityA === b.id && d.cityB === a.id)));
               if (dl?.owner && state.activePlayers.includes(dl.owner)) {
                 incomeChanges[dl.owner] = (incomeChanges[dl.owner] || 0) + 1;
+              }
+            } else {
+              // 인접 마을↔도시 가닥 링크 (사이 타일 0개 — Scotland Ayr↔Glasgow): 그 변 가닥의
+              // 소유자에게 수입 +1 (⚠️ 미러: hexGrid.getPathLinkOwners와 함께 맞출 것)
+              const spurOwner = adjacentSpurLinkOwner(state.board, path[linkStartIndex], path[i]);
+              if (spurOwner && state.activePlayers.includes(spurOwner)) {
+                incomeChanges[spurOwner] = (incomeChanges[spurOwner] || 0) + 1;
               }
             }
           }

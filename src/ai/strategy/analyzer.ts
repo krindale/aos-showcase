@@ -35,7 +35,21 @@ function getCacheKey(from: HexCoord, to: HexCoord, board: BoardState): string {
 function canStepStationToStation(board: BoardState, aCoord: HexCoord, bCoord: HexCoord): boolean {
   const a = board.cities.find(c => hexCoordsEqual(c.coord, aCoord));
   const b = board.cities.find(c => hexCoordsEqual(c.coord, bCoord));
-  if (!a || !b) return false; // 마을이 낀 인접 정거장 쌍 — 직결 링크 없음
+  if (!a || !b) {
+    // 인접 마을↔도시 쌍(Scotland Ayr↔Glasgow): 마을 쪽 변 가닥 하나($2)로 실제 완성 가능한
+    // 링크 — "지을 수 있는" 스텝이므로 계획 허용 (건설은 tryDirectPathBuild가 가닥으로 처리).
+    // 도시-도시 0타일 함정(2026-07-27 남중국)과 다르다. 마을↔마을 인접 쌍은 어느 맵에도 없고,
+    // 인접 마을-도시 쌍도 Scotland 하나뿐(2026-08-05 전 맵 스캔)이라 타 맵은 항등.
+    const cityEnd = a ?? b;
+    if (!cityEnd) return false;
+    const townCoord = a ? bCoord : aCoord;
+    const isTown = board.towns.some(
+      t => hexCoordsEqual(t.coord, townCoord) && t.newCityColor === null
+    );
+    if (!isTown) return false;
+    return Array.from({ length: 6 }, (_, e) => getNeighborHex(townCoord, e, board))
+      .some(n => hexCoordsEqual(n, cityEnd.coord));
+  }
   return (board.directLinks ?? []).some(
     d => d.owner !== null &&
       ((d.cityA === a.id && d.cityB === b.id) || (d.cityA === b.id && d.cityB === a.id))

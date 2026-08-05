@@ -269,7 +269,12 @@ export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
         // 한 주사위 번호를 여러 도시 열이 공유할 수 있다 (Rust Belt: 12도시가 6번호를 2개씩).
         // diceNumber 미지정 시 columnId를 숫자로 해석 (Tutorial '1'~'6' 하위 호환).
         const columnMapping = getMapData(state.mapId).columnMapping;
-        type ColInfo = { cityId: string; startIndex: number; rowCount: number };
+        // 분할 성장(Scotland): 앞 light개 주사위는 라이트 열(도시 + 신도시 A~D), 뒤 dark개는
+        // 다크 열(신도시 E~H)에만 적용 (룰북: "once for the light and once for the dark Cities").
+        // 표준 맵(split=null)은 단일 풀 — 기존 동작 그대로.
+        const diceSplit = getMapProfile(state.mapId).growthDiceSplit;
+        const DARK_NEW_CITY_IDS = new Set(['E', 'F', 'G', 'H']);
+        type ColInfo = { cityId: string; startIndex: number; rowCount: number; dark: boolean };
         const colsByDice: Record<number, ColInfo[]> = {};
         {
           let slotIndex = 0;
@@ -281,14 +286,25 @@ export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
             const dice = m.diceNumber ?? Number(m.columnId);
             if (!Number.isFinite(dice)) continue;
             if (!colsByDice[dice]) colsByDice[dice] = [];
-            colsByDice[dice].push({ cityId: m.cityId, startIndex, rowCount: m.rowCount });
+            colsByDice[dice].push({
+              cityId: m.cityId,
+              startIndex,
+              rowCount: m.rowCount,
+              dark: m.isNewCity && DARK_NEW_CITY_IDS.has(String(m.cityId)),
+            });
           }
         }
 
-        // 주사위 번호별 출현 횟수
+        // 주사위 번호별 출현 횟수 (분할 맵은 라이트/다크 풀을 따로 센다)
+        const lightPool = diceSplit ? diceResults.slice(0, diceSplit.light) : diceResults;
+        const darkPool = diceSplit ? diceResults.slice(diceSplit.light) : diceResults;
         const diceCounts: Record<number, number> = {};
-        for (const result of diceResults) {
+        for (const result of lightPool) {
           diceCounts[result] = (diceCounts[result] || 0) + 1;
+        }
+        const darkDiceCounts: Record<number, number> = {};
+        for (const result of darkPool) {
+          darkDiceCounts[result] = (darkDiceCounts[result] || 0) + 1;
         }
 
         const mapProfile = getMapProfile(state.mapId);
@@ -302,10 +318,13 @@ export function createGoodsGrowthSlice(set: Set, get: Get): GoodsGrowthSlice {
         const gainedByCity = new Map<string, CubeColor[]>();
 
         // 주사위 번호 → 그 번호를 공유하는 모든 도시 열에서 각각 count개씩 도시로 이동
-        for (const [diceStr, count] of Object.entries(diceCounts)) {
+        // (분할 맵은 다크 열이 다크 풀의 출현 횟수를 따로 쓴다 — 표준 맵은 두 풀이 동일해 항등)
+        for (const diceStr of Object.keys(colsByDice)) {
           const cols = colsByDice[Number(diceStr)];
           if (!cols) continue;
           for (const col of cols) {
+            const count = (col.dark ? darkDiceCounts : diceCounts)[Number(diceStr)] ?? 0;
+            if (count === 0) continue;
             if (noGrowthCityIds.has(col.cityId)) continue; // 평양·수원 성장 제외
             const city = newCities.find(c => c.id === col.cityId);
             if (!city) continue;

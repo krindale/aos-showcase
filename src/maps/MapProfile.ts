@@ -168,6 +168,22 @@ export abstract class MapProfile {
    *  + 건설자 ferriesBuilt(종료 1 VP) 가산. Germany 직결 링크($2)에는 적용 안 함. */
   get interurbanFerryRule(): boolean { return false; }
 
+  // ── Scotland 특수룰 (기본값 = 영향 없음) ──
+  /** 경매 지불 변형: 포기자 전원이 자기 입찰액의 절반(올림)을 지불 (승자는 표준대로 전액).
+   *  기본 false = 룰북 표준(첫 포기 $0 / 마지막 포기 전액 / 중간 절반). Scotland v2 시트:
+   *  "Losing bidder pays 1/2 (rounded up)". */
+  get auctionLoserPaysHalf(): boolean { return false; }
+  /** Turn Order 행동 변형: 다음 턴 경매를 통째로 생략하고 보유자가 무조건 선공이 된다
+   *  (룰북 Scotland: "first in the Player Order on the next turn without an auction").
+   *  기본 false = 표준(무탈락 패스 1회). 판정 플래그는 표준과 같은 turnOrderPassAvailable —
+   *  경매 생략 시 소비되므로 이 훅이 켜진 맵에선 패스 UI가 뜰 일이 없다. */
+  get turnOrderSkipsAuction(): boolean { return false; }
+  /** 물품 성장 주사위 분할 (null = 표준: 활성 인원 × growthDicePerPlayer).
+   *  지정 시 총 light+dark개를 굴려 앞 light개는 라이트 열(도시 + 신도시 A~D),
+   *  뒤 dark개는 다크 열(신도시 E~H)에만 적용한다 — Scotland: {light:4, dark:4}
+   *  (룰북: "Roll 4 dice, once for the light and once for the dark Cities"). */
+  get growthDiceSplit(): { light: number; dark: number } | null { return null; }
+
   // ── 달(Moon) 특수룰 (기본값 = 영향 없음) ──
   /** masterNetwork의 시드 도시 id — 네트워크가 항상 이 도시를 포함해야 한다 (Moon: 'moonBase').
    *  null이면 몬트리올식(첫 링크가 시드). masterNetwork=false면 무의미. */

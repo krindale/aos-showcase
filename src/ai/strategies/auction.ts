@@ -13,11 +13,13 @@
 
 import { GameState, PlayerId } from '@/types/game';
 import { ensureTurnPlan } from '../strategy/turnPlan';
-import { rankActionsByDeltaVP } from './selectAction';
+import { rankActionsByDeltaVP, hasContestedDelivery } from './selectAction';
 import {
   cashToVPRate,
   firstSeatBidCeiling,
   LAMBDA_BASE,
+  VP_PER_INCOME,
+  opponentWeight,
 } from '../strategy/vp';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { debugLog } from '@/utils/debugConfig';
@@ -47,27 +49,33 @@ export function decideAuctionBid(state: GameState, playerId: PlayerId): AuctionD
   }
 
   // === 1등 순서의 가치(절실함) → 달러 상한 환산 ===
+  const profile = getMapProfile(state.mapId);
   const plan = ensureTurnPlan(state, playerId);
   const desperation = estimateFirstSeatVP(state, playerId);
   const lambda = cashToVPRate(state, playerId) || LAMBDA_BASE;
 
   // 자금 상한: 건설 예산 + 운영비는 절대 침범 금지 (파산 방지 안전판)
   const expenses = player.issuedShares + player.engineLevel + (player.dgel ?? 0); // DGEL 포함 (payExpenses와 동일)
-  const cashCeiling = Math.max(0, player.cash - plan.buildBudget - expenses);
+  // 운영비 income 상계(Scotland, aiAuctionExpensesNetOfIncome): 수입 수집(VI)이 비용 지불(VII)에
+  // 선행하므로 income 충당분까지 현금 예비하면 이중 계상 → maxBid 영구 $0 = 경매 상시 패스.
+  const expenseNeed = profile.aiAuctionExpensesNetOfIncome
+    ? Math.max(0, expenses - player.income)
+    : expenses;
+  const cashCeiling = Math.max(0, player.cash - plan.buildBudget - expenseNeed);
   // 뒤 순번 1번 입찰 보너스(맵별 격리, Western US) — 평범한 턴에 뒤 순번이 1번을 따내 순서 순환 유도.
   const rank = state.playerOrder.indexOf(playerId);
-  const seatBonus = getMapProfile(state.mapId).firstSeatRankBidBonus(rank, state.activePlayers.length);
+  const seatBonus = profile.firstSeatRankBidBonus(rank, state.activePlayers.length);
   const baseCeiling = Math.min(firstSeatBidCeiling(desperation, lambda), cashCeiling);
   // 보너스는 cashCeiling(건설예산 보호) 밖에서 더하되, 보유 현금은 넘지 않게 가드(파산 방지).
-  const maxBid = Math.min(baseCeiling + seatBonus, Math.max(0, player.cash - expenses));
+  const maxBid = Math.min(baseCeiling + seatBonus, Math.max(0, player.cash - expenseNeed));
 
   // 행동권 확보 참여(Montréal, aiAuctionAlwaysParticipate — 사용자 지시 2026-07-25):
   // 무입찰 패스는 행동 밴이므로, "이번 턴 내 최선 행동의 ΔVP"가 입찰비(달러→VP 환산)보다
   // 클 때만 최소 금액으로 입찰 기록을 남긴다 — 1등 경쟁이 아니라 행동권 보험.
   // (입찰 후 첫 포기는 무료 룰이라 실비용은 0~입찰액 절반 수준)
-  const joinForAction = getMapProfile(state.mapId).aiAuctionAlwaysParticipate;
+  const joinForAction = profile.aiAuctionAlwaysParticipate;
   const myBidSoFar = auction?.bids?.[playerId] ?? 0;
-  const cashAfterExpenses = Math.max(0, player.cash - expenses);
+  const cashAfterExpenses = Math.max(0, player.cash - expenseNeed);
   /** 이번 턴 내가 고를 수 있는 최선 행동의 ΔVP (밴당하면 잃는 가치) */
   const bestActionVP = joinForAction
     ? (rankActionsByDeltaVP(state, playerId, plan)[0]?.deltaVP ?? 0)
@@ -168,6 +176,11 @@ export function clearDesperationCache(): void {
  *
  * turnOrder 행동은 "순서 자체의 가치"라 1등 선점 평가에서 제외한다
  * (순번 탈환은 행동 선택 Phase에서 별도로 다룬다).
+ *
+ * 상대 저지 가치(aiAuctionDenialValue, Scotland): 제로섬에 가까운 소인원전에선 "상대가 1등을
+ * 먹으면 얻는 이득"을 막는 것도 내 이득 — 가장 절실한 상대의 (최선 − 차선) ÷ 상대 수를 합산.
+ * 상대 격차가 클 때만 발동하는 가치 기반 견제라, 순번 기반 고정 가산(구 firstSeatRankBidBonus,
+ * cityCubes 맵 붕괴)과 달리 맹목적으로 예산을 태우지 않는다.
  */
 function estimateFirstSeatVP(state: GameState, playerId: PlayerId): number {
   const cached = desperationCache.get(playerId);
@@ -175,13 +188,35 @@ function estimateFirstSeatVP(state: GameState, playerId: PlayerId): number {
     return cached.value;
   }
 
-  const plan = ensureTurnPlan(state, playerId);
-  const ranked = rankActionsByDeltaVP(state, playerId, plan)
-    .filter(r => r.action !== 'turnOrder');
+  const gapFor = (pid: PlayerId): number => {
+    const plan = ensureTurnPlan(state, pid);
+    const ranked = rankActionsByDeltaVP(state, pid, plan)
+      .filter(r => r.action !== 'turnOrder');
+    const v1 = ranked[0]?.deltaVP ?? 0;
+    const v2 = ranked[1]?.deltaVP ?? 0;
+    return Math.max(0, v1 - v2);
+  };
 
-  const v1 = ranked[0]?.deltaVP ?? 0;
-  const v2 = ranked[1]?.deltaVP ?? 0;
-  const value = Math.max(0, v1 - v2);
+  let value = gapFor(playerId);
+
+  const profile = getMapProfile(state.mapId);
+  if (profile.aiAuctionDenialValue) {
+    // playerOrder는 파산자가 제외된 현재 순서 — 상대 격차는 상대의 계획/평가로 산정
+    const opponents = state.playerOrder.filter(p => p !== playerId && state.players[p]);
+    if (opponents.length > 0) {
+      const maxOppGap = Math.max(...opponents.map(gapFor));
+      value += maxOppGap / opponents.length;
+    }
+  }
+
+  // 경합 수송 선순위 가치 (Scotland, aiAuctionContestedMoveVP — 훅 주석 참조): 1등 좌석은
+  // 행동 선택권에 더해 수송 선순위도 얻는다 — 서로 노리는 큐브가 있을 때만 그 가치를 합산.
+  // base는 evaluateFirstMove의 경합 선점 가치와 동일 산식 (income 1 스윙의 절반 수준).
+  if (profile.aiAuctionContestedMoveVP > 0 && hasContestedDelivery(state, playerId)) {
+    const contestedBase = VP_PER_INCOME * (1 + opponentWeight(state)) / 4;
+    value += contestedBase * profile.aiAuctionContestedMoveVP;
+  }
+
   desperationCache.set(playerId, { turn: state.currentTurn, value });
   return value;
 }

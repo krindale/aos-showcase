@@ -40,6 +40,8 @@ interface ScotResult {
   builds: number;
   urbanizations: number;
   ferryViolations: number; // 페리 게이트 불변식 위반 (0이어야 함)
+  auctionBids: number;     // 경매 입찰 발생 횟수 (0에 가까우면 양보로만 결정 = 긴장감 없음)
+  auctionBidSum: number;   // 입찰 금액 합 (경합 강도 프록시)
 }
 
 /** Scotland 한 게임(2 AI)을 동기식으로 끝까지 구동하고 결과 측정 */
@@ -55,6 +57,7 @@ function runScotlandGame(seed: number): ScotResult {
 
   let deliveries = 0, builds = 0, urbanizations = 0;
   let ferryViolations = 0;
+  let auctionBids = 0, auctionBidSum = 0;
   const MAX_ITER = 60000;
   let iter = 0, stale = 0, lastSig = '';
   let reachedEnd = false;
@@ -104,7 +107,7 @@ function runScotlandGame(seed: number): ScotResult {
 
       case 'auction': {
         const a = decision.decision;
-        if (a.action === 'bid') store.placeBid(cp, a.amount);
+        if (a.action === 'bid') { store.placeBid(cp, a.amount); auctionBids++; auctionBidSum += a.amount; }
         else if (a.action === 'pass') store.passBid(cp);
         else if (a.action === 'skip') store.skipBid(cp);
         else if (a.action === 'complete') { store.resolveAuction(); useGameStore.getState().nextPhase(); }
@@ -193,7 +196,7 @@ function runScotlandGame(seed: number): ScotResult {
   return {
     accurateVP, income, shares, bankruptcies,
     finalTurn: f.currentTurn, reachedEnd, deliveries, builds, urbanizations,
-    ferryViolations,
+    ferryViolations, auctionBids, auctionBidSum,
   };
 }
 
@@ -244,6 +247,8 @@ describe('Scotland 2 AI 전체 게임 — 실동작 + 베이스라인', () => {
       avgDeliveries: sum(r => r.deliveries) / seeds,
       avgBuilds: sum(r => r.builds) / seeds,
       avgUrban: sum(r => r.urbanizations) / seeds,
+      avgAuctionBids: sum(r => r.auctionBids) / seeds,
+      avgAuctionBidSum: sum(r => r.auctionBidSum) / seeds,
       finishedTurns: results.map(r => r.finalTurn),
       allReachedEnd: results.every(r => r.reachedEnd),
       totalViolations,
@@ -261,6 +266,7 @@ describe('Scotland 2 AI 전체 게임 — 실동작 + 베이스라인', () => {
     console.log(`평균 accurateVP: ${m.avgVP.toFixed(2)} (min ${m.minVP}, max ${m.maxVP})`);
     console.log(`평균 발행주식: ${m.avgShares.toFixed(2)}, 평균 income: ${m.avgIncome.toFixed(2)}`);
     console.log(`건설/배달/도시화: 건설 ${m.avgBuilds.toFixed(1)}, 배달 ${m.avgDeliveries.toFixed(1)}, 도시화 ${m.avgUrban.toFixed(1)}`);
+    console.log(`경매 입찰: ${m.avgAuctionBids.toFixed(2)}회/게임, 입찰액 합 $${m.avgAuctionBidSum.toFixed(2)}/게임`);
     console.log(`파산: ${m.avgBankruptPerGame.toFixed(2)}명/게임, 완주 턴 분포: ${JSON.stringify(m.finishedTurns)}`);
     console.log(`최종 승자 분포: ${JSON.stringify(m.winnerCounts)}`);
     console.log(`player별 평균 VP: ${JSON.stringify(Object.fromEntries(Object.entries(m.perPlayerVP).map(([k, v]) => [k, +v.toFixed(1)])))}`);

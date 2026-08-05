@@ -158,7 +158,9 @@ function evaluateActionDeltaVP(
       // 타일 색만 보던 구 평가가 매 턴 도시화 남발 + 미연결 신도시 36%의 원인).
       // planUrbanization이 배치할 마을·타일·가치를 함께 계산 — 배치할 곳이 없거나(계획 경로 밖뿐)
       // 신도시 수요색이 이미 가까운 도시로 커버되면(중복 목적지) 소액이라 다른 행동이 이긴다.
-      if (state.activePlayers.length >= 3) {
+      // 2인 맵은 기본 0.2 고정이나, aiTwoPlayerActionPlanning 맵(Scotland)은 실계획 평가를 연다
+      // — 안 열면 봇이 "도시화 = 배달 옵션 확장"이라는 개념 없이 영원히 안 고른다 (훅 주석 참조).
+      if (state.activePlayers.length >= 3 || getMapProfile(state.mapId).aiTwoPlayerActionPlanning) {
         const urbanPlan = planUrbanizationCached(state, playerId);
         if (!urbanPlan) return 0.2;
         // 맵 가산(aiUrbanizationBonus): 성장 없는 맵에서 신도시가 달고 오는 셋업 화물 몫.
@@ -327,7 +329,11 @@ function evaluateLocomotive(state: GameState, playerId: PlayerId, plan: TurnPlan
   }
   // 다인 cityCubes: 장거리(4-5링크) 배달이 핵심이므로 T5+ 엔진 floor를 4로 올린다.
   // (사용자 지침: T4까지 move-round로 3, T5+ 는 Locomotive 액션으로만 4-5까지)
-  const multiCity = state.activePlayers.length >= 3 && !config.incomeSources.includes('trackCubes');
+  // aiTwoPlayerActionPlanning 맵(Scotland)은 2인이어도 이 평가를 연다 — 공짜 엔진 자산
+  // front-load가 없으면 봇이 Locomotive를 원할 이유가 없어 사람이 8턴 독점한다 (훅 주석 참조).
+  const multiCity = (state.activePlayers.length >= 3
+    || getMapProfile(state.mapId).aiTwoPlayerActionPlanning)
+    && !config.incomeSources.includes('trackCubes');
   const engineFloor = hasDeepCube ? 4
     : (multiCity && state.currentTurn >= 5) ? 4   // 다인 후반: 4링크 장거리 배달 (측정상 최적)
     : state.currentTurn >= 2 ? 3 : 2;

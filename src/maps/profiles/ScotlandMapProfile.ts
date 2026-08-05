@@ -50,6 +50,13 @@ export class ScotlandMapProfile extends StandardMapProfile {
   // 사람이 큐브를 선점해 봇 income이 0으로 깎이면, 생존 발행 $5 = 유지비 전액 소멸 +
   // 예비금 게이트 예산 $0의 영구 락 — 2026-08-05 실플레이 리포트)
   override get aiRecapitalizeAtZeroIncome(): boolean { return true; }
+  // 스킵 라운드 → 엔진업 전환 (2026-08-05): 사람이 Locomotive를 선점하면 봇 엔진이 1에 갇혀
+  // 1링크 배달만 가능 = 큐브 선점에 무저항 (실플레이: 봇 엔진 1·income 1 vs 사람 엔진 5·income 21).
+  // 0.5는 스킵(0)만 이기는 바닥값 — 어차피 배달 없는 죽은 라운드만 엔진에 쓴다 (배달 손실 0).
+  // ⚠️ front-load 개방(배달 희생 선투자)은 기각 — A/B 맞대결 승률 41%(VP 14.2 vs 21.4)로
+  // "엔진 올리는 동안 상대가 큐브를 다 먹는" 참패. 자기복제 VP는 +1이었어서 대칭 측정만
+  // 믿으면 안 되는 전형 (훅 주석·docs/ai-auction-baseline-100seed.md 참조).
+  override get aiEngineSkipConversionVP(): number { return 0.5; }
 
   // 이번 턴 잔여 슬롯·"예비금 뺀 현금"으로 첫 미완성 링크를 완성 못 하면 착공/계속 금지.
   // 계획 발행이 없는 이 맵은 T1 현금 $10뿐이라, 예비금에 걸린 봇이 "비싼 경로 계속" 대신
@@ -85,6 +92,25 @@ export class ScotlandMapProfile extends StandardMapProfile {
 
   // ⑥ 경매 패자 절반(올림)
   override get auctionLoserPaysHalf(): boolean { return true; }
+
+  // ── 경매 봇 활성화 (2026-08-05l 롤백의 재도전 — 문서 순서대로 가드 수정 → 견제 가치) ──
+  // 원문제(사용자 리포트): 봇이 경매를 상시 패스해 사람이 매턴 $1로 선공·행동 우선권을 독점
+  // = 긴장감 0 (베이스라인 실측: 입찰 0.04회/게임). 원인은 입찰 현금 가드의 income 무시
+  // (cash < expenses 상시 → maxBid 영구 $0)였고, 견제 가치는 그 뒤에 막혀 발동 불가였다.
+  /** 입찰 현금 가드에서 운영비를 income으로 상계 — maxBid 영구 $0 해소 (선행 조건) */
+  override get aiAuctionExpensesNetOfIncome(): boolean { return true; }
+  /** 상대 저지 가치 — 2인 제로섬에서 상대의 (최선−차선) 격차만큼 1등을 견제 */
+  override get aiAuctionDenialValue(): boolean { return true; }
+  /** 경합 수송 선순위 가치 — 서로 노리는 큐브가 있는 턴은 1등 좌석을 실제로 싸운다
+   *  (행동 격차만 보면 2인전 절실함이 상시 소액이라 경매가 죽는다 — 훅 주석 참조).
+   *  ⚠️ 자기복제·A/B에선 발동하지 않음이 실측 확인됨(배수 100 프로브에도 입찰 불변) — 봇끼리는
+   *  경로 겹침 회피로 경합 자체가 드물다. 이 레버는 "사람이 넓은 네트워크로 봇의 큐브까지
+   *  노리는" 비대칭 상황 전용이며, 검증은 실플레이로만 가능하다 (2026-08-06). */
+  override get aiAuctionContestedMoveVP(): number { return 1; }
+  /** 2인용 행동 가치 개방 — Locomotive 공짜 엔진 front-load + Urbanization 실계획 평가.
+   *  (사용자 관찰 2026-08-06: "경매는 엔진업·도시화로 배달 옵션을 늘리는 선택인데 봇은 그런
+   *  생각이 없다" — 두 평가가 다인 전용 게이트에 잘려 봇이 firstBuild만 반복했다. 훅 주석 참조) */
+  override get aiTwoPlayerActionPlanning(): boolean { return true; }
 
   // ④ 지형 비용 안내 (fixedCost 주입 맵은 반드시 override — PhasePanel 문구)
   override get buildCostHint(): string {

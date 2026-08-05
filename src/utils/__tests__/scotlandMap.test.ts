@@ -35,10 +35,11 @@ describe('Scotland 보드 무결성', () => {
     expect(mountains).toHaveLength(9);
     expect(rivers).toHaveLength(10);
     expect(mtnRivers).toHaveLength(3);
-    // 산+강 = fixedCost 5 + 비용 마커 (룰북: "A Mountain tile with a river costs $5")
+    // 산+강 = fixedCost 5 (룰북: "A Mountain tile with a river costs $5").
+    // 비용 표시는 헥스 위 원 숫자가 아니라 범례 "강+산" 항목 (showCostMarker 미사용)
     for (const t of mtnRivers) {
       expect(t.fixedCost).toBe(5);
-      expect(t.showCostMarker).toBe(true);
+      expect(t.showCostMarker).toBeUndefined();
     }
     // 산+강 외에는 fixedCost 없음
     expect(tiles.filter(t => t.fixedCost !== undefined)).toHaveLength(3);

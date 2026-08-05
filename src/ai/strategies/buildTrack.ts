@@ -354,6 +354,7 @@ export function decideBuildTrack(state: GameState, playerId: PlayerId): TrackBui
     if (!mapProfile.aiRouteBuildGate({
       remainingSlots: state.phaseState.maxTracksThisTurn - state.phaseState.builtTracksThisTurn,
       cash: player.cash,
+      reserve: calculateMinCashReserve(state, playerId),
       missingWork: () => countMissingTrackWork(state, route, playerId),
     })) continue;
 

@@ -21,6 +21,10 @@ export interface AiRouteBuildGateContext {
   remainingSlots: number;
   /** 현재 현금 */
   cash: number;
+  /** 비용 지불 예비금 (calculateMinCashReserve — 이번 턴 주식+엔진 유지비).
+   *  건설 도중 예비금 규칙이 경로를 중간에 끊지 않으려면 게이트가 cash−reserve로 판정해야
+   *  한다 (Scotland — cash만 보면 "완성 가능" 과대평가로 마지막 타일에서 끊겨 토막 잔존). */
+  reserve: number;
   /** 지연 계산 — 경로 완성에 필요한 신규 타일 수·예상 비용(지형/fixedCost 기준, Engineer 할인 미반영=보수적).
    *  A* 경로가 없으면 null. 기본 구현은 호출하지 않으므로 기본 맵은 비용 0. */
   missingWork: () => { tiles: number; cost: number } | null;
@@ -295,6 +299,26 @@ export abstract class MapProfile {
    * 선례: trackCubes 맵 마지막 2턴 건설 발행 금지 → 파산 13→11·VP 유지 (docs/ai-system.md).
    */
   get aiNoBuildIssueLastTurns(): number { return 0; }
+
+  /**
+   * 계획 발행 금지(aiNoBuildIssueLastTurns) 기간에도 **income ≤ 0 좀비 상태면 회생 발행**을
+   * 허용할지 (기본 false). Scotland: 계획 발행 전면 금지(8턴) + 예비금 게이트(cash−reserve)
+   * 조합이 income 0에서 영구 건설 불가 락을 만든다 — 생존 발행 $5가 그대로 유지비로 소멸하고
+   * 예비금이 지출 전액이라 건설 예산이 항상 $0 (2026-08-05 사용자 리포트: 봇이 매턴 주식 1주만
+   * 발행하며 좀비 생존). 목표 경로가 있고 회수할 턴이 남았을 때만(마지막 2턴 제외) 건설+유지비를
+   * 한 번에 조달해 탈출한다 — 성공해 income이 살아나면 조건이 풀려 자기 제한적.
+   */
+  get aiRecapitalizeAtZeroIncome(): boolean { return false; }
+
+  /**
+   * 적응형 레버리지 — 계획 발행 금지 기간이라도 **income이 상대(최고치)보다 뒤질 때만**
+   * 계획 발행을 허용 (기본 false). 자기복제 시뮬은 긴축이 평균 VP 최적이지만 맞대결에선
+   * 레버리지가 이긴다(Scotland 비대칭 300시드: 긴축 승률 36% vs 레버리지 48~53% — 평균 VP
+   * 최적화의 과적합). 상시 레버리지는 파산이 0.03→0.3~0.5로 폭증하므로, "뒤질 때만 차입"으로
+   * 공격성과 파산 방어를 겸한다. 남은 턴 3+ 조건(회수 시간) 포함.
+   */
+  get aiLeverageWhenBehind(): boolean { return false; }
+
 
   /**
    * 배달 실행 문턱에서 전략 경로 tie-break(routeScore)를 제외하고 순수 ΔVP>0만 볼지.

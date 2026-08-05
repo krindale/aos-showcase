@@ -134,7 +134,7 @@ const MOUNTAIN_TILES: { col: number; row: number }[] = [
 ];
 
 // === 산+강 헥스 3곳 (룰북: "A Mountain tile with a river costs $5") ===
-// terrain은 mountain, riverEdges로 강줄기 렌더, fixedCost 5 + showCostMarker(원 숫자)로 비용 안내.
+// terrain은 mountain, riverEdges로 강줄기 렌더, fixedCost 5. 비용 안내는 범례 "강+산" 항목.
 // edges = 강이 지나는 두 면 (0=E,1=SE,2=SW,3=W,4=NW,5=NE — 데이터 공간).
 const MOUNTAIN_RIVER_TILES: { col: number; row: number; edges: [number, number] }[] = [
   { col: 3, row: 2, edges: [2, 5] }, // 그레이트 글렌 (Inverness 쪽에서 Oban으로)
@@ -202,12 +202,13 @@ export function generateScotlandHexTiles(): HexTile[] {
 
       const tile: HexTile = { coord: { col, row }, terrain };
       if (terrain === 'river') tile.riverEdges = rivEdges.get(key);
-      // 산+강 $5: 산 지형 + 강줄기 렌더(riverEdges) + 고정 비용 + 원 숫자 마커
+      // 산+강 $5: 산 지형 + 강줄기 렌더(riverEdges) + 고정 비용.
+      // 비용 표시는 헥스 위 원 숫자 대신 우측 상단 범례의 "강+산" 조합 항목으로
+      // (원 숫자는 시트에 없는 요소라 제거 — 2026-08-05 사용자 피드백).
       const mr = mtnRiver.get(key);
       if (mr) {
         tile.riverEdges = mr;
         tile.fixedCost = 5;
-        tile.showCostMarker = true;
       }
       tiles.push(tile);
     }

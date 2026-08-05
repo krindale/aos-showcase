@@ -11,7 +11,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useGameStore } from '@/store/gameStore';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { MapId } from '@/maps/MapId';
-import { getPathLinkOwners } from '@/utils/hexGrid';
+import { getPathLinkOwners, getConnectedNeighbors, hexCoordsEqual } from '@/utils/hexGrid';
+import { decideSharesIssue } from '@/ai/strategies/issueShares';
 import type { PlayerId } from '@/types/game';
 
 const AYR = { col: 6, row: 1 };
@@ -189,6 +190,78 @@ describe('Scotland 특수룰', () => {
     expect(after.board.townSpurs!.some(sp => sp.townCoord.col === AYR.col && sp.townCoord.row === AYR.row)).toBe(false);
     // 수입 귀속: 이제 직결 링크 경유 (getPathLinkOwners의 도시-도시 분기)
     expect(getPathLinkOwners([AYR, GLASGOW], after.board)).toEqual([builder]);
+  });
+
+  it('산+강 헥스: 트랙 건설 비용 $5 (룰북: "A Mountain tile with a river costs $5")', () => {
+    const s = initScotland();
+    const builder = s.playerOrder[0];
+    useGameStore.setState({ currentPhase: 'buildTrack', currentPlayer: builder });
+    const cashBefore = useGameStore.getState().players[builder].cash;
+    // 데이터 (3,2) = 그레이트 글렌 산+강 — Oban(3,1) 인접이라 첫 트랙 규칙 충족.
+    // 변: NE(5)=Oban 방향, SW(2)=(2,3) 방향
+    expect(useGameStore.getState().buildTrack({ col: 3, row: 2 }, [5, 2])).toBe(true);
+    expect(useGameStore.getState().players[builder].cash).toBe(cashBefore - 5);
+  });
+
+  it('개통된 페리는 일반 링크: 이동 연결 + 수입은 페리 소유자에게', () => {
+    const s = initScotland();
+    const buyer = s.playerOrder[0];
+    useGameStore.setState({ currentPhase: 'buildTrack', currentPlayer: buyer });
+    // 양끝 도시화 (A=Stornoway, B=Ullapool) 후 페리 구매
+    useGameStore.setState({ ui: { ...useGameStore.getState().ui, urbanizationMode: true, selectedNewCityTile: 'A' } });
+    expect(useGameStore.getState().placeNewCity(STORNOWAY)).toBe(true);
+    useGameStore.setState({ ui: { ...useGameStore.getState().ui, urbanizationMode: true, selectedNewCityTile: 'B' } });
+    expect(useGameStore.getState().placeNewCity(ULLAPOOL)).toBe(true);
+    expect(useGameStore.getState().buildDirectLink('A', 'B')).toBe(true);
+
+    const board = useGameStore.getState().board;
+    // 이동: Stornoway(A)에서 페리로 Ullapool(B)이 이웃으로 열린다 (섬 탈출 경로)
+    const neighbors = getConnectedNeighbors(STORNOWAY, board, buyer, new Set(), undefined);
+    expect(neighbors.some(n => hexCoordsEqual(n, ULLAPOOL))).toBe(true);
+    // 수입: 페리 링크 구간은 소유자 귀속 (정산 미러)
+    expect(getPathLinkOwners([STORNOWAY, ULLAPOOL], board)).toEqual([buyer]);
+  });
+
+  it('회생 발행: income 0 좀비 봇은 생존 1주 대신 계획 자금까지 발행한다 (락 탈출)', () => {
+    const s = initScotland();
+    const bot = s.playerOrder[0];
+    // 좀비 상태 재현: income 0·현금 0·주식 4 (생존 발행 $5 = 유지비 전액 소멸 상태)
+    useGameStore.setState({
+      currentTurn: 3,
+      players: {
+        ...s.players,
+        [bot]: { ...s.players[bot], income: 0, cash: 0, issuedShares: 4, isAI: true },
+      },
+    });
+    const shares = decideSharesIssue(useGameStore.getState(), bot);
+    // 생존 발행만이면 1주(부족 $5) — 회생 발행은 계획 자금(건설+운영비+예비금)까지 2주
+    expect(shares).toBeGreaterThanOrEqual(2);
+  });
+
+  it('물품 성장: E~H 신도시가 배치되면 다크 주사위로 성장한다', () => {
+    const s = initScotland();
+    const builder = s.playerOrder[0];
+    // Berwick(7,7)에 다크 신도시 E 배치
+    useGameStore.setState({
+      currentPhase: 'buildTrack', currentPlayer: builder,
+      ui: { ...s.ui, urbanizationMode: true, selectedNewCityTile: 'E' },
+    });
+    expect(useGameStore.getState().placeNewCity({ col: 7, row: 7 })).toBe(true);
+    // E 열(주사위 5 다크, 시작 26)만 채운 통제 디스플레이
+    const slots: (ReturnType<typeof initScotland>['goodsDisplay']['slots'])[number][] = Array(34).fill(null);
+    slots[26] = 'red'; slots[27] = 'blue';
+    useGameStore.setState({
+      currentPhase: 'goodsGrowth',
+      goodsDisplay: { slots, bag: [] },
+      goodsGrowthEvent: null,
+    });
+    // 라이트 [6,6,6,6]은 stranraer 열(비어 있음)에 무효, 다크 [5,5,5,5] → E 열 2개 전부 이동
+    useGameStore.getState().growGoods([6, 6, 6, 6, 5, 5, 5, 5]);
+    const after = useGameStore.getState();
+    const cityE = after.board.cities.find(c => c.id === 'E')!;
+    expect(cityE.cubes.length).toBe(2);
+    expect(after.goodsDisplay.slots[26]).toBeNull();
+    expect(after.goodsDisplay.slots[27]).toBeNull();
   });
 
   it('물품 성장: 라이트 주사위 4개만 도시 열에 적용, 다크 4개는 미배치 E~H에 무효', () => {

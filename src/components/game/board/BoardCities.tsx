@@ -26,8 +26,15 @@ interface BoardCitiesProps {
   /** board.cottonPorts (Southern US — 면화 배달 종착 항구) */
   cottonPorts: string[] | undefined;
   /** board.directLinks (Germany Essen↔Düsseldorf 등). coordA/coordB는 GameBoard가 보충한
-   *  끝점 좌표 — 도시화 전 마을 끝점(Scotland 페리)도 잠재 항로로 그리기 위한 폴백. */
-  directLinks: (DirectLink & { coordA?: HexCoord; coordB?: HexCoord })[] | undefined;
+   *  끝점 좌표 — 도시화 전 마을 끝점(Scotland 페리)도 잠재 항로로 그리기 위한 폴백.
+   *  townLink = 인접 마을↔도시 잠재 링크(Ayr↔Glasgow)의 가닥 정보 — 비용 원 클릭이 가닥을 짓는다. */
+  directLinks: (DirectLink & {
+    coordA?: HexCoord;
+    coordB?: HexCoord;
+    townLink?: { townCoord: HexCoord; edge: number; spurOwner: PlayerId | null; hasSpur: boolean };
+  })[] | undefined;
+  /** 인접 마을↔도시 잠재 링크의 가닥 건설 (Scotland Ayr↔Glasgow $2 — 도시화 전 경로) */
+  buildTownSpur?: (townCoord: HexCoord, edge?: number) => boolean;
   /** Southern China 국유화 후보 직결 링크 — **board.directLinks 인덱스** → 링크 id (GameBoard가 주입).
    *  ⚠️ 아래 렌더 루프의 `i`로 조회하므로 `directLinks` prop은 board.directLinks와 **순서·길이가
    *  같아야 한다** (GameBoard의 renderDirectLinks는 map만 하므로 성립). filter/sort를 넣으면
@@ -98,6 +105,7 @@ export default function BoardCities({
   onCubeClick,
   onPickCityCube,
   buildDirectLink,
+  buildTownSpur,
   ferryEdges,
   buildFerryEdge,
   allAcceptClosed,
@@ -112,9 +120,15 @@ export default function BoardCities({
           별도 레이어(도시 위)에 있다. */}
       {(directLinks ?? []).map((dl, i) => {
         // 끝점: 도시 → GameBoard가 보충한 좌표(마을 끝점 — 도시화 전 Scotland 페리) 폴백
-        const ca = cities.find(c => c.id === dl.cityA)?.coord ?? dl.coordA;
-        const cb = cities.find(c => c.id === dl.cityB)?.coord ?? dl.coordB;
+        const aCityLine = cities.find(c => c.id === dl.cityA);
+        const bCityLine = cities.find(c => c.id === dl.cityB);
+        const ca = aCityLine?.coord ?? dl.coordA;
+        const cb = bCityLine?.coord ?? dl.coordB;
         if (!ca || !cb) return null;
+        // 도시화 전 **인접** 잠재 링크(Scotland Ayr↔Glasgow)는 그리지 않는다 — 마을 상태에선
+        // 표준 마을 가닥이 그 링크라 점선이 혼동만 준다 (2026-08-05 사용자 피드백).
+        // 비인접 페리(faces)는 잠재 항로 안내를 유지 (시트에도 인쇄된 요소).
+        if (dl.requiresCities && !dl.faces && !(aCityLine && bCityLine)) return null;
         const pa = hexToPixel(ca.col, ca.row, undefined, undefined, undefined, isFlat);
         const pb = hexToPixel(cb.col, cb.row, undefined, undefined, undefined, isFlat);
         const ownerColor = dl.owner ? PLAYER_COLORS[players[dl.owner].color] : null;
@@ -504,6 +518,11 @@ export default function BoardCities({
         const ca = a?.coord ?? dl.coordA;
         const cb = b?.coord ?? dl.coordB;
         if (!ca || !cb) return null;
+        // 인접 마을↔도시 잠재 링크(Scotland Ayr↔Glasgow): 도시화 전엔 마을 가닥이 링크의
+        // 실체 — 마커(② 원)는 그대로 두고 클릭이 그 변 가닥을 짓는다 (2026-08-05 사용자
+        // 피드백: 원을 없애면 지을 방법이 안 보인다). 가닥이 이미 있으면 가닥 소유자 디스크.
+        const townLink = !(a && b) ? dl.townLink : undefined;
+        if (dl.requiresCities && !dl.faces && !(a && b) && !townLink) return null;
         const pa = hexToPixel(ca.col, ca.row, undefined, undefined, undefined, isFlat);
         const pb = hexToPixel(cb.col, cb.row, undefined, undefined, undefined, isFlat);
         // 마커 위치: faces 쌍은 두 면 중점을 이은 직선의 가운데(바다 위), 인접 쌍은 공유 변
@@ -520,11 +539,14 @@ export default function BoardCities({
         // 같은 보정을 걸면 마커가 상대 도시 헥스 안으로 밀려 들어간다 (2026-07-27 사용자 발견).
         const sameRowAdjacent = !dl.faces && Math.abs(pa.y - pb.y) < 1;
         const my = (ms.y + mt.y) / 2 + (sameRowAdjacent ? 26 : 0);
-        // requiresCities(Scotland 페리): 양끝이 도시로 해석될 때만 구매 가능 — 마을 끝점 동안은
-        // 잠재 항로 표시 전용 (buildDirectLink의 deny와 동일 기준)
+        // requiresCities(Scotland 페리): 양끝이 도시로 해석될 때만 직결 구매 가능. 인접 마을
+        // 링크(townLink)는 가닥 건설로 대신한다 — buildable 판정에 합류.
         const endpointsReady = !dl.requiresCities || (!!a && !!b);
-        const buildable = currentPhase === 'buildTrack' && dl.owner === null && !dl.isNationalized && endpointsReady;
-        const ownerColor = dl.owner ? PLAYER_COLORS[players[dl.owner].color] : null;
+        const spurBuilt = !!townLink?.hasSpur;
+        const buildable = currentPhase === 'buildTrack' && dl.owner === null && !dl.isNationalized
+          && (endpointsReady || (!!townLink && !spurBuilt));
+        const spurOwnerColor = townLink?.spurOwner ? PLAYER_COLORS[players[townLink.spurOwner].color] : null;
+        const ownerColor = dl.owner ? PLAYER_COLORS[players[dl.owner].color] : spurOwnerColor;
         // 국유화 직결: 중립 그레이 디스크 (인접 쌍은 선이 도시에 가려 보이지 않으므로 마커가 유일한 표시)
         if (dl.isNationalized) {
           return (
@@ -547,7 +569,10 @@ export default function BoardCities({
             className={buildable || isNatTarget ? 'cursor-pointer' : ''}
             onClick={() => {
               if (isNatTarget) { onNationalizeDirect?.(natLinkId!); return; }
-              if (buildable) buildDirectLink(dl.cityA, dl.cityB);
+              if (!buildable) return;
+              // 도시화 전 인접 마을 링크(Ayr↔Glasgow): 직결 구매 대신 그 변 가닥($2) 건설
+              if (townLink && !endpointsReady) buildTownSpur?.(townLink.townCoord, townLink.edge);
+              else buildDirectLink(dl.cityA, dl.cityB);
             }}
           >
             {(buildable || isNatTarget) && <circle cx={mx} cy={my} r="22" fill="transparent" />}
@@ -556,11 +581,12 @@ export default function BoardCities({
                 <animate attributeName="stroke-opacity" values="1;0.25;1" dur="1.1s" repeatCount="indefinite" />
               </circle>
             )}
-            {dl.owner ? (
-              // 건설됨: 소유색 디스크 (흰 테두리 — 도시색/바다 어느 배경에서도 식별)
+            {dl.owner || spurBuilt ? (
+              // 건설됨: 소유색 디스크 (흰 테두리 — 도시색/바다 어느 배경에서도 식별).
+              // 도시화 전 가닥으로 지어진 인접 마을 링크(spurBuilt)는 가닥 소유자 색.
               <circle
                 cx={mx} cy={my} r="10"
-                fill={ownerColor!} stroke="#ffffff" strokeWidth="2.5"
+                fill={ownerColor ?? '#4E4D46'} stroke="#ffffff" strokeWidth="2.5"
                 style={{ pointerEvents: 'none' }}
               />
             ) : (

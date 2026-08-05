@@ -519,8 +519,8 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     townNames: SCOTLAND_TOWN_NAMES,
     hideLakeHexes: true,         // 바다/외곽은 안 그려 스코틀랜드 해안·섬 윤곽 표현
     orientation: 'flat',         // flat-top 보드 — 전치 저장 + 렌더 전치 (Rust Belt 등과 동일)
-    hexCostMode: 'legend',       // 지형별 균일 비용($2/$3/$4) → 범례. 산+강 $5 헥스 3곳만
-                                 // showCostMarker로 원 숫자 표시 (Southern China 선례)
+    hexCostMode: 'legend',       // 지형별 균일 비용($2/$3/$4) → 범례. 산+강 $5 헥스 3곳은
+                                 // 범례의 "강+산" 조합 항목으로 표시 (원 숫자 마커 미사용)
     colors: {
       terrain: SCOTLAND_COLORS.terrain,
       background: SCOTLAND_COLORS.background,

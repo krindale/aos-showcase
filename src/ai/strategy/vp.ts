@@ -13,7 +13,7 @@
  * 게임 파라미터(엔진 상한, 턴 수)는 MapAIConfig에서 주입 — 맵 하드코딩 금지.
  */
 
-import { GameState, PlayerId, GamePhase, HexCoord, GAME_CONSTANTS } from '@/types/game';
+import { GameState, PlayerId, GamePhase, HexCoord, GAME_CONSTANTS, AuctionPersonalityId } from '@/types/game';
 import { getMapAIConfig } from './mapConfig';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { DeliveryOpportunity, DeliveryRoute } from './types';
@@ -65,6 +65,88 @@ export const DESPERATION_BID_SAT = 2.5;
  *    심한 단조 독식. 0.1(거의 끔)이 최적: 단조 편향 해소 + VP 최고. 잔존 편향(Western 앞순서·Korea P2)은
  *    경매 순서/거점이 원인(turnOrder 무관). */
 export const TURN_ORDER_SEAT_VP = 0.1;
+
+// ===== 봇별 경매 성격 (2026-08-08) =====
+//
+// 봇마다 경매 입찰 기질을 다르게 주는 성격 프리셋 — 게임마다 무작위 배정(setup의
+// randomizeBotPersonalities, 가중치 셔플·중복 최소화)하고 UI엔 숨긴다(플레이 패턴으로만 드러남).
+// ⚠️ standard는 아래 상수들과 **정확히 같은 값**이어야 한다 — 성격 미지정(시뮬·구 저장본)은
+// standard로 폴백해 기존 산식과 비트 동일(100시드 베이스라인 보존)이 절대 조건이다.
+// 레버는 전부 기존 산식 위 배수/오프셋 계층 — 현금 가드(건설예산·운영비 예비)는 어느 성격도
+// 침범하지 못한다(파산 방지 안전판 불변).
+
+/** firstSeatBidCeiling의 환산 파라미터 (성격별 차등용 — 기본값 = 위 상수 4종) */
+export interface FirstSeatBidParams {
+  threshold: number; // 이 절실함(ΔVP) 미만이면 양보(floor(d/λ) ≈ $0~1)
+  floor: number;     // 절실할 때 상한의 하한 ($)
+  cap: number;       // 절실할 때 상한의 상한 ($)
+  sat: number;       // 이 절실함 이상이면 cap에 포화
+}
+
+export const DEFAULT_FIRST_SEAT_BID_PARAMS: FirstSeatBidParams = {
+  threshold: DESPERATION_BID_THRESHOLD,
+  floor: FIRST_SEAT_BID_FLOOR,
+  cap: FIRST_SEAT_BID_CAP,
+  sat: DESPERATION_BID_SAT,
+};
+
+export interface AuctionPersonality {
+  /** 절실함 배수 — estimateFirstSeatVP 반환값에 캐시 밖에서 곱한다 (1.0 = 항등) */
+  desperationMult: number;
+  /** 절실함→달러 환산 파라미터 (DEFAULT_FIRST_SEAT_BID_PARAMS = 항등) */
+  bid: FirstSeatBidParams;
+  /** 상대 저지 가치 합산 (맵 훅 aiAuctionDenialValue와 OR — 중복 가산 아님) */
+  denialValue: boolean;
+  /** 경매 시작 시 절실함이 없어도 $1 오프닝 (05i 보류 카드 "최소 견제 입찰"의 봇 축 격리) */
+  openBidAlways: boolean;
+  /** 뒤 순번 고정 가산 (WU 맵 공식 재사용 — 맵 훅 firstSeatRankBidBonus와 max 합성, 중복 가산 금지) */
+  rankBidBonus: boolean;
+}
+
+/**
+ * 성격 프리셋 5종 — 구성 철학(사용자 합의 2026-08-08): 실측 이력 있는 메커니즘(현재 버전 /
+ * 1등 견제 / 서부 미국 타입)을 골격으로, 공격형·보수형을 후보로 추가. 최종 무작위 풀 채택은
+ * "분리 측정"(성격별 참여율·입찰액·1등률이 실제로 갈라지는가)이 정한다 — 시뮬에서조차 안
+ * 갈라지는 성격은 플레이어도 못 느끼므로 풀에서 뺀다(코드는 남김).
+ */
+export const AUCTION_PERSONALITIES: Record<AuctionPersonalityId, AuctionPersonality> = {
+  /** 현재 버전 그대로 — 미지정 기본값 (비트 항등) */
+  standard: {
+    desperationMult: 1.0, bid: DEFAULT_FIRST_SEAT_BID_PARAMS,
+    denialValue: false, openBidAlways: false, rankBidBonus: false,
+  },
+  /** 1등 견제 봇 — 상대의 (최선−차선) 격차를 내 절실함에 합산 + 상시 $1 오프닝.
+   *  유일하게 "상대 상황에 반응"하는 성격 (Scotland 05i 메커니즘의 봇 축 이동) */
+  denial: {
+    desperationMult: 1.0, bid: DEFAULT_FIRST_SEAT_BID_PARAMS,
+    denialValue: true, openBidAlways: true, rankBidBonus: false,
+  },
+  /** 서부 미국 타입 봇 — 꼴찌를 못 참는 봇. 뒤 순번일 때 입찰 상한 +$1~2 (선공 순환 담당) */
+  wuType: {
+    desperationMult: 1.0, bid: DEFAULT_FIRST_SEAT_BID_PARAMS,
+    denialValue: false, openBidAlways: false, rankBidBonus: true,
+  },
+  /** 공격형 — 절실함 과대평가 + $4까지 추격하는 싸움닭 */
+  aggressive: {
+    desperationMult: 1.25, bid: { threshold: 1.2, floor: 2, cap: 4, sat: 2.5 },
+    denialValue: false, openBidAlways: false, rankBidBonus: false,
+  },
+  /** 보수형 — 명백히 절실할 때만, 싸게 (분리 측정 1차 탈락 예상 후보) */
+  conservative: {
+    desperationMult: 0.8, bid: { threshold: 2.0, floor: 1, cap: 2, sat: 3.0 },
+    denialValue: false, openBidAlways: false, rankBidBonus: false,
+  },
+};
+
+/** wuType 성격의 뒤 순번 보너스 — WesternUsMapProfile.firstSeatRankBidBonus 계열
+ *  (꼴찌 +2, 그 앞 두 자리 +1). 맵 훅과는 max 합성으로 중복 가산을 막는다.
+ *  ⚠️ WU 원공식(rank >= n-3)을 소인원에 그대로 쓰면 2~4인에서 앞 순번까지 +1을 받아
+ *  "꼴찌를 못 참는" 취지가 죽는다 — rank ≥ 2 가드로 뒤쪽 절반만 (5·6인은 WU 공식과 동일). */
+export function personalityRankBidBonus(rank: number, n: number): number {
+  if (n >= 2 && rank === n - 1) return 2;
+  if (rank >= n - 3 && rank >= 2) return 1;
+  return 0;
+}
 
 // ===== 수입 감소 (룰북 Phase VIII) =====
 
@@ -140,17 +222,27 @@ export function cashToVPRate(state: GameState, playerId: PlayerId): number {
 /**
  * 행동 절실함(최선−차선 ΔVP)을 1등 입찰 상한($)으로 환산.
  *
- * - 절실함 < THRESHOLD: 1등 가치가 낮아 양보 → floor(절실함/λ) ≈ $0~1.
+ * - 절실함 < threshold: 1등 가치가 낮아 양보 → floor(절실함/λ) ≈ $0~1.
  *   (평범한 턴엔 모두 양보 → 경매 규칙상 순서가 자연 역전되어 순환한다)
- * - 절실함 ≥ THRESHOLD: $FLOOR~$CAP 구간에서 절실함에 비례해 입찰 상한 결정.
+ * - 절실함 ≥ threshold: $floor~$cap 구간에서 절실함에 비례해 입찰 상한 결정.
+ *
+ * params는 봇 성격별 차등용(AUCTION_PERSONALITIES) — 기본 인자가 기존 상수 4종과
+ * 동일 값이라 미전달 호출은 산술 항등이다.
  */
-export function firstSeatBidCeiling(desperation: number, lambda: number): number {
+export function firstSeatBidCeiling(
+  desperation: number,
+  lambda: number,
+  params: FirstSeatBidParams = DEFAULT_FIRST_SEAT_BID_PARAMS,
+): number {
   const d = Math.max(0, desperation);
-  if (d < DESPERATION_BID_THRESHOLD) {
-    return Math.floor(d / (lambda || LAMBDA_BASE));
+  if (d < params.threshold) {
+    // 양보 구간은 floor를 넘지 않게 클램프 — 표준(threshold 1.5, λ 0.5)은 최대 floor(1.49/0.5)=2
+    // = floor라 항등이고, threshold가 높은 성격(보수형 2.0)이 양보 구간에서 자기 cap을 넘는
+    // 역전(예: d 1.9 → $3 > cap $2)을 막는다.
+    return Math.min(Math.floor(d / (lambda || LAMBDA_BASE)), params.floor);
   }
-  const t = Math.min(1, d / DESPERATION_BID_SAT);
-  return Math.round(FIRST_SEAT_BID_FLOOR + t * (FIRST_SEAT_BID_CAP - FIRST_SEAT_BID_FLOOR));
+  const t = Math.min(1, d / params.sat);
+  return Math.round(params.floor + t * (params.cap - params.floor));
 }
 
 // ===== 상대 견제 가중치 =====

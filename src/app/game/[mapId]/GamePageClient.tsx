@@ -384,7 +384,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       playerIndex: index,
       name: playerNames[index],
     }));
-    initGame(mapId, playerNames.slice(0, playerCount), aiPlayers, { randomizeStartOrder: true });
+    initGame(mapId, playerNames.slice(0, playerCount), aiPlayers, { randomizeStartOrder: true, randomizeBotPersonalities: true });
     setShowSetup(false);
   };
 

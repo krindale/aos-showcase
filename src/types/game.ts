@@ -157,6 +157,13 @@ export interface HexTile {
   riverEdges?: [number, number];
 }
 
+// === AI 경매 성격 ===
+/** 봇별 경매 입찰 성격 풀. standard = 현 산식과 비트 동일(미지정 기본값).
+ *  게임마다 무작위 배정(setup의 randomizeBotPersonalities — 가중치 셔플·중복 최소화)하며
+ *  UI에는 비노출(플레이 패턴으로만 드러남). 정의·레버는 src/ai/strategy/vp.ts AUCTION_PERSONALITIES. */
+export const AUCTION_PERSONALITY_IDS = ['standard', 'denial', 'wuType', 'aggressive', 'conservative'] as const;
+export type AuctionPersonalityId = (typeof AUCTION_PERSONALITY_IDS)[number];
+
 // === 플레이어 상태 ===
 export interface PlayerState {
   id: PlayerId;
@@ -174,6 +181,11 @@ export interface PlayerState {
   turnOrderPassUsed: boolean;  // 이번 경매에서 패스를 이미 썼는지 (롤오버 시 리셋)
   eliminated: boolean;         // 파산으로 탈락 여부
   isAI: boolean;               // AI 플레이어 여부
+  /** AI 전용: 경매 입찰 성격 (미지정 = standard = 기존 산식과 비트 동일). UI 비노출 —
+   *  게임마다 무작위 배정(setup randomizeBotPersonalities), 플레이 패턴으로만 드러난다.
+   *  PlayerState에 두는 이유: persist·스냅샷 자동 동승 → resetGame 재구성·지연 등록(ai/index.ts)
+   *  경로에서도 유실되지 않는다. 구 저장본 rehydrate는 undefined = standard 폴백. */
+  auctionPersonality?: AuctionPersonalityId;
   /** Montréal: 정부 전용 엔진 레벨(DGEL) — Locomotive로만 +1. 정부 링크 위 추가 이동 전용,
    *  비용 지불에 합산. 다른 맵은 undefined(=0). */
   dgel?: number;

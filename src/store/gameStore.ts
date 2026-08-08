@@ -83,7 +83,7 @@ export type { AIPlayerConfig } from './helpers/setup';
  * 실행 중인 페이지에선 옛 로직이 계속 돈다(CLAUDE.md "HMR을 의심할 것").
  * 아래 가드가 "페이지 로드 이후 store 모듈이 다시 평가됨"을 감지해 콘솔 경고를 띄운다.
  */
-export const STORE_CODE_VERSION = 14; // 복합 타일 경로 단위 방향 전환 (pickRedirectPath) + 완성 링크 소유 정규화
+export const STORE_CODE_VERSION = 15; // 봇 경매 성격(auctionPersonality) 배정 + 경매 income 상계 전 맵 기본화
 
 // HMR 스테일 가드 (dev 브라우저 전용 — SSR/vitest 제외).
 // window에 최초 로드 시점 버전을 박아두고, 이 모듈이 다시 평가되면(= store 관련 소스 변경)
@@ -119,7 +119,7 @@ const AI_ACTION_VIEW_DELAY =
 export interface GameStore extends GameState {
   // --- 게임 라이프사이클 ---
   /** 게임 초기화 */
-  initGame: (mapId: string, playerNames: string[], aiPlayers?: AIPlayerConfig[], options?: { randomizeStartOrder?: boolean }) => void;
+  initGame: (mapId: string, playerNames: string[], aiPlayers?: AIPlayerConfig[], options?: { randomizeStartOrder?: boolean; randomizeBotPersonalities?: boolean }) => void;
   /** 게임 리셋 (플레이어 이름 유지) */
   resetGame: () => void;
 
@@ -394,7 +394,7 @@ export const useGameStore = create<GameStore>()(
     logAction('preparation', 'resetGame', { session: sessionId, mapId: state.mapId, players: playerNames });
 
     set({
-      ...createInitialGameState(state.mapId, playerNames, aiPlayers, { randomizeStartOrder: true }),
+      ...createInitialGameState(state.mapId, playerNames, aiPlayers, { randomizeStartOrder: true, randomizeBotPersonalities: true }),
       aiExecution: { pending: false, executionId: 0 },
     });
 

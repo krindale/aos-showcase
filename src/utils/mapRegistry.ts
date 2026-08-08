@@ -112,6 +112,16 @@ import {
   SOUTHERN_US_TOWN_NAMES,
   createSouthernUsBoardState,
 } from './southernUsMap';
+import {
+  SCOTLAND_MAP,
+  SCOTLAND_CITIES,
+  SCOTLAND_TOWNS,
+  SCOTLAND_COLUMN_MAPPING,
+  SCOTLAND_COLORS,
+  SCOTLAND_TOWN_NAMES,
+  SCOTLAND_CUBE_COUNTS,
+  createScotlandBoardState,
+} from './scotlandMap';
 
 /**
  * 맵별 특수 룰 플래그
@@ -491,6 +501,35 @@ const MAP_REGISTRY: Record<string, GameMapData> = {
     rules: { ...DEFAULT_MAP_RULES },
     createBoardState: createSouthernEnglandBoardState,
     goodsCubeCounts: DEFAULT_CUBE_COUNTS, // 룰북 표준 — 검정 화물은 도시화(E~H)로 배달
+  },
+
+  scotland: {
+    id: SCOTLAND_MAP.id,
+    name: SCOTLAND_MAP.name,
+    nameKo: SCOTLAND_MAP.nameKo,
+    description: SCOTLAND_MAP.description,
+    supportedPlayers: SCOTLAND_MAP.supportedPlayers,
+    cols: SCOTLAND_MAP.cols,
+    rows: SCOTLAND_MAP.rows,
+    startCol: SCOTLAND_MAP.startCol,
+    maxTurns: SCOTLAND_MAP.maxTurns,
+    cities: SCOTLAND_CITIES,
+    towns: SCOTLAND_TOWNS,
+    columnMapping: SCOTLAND_COLUMN_MAPPING,
+    townNames: SCOTLAND_TOWN_NAMES,
+    hideLakeHexes: true,         // 바다/외곽은 안 그려 스코틀랜드 해안·섬 윤곽 표현
+    orientation: 'flat',         // flat-top 보드 — 전치 저장 + 렌더 전치 (Rust Belt 등과 동일)
+    hexCostMode: 'legend',       // 지형별 균일 비용($2/$3/$4) → 범례. 산+강 $5 헥스 3곳은
+                                 // 범례의 "강+산" 조합 항목으로 표시 (원 숫자 마커 미사용)
+    colors: {
+      terrain: SCOTLAND_COLORS.terrain,
+      background: SCOTLAND_COLORS.background,
+      border: SCOTLAND_COLORS.border,
+    },
+    // 특수 규칙(페리/턴오더/경매 절반/성장 4+4)은 MapProfile getter로 주입 — 여기선 표준 플래그
+    rules: { ...DEFAULT_MAP_RULES },
+    createBoardState: createScotlandBoardState,
+    goodsCubeCounts: SCOTLAND_CUBE_COUNTS, // v2 시트: 색깔별 −6 (14/14/14/14/10)
   },
 
   korea: {

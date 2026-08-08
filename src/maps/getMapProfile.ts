@@ -16,6 +16,7 @@ import { MontrealMapProfile } from './profiles/MontrealMapProfile';
 import { MoonMapProfile } from './profiles/MoonMapProfile';
 import { SouthernChinaMapProfile } from './profiles/SouthernChinaMapProfile';
 import { SouthernEnglandMapProfile } from './profiles/SouthernEnglandMapProfile';
+import { ScotlandMapProfile } from './profiles/ScotlandMapProfile';
 import { TUTORIAL_MAP, createInitialBoardState as createTutorialBoardState } from '@/utils/tutorialMap';
 
 // 튜토리얼 맵은 3턴 (mapRegistry의 TUTORIAL_MAX_TURNS와 동일해야 함)
@@ -54,6 +55,9 @@ function buildProfile(mapId: string): MapProfile {
 
     case MapId.SouthernEngland:
       return new SouthernEnglandMapProfile();
+
+    case MapId.Scotland:
+      return new ScotlandMapProfile();
 
     case MapId.Tutorial:
       return new StandardMapProfile({

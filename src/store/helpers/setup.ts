@@ -11,6 +11,8 @@ import {
   PLAYER_ID_ORDER,
   PLAYER_COLOR_ORDER,
   TURNS_BY_PLAYER_COUNT,
+  AUCTION_PERSONALITY_IDS,
+  AuctionPersonalityId,
 } from '@/types/game';
 import { initializeGoodsDisplay } from '@/utils/tutorialMap';
 import { getMapData } from '@/utils/mapRegistry';
@@ -23,6 +25,38 @@ import { createInitialPlayerState } from '@/utils/gameLogic';
 export interface AIPlayerConfig {
   playerIndex: number;  // 0-based 인덱스
   name: string;
+  /** 경매 성격 명시 배정 (테스트/시뮬 고정 배정용 — 지정 시 무작위 배정보다 우선).
+   *  미지정 + randomizeBotPersonalities 꺼짐 = undefined = standard(기존 산식 항등). */
+  auctionPersonality?: AuctionPersonalityId;
+}
+
+/** 경매 성격 무작위 배정 가중치 — 공격적 성향 우선(사용자 지시 2026-08-08). 봇이 적은
+ *  게임일수록 견제·공격형이 먼저 등장하고, 보수형은 봇이 많을 때 주로 등장한다. */
+export const AUCTION_PERSONALITY_WEIGHTS: Record<AuctionPersonalityId, number> = {
+  denial: 3, aggressive: 3, wuType: 2, standard: 1.5, conservative: 1,
+};
+
+/**
+ * 성격 풀을 가중치 비복원 추출로 섞은 순서를 반환 (앞에서부터 봇에게 순환 배정).
+ * 봇 수 ≤ 성격 수(5)면 전원 서로 다른 성격, 초과분은 앞에서부터 다시 순환.
+ * Math.random을 소비하므로 **randomizeBotPersonalities 옵션이 켜졌을 때만 호출**할 것
+ * (시뮬은 미호출 → rng 소비 0 = 시드 시퀀스 불변).
+ */
+export function weightedPersonalityOrder(): AuctionPersonalityId[] {
+  const remaining = AUCTION_PERSONALITY_IDS.map(id => ({ id, w: AUCTION_PERSONALITY_WEIGHTS[id] }));
+  const order: AuctionPersonalityId[] = [];
+  while (remaining.length > 0) {
+    const total = remaining.reduce((a, x) => a + x.w, 0);
+    let r = Math.random() * total;
+    let idx = remaining.length - 1;
+    for (let i = 0; i < remaining.length; i++) {
+      r -= remaining[i].w;
+      if (r < 0) { idx = i; break; }
+    }
+    order.push(remaining[idx].id);
+    remaining.splice(idx, 1);
+  }
+  return order;
 }
 
 /**
@@ -69,7 +103,7 @@ export function createInitialGameState(
   mapId: string,
   playerNames: string[],
   aiPlayers: AIPlayerConfig[] = [],
-  options: { randomizeStartOrder?: boolean } = {}
+  options: { randomizeStartOrder?: boolean; randomizeBotPersonalities?: boolean } = {}
 ): GameState {
   const mapData = getMapData(mapId);
   const boardState = mapData.createBoardState();
@@ -213,6 +247,24 @@ export function createInitialGameState(
   // AI 플레이어 인덱스 세트 생성
   const aiPlayerIndexes = new Set(aiPlayers.map(ai => ai.playerIndex));
 
+  // 봇 경매 성격 배정 — 명시 배정(config) 우선, randomizeBotPersonalities(실게임 진입점 전용)면
+  // 가중치 셔플 순서로 순환 배정(봇 ≤ 5명이면 전원 상이). 시뮬은 옵션 미지정 → 전원 undefined
+  // = standard(기존 산식 비트 항등) + rng 소비 0(시드 시퀀스 불변 — randomizeStartOrder 선례).
+  const personalityByIndex = new Map<number, AuctionPersonalityId>();
+  for (const ai of aiPlayers) {
+    if (ai.auctionPersonality) personalityByIndex.set(ai.playerIndex, ai.auctionPersonality);
+  }
+  if (options.randomizeBotPersonalities) {
+    const pool = weightedPersonalityOrder();
+    let k = 0;
+    for (const ai of aiPlayers) {
+      if (!personalityByIndex.has(ai.playerIndex)) {
+        personalityByIndex.set(ai.playerIndex, pool[k % pool.length]);
+        k++;
+      }
+    }
+  }
+
   // 플레이어 객체 생성
   const players: Partial<Record<PlayerId, PlayerState>> = {};
   activePlayers.forEach((playerId, index) => {
@@ -226,6 +278,9 @@ export function createInitialGameState(
     // 시작 현금 오버라이드 (Western US: 2주에 $20 — 추가 $10은 개인 자산)
     const sc = setupRules.startingCash;
     if (sc != null) p.cash = sc;
+    // 경매 성격 (AI 전용 — startingCash 오버라이드와 같은 패턴)
+    const persId = personalityByIndex.get(index);
+    if (isAI && persId) p.auctionPersonality = persId;
     players[playerId] = p;
   });
 

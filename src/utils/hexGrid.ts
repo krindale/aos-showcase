@@ -416,14 +416,37 @@ export function hexDistance(a: HexCoord, b: HexCoord): number {
  * 두 헥스 사이의 연결 엣지 찾기
  * A 헥스에서 B 헥스로 연결되는 엣지 번호 반환
  */
-export function getConnectingEdge(a: HexCoord, b: HexCoord, board?: Pick<BoardState, 'wrapEdges'>): number | null {
+export function getConnectingEdge(
+  a: HexCoord,
+  b: HexCoord,
+  board?: Pick<BoardState, 'wrapEdges'> & { trackTiles?: BoardState['trackTiles'] }
+): number | null {
+  // 달 랩 어라운드에선 같은 두 헥스가 **두 개 이상의 변 쌍**으로 인접할 수 있다
+  // (예: 랩 33번 B변5↔A변2 + 34번 B변0↔A변3 — 인접 랩 변 두 개가 같은 반대편 헥스로 이어짐).
+  // 후보를 전부 모은 뒤, 실제 트랙이 놓인 변 쌍을 우선 선택한다 — "처음 만나는 변"을 돌려주면
+  // 경로 DFS가 트랙과 다른 변으로 진입 판정해 랩 너머 배달이 통째로 죽는다(2026-08-08 실전 버그).
+  // 이중 인접은 랩 변에서만 생긴다 — 랩 없는 맵(대부분)은 첫 일치에서 즉시 반환 (경로 DFS 핫패스)
+  const wrapActive = (board?.wrapEdges?.length ?? 0) > 0;
+  let first: number | null = null;
+  const candidates: number[] = [];
   for (let edge = 0; edge < 6; edge++) {
     const neighbor = getNeighborHex(a, edge, board);
     if (neighbor.col === b.col && neighbor.row === b.row) {
-      return edge;
+      if (!wrapActive) return edge;
+      if (first === null) first = edge;
+      candidates.push(edge);
     }
   }
-  return null;
+  if (candidates.length <= 1 || !board?.trackTiles) return first;
+  const hasEdge = (c: HexCoord, e: number): boolean => {
+    const tiles = board.trackTiles!.filter(t => hexCoordsEqual(t.coord, c));
+    if (tiles.length === 0) return true; // 도시/마을/빈 헥스 — 모든 변 연결 가능
+    return tiles.some(t => t.edges.includes(e) || t.secondaryEdges?.includes(e) === true);
+  };
+  for (const e of candidates) {
+    if (hasEdge(a, e) && hasEdge(b, getOppositeEdge(e))) return e;
+  }
+  return first;
 }
 
 /**
@@ -1208,6 +1231,26 @@ export function trackOwnerForEntry(track: TrackTile, entryEdge: number | null): 
   return track.owner;
 }
 
+/** 인접 마을↔도시 "가닥만으로 완성된 링크"(사이 타일 0개 — Scotland Ayr↔Glasgow)의 소유자.
+ *  한쪽이 마을·다른쪽이 도시이고 마을의 그 변 가닥이 있으면 가닥 소유자를 돌려준다.
+ *  (도시는 모든 변이 암묵 연결이라 도시 쪽 조건은 존재만 확인. 인접 마을-마을 쌍은 현재
+ *  어떤 맵에도 없어 다루지 않는다.) 정산(moveSlice.completeCubeMove)과 미러 공유. */
+export function adjacentSpurLinkOwner(
+  board: BoardState, a: HexCoord, b: HexCoord
+): PlayerId | null {
+  const pairs: [HexCoord, HexCoord][] = [[a, b], [b, a]];
+  for (const [townC, cityC] of pairs) {
+    if (!board.towns.some(t => hexCoordsEqual(t.coord, townC))) continue;
+    if (!board.cities.some(c => hexCoordsEqual(c.coord, cityC))) continue;
+    const spur = (board.townSpurs ?? []).find(
+      sp => hexCoordsEqual(sp.townCoord, townC) &&
+        hexCoordsEqual(getNeighborHex(townC, sp.edge, board), cityC)
+    );
+    if (spur) return spur.owner ?? null;
+  }
+  return null;
+}
+
 export function getPathLinkOwners(path: HexCoord[], board: BoardState): (PlayerId | null)[] {
   const owners: (PlayerId | null)[] = [];
   const isStopAt = (coord: HexCoord) =>
@@ -1236,6 +1279,9 @@ export function getPathLinkOwners(path: HexCoord[], board: BoardState): (PlayerI
         const dl = (board.directLinks ?? []).find(d => d.owner &&
           ((d.cityA === a.id && d.cityB === b.id) || (d.cityA === b.id && d.cityB === a.id)));
         if (dl?.owner) owner = dl.owner;
+      } else {
+        // 인접 마을↔도시 가닥 링크 (Scotland Ayr↔Glasgow) — 가닥 소유자에게 귀속
+        owner = adjacentSpurLinkOwner(board, path[linkStartIndex], path[i]);
       }
     }
     owners.push(owner);

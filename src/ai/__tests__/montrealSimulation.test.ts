@@ -120,6 +120,10 @@ interface MResult {
   urbanized: number;
   /** 종료 시 맵에 남은 화물 — 배달 병목이 "화물 고갈"인지 판별용 */
   cubesLeft: number;
+  // ── 진단(경매/순서) ──
+  bidsThisGame: number;                          // 이 게임에서 실제 입찰(placeBid) 발생 횟수
+  firstSeatByBid: Record<PlayerId, number>;      // 입찰($>0)로 1번 획득한 횟수 (player별)
+  firstSeatByYield: Record<PlayerId, number>;    // 양보(입찰 없이)로 1번이 된 횟수 (player별)
 }
 
 function runMontrealGame(seed: number): MResult {
@@ -133,6 +137,11 @@ function runMontrealGame(seed: number): MResult {
 
   let deliveries = 0, builds = 0, repopulations = 0, actionBans = 0;
   let lastBanTurn = 0;
+  const firstSeatByBid = {} as Record<PlayerId, number>;
+  const firstSeatByYield = {} as Record<PlayerId, number>;
+  PLAYERS.forEach(p => { firstSeatByBid[p] = 0; firstSeatByYield[p] = 0; });
+  let bidsThisGame = 0;
+  let turnHadBid = false; // 이번 턴 경매에서 실제 입찰이 있었는지 (selectActions 진입 시 분류 후 리셋)
   const MAX_ITER = 80000;
   let iter = 0, stale = 0, lastSig = '';
   let reachedEnd = false;
@@ -160,10 +169,18 @@ function runMontrealGame(seed: number): MResult {
       continue;
     }
 
-    // 무입찰 페널티 집계 (턴당 1회)
+    // 무입찰 페널티 집계 + 1번(선공) 획득 방식 분류 (턴당 1회) —
+    // "입찰로 따냈는지(byBid) vs 아무도 안 사서 양보로 됐는지(byYield)"를 분류해
+    // 순서 고착이 경매 경쟁의 결과인지, 경매가 사실상 작동 안 해서인지 진단.
     if (s.currentPhase === 'selectActions' && s.currentTurn !== lastBanTurn) {
       actionBans += PLAYERS.filter(p => s.players[p]?.actionBanned).length;
+      const first = s.playerOrder[0];
+      if (first) {
+        if (turnHadBid) firstSeatByBid[first] = (firstSeatByBid[first] ?? 0) + 1;
+        else firstSeatByYield[first] = (firstSeatByYield[first] ?? 0) + 1;
+      }
       lastBanTurn = s.currentTurn;
+      turnHadBid = false; // 다음 턴 경매를 위해 리셋
     }
 
     // Montréal은 goodsGrowth 생략 — 도달하면 스킵 방어
@@ -195,7 +212,7 @@ function runMontrealGame(seed: number): MResult {
 
       case 'auction': {
         const a = decision.decision;
-        if (a.action === 'bid') store.placeBid(cp, a.amount);
+        if (a.action === 'bid') { store.placeBid(cp, a.amount); bidsThisGame++; turnHadBid = true; }
         else if (a.action === 'pass') store.passBid(cp);
         else if (a.action === 'skip') store.skipBid(cp);
         else if (a.action === 'complete') { store.resolveAuction(); useGameStore.getState().nextPhase(); }
@@ -291,6 +308,7 @@ function runMontrealGame(seed: number): MResult {
     repopulations, actionBans,
     urbanized: f.board.towns.filter(t => t.newCityColor !== null).length,
     cubesLeft: f.board.cities.reduce((n, c) => n + c.cubes.length, 0),
+    bidsThisGame, firstSeatByBid, firstSeatByYield,
   };
 }
 
@@ -325,6 +343,19 @@ describe('Montréal Métro 3 AI 전체 게임 — 특수룰 실동작 + 베이�
     console.log(`Repopulation: ${avg(results.map(r => r.repopulations)).toFixed(1)}회/게임, 무입찰 페널티: ${avg(results.map(r => r.actionBans)).toFixed(1)}명/게임`);
     console.log(`파산: ${avg(results.map(r => r.bankruptcies)).toFixed(2)}명/게임, 완주 턴: ${JSON.stringify(results.map(r => r.finalTurn))}`);
     console.log(`마스터 네트워크 연결: ${results.filter(r => r.masterConnected).length}/${seeds}`);
+    // ── 경매/순서 진단 (상시) ──
+    const firstSeatBidTotal = {} as Record<PlayerId, number>;
+    const firstSeatYieldTotal = {} as Record<PlayerId, number>;
+    PLAYERS.forEach(p => { firstSeatBidTotal[p] = 0; firstSeatYieldTotal[p] = 0; });
+    for (const r of results) {
+      PLAYERS.forEach(p => {
+        firstSeatBidTotal[p] += r.firstSeatByBid[p] ?? 0;
+        firstSeatYieldTotal[p] += r.firstSeatByYield[p] ?? 0;
+      });
+    }
+    console.log(`경매 입찰 발생: ${avg(results.map(r => r.bidsThisGame)).toFixed(1)}회/게임 (0에 가까우면 경매가 양보로만 결정 = 순서 안 섞임)`);
+    console.log(`1번 획득 — 입찰로(byBid): ${JSON.stringify(firstSeatBidTotal)}`);
+    console.log(`1번 획득 — 양보로(byYield): ${JSON.stringify(firstSeatYieldTotal)}`);
 
     // ① 모든 게임 정상 종료 (멈춤/무한루프 없음)
     expect(results.every(r => r.reachedEnd)).toBe(true);

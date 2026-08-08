@@ -105,28 +105,45 @@ export function computeTranscontinental(state: GameState, builder: PlayerId):
     }
   }
 
-  // (2) 1회성 연결 보너스 (보드 전체 최초 연결 — 임의 소유자 경로 허용)
+  // (2) 1회성 연결 보너스 (보드 전체 최초 연결)
   let awarded = state.transcontinentalAwarded ?? false;
   let log = '';
   const bonusRecipients: { playerId: PlayerId; name: string; amount: number }[] = [];
   if (!awarded) {
-    const ownersOnPath = bfsConnectingOwners(buildAdj(), westKeys, eastKeys);
-    if (ownersOnPath && ownersOnPath.length) {
-      // 경로상 각 철도의 트랙 기여 수(빈도)
-      const freq = new Map<PlayerId, number>();
-      for (const o of ownersOnPath) freq.set(o, (freq.get(o) ?? 0) + 1);
-      const distinct = Array.from(freq.keys());
-      // 룰북: 1철도 → +$4. 2철도 → 각 +$2. 3철도+ → "연결 트랙 놓은 플레이어가 2철도 선택" →
-      //   연결을 완성한 builder를 우선 포함하고, 나머지 한 자리는 경로 트랙이 가장 많은 철도로.
-      let recipients: PlayerId[];
-      let amt: number;
-      if (distinct.length === 1) {
-        recipients = distinct; amt = 4;
-      } else {
+    // 룰북 "1개 철도로 연결 = 그 철도 +$4"는 **단독 연결 여부로 먼저** 판정한다.
+    // 합집합 BFS가 찾은 임의 경로의 소유자 수로 판정하면, 내 철도 단독 연결이 있어도
+    // BFS가 남의 링크를 낀 다른 경로를 먼저 찾아 "2철도 합작(+$2/+$2)"으로 오판한다
+    // — 시작 도시에 링크만 걸친 무관한 플레이어가 보너스를 나눠 갖던 실전 버그(2026-08-08).
+    // 단독 연결자는 위 (1)의 플레이어별 BFS가 이미 transcontinental=true로 판정해 뒀다.
+    // (보너스 지급 전에 이 플래그가 서 있을 수 있는 경로는 이번 호출의 (1)뿐 — 이전 턴에
+    //  단독 연결이 있었다면 그때 합집합도 연결이라 이미 awarded=true였을 것)
+    const soloConnectors = state.activePlayers.filter(
+      pid => players[pid]?.transcontinental && !players[pid]?.eliminated
+    );
+    let recipients: PlayerId[] | null = null;
+    let amt = 0;
+    let ownersForLog: PlayerId[] = [];
+    if (soloConnectors.length > 0) {
+      // 1철도 단독 연결 → 그 철도만 +$4. (동시 복수 단독은 이론상 builder뿐이지만 방어적 전원 지급)
+      recipients = soloConnectors; amt = 4; ownersForLog = soloConnectors;
+    } else {
+      // 단독 연결이 없을 때만 합작(임의 소유자 경로) 판정
+      const ownersOnPath = bfsConnectingOwners(buildAdj(), westKeys, eastKeys);
+      if (ownersOnPath && ownersOnPath.length) {
+        // 경로상 각 철도의 트랙 기여 수(빈도)
+        const freq = new Map<PlayerId, number>();
+        for (const o of ownersOnPath) freq.set(o, (freq.get(o) ?? 0) + 1);
+        const distinct = Array.from(freq.keys());
+        ownersForLog = distinct;
+        // 룰북: 2철도 → 각 +$2. 3철도+ → "연결 트랙 놓은 플레이어가 2철도 선택" →
+        //   연결을 완성한 builder를 우선 포함하고, 나머지 한 자리는 경로 트랙이 가장 많은 철도로.
+        // (distinct 1개는 위 단독 분기가 이미 잡으므로 여기 도달 시 항상 2개 이상)
         const ranked = distinct.slice().sort((a, b) => (freq.get(b)! - freq.get(a)!));
         const ordered = distinct.includes(builder) ? [builder, ...ranked.filter(o => o !== builder)] : ranked;
-        recipients = ordered.slice(0, 2); amt = 2;
+        recipients = ordered.slice(0, 2); amt = distinct.length === 1 ? 4 : 2;
       }
+    }
+    if (recipients && recipients.length) {
       ensureCopy();
       const parts: string[] = [];
       for (const pid of recipients) {
@@ -140,7 +157,7 @@ export function computeTranscontinental(state: GameState, builder: PlayerId):
       }
       awarded = true;
       log = `🌉 대륙횡단 연결 보너스: ${parts.join(', ')}`;
-      logAction('trackBuilding', 'transcontinental', { owners: distinct, recipients, amt }, 'error');
+      logAction('trackBuilding', 'transcontinental', { owners: ownersForLog, recipients, amt }, 'error');
     }
   }
 

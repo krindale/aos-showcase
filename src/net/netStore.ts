@@ -1224,7 +1224,7 @@ export const useNetStore = create<NetStore>()((set, get) => {
         .filter((s) => s.kind === 'ai')
         .map((s) => ({ playerIndex: s.seat, name: s.name }));
       // 좌석은 유지, 첫 턴 순서만 무작위 (호스트 권위 → 스냅샷으로 게스트에 전파)
-      useGameStore.getState().initGame(room.mapId, names, aiPlayers, { randomizeStartOrder: true });
+      useGameStore.getState().initGame(room.mapId, names, aiPlayers, { randomizeStartOrder: true, randomizeBotPersonalities: true });
       // 방 설정: 이동 가이드 허용 여부 주입 — 스냅샷으로 게스트까지 동기화 (false면 전원 잠김)
       useGameStore.setState({ moveGuideAllowed: get().moveGuideAllowed });
       try {

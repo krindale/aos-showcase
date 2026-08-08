@@ -24,7 +24,7 @@ import { addFailedBuildCoord, hasPendingFreeSpur } from '@/ai/strategies/buildTr
 import { shouldSpendSupportForLoco } from '@/ai/strategies/supportToken';
 import { getDisplaySlotRange } from '@/utils/mapRegistry';
 import { getMapProfile } from '@/maps/getMapProfile';
-import { hexCoordsEqual } from '@/utils/hexGrid';
+import { hexCoordsEqual, getNeighborHex } from '@/utils/hexGrid';
 import {
   nationalizationTargets,
   checkDiscLimitAfterBuild,
@@ -83,7 +83,7 @@ export type { AIPlayerConfig } from './helpers/setup';
  * 실행 중인 페이지에선 옛 로직이 계속 돈다(CLAUDE.md "HMR을 의심할 것").
  * 아래 가드가 "페이지 로드 이후 store 모듈이 다시 평가됨"을 감지해 콘솔 경고를 띄운다.
  */
-export const STORE_CODE_VERSION = 14; // 복합 타일 경로 단위 방향 전환 (pickRedirectPath) + 완성 링크 소유 정규화
+export const STORE_CODE_VERSION = 16; // 대륙횡단 보너스 단독연결 우선 + 달 랩 이중변 경로/건설 수정
 
 // HMR 스테일 가드 (dev 브라우저 전용 — SSR/vitest 제외).
 // window에 최초 로드 시점 버전을 박아두고, 이 모듈이 다시 평가되면(= store 관련 소스 변경)
@@ -119,7 +119,7 @@ const AI_ACTION_VIEW_DELAY =
 export interface GameStore extends GameState {
   // --- 게임 라이프사이클 ---
   /** 게임 초기화 */
-  initGame: (mapId: string, playerNames: string[], aiPlayers?: AIPlayerConfig[], options?: { randomizeStartOrder?: boolean }) => void;
+  initGame: (mapId: string, playerNames: string[], aiPlayers?: AIPlayerConfig[], options?: { randomizeStartOrder?: boolean; randomizeBotPersonalities?: boolean }) => void;
   /** 게임 리셋 (플레이어 이름 유지) */
   resetGame: () => void;
 
@@ -394,7 +394,7 @@ export const useGameStore = create<GameStore>()(
     logAction('preparation', 'resetGame', { session: sessionId, mapId: state.mapId, players: playerNames });
 
     set({
-      ...createInitialGameState(state.mapId, playerNames, aiPlayers, { randomizeStartOrder: true }),
+      ...createInitialGameState(state.mapId, playerNames, aiPlayers, { randomizeStartOrder: true, randomizeBotPersonalities: true }),
       aiExecution: { pending: false, executionId: 0 },
     });
 
@@ -628,8 +628,8 @@ export const useGameStore = create<GameStore>()(
             // 마을 가닥 단독 건설 (지난 턴 카운트 부족으로 미연결된 트랙의 연결 완성)
             const beforeState = get();
             const buildNum = beforeState.phaseState.builtTracksThisTurn + 1;
-            console.log(`[AI 트랙 건설] Turn ${beforeState.currentTurn}, ${player.name}: ${buildNum}/${beforeState.phaseState.maxTracksThisTurn}번째 마을 가닥 (${buildDecision.townCoord.col},${buildDecision.townCoord.row})`);
-            const spurSuccess = store.buildTownSpur(buildDecision.townCoord);
+            console.log(`[AI 트랙 건설] Turn ${beforeState.currentTurn}, ${player.name}: ${buildNum}/${beforeState.phaseState.maxTracksThisTurn}번째 마을 가닥 (${buildDecision.townCoord.col},${buildDecision.townCoord.row})${buildDecision.edge !== undefined ? ` 변${buildDecision.edge}` : ''}`);
+            const spurSuccess = store.buildTownSpur(buildDecision.townCoord, buildDecision.edge);
 
             if (spurSuccess) {
               const afterSpurState = get();
@@ -1270,6 +1270,38 @@ export const useGameStore = create<GameStore>()(
           const nextAfterShares: GamePhase = mapRules.alternateTurnOrder
             ? 'selectActions'
             : 'determinePlayerOrder';
+          // Scotland Turn Order 변형: 직전 턴 turnOrder 보유자가 있으면 경매를 통째로
+          // 생략하고 그 플레이어가 무조건 선공 (룰북: "first in the Player Order on the
+          // next turn without an auction being necessary"). 플래그는 표준 롤오버가 넘긴
+          // turnOrderPassAvailable — 여기서 소비한다.
+          if (nextAfterShares === 'determinePlayerOrder' && mapRules.turnOrderSkipsAuction) {
+            const holder = activePlayers.find(
+              (p) => state.players[p]?.turnOrderPassAvailable
+            );
+            if (holder) {
+              const newOrder = [holder, ...playerOrder.filter((p) => p !== holder)];
+              console.log(`[nextPhase] Turn Order 선공 (경매 생략): ${holder} → playerOrder=[${newOrder.join(', ')}]`);
+              return {
+                currentPhase: 'selectActions' as GamePhase,
+                playerOrder: newOrder,
+                currentPlayer: newOrder.find((p) => !state.players[p]?.actionBanned) ?? newOrder[0],
+                players: {
+                  ...state.players,
+                  [holder]: { ...state.players[holder], turnOrderPassAvailable: false },
+                },
+                logs: [
+                  ...state.logs,
+                  {
+                    turn: state.currentTurn,
+                    phase: state.currentPhase,
+                    player: holder,
+                    action: `${state.players[holder].name}: Turn Order 행동 — 경매 없이 선공`,
+                    timestamp: Date.now(),
+                  },
+                ],
+              };
+            }
+          }
           return {
             currentPhase: nextAfterShares,
             currentPlayer: playerOrder[0],
@@ -1740,8 +1772,12 @@ export const useGameStore = create<GameStore>()(
     // 물품 성장: 봇이 currentPlayer면 사람이 굴리던 주사위를 대신 굴려 성장을 적용한다.
     // 주사위 수 = 탈락하지 않은 활성 플레이어 수 × 맵별 배수(표준 1, 달 2), 값 1~6 (DiceRoller와 동일 규칙).
     if (state.currentPhase === 'goodsGrowth') {
-      const diceCount = state.activePlayers.filter((p) => !state.players[p]?.eliminated).length
-        * getMapProfile(state.mapId).growthDicePerPlayer;
+      // Scotland: 인원 무관 고정 4(라이트)+4(다크) — growthDiceSplit. 표준은 활성 인원 × 배수.
+      const split = getMapProfile(state.mapId).growthDiceSplit;
+      const diceCount = split
+        ? split.light + split.dark
+        : state.activePlayers.filter((p) => !state.players[p]?.eliminated).length
+          * getMapProfile(state.mapId).growthDicePerPlayer;
       const diceResults = Array.from(
         { length: diceCount },
         () => Math.floor(Math.random() * 6) + 1
@@ -1995,6 +2031,40 @@ export const useGameStore = create<GameStore>()(
       return t;
     });
 
+    // 5. 마을 id를 참조하는 직결 링크의 끝점을 신도시 id로 승계 (Scotland 페리 —
+    //    다른 맵의 directLinks는 도시 id만 참조하므로 항등). 추가로, 도시화로 제거되는
+    //    가닥이 "이 마을과 인접 도시를 잇는 미개통 직결 링크"의 실체였다면(Scotland
+    //    Ayr↔Glasgow $2 — 원본 룰: "링크는 도시화돼도 제거되지 않는다") 가닥 소유자에게
+    //    그 링크를 승계한다.
+    let updatedDirectLinks = state.board.directLinks;
+    if ((state.board.directLinks?.length ?? 0) > 0) {
+      const removedSpurs = (state.board.townSpurs ?? []).filter(
+        sp => hexCoordsEqual(sp.townCoord, townCoord) && sp.owner !== null
+      );
+      updatedDirectLinks = (state.board.directLinks ?? []).map(dl => {
+        let next = dl;
+        // 가닥 → 링크 승계: 미개통 링크의 한 끝이 이 마을이고, 제거되는 가닥이 반대 끝
+        // 도시를 향해 있으면 가닥 소유자가 링크를 이어받는다 (비용은 가닥 건설 때 지불됨).
+        if (next.owner === null && !next.isNationalized) {
+          const otherId = next.cityA === town.id ? next.cityB : next.cityB === town.id ? next.cityA : null;
+          if (otherId) {
+            const otherCity = state.board.cities.find(c => c.id === otherId);
+            const spur = otherCity && removedSpurs.find(
+              sp => hexCoordsEqual(getNeighborHex(townCoord, sp.edge, state.board), otherCity.coord)
+            );
+            if (spur?.owner) {
+              next = { ...next, owner: spur.owner, builtTurn: spur.builtTurn };
+              console.log(`[placeNewCity] 가닥 → 직결 링크 승계: ${next.cityA}↔${next.cityB} (${spur.owner})`);
+            }
+          }
+        }
+        // 끝점 id 승계: 마을 id → 신도시 id (이후 이동/수입/구매가 도시로 해석)
+        if (next.cityA === town.id) next = { ...next, cityA: selectedTileId };
+        if (next.cityB === town.id) next = { ...next, cityB: selectedTileId };
+        return next;
+      });
+    }
+
     set({
       phaseState: {
         ...state.phaseState,
@@ -2006,6 +2076,7 @@ export const useGameStore = create<GameStore>()(
         cities: [...state.board.cities, newCity],
         trackTiles: updatedTrackTiles,
         townSpurs: updatedTownSpurs,
+        ...(updatedDirectLinks !== state.board.directLinks ? { directLinks: updatedDirectLinks } : {}),
       },
       newCityTiles: updatedNewCityTiles,
       goodsDisplay: updatedGoodsDisplay, // 한국: 디스플레이 보충 / Western: 마을 큐브 주머니 반환 (그 외 맵 무변경)

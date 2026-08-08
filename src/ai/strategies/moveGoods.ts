@@ -306,7 +306,8 @@ function evaluateEngineUpgradeOption(state: GameState, playerId: PlayerId): numb
   // 사용자 지침: 엔진은 T4까지만 front-load로 3까지 올리고, T5+ 는 move-round 엔진업을
   // 금지하고 특수액션 Locomotive로만 올린다 (move-round 엔진업은 배달 1개를 포기 → income 손실).
   // 맵별 front-load 스위치 (기본 true = 기존 동작). 달은 false — 초반 기회를 배달에 쓴다.
-  const longHaul = getMapProfile(state.mapId).aiEngineFrontLoad
+  const mapProfile = getMapProfile(state.mapId);
+  const longHaul = mapProfile.aiEngineFrontLoad
     && (config.incomeSources.includes('trackCubes') || state.activePlayers.length >= 3);
   const frontLoadTarget = Math.min(3, state.currentTurn + 1);
   const frontLoad = (longHaul && player.engineLevel < frontLoadTarget
@@ -316,6 +317,25 @@ function evaluateEngineUpgradeOption(state: GameState, playerId: PlayerId): numb
   if (longHaul && state.currentTurn >= 5) {
     return frontLoad; // T5+: move-round 엔진업 금지 (frontLoad=0) → 엔진은 Locomotive로만
   }
+
+  // 스킵 라운드 → 엔진업 전환 바닥값 (기본 0 = 없음, Scotland 0.5 — 훅 주석 참조).
+  // 양수 배달은 절대 못 이기고 스킵(0)만 이긴다 = 죽은 라운드를 엔진에 쓰는 것.
+  // ⚠️ 발동 조건 = "엔진 열세"일 때만 (A/B 3회 스윕으로 좁힌 최종형):
+  //   ① 무조건 전환 → 엔진 4.25 과등반·유지비 자멸 (승률 44%)
+  //   ② 엔진<3+잔여3턴 → 여전히 봇 대칭전에서 순손실 (승률 46%)
+  //   ③ 상대 엔진 > 내 엔진일 때만 → 봇끼리는 엔진이 비슷해 거의 발동 안 함(항등 지향),
+  //      사람이 Locomotive 독점으로 앞서가면 항상 발동 = 엔진 1 고착 락만 정밀 타격.
+  const oppMaxEngine = Math.max(
+    0,
+    ...state.activePlayers
+      .filter(p => p !== playerId && !state.players[p]?.eliminated)
+      .map(p => state.players[p]?.engineLevel ?? 0),
+  );
+  const skipFloor = (mapProfile.aiEngineSkipConversionVP > 0
+    && player.engineLevel < oppMaxEngine
+    && player.engineLevel < 3 && remainingTurns >= 3)
+    ? mapProfile.aiEngineSkipConversionVP
+    : 0;
 
   // round 2의 업그레이드는 다음 턴에야 실현 → 마지막 턴이면 가치 없음
   if (round !== 1 && remainingTurns < 1) return -Infinity;
@@ -343,7 +363,7 @@ function evaluateEngineUpgradeOption(state: GameState, playerId: PlayerId): numb
     if (base > 0 && longHaulUnlock) {
       return Math.max(base * 6, frontLoad);
     }
-    return Math.max(base, frontLoad);
+    return Math.max(base, frontLoad, skipFloor);
   }
 
   // 해금 배달이 없어도, 보드에 화물이 전혀 없으면 다음 턴 물품 성장을 기대
@@ -351,10 +371,12 @@ function evaluateEngineUpgradeOption(state: GameState, playerId: PlayerId): numb
   if (totalCubes === 0 && remainingTurns >= 1) {
     // 보수적 기대: 1링크 배달, 불확실성 추가 할인
     const expectedVP = deliveryDeltaVP(state, playerId, 1, 0);
-    return Math.max(engineUpgradeDeltaVP(state, playerId, expectedVP, FUTURE_DELIVERY_DISCOUNT * 0.5), frontLoad);
+    return Math.max(engineUpgradeDeltaVP(state, playerId, expectedVP, FUTURE_DELIVERY_DISCOUNT * 0.5), frontLoad, skipFloor);
   }
 
-  return frontLoad > 0 ? frontLoad : -Infinity; // front-load: 해금 큐브가 없어도 미리 엔진을 올려둔다
+  // front-load: 해금 큐브가 없어도 미리 엔진을 올려둔다 / skipFloor: 죽은 라운드 전환
+  const fallback = Math.max(frontLoad, skipFloor);
+  return fallback > 0 ? fallback : -Infinity;
 }
 
 /**

@@ -58,10 +58,57 @@ export function decideSharesIssue(state: GameState, playerId: PlayerId): number 
   //   부족해 순수 빚이 되고 그 주식 비용이 파산을 유발한다(측정: 파산 13→11, VP 유지).
   // 맵별 "후반 N턴 계획 발행 금지" (기본 0 = 마지막 턴만). 달은 4 → T5~8 금지.
   const noIssueLastTurns = getMapProfile(state.mapId).aiNoBuildIssueLastTurns;
-  const noBuildIssue = isLastTurn
+  let noBuildIssue = isLastTurn
     || (config.incomeSources.includes('trackCubes') && state.currentTurn >= config.totalTurns - 1)
     || (noIssueLastTurns > 0 && state.currentTurn > config.totalTurns - noIssueLastTurns);
+  // 적응형 레버리지 (aiLeverageWhenBehind — Scotland): income이 상대보다 뒤질 때만 금지 해제.
+  // 긴축은 자기복제 평균 VP 최적이지만 맞대결에서 레버리지에 진다(비대칭 A/B 36%→53%) —
+  // "뒤질 때만 차입"으로 공격성과 파산 방어를 겸한다 (상세: MapProfile 훅 주석).
+  if (noBuildIssue && !isLastTurn && getMapProfile(state.mapId).aiLeverageWhenBehind) {
+    const turnsLeftAdapt = config.totalTurns - state.currentTurn + 1;
+    const oppMaxIncome = Math.max(
+      0,
+      ...state.activePlayers
+        .filter(p => p !== playerId && !state.players[p]?.eliminated)
+        .map(p => state.players[p]?.income ?? 0),
+    );
+    if (turnsLeftAdapt >= 3 && player.income < oppMaxIncome) noBuildIssue = false;
+  }
   if (noBuildIssue) {
+    // 회생 발행 (aiRecapitalizeAtZeroIncome — Scotland): income 0 좀비 락 탈출.
+    // 계획 발행 전면 금지 + 예비금 게이트 조합에서 income이 0으로 깎이면 생존 발행 $5가
+    // 그대로 유지비로 소멸하고 건설 예산(cash−reserve)이 영원히 $0 — 매턴 주식만 늘리는
+    // 좀비가 된다 (2026-08-05 사용자 리포트). 목표 경로가 있고 회수할 턴이 남았으면
+    // 건설+유지비를 한 번에 조달하는 발행을 예외 허용한다. income이 살아나면 조건이
+    // 풀리므로 자기 제한적.
+    // ⚠️ 조건은 "좀비 시그니처"로 좁힌다 — income 0은 게임 시작 상태이기도 해서, income≤0만
+    // 보면 T1부터 전 봇이 회생 발행 = 금지했던 계획 발행의 부활이다 (300시드 실측: 주식
+    // 4.75→7.89·VP 10.86→−0.54 붕괴). T3 이후 + 생존 발행을 이미 해본 상태(주식>시작 2)일 때만.
+    const turnsLeft = config.totalTurns - state.currentTurn + 1;
+    if (
+      !isLastTurn &&
+      player.income <= 0 &&
+      state.currentTurn >= 3 &&
+      player.issuedShares > GAME_CONSTANTS.STARTING_SHARES &&
+      turnsLeft >= 3 &&
+      getMapProfile(state.mapId).aiRecapitalizeAtZeroIncome
+    ) {
+      const plan = ensureTurnPlan(state, playerId);
+      if (plan.targetRoute) {
+        const recapNeeded = Math.max(0, plan.cashNeeded - player.cash);
+        const recapShares = Math.min(
+          Math.ceil(recapNeeded / GAME_CONSTANTS.SHARE_VALUE),
+          MAX_SHARES_PER_TURN,
+          maxPossibleShares,
+        );
+        if (recapShares > survivalShares) {
+          debugLog.preparation(
+            `[Phase I: 주식 발행] ${player.name}: income 0 회생 발행 ${recapShares}주 (계획 $${plan.cashNeeded}, 보유 $${player.cash})`
+          );
+          return recapShares;
+        }
+      }
+    }
     if (survivalShares === 0) {
       debugLog.preparation(`[Phase I: 주식 발행] ${player.name}: 후반(생존 외 발행 금지) → 발행 안함`);
     }

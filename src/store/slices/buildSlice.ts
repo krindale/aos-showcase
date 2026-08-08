@@ -697,8 +697,11 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       if (edge !== undefined) {
         const nb = getNeighborHex(townCoord, edge);
         const hex = state.board.hexTiles.find(h => hexCoordsEqual(h.coord, nb));
+        // 도시 헥스는 hexTiles에 없다 — 인접 도시를 향한 가닥은 그 자체로 완성 링크라 유효
+        // (Scotland Ayr↔Glasgow $2 링크가 이 경로. 도시는 모든 변이 암묵 연결).
+        const nbIsCity = state.board.cities.some(c => hexCoordsEqual(c.coord, nb));
         const exists = (state.board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, townCoord) && sp.edge === edge);
-        if (!hex || hex.terrain === 'lake' || exists) return false;
+        if ((!hex && !nbIsCity) || hex?.terrain === 'lake' || exists) return false;
         targetCount = 1;
       } else {
         targetCount = findMissingTownSpurs(townCoord, state.board, isGovSpur ? null : state.currentPlayer).length;
@@ -869,6 +872,15 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       const ferryRule = getMapProfile(state.mapId).interurbanFerryRule;
       if (ferryRule && ferryBuiltThisTurn(state, currentPlayer)) {
         return deny('인터어반·페리는 한 턴에 하나만 건설할 수 있어요');
+      }
+      // Scotland 페리: 양끝이 모두 도시(도시화 완료)여야 구매 가능 — 마을 id인 동안은
+      // board.cities에서 해석되지 않아 잠재 링크다 (placeNewCity가 도시화 시 id를 갱신).
+      if (link.requiresCities) {
+        const endA = state.board.cities.some(c => c.id === link.cityA);
+        const endB = state.board.cities.some(c => c.id === link.cityB);
+        if (!endA || !endB) {
+          return deny('양끝 마을이 모두 도시화된 후에만 건설할 수 있어요');
+        }
       }
       // 디스크 상한: 구매로 상한을 넘기는데 국유화 대상(당턴 제외 완성 링크)도 없으면
       // 물리적으로 놓을 디스크가 없다 — 구매 거부 (사람·봇 공통 가드)

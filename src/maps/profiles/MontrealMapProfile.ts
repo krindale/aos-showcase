@@ -44,6 +44,12 @@ export class MontrealMapProfile extends StandardMapProfile {
   override isCityNumberBoxBlack(): boolean { return true; }
 
   // ── 몬트리올 특수룰 플래그 ──
+  /** 경매 입찰 현금 가드 income 상계(전 맵 기본 true) **격리 해제 — Montréal만 false**:
+   *  2026-08-08 전 맵 반전 측정에서 유일한 붕괴 맵 (100시드 VP 12.23→6.91·파산 0.73→0.85).
+   *  아래 aiAuctionAlwaysParticipate 기각 기록과 같은 원리 — 몬트리올 봇 경제에서 경매
+   *  참여는 현금 유출 + 행동(추가 지출 경로) 획득이라 일관되게 손해("경매 밴 = 과지출
+   *  브레이크"). 재정 최약체 맵(기저 파산 0.73)이라 입찰 여력 개방이 곧 파산으로 이어진다. */
+  override get aiAuctionExpensesNetOfIncome(): boolean { return false; }
   override get governmentLinks(): boolean { return true; }
   override get masterNetwork(): boolean { return true; }
   override get dedicatedGovEngine(): boolean { return true; }

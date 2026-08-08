@@ -155,11 +155,50 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     return m;
   }, [mapData]);
   const renderDirectLinks = useMemo(
-    () => board.directLinks?.map(dl => ({
-      ...dl,
-      faces: dl.faces ?? directLinkFacesByPair.get(`${dl.cityA}|${dl.cityB}`),
-    })),
-    [board.directLinks, directLinkFacesByPair]
+    () => board.directLinks?.map(dl => {
+      // 끝점 좌표 해석: 도시 → 마을 폴백 (Scotland 페리 — 도시화 전엔 끝점이 마을 id라
+      // cities에서 안 잡힌다. 좌표를 함께 넘겨 잠재 항로도 점선으로 표시).
+      const coordOf = (id: string) =>
+        board.cities.find(c => c.id === id)?.coord ?? board.towns.find(t => t.id === id)?.coord;
+      // 인접 마을↔도시 잠재 링크(Scotland Ayr↔Glasgow): 도시화 전엔 마을 가닥이 링크의 실체 —
+      // 비용 원(②) 클릭이 그 가닥을 짓도록 마을 좌표/변/가닥 소유를 보충한다 (룰북: 마을
+      // 상태에서 건설 가능, "even if Ayr goes from a town to a City").
+      let townLink: { townCoord: HexCoord; edge: number; spurOwner: PlayerId | null; hasSpur: boolean } | undefined;
+      const aCity = board.cities.find(c => c.id === dl.cityA);
+      const bCity = board.cities.find(c => c.id === dl.cityB);
+      if (dl.requiresCities && !dl.faces && (!aCity || !bCity)) {
+        const town = board.towns.find(
+          t => t.id === (aCity ? dl.cityB : dl.cityA) && t.newCityColor === null
+        );
+        const cityEnd = aCity ?? bCity;
+        if (town && cityEnd) {
+          // 마을에서 인접 도시를 향한 변 (0~5 순회 — hexGrid 이웃 판정과 동일 기준.
+          // 랩 어라운드(board 인자)는 미적용 — 직결 링크와 랩이 공존하는 맵이 없다)
+          const edge = [0, 1, 2, 3, 4, 5].find(
+            e => hexCoordsEqual(getNeighborHex(town.coord, e), cityEnd.coord)
+          ) ?? -1;
+          if (edge >= 0) {
+            const spur = (board.townSpurs ?? []).find(
+              sp => hexCoordsEqual(sp.townCoord, town.coord) && sp.edge === edge
+            );
+            townLink = {
+              townCoord: town.coord,
+              edge,
+              spurOwner: spur?.owner ?? null,
+              hasSpur: !!spur,
+            };
+          }
+        }
+      }
+      return {
+        ...dl,
+        faces: dl.faces ?? directLinkFacesByPair.get(`${dl.cityA}|${dl.cityB}`),
+        coordA: coordOf(dl.cityA),
+        coordB: coordOf(dl.cityB),
+        townLink,
+      };
+    }),
+    [board.directLinks, board.cities, board.towns, board.townSpurs, directLinkFacesByPair]
   );
   const mapProfile = useMemo(() => getMapProfile(mapId), [mapId]);
   const terrainColors = mapData.colors.terrain;
@@ -190,7 +229,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   const riverHexKeys = useMemo(() => {
     const s = new Set<string>();
     board.hexTiles.forEach(h => {
-      if (h.terrain === 'river') s.add(`${h.coord.col},${h.coord.row}`);
+      // riverEdges가 있으면 지형이 산이어도 강줄기를 그린다 (Scotland 산+강 $5 헥스)
+      if (h.terrain === 'river' || h.riverEdges) s.add(`${h.coord.col},${h.coord.row}`);
     });
     return s;
   }, [board.hexTiles]);
@@ -296,7 +336,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   const riverEdgeMap = useMemo(() => {
     const m = new Map<string, [number, number]>();
     board.hexTiles.forEach(h => {
-      if (h.terrain === 'river' && h.riverEdges) m.set(`${h.coord.col},${h.coord.row}`, h.riverEdges);
+      // 산+강(Scotland $5) 헥스도 명시 강 방향을 따른다 — terrain 무관 riverEdges 우선
+      if (h.riverEdges) m.set(`${h.coord.col},${h.coord.row}`, h.riverEdges);
     });
     return m;
   }, [board.hexTiles]);
@@ -497,18 +538,35 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
       swamp: GAME_CONSTANTS.RIVER_TRACK_COST,
       mountain: GAME_CONSTANTS.MOUNTAIN_TRACK_COST,
     };
+    // 산+강 조합 헥스(Scotland $5 — terrain mountain + riverEdges): 지형 대표값이 아니라
+    // 범례의 별도 "강+산" 조합 항목으로 표시 (없는 맵은 항목 자체가 안 생김)
+    let mountainRiverCost: number | null = null;
     for (const h of board.hexTiles) {
       if (h.terrain === 'lake') continue;
       // 개별 표기 헥스(showCostMarker — 추가비용 $4/$5)는 지형 대표값이 아니므로 제외
       // (안 하면 마지막에 순회된 특수 헥스의 비용이 지형 전체 비용으로 둔갑)
       if (h.showCostMarker) continue;
+      if (h.terrain === 'mountain' && h.riverEdges) {
+        mountainRiverCost = h.fixedCost ?? GAME_CONSTANTS.MOUNTAIN_TRACK_COST;
+        continue;
+      }
       const cost = h.fixedCost ?? TERRAIN_DEFAULT[h.terrain] ?? 2;
       costByTerrain.set(h.terrain, cost);
     }
-    return order
-      .filter(t => costByTerrain.has(t))
-      .map(t => ({ terrain: t, name: NAME[t] ?? t, cost: costByTerrain.get(t)! }));
-  }, [mapData.hexCostMode, board.hexTiles]);
+    const entries: { terrain: TerrainType; name: string; cost: number; combo?: 'mountainRiver' }[] =
+      order
+        .filter(t => costByTerrain.has(t))
+        .map(t => ({ terrain: t, name: NAME[t] ?? t, cost: costByTerrain.get(t)! }));
+    if (mountainRiverCost !== null) {
+      entries.push({
+        terrain: 'mountain',
+        name: `${NAME.river ?? '강'}+${NAME.mountain ?? '산'}`,
+        cost: mountainRiverCost,
+        combo: 'mountainRiver',
+      });
+    }
+    return entries;
+  }, [mapData.hexCostMode, mapData.terrainNames, board.hexTiles]);
 
   // 터치 제스처 (핀치 줌, 팬) 지원.
   const svgRef = useRef<SVGSVGElement>(null);
@@ -1165,8 +1223,9 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                   />
                 )}
                 {/* 강 헥스: 인접 강 헥스와 변에서 이어지는 연속 강줄기 (철도 타일처럼 흐름).
-                    헥스 모양 clipPath로 강줄기가 외곽선을 넘어가지 않게 가둔다. */}
-                {terrain === 'river' && !isHighlighted && (
+                    헥스 모양 clipPath로 강줄기가 외곽선을 넘어가지 않게 가둔다.
+                    산+강 헥스(Scotland $5)는 산 지형 위에 riverEdges로 강줄기만 얹는다. */}
+                {(terrain === 'river' || !!hexTile?.riverEdges) && !isHighlighted && (
                   <>
                     <clipPath id={`river-clip-${col}-${row}`}>
                       <polygon points={getHexPoints(x, y, HEX_SIZE, isFlat)} />
@@ -1348,6 +1407,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           onCubeClick={handleCubeClick}
           onPickCityCube={canPickCubeByCity ? setCubePickerCityId : undefined}
           buildDirectLink={buildDirectLink}
+          buildTownSpur={buildTownSpur}
           natDirectIndex={natDirectIndex}
           onNationalizeDirect={(linkId) => nationalizeLink(currentPlayer, linkId)}
           ferryEdges={board.ferryEdges}
@@ -1460,7 +1520,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                 // 초록 바탕 + 검정 도로 + 노란 점선 중앙선
                 const isRoad = e.name === '도로';
                 return (
-                  <g key={`legend-${e.terrain}`}>
+                  <g key={`legend-${e.combo ?? e.terrain}`}>
                     <rect x={x0 + pad} y={ry} width={swatch} height={swatch} rx={3}
                       fill={terrainColors[e.terrain] ?? terrainColors.plain}
                       stroke="rgba(0,0,0,0.5)" strokeWidth={1.5} />
@@ -1471,6 +1531,16 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                         <line x1={x0 + pad + 3} y1={ry + swatch / 2} x2={x0 + pad + swatch - 3} y2={ry + swatch / 2}
                           stroke="#E8C25A" strokeWidth={1.6} strokeDasharray="4 4" strokeLinecap="round" />
                       </>
+                    )}
+                    {/* 강+산 조합(Scotland $5): 산 스와치 위 파란 물결 — 보드의 산+강 헥스 모양 그대로 */}
+                    {e.combo === 'mountainRiver' && (
+                      <path
+                        d={`M ${x0 + pad + 2} ${ry + swatch / 2 + 2} q 4.5 -7 9 0 t 9 0`}
+                        fill="none"
+                        stroke={terrainColors.river ?? '#4a90c8'}
+                        strokeWidth={4}
+                        strokeLinecap="round"
+                      />
                     )}
                     <text x={x0 + pad + swatch + 10} y={ry + swatch - 5} fill="#f5f5f5"
                       fontSize={17} fontWeight="600" fontFamily="system-ui, sans-serif">{e.name}</text>

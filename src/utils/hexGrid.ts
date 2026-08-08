@@ -416,14 +416,34 @@ export function hexDistance(a: HexCoord, b: HexCoord): number {
  * 두 헥스 사이의 연결 엣지 찾기
  * A 헥스에서 B 헥스로 연결되는 엣지 번호 반환
  */
-export function getConnectingEdge(a: HexCoord, b: HexCoord, board?: Pick<BoardState, 'wrapEdges'>): number | null {
+export function getConnectingEdge(
+  a: HexCoord,
+  b: HexCoord,
+  board?: Pick<BoardState, 'wrapEdges'> & { trackTiles?: BoardState['trackTiles'] }
+): number | null {
+  // 달 랩 어라운드에선 같은 두 헥스가 **두 개 이상의 변 쌍**으로 인접할 수 있다
+  // (예: 랩 33번 B변5↔A변2 + 34번 B변0↔A변3 — 인접 랩 변 두 개가 같은 반대편 헥스로 이어짐).
+  // 후보를 전부 모은 뒤, 실제 트랙이 놓인 변 쌍을 우선 선택한다 — "처음 만나는 변"을 돌려주면
+  // 경로 DFS가 트랙과 다른 변으로 진입 판정해 랩 너머 배달이 통째로 죽는다(2026-08-08 실전 버그).
+  let first: number | null = null;
+  const candidates: number[] = [];
   for (let edge = 0; edge < 6; edge++) {
     const neighbor = getNeighborHex(a, edge, board);
     if (neighbor.col === b.col && neighbor.row === b.row) {
-      return edge;
+      if (first === null) first = edge;
+      candidates.push(edge);
     }
   }
-  return null;
+  if (candidates.length <= 1 || !board?.trackTiles) return first;
+  const hasEdge = (c: HexCoord, e: number): boolean => {
+    const tiles = board.trackTiles!.filter(t => hexCoordsEqual(t.coord, c));
+    if (tiles.length === 0) return true; // 도시/마을/빈 헥스 — 모든 변 연결 가능
+    return tiles.some(t => t.edges.includes(e) || t.secondaryEdges?.includes(e) === true);
+  };
+  for (const e of candidates) {
+    if (hasEdge(a, e) && hasEdge(b, getOppositeEdge(e))) return e;
+  }
+  return first;
 }
 
 /**

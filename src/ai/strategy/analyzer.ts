@@ -949,13 +949,32 @@ export function isReusableUnownedOnPath(
  * 두 인접 헥스 사이의 연결 엣지 찾기
  *
  * A 헥스에서 B 헥스로 가는 엣지 번호 반환 (-1: 인접하지 않음)
+ *
+ * ⚠️ 달 랩 어라운드에선 같은 두 헥스가 **두 개 이상의 랩 변 쌍**으로 인접할 수 있다
+ * (예: 33번 (9,6)변5↔(1,10)변2 + 34번 (9,6)변0↔(1,10)변3). 스캔에서 처음 만나는 변을
+ * 돌려주면 **양방향 호출이 서로 다른 쌍을 골라** — from→to는 33번 변, to→from은 34번 변 —
+ * 봇이 어긋난 변으로 타일 두 장을 깔아 링크가 영원히 안 이어진다(2026-08-08 실전 버그 계열).
+ * 랩 인접은 "같은 쌍을 잇는 랩 변 중 번호가 가장 작은 쌍"을 양쪽 모두 선택해 일관화한다.
  */
 export function getEdgeBetweenHexes(from: HexCoord, to: HexCoord, board?: Pick<BoardState, 'wrapEdges'>): number {
+  // 일반(비랩) 인접 우선 — 랩 없는 맵/헥스는 기존과 동일
   for (let edge = 0; edge < 6; edge++) {
-    const neighbor = getNeighborHex(from, edge, board);
+    const neighbor = getNeighborHex(from, edge); // 랩 미적용 스캔
     if (hexCoordsEqual(neighbor, to)) {
       return edge;
     }
+  }
+  // 랩 인접: 최소 번호 쌍으로 결정론적 선택 (양방향 일관)
+  if (board?.wrapEdges?.length) {
+    let best: { num: number; edge: number } | null = null;
+    for (const w of board.wrapEdges) {
+      if (hexCoordsEqual(w.a.coord, from) && hexCoordsEqual(w.b.coord, to)) {
+        if (!best || w.number < best.num) best = { num: w.number, edge: w.a.edge };
+      } else if (hexCoordsEqual(w.b.coord, from) && hexCoordsEqual(w.a.coord, to)) {
+        if (!best || w.number < best.num) best = { num: w.number, edge: w.b.edge };
+      }
+    }
+    if (best) return best.edge;
   }
   return -1; // 인접하지 않음
 }

@@ -298,4 +298,44 @@ describe('봇 경매 성격 분리 측정 — Rust Belt 4인 고정 배정', () 
     // Part A WU 파산 0.21 대비 폭증 없음
     expect(totalBankrupt / seeds).toBeLessThanOrEqual(0.5);
   }, 900_000);
+
+  // 성격별 "진짜" 승률 — 좌석 고정 측정은 좌석 편향(시드 아티팩트)이 섞이므로,
+  // 시드마다 성격을 좌석에 로테이션 배정해(seed i → r = i%5) 좌석 효과를 상쇄한다.
+  // Rust Belt 5인(7턴) + 5성격 전원: 각 성격이 각 좌석에 seeds/5회씩 앉는다.
+  it('성격별 승률 측정 (좌석 로테이션, Rust Belt 5인)', () => {
+    const seeds = Number(process.env.AOS_SEEDS ?? 100);
+    const ROT_PLAYERS: PlayerId[] = ['player1', 'player2', 'player3', 'player4', 'player5'];
+    const LIST: AuctionPersonalityId[] = ['denial', 'wuType', 'aggressive', 'conservative', 'standard'];
+
+    const wins = {} as Record<AuctionPersonalityId, number>;
+    const vpSum = {} as Record<AuctionPersonalityId, number>;
+    const bankruptByPers = {} as Record<AuctionPersonalityId, number>;
+    LIST.forEach(id => { wins[id] = 0; vpSum[id] = 0; bankruptByPers[id] = 0; });
+    let allEnd = true;
+
+    for (let i = 0; i < seeds; i++) {
+      const rot = i % LIST.length;
+      const seatPersonality = {} as Record<PlayerId, AuctionPersonalityId>;
+      ROT_PLAYERS.forEach((p, j) => { seatPersonality[p] = LIST[(j + rot) % LIST.length]; });
+
+      const r = runGame(7000 + i * 137, 'rust-belt', ROT_PLAYERS, seatPersonality);
+      allEnd = allEnd && r.reachedEnd;
+
+      let best: PlayerId = ROT_PLAYERS[0], bestVP = -Infinity;
+      for (const p of ROT_PLAYERS) {
+        const v = r.accurateVP[p] ?? -Infinity;
+        vpSum[seatPersonality[p]] += r.accurateVP[p] ?? 0;
+        if (v > bestVP) { bestVP = v; best = p; }
+      }
+      wins[seatPersonality[best]]++;
+    }
+
+    logSpy.mockRestore();
+    console.log(`\n===== 성격별 승률 (좌석 로테이션, Rust Belt 5인, ${seeds} 시드) =====`);
+    LIST.forEach(id => {
+      console.log(`${id}: 승리 ${wins[id]}회 (${(wins[id] / seeds * 100).toFixed(0)}%) · 평균 VP ${(vpSum[id] / seeds).toFixed(1)}`);
+    });
+
+    expect(allEnd).toBe(true);
+  }, 900_000);
 });

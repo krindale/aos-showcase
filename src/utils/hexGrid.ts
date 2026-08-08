@@ -425,11 +425,14 @@ export function getConnectingEdge(
   // (예: 랩 33번 B변5↔A변2 + 34번 B변0↔A변3 — 인접 랩 변 두 개가 같은 반대편 헥스로 이어짐).
   // 후보를 전부 모은 뒤, 실제 트랙이 놓인 변 쌍을 우선 선택한다 — "처음 만나는 변"을 돌려주면
   // 경로 DFS가 트랙과 다른 변으로 진입 판정해 랩 너머 배달이 통째로 죽는다(2026-08-08 실전 버그).
+  // 이중 인접은 랩 변에서만 생긴다 — 랩 없는 맵(대부분)은 첫 일치에서 즉시 반환 (경로 DFS 핫패스)
+  const wrapActive = (board?.wrapEdges?.length ?? 0) > 0;
   let first: number | null = null;
   const candidates: number[] = [];
   for (let edge = 0; edge < 6; edge++) {
     const neighbor = getNeighborHex(a, edge, board);
     if (neighbor.col === b.col && neighbor.row === b.row) {
+      if (!wrapActive) return edge;
       if (first === null) first = edge;
       candidates.push(edge);
     }

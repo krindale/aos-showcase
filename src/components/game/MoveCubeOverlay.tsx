@@ -116,7 +116,7 @@ export default function MoveCubeOverlay() {
           // 데스크톱(md+) right = 우측 패널의 오른쪽 끝과 정렬(2026-08-08 사용자 지시):
           // 패널 우변 = 가운데 정렬 max-w-[1800px] 컨테이너(main px-4) 안 컬럼의 pr-1 안쪽
           // = 뷰포트 오른쪽에서 max(20px, (100vw−1800px)/2 + 4px). 1832px 경계에서 연속.
-          className="fixed bottom-4 right-3 md:right-[max(1.25rem,calc((100vw-1800px)/2+0.25rem))] z-40 w-[60vw] md:w-[clamp(280px,30vw,440px)] [--aos-mini-h:42vh] md:[--aos-mini-h:70vh] max-h-[var(--aos-mini-h)] rounded-2xl border border-accent/40 shadow-2xl overflow-hidden bg-background-secondary"
+          className="fixed bottom-4 right-3 md:right-[max(1.25rem,calc((100vw_-_1800px)/2_+_0.25rem))] z-40 w-[60vw] md:w-[clamp(280px,30vw,440px)] [--aos-mini-h:42vh] md:[--aos-mini-h:70vh] max-h-[var(--aos-mini-h)] rounded-2xl border border-accent/40 shadow-2xl overflow-hidden bg-background-secondary"
         >
           {/* 좁은 모바일 폭에서 헤더가 여러 줄로 늘어나 미니맵을 밀어내지 않도록 한 줄로 자른다 */}
           <div className="px-2 md:px-3 py-1 md:py-1.5 bg-accent/15 border-b border-accent/30 text-center truncate">

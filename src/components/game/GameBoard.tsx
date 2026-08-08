@@ -934,6 +934,18 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
               x2={tx + 8 * Math.cos(ang)} y2={ty + 8 * Math.sin(ang)}
               stroke="#4A4A42" strokeWidth="3" strokeLinecap="round"
             />
+            {/* 가닥 소유자 미니 디스크 (2026-08-08 사용자 요청): 소유 디스크가 트랙 타일에만
+                붙어 마을 헥스 안 가닥은 누구 것인지 안 보였다 — "레일은 중립색, 소유는 디스크"
+                언어를 유지하며 침목 자리에 소형 디스크로 식별. 트랙 타일 디스크(r7)와 달리
+                완성 링크 소속이어도 항상 표시한다(마을 안 즉시 식별이 목적 — 링크 중앙 마커는
+                마을에서 멀 수 있다). 정부/공용 가닥(owner null)은 디스크 없음(룰과 동일). */}
+            {sp.owner !== null && players[sp.owner] && (
+              <circle
+                cx={tx} cy={ty} r="5"
+                fill={PLAYER_COLORS[players[sp.owner].color]}
+                stroke="#1a1a1a" strokeWidth="1.5"
+              />
+            )}
             {/* 이번 턴에 건설한 가닥 표시 */}
             {sp.builtTurn === currentTurn && (
               <circle cx={(mid.x + x) / 2} cy={(mid.y + y) / 2} r="6" fill="none" stroke="#ffffff" strokeWidth="1.5" strokeDasharray="3 2" opacity="0.9" />
@@ -942,7 +954,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
         );
       });
     },
-    [board.townSpurs, isFlat, terrainColors.plain, currentTurn]
+    [board.townSpurs, isFlat, terrainColors.plain, currentTurn, players]
   );
 
   // ── 모바일 화물 선택 팝업 ─────────────────────────────────────────────────────

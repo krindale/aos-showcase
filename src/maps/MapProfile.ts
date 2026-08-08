@@ -357,14 +357,16 @@ export abstract class MapProfile {
   get aiAuctionAlwaysParticipate(): boolean { return false; }
 
   /**
-   * 경매 입찰 현금 가드에서 **운영비를 income으로 상계**할지 (기본 false = 기존 동작 = 전액 예비).
+   * 경매 입찰 현금 가드에서 **운영비를 income으로 상계**할지 (기본 true, 2026-08-08 전 맵 반전).
    * 비용 지불(VII)은 수입 수집(VI) 직후라 운영비의 income 충당분까지 현금으로 예비하면 이중
    * 계상이다 — 주식·엔진이 큰 봇은 `cash < expenses`가 상시가 되어 **maxBid 영구 $0 = 경매
    * 상시 패스**(2026-08-05l 롤백 기록의 미해결 원인, Scotland 2인전 "사람이 매턴 $1로 선공
    * 독점"). true면 부족분 `max(0, expenses − income)`만 예비한다. `aiPlanExpensesNetOfIncome`
-   * (turnPlan 예산)과 같은 원리를 경매 가드에 적용한 것.
+   * (turnPlan 예산)과 같은 원리를 경매 가드에 적용한 것. Scotland 격리 검증(2026-08-05m,
+   * 입찰 0.04→0.81회/게임·파산 동일) 후 전 맵 기본값으로 승격 — 측정에서 붕괴하는 맵이
+   * 나오면 그 맵만 false로 격리한다(훅은 그래서 남겨둔다).
    */
-  get aiAuctionExpensesNetOfIncome(): boolean { return false; }
+  get aiAuctionExpensesNetOfIncome(): boolean { return true; }
 
   /**
    * 경매 절실함에 **상대 저지 가치**를 합산할지 (기본 false = 내 절실함만 — 2026-08-05i 계열).

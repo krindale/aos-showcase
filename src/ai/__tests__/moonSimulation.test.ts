@@ -61,6 +61,10 @@ interface MResult {
   linkDist: Record<number, number>;   // 배달 경로 총 링크 분포
   ownLinkSum: number;                 // 배달당 내 링크 합 (÷move = 평균)
   turnRows: { turn: number; income: number; shares: number; engine: number }[];
+  // ── 진단(경매/순서) ──
+  bidsThisGame: number;                          // 이 게임에서 실제 입찰(placeBid) 발생 횟수
+  firstSeatByBid: Record<PlayerId, number>;      // 입찰($>0)로 1번 획득한 횟수 (player별)
+  firstSeatByYield: Record<PlayerId, number>;    // 양보(입찰 없이)로 1번이 된 횟수 (player별)
 }
 
 function runMoonGame(seed: number): MResult {
@@ -92,6 +96,12 @@ function runMoonGame(seed: number): MResult {
   let ownLinkSum = 0;
   const turnRows: MResult['turnRows'] = [];
   const seenTurn = new Set<number>();
+  const firstSeatByBid = {} as Record<PlayerId, number>;
+  const firstSeatByYield = {} as Record<PlayerId, number>;
+  PLAYERS.forEach(p => { firstSeatByBid[p] = 0; firstSeatByYield[p] = 0; });
+  let lastSeatTurn = 0;
+  let bidsThisGame = 0;
+  let turnHadBid = false; // 이번 턴 경매에서 실제 입찰이 있었는지 (selectActions 진입 시 분류 후 리셋)
 
   const MAX_ITER = 80000;
   let iter = 0, stale = 0, lastSig = '';
@@ -125,6 +135,19 @@ function runMoonGame(seed: number): MResult {
       const builderIsEngineer = s.players[s.currentPlayer]?.selectedAction === 'engineer';
       if (s.phaseState.maxTracksThisTurn > (builderIsEngineer ? 3 : 2)) buildLimitOk = false;
       if (s.phaseState.builtTracksThisTurn > s.phaseState.maxTracksThisTurn) buildLimitOk = false;
+    }
+
+    // 1번(선공) 획득 방식 분류 — 경매로 순서가 확정된 뒤(selectActions) 턴당 1회.
+    // "입찰로 따냈는지(byBid) vs 아무도 안 사서 양보로 됐는지(byYield)"를 분류 —
+    // 순서 고착이 경매 경쟁의 결과인지, 경매가 사실상 작동 안 해서인지 진단.
+    if (s.currentPhase === 'selectActions' && s.currentTurn !== lastSeatTurn) {
+      const first = s.playerOrder[0];
+      if (first) {
+        if (turnHadBid) firstSeatByBid[first] = (firstSeatByBid[first] ?? 0) + 1;
+        else firstSeatByYield[first] = (firstSeatByYield[first] ?? 0) + 1;
+      }
+      lastSeatTurn = s.currentTurn;
+      turnHadBid = false; // 다음 턴 경매를 위해 리셋
     }
 
     if (s.ui.movingCube) { s.completeCubeMove(); continue; }
@@ -168,7 +191,7 @@ function runMoonGame(seed: number): MResult {
 
       case 'auction': {
         const a = decision.decision;
-        if (a.action === 'bid') store.placeBid(cp, a.amount);
+        if (a.action === 'bid') { store.placeBid(cp, a.amount); bidsThisGame++; turnHadBid = true; }
         else if (a.action === 'pass') store.passBid(cp);
         else if (a.action === 'skip') store.skipBid(cp);
         else if (a.action === 'complete') { store.resolveAuction(); useGameStore.getState().nextPhase(); }
@@ -303,6 +326,7 @@ function runMoonGame(seed: number): MResult {
     nightSideOk, buildLimitOk, moonBaseDeliveryOk, growthEvents,
     moveOpps, linkDist, ownLinkSum, turnRows,
     nightDeliveryOk, transitOk, destDaySide, destBlackToNight, destBlackToDay,
+    bidsThisGame, firstSeatByBid, firstSeatByYield,
   };
 }
 
@@ -327,13 +351,20 @@ describe('Moon 4 AI 전체 게임 — 특수룰 실동작 + 베이스라인', ()
     const winnerCounts = {} as Record<PlayerId, number>;
     type PerPlayer = { vp: number; income: number; shares: number; engine: number; builds: number; deliveries: number; tracks: number };
     const perPlayer = {} as Record<PlayerId, PerPlayer>;
+    const firstSeatBidTotal = {} as Record<PlayerId, number>;
+    const firstSeatYieldTotal = {} as Record<PlayerId, number>;
     PLAYERS.forEach(p => {
       winnerCounts[p] = 0;
+      firstSeatBidTotal[p] = 0; firstSeatYieldTotal[p] = 0;
       perPlayer[p] = { vp: 0, income: 0, shares: 0, engine: 0, builds: 0, deliveries: 0, tracks: 0 };
     });
+    let totalBids = 0;
     for (const r of results) {
+      totalBids += r.bidsThisGame;
       for (const pid of PLAYERS) {
         allVPs.push(r.accurateVP[pid] ?? 0);
+        firstSeatBidTotal[pid] += r.firstSeatByBid[pid] ?? 0;
+        firstSeatYieldTotal[pid] += r.firstSeatByYield[pid] ?? 0;
         const x = perPlayer[pid];
         x.vp += r.accurateVP[pid] ?? 0;
         x.income += r.income[pid] ?? 0;
@@ -384,6 +415,8 @@ describe('Moon 4 AI 전체 게임 — 특수룰 실동작 + 베이스라인', ()
       buildLimitOk: results.every(r => r.buildLimitOk),
       moonBaseDeliveryOk: results.every(r => r.moonBaseDeliveryOk),
       winnerCounts, perPlayer,
+      avgBidsPerGame: totalBids / seeds,
+      firstSeatBidTotal, firstSeatYieldTotal,
     };
   }
 
@@ -395,6 +428,10 @@ describe('Moon 4 AI 전체 게임 — 특수룰 실동작 + 베이스라인', ()
     console.log(`건설/배달/성장: 건설 ${m.avgBuilds.toFixed(1)}, 배달 ${m.avgDeliveries.toFixed(1)}, 성장발생턴 ${m.avgGrowthEvents.toFixed(1)}`);
     console.log(`파산: ${m.avgBankruptPerGame.toFixed(2)}명/게임, 완주 턴 분포: ${JSON.stringify(m.finishedTurns)}`);
     console.log(`최종 승자 분포: ${JSON.stringify(m.winnerCounts)}`);
+    // ── 경매/순서 진단 (상시) ──
+    console.log(`경매 입찰 발생: ${m.avgBidsPerGame.toFixed(1)}회/게임 (0에 가까우면 경매가 양보로만 결정 = 순서 안 섞임)`);
+    console.log(`1번 획득 — 입찰로(byBid): ${JSON.stringify(m.firstSeatBidTotal)}`);
+    console.log(`1번 획득 — 양보로(byYield): ${JSON.stringify(m.firstSeatYieldTotal)}`);
     console.log('--- player별 평균 ---');
     PLAYERS.forEach(p => {
       const x = m.perPlayer[p];

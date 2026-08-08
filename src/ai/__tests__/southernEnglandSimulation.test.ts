@@ -41,6 +41,10 @@ interface SEResult {
   builds: number;
   urbanizations: number;
   londonBlueViolations: number; // 불변식 위반 횟수 (0이어야 함)
+  // ── 진단(경매/순서) ──
+  bidsThisGame: number;                          // 이 게임에서 실제 입찰(placeBid) 발생 횟수
+  firstSeatByBid: Record<PlayerId, number>;      // 입찰($>0)로 1번 획득한 횟수 (player별)
+  firstSeatByYield: Record<PlayerId, number>;    // 양보(입찰 없이)로 1번이 된 횟수 (player별)
 }
 
 /** Southern England 한 게임(5 AI)을 동기식으로 끝까지 구동하고 결과 측정 */
@@ -56,6 +60,12 @@ function runEnglandGame(seed: number): SEResult {
 
   let deliveries = 0, builds = 0, urbanizations = 0;
   let londonBlueViolations = 0;
+  const firstSeatByBid = {} as Record<PlayerId, number>;
+  const firstSeatByYield = {} as Record<PlayerId, number>;
+  PLAYERS.forEach(p => { firstSeatByBid[p] = 0; firstSeatByYield[p] = 0; });
+  let lastSeatTurn = 0;
+  let bidsThisGame = 0;
+  let turnHadBid = false; // 이번 턴 경매에서 실제 입찰이 있었는지 (selectActions 진입 시 분류 후 리셋)
   const MAX_ITER = 80000;
   let iter = 0, stale = 0, lastSig = '';
   let reachedEnd = false;
@@ -68,6 +78,19 @@ function runEnglandGame(seed: number): SEResult {
     if (s.currentPhase === 'issueShares') {
       const london = s.board.cities.find(c => c.id === 'london');
       if (london?.cubes.includes('blue')) londonBlueViolations++;
+    }
+
+    // 1번(선공) 획득 방식 분류 — 경매로 순서가 확정된 뒤(selectActions) 턴당 1회.
+    // "입찰로 따냈는지(byBid) vs 아무도 안 사서 양보로 됐는지(byYield)"를 분류 —
+    // 순서 고착이 경매 경쟁의 결과인지, 경매가 사실상 작동 안 해서인지 진단.
+    if (s.currentPhase === 'selectActions' && s.currentTurn !== lastSeatTurn) {
+      const first = s.playerOrder[0];
+      if (first) {
+        if (turnHadBid) firstSeatByBid[first] = (firstSeatByBid[first] ?? 0) + 1;
+        else firstSeatByYield[first] = (firstSeatByYield[first] ?? 0) + 1;
+      }
+      lastSeatTurn = s.currentTurn;
+      turnHadBid = false; // 다음 턴 경매를 위해 리셋
     }
 
     if (s.ui.movingCube) { s.completeCubeMove(); continue; }
@@ -101,7 +124,7 @@ function runEnglandGame(seed: number): SEResult {
 
       case 'auction': {
         const a = decision.decision;
-        if (a.action === 'bid') store.placeBid(cp, a.amount);
+        if (a.action === 'bid') { store.placeBid(cp, a.amount); bidsThisGame++; turnHadBid = true; }
         else if (a.action === 'pass') store.passBid(cp);
         else if (a.action === 'skip') store.skipBid(cp);
         else if (a.action === 'complete') { store.resolveAuction(); useGameStore.getState().nextPhase(); }
@@ -188,6 +211,7 @@ function runEnglandGame(seed: number): SEResult {
     accurateVP, income, shares, completedTracks, bankruptcies,
     finalTurn: f.currentTurn, reachedEnd, deliveries, builds, urbanizations,
     londonBlueViolations,
+    bidsThisGame, firstSeatByBid, firstSeatByYield,
   };
 }
 
@@ -211,12 +235,18 @@ describe('Southern England 5 AI 전체 게임 — 실동작 + 베이스라인', 
     let totalBankrupt = 0, totalViolations = 0;
     const winnerCounts = {} as Record<PlayerId, number>;
     const perPlayerVP = {} as Record<PlayerId, number>;
-    PLAYERS.forEach(p => { winnerCounts[p] = 0; perPlayerVP[p] = 0; });
+    const firstSeatBidTotal = {} as Record<PlayerId, number>;
+    const firstSeatYieldTotal = {} as Record<PlayerId, number>;
+    PLAYERS.forEach(p => { winnerCounts[p] = 0; perPlayerVP[p] = 0; firstSeatBidTotal[p] = 0; firstSeatYieldTotal[p] = 0; });
+    let totalBids = 0;
     for (const r of results) {
       for (const pid of PLAYERS) {
         allVPs.push(r.accurateVP[pid] ?? 0);
         perPlayerVP[pid] += r.accurateVP[pid] ?? 0;
+        firstSeatBidTotal[pid] += r.firstSeatByBid[pid] ?? 0;
+        firstSeatYieldTotal[pid] += r.firstSeatByYield[pid] ?? 0;
       }
+      totalBids += r.bidsThisGame;
       totalBankrupt += r.bankruptcies;
       totalViolations += r.londonBlueViolations;
       let best = PLAYERS[0], bestVP = -Infinity;
@@ -242,6 +272,8 @@ describe('Southern England 5 AI 전체 게임 — 실동작 + 베이스라인', 
       allReachedEnd: results.every(r => r.reachedEnd),
       totalViolations,
       winnerCounts, perPlayerVP,
+      avgBidsPerGame: totalBids / seeds,
+      firstSeatBidTotal, firstSeatYieldTotal,
     };
   }
 
@@ -258,6 +290,10 @@ describe('Southern England 5 AI 전체 게임 — 실동작 + 베이스라인', 
     console.log(`파산: ${m.avgBankruptPerGame.toFixed(2)}명/게임, 완주 턴 분포: ${JSON.stringify(m.finishedTurns)}`);
     console.log(`최종 승자 분포: ${JSON.stringify(m.winnerCounts)}`);
     console.log(`player별 평균 VP: ${JSON.stringify(Object.fromEntries(Object.entries(m.perPlayerVP).map(([k, v]) => [k, +v.toFixed(1)])))}`);
+    // ── 경매/순서 진단 (상시) ──
+    console.log(`경매 입찰 발생: ${m.avgBidsPerGame.toFixed(1)}회/게임 (0에 가까우면 경매가 양보로만 결정 = 순서 안 섞임)`);
+    console.log(`1번 획득 — 입찰로(byBid): ${JSON.stringify(m.firstSeatBidTotal)}`);
+    console.log(`1번 획득 — 양보로(byYield): ${JSON.stringify(m.firstSeatYieldTotal)}`);
     console.log(`London 파랑 불변식 위반: ${m.totalViolations}건 (0이어야 함)`);
 
     // 핵심: 모든 게임이 정상 종료 (멈춤/무한루프 없음)

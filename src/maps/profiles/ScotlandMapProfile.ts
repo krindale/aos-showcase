@@ -97,8 +97,8 @@ export class ScotlandMapProfile extends StandardMapProfile {
   // 원문제(사용자 리포트): 봇이 경매를 상시 패스해 사람이 매턴 $1로 선공·행동 우선권을 독점
   // = 긴장감 0 (베이스라인 실측: 입찰 0.04회/게임). 원인은 입찰 현금 가드의 income 무시
   // (cash < expenses 상시 → maxBid 영구 $0)였고, 견제 가치는 그 뒤에 막혀 발동 불가였다.
-  /** 입찰 현금 가드에서 운영비를 income으로 상계 — maxBid 영구 $0 해소 (선행 조건) */
-  override get aiAuctionExpensesNetOfIncome(): boolean { return true; }
+  // (선행 조건이던 aiAuctionExpensesNetOfIncome 가드 상계는 2026-08-08 전 맵 기본값으로
+  //  승격돼 override가 불필요해짐 — 여기서 처음 검증된 뒤 MapProfile 기본으로 올라간 것)
   /** 상대 저지 가치 — 2인 제로섬에서 상대의 (최선−차선) 격차만큼 1등을 견제 */
   override get aiAuctionDenialValue(): boolean { return true; }
   /** 경합 수송 선순위 가치 — 서로 노리는 큐브가 있는 턴은 1등 좌석을 실제로 싸운다

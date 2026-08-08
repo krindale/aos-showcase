@@ -527,71 +527,55 @@ export default function PhasePanel() {
         )}
         {currentPhase === 'selectActions' && repopCubes.length === 0 && !currentPlayerData.actionBanned && (
           <div className="space-y-2 md:space-y-3">
-            {currentPlayerData.isAI ? (
-              <div className="text-center py-4">
-                <div className="animate-pulse text-accent font-medium">
-                  {currentPlayerData.name} (BOT) 행동 선택 중...
-                </div>
-              </div>
-            ) : isMyTurn ? (
-              <p className="text-xs md:text-sm text-foreground-secondary mb-2 md:mb-3">
-                <span className="text-accent font-medium">{currentPlayerData.name}</span>, 행동을 선택하세요:
-              </p>
-            ) : (
-              <p className="text-xs md:text-sm text-foreground-secondary mb-2 md:mb-3">
-                <span className="text-accent font-medium">{currentPlayerData.name}</span>님이 행동을 선택하는 중...
-              </p>
-            )}
-            {/* 선택 현황 표시 — 봇 차례에만 표시(사람 차례엔 숨김). 선택 순간 플레이어 색으로 팝 */}
-            {currentPlayerData.isAI && (
-            <div className="p-1.5 md:p-2 rounded-lg bg-background/30 text-[10px] md:text-xs text-foreground-secondary flex flex-wrap gap-x-3 gap-y-1">
-              {activePlayers.map((pid) => {
-                const p = players[pid];
-                if (!p || p.eliminated) return null;
-                const pColor = PLAYER_COLORS[p.color];
-                return p.selectedAction ? (
-                  <motion.span
-                    key={`${pid}-${p.selectedAction}`}
-                    initial={firstRender.current ? false : { scale: 1.6, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    transition={POP_SPRING}
-                    className="inline-flex items-center gap-1 font-bold"
-                    style={{ color: pColor, transformOrigin: 'left center' }}
-                  >
-                    <span className="inline-block h-2 w-2 rounded-full ring-1 ring-black/15" style={{ background: pColor }} />
-                    {p.name}: {ACTION_INFO[p.selectedAction].name}
-                  </motion.span>
-                ) : (
-                  <span key={pid} className="inline-flex items-center gap-1">
-                    <span className="inline-block h-2 w-2 rounded-full ring-1 ring-black/15" style={{ background: pColor }} />
-                    {p.name}: 선택 대기
-                  </span>
-                );
-              })}
-            </div>
-            )}
-            {/* 내 차례(오프라인 포함)이고 AI가 아닐 때만 행동 선택 버튼 표시 */}
-            {!currentPlayerData.isAI && isMyTurn && (
+            {/* 헤더 — 누구 차례든 같은 한 줄 높이 (차례가 돌 때마다 패널이 덜컹거리지 않게) */}
+            <p className="text-xs md:text-sm text-foreground-secondary mb-2 md:mb-3">
+              {currentPlayerData.isAI ? (
+                <span className="animate-pulse">
+                  <span className="text-accent font-medium">{currentPlayerData.name}</span> (BOT) 행동 선택 중...
+                </span>
+              ) : isMyTurn ? (
+                <>
+                  <span className="text-accent font-medium">{currentPlayerData.name}</span>, 행동을 선택하세요:
+                </>
+              ) : (
+                <>
+                  <span className="text-accent font-medium">{currentPlayerData.name}</span>님이 행동을 선택하는 중...
+                </>
+              )}
+            </p>
+            {/* 행동 그리드 — 단계 내내 항상 렌더(누구 차례든): 높이를 미리 확보해 두고 선택될
+                때마다 칸이 채워진다(선택자 색 점+이름 팝). 내 차례가 아니면 읽기 전용.
+                차례마다 그리드 ↔ 짧은 안내가 교대하며 패널이 크게 출렁이던 것 수정
+                (ux_todo 3차-2, 2026-08-08 사용자 지시 "미리 높이를 마련해두고 칸을 채우는 형식") */}
+            {(
               <>
                 <div className="grid grid-cols-2 gap-1.5">
                   {actionsForMap(mapId).map((action) => {
                     const info = ACTION_INFO[action];
                     const Icon = ACTION_ICONS[action];
+                    // 이 행동을 이미 고른 플레이어 (칸 채우기 표시용 — 색 점 + 이름)
+                    const takenBy = activePlayers
+                      .map((pid) => players[pid])
+                      .find((p) => p && !p.eliminated && p.selectedAction === action);
                     const taken = isActionTaken(action);
                     const isSelected = currentPlayerData.selectedAction === action;
                     // 맵 룰로 금지된 행동 (St. Lucia: production, turnOrder)
                     const mapDisabled = getMapProfile(mapId).disabledActions.includes(action);
+                    // 내가 지금 고를 수 있는 상태인가 (아니면 그리드는 읽기 전용 현황판)
+                    const myInteractive = !currentPlayerData.isAI && isMyTurn;
 
                     return (
                       <button
                         key={action}
                         onClick={() => handleSelectAction(action)}
-                        disabled={taken || mapDisabled || currentPlayerData.selectedAction !== null}
+                        disabled={!myInteractive || taken || mapDisabled || currentPlayerData.selectedAction !== null}
                         className={`p-2 min-h-[44px] rounded-lg text-left transition-[background-color,opacity] ${
                           isSelected
                             ? 'bg-accent/20 border border-accent'
                             : taken || mapDisabled
                             ? 'bg-background/30 opacity-40 cursor-not-allowed'
+                            : !myInteractive
+                            ? 'bg-background/50 border border-transparent cursor-default'
                             : currentPlayerData.selectedAction !== null
                             ? 'bg-background/30 opacity-50 cursor-not-allowed'
                             : 'bg-background/50 hover:bg-background/70 border border-transparent'
@@ -609,8 +593,22 @@ export default function PhasePanel() {
                               </span>
                               {mapDisabled ? (
                                 <span className="text-[9px] text-steam-red shrink-0">불가</span>
-                              ) : taken && !isSelected ? (
-                                <span className="text-[9px] text-foreground-secondary shrink-0">선택됨</span>
+                              ) : takenBy ? (
+                                /* 칸이 채워지는 순간 선택자 색으로 팝 (칩과 동일한 결) */
+                                <motion.span
+                                  key={`${takenBy.id}-${action}`}
+                                  initial={firstRender.current ? false : { scale: 1.6, opacity: 0 }}
+                                  animate={{ scale: 1, opacity: 1 }}
+                                  transition={POP_SPRING}
+                                  className="inline-flex items-center gap-1 text-[9px] font-bold shrink-0 max-w-[72px]"
+                                  style={{ color: PLAYER_COLORS[takenBy.color], transformOrigin: 'left center' }}
+                                >
+                                  <span
+                                    className="inline-block h-2 w-2 rounded-full ring-1 ring-black/15 shrink-0"
+                                    style={{ background: PLAYER_COLORS[takenBy.color] }}
+                                  />
+                                  <span className="truncate">{takenBy.name}</span>
+                                </motion.span>
                               ) : null}
                             </div>
                             <p className="text-[10px] text-foreground-secondary mt-0.5">
@@ -631,24 +629,31 @@ export default function PhasePanel() {
                     );
                   })}
                 </div>
-                {currentPlayerData.selectedAction && (
-                  // 취소 버튼은 진행 버튼과 **같은 행**에 둔다 — 세로로 쌓으면 취소 가능 상태가
-                  // 될 때마다 패널 높이가 늘어 화면 전체가 밀린다(사용자 피드백)
-                  <div className="flex gap-2 mt-3 md:mt-4">
-                    <button
-                      onClick={handleNextPhase}
-                      disabled={isAIExecuting}
-                      className="flex-1 min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                      aria-label="다음 단계로"
+                {/* 취소/다음 행 — 자리를 항상 확보(invisible)한다: 선택 순간 행이 마운트되며
+                    패널이 아래로 늘던 덜컹거림 방지 (취소 버튼을 같은 행에 둔 기존 처방의 확장) */}
+                {(() => {
+                  const showButtons = !currentPlayerData.isAI && isMyTurn && !!currentPlayerData.selectedAction;
+                  return (
+                    <div
+                      className={`flex gap-2 mt-3 md:mt-4 ${showButtons ? '' : 'invisible pointer-events-none'}`}
+                      aria-hidden={!showButtons}
                     >
-                      {players.player1.selectedAction && players.player2.selectedAction
-                        ? '트랙 건설 단계로'
-                        : `${currentPlayer === 'player1' ? players.player2.name : players.player1.name} 차례로`}
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                    {undoButton}
-                  </div>
-                )}
+                      <button
+                        onClick={handleNextPhase}
+                        disabled={isAIExecuting || !showButtons}
+                        tabIndex={showButtons ? 0 : -1}
+                        className="flex-1 min-h-[44px] py-3 md:py-2 rounded-lg text-sm md:text-base font-medium bg-accent text-background hover:bg-accent-light transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        aria-label="다음 단계로"
+                      >
+                        {players.player1.selectedAction && players.player2.selectedAction
+                          ? '트랙 건설 단계로'
+                          : `${currentPlayer === 'player1' ? players.player2.name : players.player1.name} 차례로`}
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                      {undoButton}
+                    </div>
+                  );
+                })()}
               </>
             )}
           </div>

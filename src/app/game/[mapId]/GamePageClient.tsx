@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -15,6 +15,34 @@ import type { GamePhase } from '@/types/game';
  * 모듈 상수로 두어야 effect 의존성에서 새 배열 참조 문제가 생기지 않는다.
  */
 const BOARD_FOCUSED_PHASES: GamePhase[] = ['buildTrack', 'moveGoods', 'governmentLink'];
+
+/**
+ * 자식 내용의 높이 변화를 부드럽게 전환하는 래퍼 (ux_todo 3차-2 "높이 커지는 애니메이션은 부드럽게").
+ * 단계 전환 등으로 패널 내용 높이가 바뀔 때 즉시 스냅되며 아래 요소를 덜컹 밀던 것을
+ * ResizeObserver + height 트랜지션으로 완화한다.
+ * ⚠️ overflow-hidden이라 내부에서 카드 밖으로 삐져나가야 하는 요소(fixed/모달)를 두면 안 된다
+ * — fixed 오버레이는 어차피 최상위 렌더 규칙이라 현재 패널 내용물은 전부 흐름 내 요소다.
+ */
+function SmoothHeight({ children }: { children: ReactNode }) {
+  const innerRef = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number | null>(null);
+  useEffect(() => {
+    const el = innerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setHeight(el.offsetHeight));
+    ro.observe(el);
+    setHeight(el.offsetHeight);
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <div
+      className="overflow-hidden"
+      style={height === null ? undefined : { height, transition: 'height 0.25s ease' }}
+    >
+      <div ref={innerRef}>{children}</div>
+    </div>
+  );
+}
 
 // AI 디버거(@/ai/debug)는 프로덕션 번들에서 빼려고 정적 import 대신 컴포넌트 내부에서
 // 개발 모드일 때만 동적 로드한다(아래 useEffect). 정적 `import '@/ai/debug'`는 사이드이펙트
@@ -860,46 +888,61 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   // 패널 콘텐츠 렌더 함수 (재사용)
   const renderPanelContent = () => (
     <>
-      {/* 선택한 행동 표시 */}
-      {activePlayers.some(pid => players[pid].selectedAction) && (
-        <div className="rounded-xl border border-foreground/10 bg-background-secondary p-3">
-          <div className="flex items-center gap-2 mb-2">
-            <Zap size={14} className="text-accent" />
-            <span className="text-xs font-medium text-foreground-secondary">선택 행동</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {activePlayers.map(pid => {
-              const player = players[pid];
-              const action = player.selectedAction;
-              if (!action) return null;
-              const pColor = PLAYER_COLORS[player.color];
-              return (
-                /* 선택되는 순간 그 자리에서 플레이어 색으로 팝 (공용 POP_SPRING — 경매 팝과 동일한 결) */
-                <motion.div
-                  key={`${pid}-${action}`}
-                  initial={chipFirstRender.current ? false : { scale: 1.7, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={POP_SPRING}
-                  className="flex items-center gap-2 px-2 py-1 rounded bg-accent/10 border"
-                  style={{ borderColor: `${pColor}80` }}
-                >
-                  <div
-                    className="w-2 h-2 rounded-full"
-                    style={{ backgroundColor: pColor }}
-                  />
-                  <span className="text-xs text-foreground">{player.name}</span>
-                  <span className="text-xs font-bold" style={{ color: pColor }}>
-                    {ACTION_INFO[action].name}
-                  </span>
-                </motion.div>
-              );
-            })}
-          </div>
+      {/* 선택한 행동 표시 — 항상 렌더(플레이어 수만큼 슬롯을 미리 확보, 선택되면 칸이 채워짐).
+          "첫 선택 순간 카드가 통째로 마운트"되며 아래 패널 전체가 밀리던 덜컹거림 방지
+          (ux_todo 3차-2, 2026-08-08 사용자 지시 "미리 높이를 마련해두고 칸을 채우는 형식") */}
+      <div className="rounded-xl border border-foreground/10 bg-background-secondary p-3">
+        <div className="flex items-center gap-2 mb-2">
+          <Zap size={14} className="text-accent" />
+          <span className="text-xs font-medium text-foreground-secondary">선택 행동</span>
         </div>
-      )}
+        <div className="flex flex-wrap gap-2">
+          {activePlayers.map(pid => {
+            const player = players[pid];
+            if (!player || player.eliminated) return null;
+            const action = player.selectedAction;
+            const pColor = PLAYER_COLORS[player.color];
+            if (!action) {
+              // 빈 슬롯 — 자리(높이)는 채워진 칩과 동일, 시각만 흐리게
+              return (
+                <div
+                  key={pid}
+                  className="flex items-center gap-2 px-2 py-1 rounded border border-dashed border-foreground/15"
+                >
+                  <div className="w-2 h-2 rounded-full opacity-60" style={{ backgroundColor: pColor }} />
+                  <span className="text-xs text-foreground-secondary">{player.name}</span>
+                  <span className="text-xs text-foreground-muted">미선택</span>
+                </div>
+              );
+            }
+            return (
+              /* 선택되는 순간 그 자리에서 플레이어 색으로 팝 (공용 POP_SPRING — 경매 팝과 동일한 결) */
+              <motion.div
+                key={`${pid}-${action}`}
+                initial={chipFirstRender.current ? false : { scale: 1.7, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={POP_SPRING}
+                className="flex items-center gap-2 px-2 py-1 rounded bg-accent/10 border"
+                style={{ borderColor: `${pColor}80` }}
+              >
+                <div
+                  className="w-2 h-2 rounded-full"
+                  style={{ backgroundColor: pColor }}
+                />
+                <span className="text-xs text-foreground">{player.name}</span>
+                <span className="text-xs font-bold" style={{ color: pColor }}>
+                  {ACTION_INFO[action].name}
+                </span>
+              </motion.div>
+            );
+          })}
+        </div>
+      </div>
 
-      {/* 현재 단계 */}
-      <PhasePanel />
+      {/* 현재 단계 — 단계 전환 시 카드 높이 변화를 부드럽게 */}
+      <SmoothHeight>
+        <PhasePanel />
+      </SmoothHeight>
 
       {/* 도시화 "시작" 카드 (트랙 건설 단계에서 Urbanization 행동 선택 시).
           타일 선택 모달·배치 안내 배너는 fixed라 이 안에 두면 패널에 갇힌다 → 최상위에서 렌더 */}
@@ -1013,15 +1056,52 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
               호스트 연결이 끊겼습니다 — 재접속을 기다리는 중 (잠시 후 이어받기 여부를 묻습니다)
             </div>
           )}
-          {/* 온라인: 차례 안내 배너 */}
-          {isOnline && !isMyTurn && actingPlayerState && (
+          {/* 온라인: 차례 안내 배너 — 내 차례에도 자리를 유지한다(항상 마운트).
+              조건부 언마운트가 배너 높이만큼 보드를 위아래로 점프시키던 덜컹거림 수정
+              (ux_todo 3차-1, 2026-08-08 사용자 지시: "내가 플레이 중일 때도 상단에 표시").
+              정산·진행 단계는 사람 currentPlayer를 "차례"로 표시하면 방장이 서로 기다리는
+              착시가 나므로(HUD_SUPPRESSED_PHASES와 같은 이유) 중립 안내로 대체. */}
+          {isOnline && actingPlayerState && (
             <div className="mb-3 px-4 py-2 rounded-lg bg-background-tertiary border border-foreground/10 text-sm text-foreground-secondary flex items-center gap-2">
-              <span
-                className="w-2 h-2 rounded-full animate-pulse"
-                style={{ backgroundColor: PLAYER_COLORS[actingPlayerState.color] }}
-              />
-              지금은 <b className="text-foreground">{actingPlayerState.name}</b> 차례입니다
-              {actingPlayerState.isAI && ' (BOT 진행 중…)'}
+              {actingPlayerState.isAI ? (
+                <>
+                  <span
+                    className="w-2 h-2 rounded-full animate-pulse"
+                    style={{ backgroundColor: PLAYER_COLORS[actingPlayerState.color] }}
+                  />
+                  <span>
+                    지금은 <b className="text-foreground">{actingPlayerState.name}</b> 차례입니다 (BOT 진행 중…)
+                  </span>
+                </>
+              ) : !PLAYER_PHASES.includes(currentPhase) ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-foreground-muted" />
+                  <span>
+                    단계 진행 중입니다
+                    {netMode === 'host' ? " — '진행' 버튼으로 다음 단계로 넘겨주세요" : ' — 방장이 진행합니다'}
+                  </span>
+                </>
+              ) : isMyTurn ? (
+                <>
+                  <span
+                    className="w-2 h-2 rounded-full animate-pulse"
+                    style={{ backgroundColor: PLAYER_COLORS[actingPlayerState.color] }}
+                  />
+                  <span>
+                    지금은 <b className="text-foreground">내 차례</b>입니다 — {actingPlayerState.name}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span
+                    className="w-2 h-2 rounded-full animate-pulse"
+                    style={{ backgroundColor: PLAYER_COLORS[actingPlayerState.color] }}
+                  />
+                  <span>
+                    지금은 <b className="text-foreground">{actingPlayerState.name}</b> 차례입니다
+                  </span>
+                </>
+              )}
             </div>
           )}
           {/* lg(데스크톱): 패널 320px 고정 + 지도 가변(나머지 전부) — 넓은 화면일수록 지도 최대.

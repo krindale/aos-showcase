@@ -791,11 +791,16 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     (coord: HexCoord) => {
       const showToast = useToastStore.getState().showToast;
       if (isPanGesture()) return; // 드래그 직후의 클릭은 조작 의도가 아니다
+
+      // ⚠️ 단계 게이트가 "내 차례 아님" 안내보다 **먼저**여야 한다. 정산 단계(수입·비용·
+      // 수입감소·턴마커)는 방장이 '진행'으로 넘기는데 currentPlayer는 남일 수 있어서,
+      // 여기서 차례 안내를 띄우면 방장이 "남 차례네"로 오해한다 — GameBoard가 같은 이유로
+      // 정산 단계 HUD를 억제하고 있다(HUD_SUPPRESSED_PHASES). 건설 단계에서만 안내한다.
+      if (currentPhase !== 'buildTrack' && currentPhase !== 'governmentLink') return;
       if (boardInteractionBlocked) {
         showToast('지금은 내 차례가 아니에요 — 차례가 오면 보드를 조작할 수 있어요', 'info');
         return;
       }
-      if (currentPhase !== 'buildTrack' && currentPhase !== 'governmentLink') return;
       if (ui.urbanizationMode) return; // 도시화 모드는 자체 안내(마을 선택)가 떠 있다
 
       if (natSelecting) {
@@ -808,7 +813,14 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
         return;
       }
       if (ui.buildMode === 'idle') {
-        showToast('먼저 시작점을 클릭하세요 — 도시, 내 트랙, 주인 없는 미완성 트랙', 'info');
+        // 시작점 목록은 isValidConnectionPoint가 인정하는 것과 같아야 한다 —
+        // 정부 링크 단계는 정부 트랙/정부 가닥이 "내 것" 역할을 한다.
+        showToast(
+          currentPhase === 'governmentLink'
+            ? '먼저 시작점을 클릭하세요 — 도시, 또는 이미 놓인 정부 트랙'
+            : '먼저 시작점을 클릭하세요 — 도시, 내 트랙(주인 없는 미완성 트랙 포함), 내 노선이 닿은 마을',
+          'info'
+        );
       } else if (ui.buildMode === 'source_selected') {
         showToast('노란색으로 표시된 헥스를 클릭해 트랙을 놓으세요', 'info');
       } else if (ui.buildMode === 'target_selected') {

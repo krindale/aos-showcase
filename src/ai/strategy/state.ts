@@ -85,6 +85,16 @@ export function incrementInvestedTracks(playerId: PlayerId): void {
 }
 
 /**
+ * 한 플레이어의 목표 경로만 제거 — 평가용 임시 등록(부수효과) 정리에 사용.
+ * 사람(비AI)은 봇처럼 자기 차례에 경로를 등록하지 않으므로, 평가 코드가 남긴
+ * 유령 경로는 지우는 것이 정상 상태다 (2026-08-10 r5pm: 경매 견제 평가의
+ * ensureTurnPlan 부수효과로 사람에게 등록된 유령 경로가 봇 겹침 회피를 오염).
+ */
+export function clearCurrentRoute(playerId: PlayerId): void {
+  currentTargetRoutes.delete(playerId);
+}
+
+/**
  * 모든 경로 초기화 (게임 리셋 시)
  */
 export function clearCurrentRoutes(): void {

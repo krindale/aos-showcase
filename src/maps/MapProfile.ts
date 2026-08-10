@@ -388,8 +388,14 @@ export abstract class MapProfile {
    * 2인 = 격차 상시 소액 → 봇이 경매를 거의 안 싸움, 2026-08-06 실플레이: 6턴 중 경합 1회).
    * 경합 배달(hasContestedDelivery)이 있을 때만 base(≈1.5VP) × 이 배수를 절실함에 합산 —
    * 싸울 큐브가 없는 턴은 여전히 양보한다 (맹목적 경합 아님).
+   *
+   * [실험 2026-08-10] 기본 0 → 1 (Scotland 값의 전 맵 승격): 절실함(최선−차선)은 후반에
+   * 네트워크가 완성되며 자연히 0으로 수렴하는데, 후반 1등의 진짜 가치는 행동이 아니라
+   * **수송 선순위**(경합 화물 선점 income)다 — 실플레이(방 LSRLYE, Southern England)에서
+   * 턴3부터 봇 전원이 상시 패스 → 사람이 $1로 선공 독점. 경합 있을 때만 발동하는 가치
+   * 기반이라 기각된 "순번 고정 가산"(cityCubes 붕괴)과 다른 계열. 100시드 게이트로 검증.
    */
-  get aiAuctionContestedMoveVP(): number { return 0; }
+  get aiAuctionContestedMoveVP(): number { return 1; }
 
   /**
    * 2인 게임에서도 **다인용 행동 가치 평가**를 켤지 (기본 false = 기존 동작 = 튜토리얼 보존).

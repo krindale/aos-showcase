@@ -8,6 +8,79 @@
 
 ---
 
+## 2026-08-10c — 봇 경로 겹침 경쟁: 유령 경로 + fallback 원시 커밋 (실전 r5pm, 봇 2명 연쇄 파산)
+
+- **증상**: Southern England 5인(사람 1+봇 4)에서 봇 2명이 T2·T3 연쇄 파산. 분석해 보니 T1에
+  봇 셋(+사람 유령까지 넷)이 전부 `holyhead→northwest` 한 링크에 몰려 있었다.
+- **원인 (사슬)**: ① 경매 denial 성격 평가(`estimateFirstSeatVP`→`gapFor`)가 **사람 포함** 전원에
+  `ensureTurnPlan` → `reevaluateStrategy`의 `setCurrentRoute` 부수효과로 **사람에게 유령 목표
+  경로가 등록**된다(실제 사람은 반대편에 건설 — 추정과 무관). ② 유령까지 차단 목록에 들어가
+  뒷순번 봇의 top-K 후보가 전멸. ③ 전멸 시 fallback `viableOpps[0] ?? opportunities[0]`이
+  **겹침·평가를 무시한 원시 커밋** — 앞 순번이 잡은 정확히 같은 링크를 그대로 잡아 같은 회랑에
+  병렬 부설(이중 투자·배달 0 → 유지비만 늘어 파산). 시뮬은 전원 봇+standard(denial 없음)라
+  ①이 재현되지 않아 베이스라인이 못 잡는 구조였다.
+- **수정**: ① fallback이 상대가 잡은 sameLink를 거름(도시 공유까지 거르면 후보 전멸 재발 —
+  sameLink만). ② 견제 평가는 사람 **포함 유지**(빼면 Scotland 2인전에서 훅이 통째로 죽음 —
+  사용자 지적) + 평가 직후 부수효과 정리(`clearCurrentRoute`+`invalidateTurnPlan`).
+  ③ 봇 건설의 사람 겹침 회피는 예측이 아니라 **사람이 실제 완성한 링크**(보드 사실, 이번 턴
+  완성분 포함 — 사용자 지침) 기준: `humanBuiltLinks` sameLink 차단. 점수(병렬 회랑 ΔVP 급락
+  7.0→−5.8 실측)가 이미 대부분을 피하고 이 차단은 경계가 뒤집힐 때의 저지선.
+- **검증**: 11개 맵 100시드 전수 — 하드 회귀 0, Southern England 파산 0.48→0.43·Southern US
+  0.16→0.09 개선. 상세는 [ai-auction-baseline-100seed.md](ai-auction-baseline-100seed.md) 2026-08-10.
+
+## 2026-08-10b — 마을이 아닌 헥스에 "마을 가닥"이 지어져 건설 카운트·비용 증발 (실전, 방 FGGKFB)
+
+- **증상**: "트랙 1개 짓고 도시화했는데 건설 카운트가 3/3" — 온라인 방 FGGKFB, Southern England.
+- **원인**: `canBuildTownSpur`의 edge 지정 경로가 **townCoord가 실제 마을인지 검사하지 않고**
+  이웃 헥스만 봤다. 같은 날 추가된 "노란 마을 칸 클릭 → edge 지정 가닥" 분기가 마을 확인 없이
+  이 함수를 호출하면서, 일반 헥스 클릭이 트랙 대신 "마을 가닥"으로 커밋돼 카운트·비용만 소모
+  (Supabase 스냅샷으로 towns에 없는 (1,5)·(3,6)의 가닥 3개 실증). **같은 브랜치에서 하루 만에
+  만든 회귀** — uiSlice의 후보 계산에는 마을 조건이 있었는데 클릭 커밋에는 없어 둘이 어긋났고,
+  테스트도 마을 좌표로만 호출해 구멍을 못 짚었다.
+- **수정**: `canBuildTownSpur` 초입에 마을 여부 가드(두 호출 경로를 한 곳에서 차단) +
+  GameBoard 클릭 분기도 마을일 때만 가닥 경로로 라우팅(이중 방어). 배포돼 있던 main은
+  force-reset으로 어제 상태 원복 후 브랜치에서 수정.
+- **회귀**: `townSpurHighlight.test.ts` "마을이 아닌 헥스에는 가닥을 지을 수 없다" — 6변 전부 +
+  edge 생략까지 거부, 카운트·현금·townSpurs 불변 확인.
+
+## 2026-08-10 — 트랙 건설에서 클릭이 전혀 반응하지 않음 (사용자 제보, Southern England 턴 4)
+
+- **증상**: 주인 없는 미완성 트랙을 한 칸 연장해 Oxford 마을에 연결하려는데 **아무 반응이
+  없다**. 마을을 눌러도, 빈 헥스를 눌러도, 시작점을 고른 뒤 노란 칸을 눌러도 오류도 안내도
+  없어 "앱이 멈춘 것"으로 보였다. 현금 $11·건설 0/3·본인 차례로 조건은 전부 충족.
+- **원인 (세 겹)**:
+  1. **마을 가닥 경로 차단** — `findMissingTownSpurs`가 마을 변에 닿은 트랙을
+     `owner === playerId`로만 인정. 주인 없는 트랙이 마을 변에서 끊기면 링크를 완성할 방법이
+     아예 없었다(마을은 타일 배치 대상이 아니라 연장 후보도 못 되고, 가닥이 없으니 마을을
+     연결점으로 잡을 수도 없음). 다른 계층은 이미 룰 IV를 지원 중이었다 —
+     `isValidConnectionPoint`·`getBuildableNeighbors`는 미소유 연장을 인정하고
+     `buildTownSpur`는 완성 시 구간 인수까지 갖고 있었다. **이 한 곳만 어긋나 있었다.**
+  2. **방향 전환의 표시/커밋 게이트 불일치** — `isEndpointOfIncompleteSection`이 마을을 가닥
+     없이도 연결로 세, 한쪽이 도시·다른 쪽이 마을인 트랙은 양끝이 막힌 것으로 잡혀
+     `connectedEdge: null` → `redirectTrack`이 조용히 false. 반면 `pickRedirectPath`는 끝점을
+     안 보므로 **노란 칸은 뜨는데 눌러도 무반응**.
+  3. **거부의 침묵** — 후보가 아닌 헥스는 `onClick` 자체가 없었고, 방향 전환·건설 제한 거부도
+     아무 표시가 없었다.
+- **수정**: ① `findMissingTownSpurs`에 미소유 미완성 트랙 인정(제외 조건은 위 두 함수와 동일 —
+  정부 트랙·완성 링크 소속). ② 마을은 **가닥 있는 변만** 연결로 판정, 끝점 조건을 "열린 변이
+  있으면 끝점, 연결된 변이 없으면 나머지 한 변 유지"로 교정(고립 타일도 전환 가능 — 예전
+  `connectedCount === 1`은 "마을을 연결로 세던" 전제에 기대고 있었다). ③ `getExitDirections`가
+  맵 밖 이웃 제외(가장자리에서 화면 밖 노란 칸이 찍혀 누를 칸이 없어지던 문제). ④ 나갈 방향이
+  0개면 `target_selected`로 진입하지 않고 안내. ⑤ 마을을 노란 건설 후보로 표시
+  (`getConnectableEdges` 추출로 연장 후보와 같은 변 집합 공유, 판정은 `canBuildTownSpur` 직접
+  호출로 표시=커밋 보장). ⑥ `hintNoopClick`으로 무반응 클릭에 사유 안내.
+- **리뷰에서 추가로 잡은 것(5건)**: 방향을 고른 마을 클릭이 edge 생략으로 커밋돼 같은 마을의
+  다른 변까지 짓던 문제(표시-커밋 불일치·예상 밖 비용), 마을 시작점 분기의
+  `getNeighborHex(src, e)` **board 누락**(달 랩 오판, 기존 버그), 안내 토스트가 정산 단계에서
+  "내 차례 아님"으로 오해를 주던 문제(HUD 억제와 같은 함정), 마을 가닥 툴팁의 비용 표기
+  `$1`(2026-08-02 룰북 정합 이전 값 — 실제 $2), `getConnectableEdges` 추출 시 어긋난 JSDoc.
+- **검증**: 신규 회귀 4파일 16종 — `unownedTownSpur`(4)·`redirectTownEndpoint`(3)·
+  `townSpurHighlight`(5)·`exitDirections`(4). 전부 **main 버전에서 실패**하는 것을
+  `git checkout main -- <file>`로 확인(⚠️ 커밋 뒤에는 `git stash`가 아무것도 되돌리지 않아
+  "통과"로 오독하기 쉽다 — 실제로 한 번 헛짚었다). store·utils 45파일 392테스트 + AI 시뮬
+  6개 맵(Southern England·Rust Belt·Montréal·Scotland·Moon) 통과. AI는 `redirectTrack`을
+  호출하지 않고 마을 가닥은 edge 생략 경로라 밸런스 영향 없음. PR #83.
+
 ## 2026-08-08b — 달 랩 이중 인접에서 좌표→변 역산이 어긋나 랩 너머 배달 사망 (사용자 실전, Serenitatis)
 
 - **증상**: 우측면이 밤일 때 Serenitatis(2,10)의 화물이 맵 끝 랩 (1,10)↔(9,6)을 건너

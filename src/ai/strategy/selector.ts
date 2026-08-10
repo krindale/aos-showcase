@@ -16,7 +16,7 @@ import {
   findStopById,
   getMainNetworkStopIds,
 } from './analyzer';
-import { hexDistance, hexCoordsEqual } from '@/utils/hexGrid';
+import { hexDistance, hexCoordsEqual, findCompletedLinks } from '@/utils/hexGrid';
 import { getCurrentRoute, getCurrentRouteState, setCurrentRoute, clearCurrentRoutes, getHomeBase, setHomeBase, hasHomeBases } from './state';
 import { estimateRouteVP, deliveryDeltaVP } from './vp';
 import { getMapAIConfig } from './mapConfig';
@@ -220,6 +220,33 @@ export function selectStandardRoute(
   const useAreaBias = profile.aiHomeBaseAreaBias;
   const sharedCityPenalty = profile.aiRouteOverlapSharedCityPenalty;
 
+  // ★ 사람(비AI)이 실제로 **완성한 링크** 목록 — 봇 겹침 회피의 사람 쪽 기준 (opp 루프 밖 1회).
+  //   봇끼리는 서로 등록한 목표 경로(진짜 계획)를 피하지만 사람의 계획은 알 수 없다 — 예측해서
+  //   등록하면(유령 경로) 실제와 어긋나 오염만 남는다(2026-08-10 r5pm: 유령은 holyhead→northwest,
+  //   실제 사람은 반대편 동쪽에 건설). 그래서 사람은 보드 위 **사실**만 본다: 사람이 완성한 것과
+  //   정확히 같은 연결(sameLink)은 차단 — 이미 서비스되는 연결의 병렬 중복 부설 방지.
+  //   도시 공유 감점/차단까지 걸지 않는 이유: 사람 네트워크가 커진 후반에 봇 후보가 전멸한다
+  //   (top-K 전멸 = fallback 원시 커밋, 겹침 차단이 도리어 겹침을 만드는 역설).
+  //   시뮬(전원 봇)은 이 목록이 항상 비어 동작 항등.
+  const humanBuiltLinks: { a: string; b: string }[] = [];
+  if (areaMulti && state.activePlayers.some(id => state.players[id] && !state.players[id].isAI)) {
+    const stationIdAt = (c: HexCoord): string | null =>
+      state.board.cities.find(x => hexCoordsEqual(x.coord, c))?.id
+      ?? state.board.towns.find(t => hexCoordsEqual(t.coord, c))?.id
+      ?? null;
+    for (const link of findCompletedLinks(state.board)) {
+      const owner = link.owner ? state.players[link.owner] : null;
+      if (!owner || owner.isAI) continue; // 사람 소유 링크만 (정부/중립·봇 링크 제외)
+      const a = stationIdAt(link.startCity);
+      const b = stationIdAt(link.endCity);
+      if (a && b) humanBuiltLinks.push({ a, b });
+    }
+  }
+  const humanLinkTaken = (opp: DeliveryOpportunity): boolean =>
+    humanBuiltLinks.some(hl =>
+      (hl.a === opp.sourceCityId && hl.b === opp.targetCityId) ||
+      (hl.a === opp.targetCityId && hl.b === opp.sourceCityId));
+
   const preciseTargets = [...opportunities]
     .sort((a, b) =>
       preliminaryScore(b, player.engineLevel, connectedCities, playerTracks) -
@@ -282,6 +309,10 @@ export function selectStandardRoute(
         else { score = -Infinity; break; }
       }
     }
+    // 사람이 실제 완성한 링크와 정확히 같은 연결은 차단 (위 humanBuiltLinks 주석 참조)
+    if (score > -Infinity && humanLinkTaken(opp)) {
+      score = -Infinity;
+    }
     return { opp, score };
   });
   // -Infinity(완성 불가능)를 정렬 전에 제거 — (-Inf) - (-Inf) = NaN 비교로 정렬이 깨지는 것 방지
@@ -312,7 +343,21 @@ export function selectStandardRoute(
   if (reachableOpportunities.length === 0) {
     debugLog.trackBuilding(`[AI 경로] ${player.name}: 엔진 레벨(${player.engineLevel}) 내 도달 가능 경로 없음`);
     // 가장 가치 높은 기회 선택 (엔진 업그레이드 필요)
-    const best = viableOpps[0] ?? opportunities[0];
+    // ⚠️ top-K 전멸(전부 겹침 차단·완성 불가) 시 viableOpps가 비는데, 원시 opportunities[0]로
+    //    떨어지면 겹침·평가를 전부 무시한 커밋이 된다 — 앞 순번이 이미 잡은 **정확히 같은
+    //    링크**를 뒷순번이 그대로 잡아 같은 회랑에 병렬 부설 경쟁이 난다(2026-08-10 실전
+    //    r5pm/Southern England T1: p2·p3 둘 다 holyhead→northwest → 투자 회수 실패가 T2·T3
+    //    파산의 방아쇠. 달 30시드 계측과 같은 구멍). 최소한 같은 링크만은 피해서 고른다 —
+    //    도시 공유까지 피하면 후보가 아예 없어질 수 있어 sameLink만 거른다(감점 로직과 동일 기준).
+    const linkTakenByOpponent = (opp: DeliveryOpportunity): boolean =>
+      humanLinkTaken(opp) || // 사람이 실제 완성한 링크도 같은 기준 (humanBuiltLinks 주석 참조)
+      state.activePlayers.some(oid => {
+        if (oid === playerId) return false;
+        const r = getCurrentRoute(oid);
+        return !!r && ((r.from === opp.sourceCityId && r.to === opp.targetCityId) ||
+                       (r.from === opp.targetCityId && r.to === opp.sourceCityId));
+      });
+    const best = viableOpps[0] ?? opportunities.find(o => !linkTakenByOpponent(o)) ?? opportunities[0];
     const route: DeliveryRoute = {
       from: best.sourceCityId,
       to: best.targetCityId,

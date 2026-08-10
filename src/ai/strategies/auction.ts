@@ -12,7 +12,8 @@
  */
 
 import { GameState, PlayerId } from '@/types/game';
-import { ensureTurnPlan } from '../strategy/turnPlan';
+import { ensureTurnPlan, invalidateTurnPlan } from '../strategy/turnPlan';
+import { clearCurrentRoute } from '../strategy/state';
 import { rankActionsByDeltaVP, hasContestedDelivery } from './selectAction';
 import {
   cashToVPRate,
@@ -239,10 +240,24 @@ function estimateFirstSeatVP(
   // 상대 저지 가치는 비싸다(상대별 ensureTurnPlan + rankActionsByDeltaVP) — 요구하는 첫 호출에서만
   // 계산해 캐시에 메모(맵 훅이 꺼진 맵에선 견제 성격 봇이 있을 때만 비용 발생).
   if (wantDenial && entry.oppDenial === undefined) {
-    // playerOrder는 파산자가 제외된 현재 순서 — 상대 격차는 상대의 계획/평가로 산정
+    // playerOrder는 파산자가 제외된 현재 순서 — 상대 격차는 상대의 계획/평가로 산정.
+    // 사람(비AI)도 평가에 **포함**한다 — 견제의 핵심 대상이 사람일 수 있다(Scotland 2인전은
+    // 상대가 사람뿐이라, 빼면 denial 훅이 실게임에서 통째로 죽는다). 단 gapFor의
+    // ensureTurnPlan → reevaluateStrategy가 setCurrentRoute 부수효과로 목표 경로를 등록하는데,
+    // 봇은 자기 차례(issueShares)에 진짜 계획을 등록하므로 무해하지만 사람에겐 **유령 경로**로
+    // 남아 봇들의 겹침 회피를 오염시킨다(2026-08-10 실전 r5pm: 유령은 holyhead→northwest,
+    // 실제 사람은 반대편 동쪽에 건설 — 봇들만 그 도시들을 피해 다녔고 top-K 전멸을 가속).
+    // → 사람은 평가 직후 부수효과(경로·계획 캐시)를 지운다. 봇 건설의 사람 겹침 회피는
+    //   selector가 "사람이 실제 완성한 링크"(보드 사실) 기준으로 따로 본다.
     const opponents = state.playerOrder.filter(p => p !== playerId && state.players[p]);
     entry.oppDenial = opponents.length > 0
-      ? Math.max(...opponents.map(gapFor)) / opponents.length
+      ? Math.max(...opponents.map(pid => {
+          if (state.players[pid].isAI) return gapFor(pid);
+          const gap = gapFor(pid);
+          clearCurrentRoute(pid);
+          invalidateTurnPlan(pid, '사람 절실함 평가 부수효과 정리');
+          return gap;
+        })) / opponents.length
       : 0;
   }
 

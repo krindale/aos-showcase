@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Building2 } from 'lucide-react';
 import { NewCityTileHex } from './NewCityTileHex';
@@ -28,6 +29,20 @@ export function NewCityTilesModal({
   onSelect?: (id: string) => void;
   onClose: () => void;
 }) {
+  // 열려 있는 동안 배경 스크롤 잠금 (ConfirmDialog와 동일한 패턴).
+  // ⚠️ 없으면 화면을 덮은 채로 뒤 페이지가 그대로 스크롤된다 — 반투명 배경(bg-black/60)
+  // 너머로 게임 보드(대형 SVG)가 움직이며 매 프레임 재페인트돼 **배경이 깜빡인다**
+  // (사용자 제보 2026-08-10, 노트북 트랙패드 스크롤). 모달은 선택을 끝내야 넘어가는
+  // 화면이라 뒤를 스크롤할 이유도 없다. 배치 안내 배너 쪽은 보드를 봐야 하므로 잠그지 않는다.
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
   // view = 남은 타일만, select = 전체(사용된 건 비활성)
   const shown = mode === 'view' ? tiles.filter((t) => !t.used) : tiles;
 

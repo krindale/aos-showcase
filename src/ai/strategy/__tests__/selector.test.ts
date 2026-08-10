@@ -9,12 +9,14 @@ import { getNextTargetRoute, reevaluateStrategy, findNextTargetRoute } from '../
 import { resetStrategyStates, getCurrentRoute, setCurrentRoute } from '../state';
 import {
   createMockGameState,
+  createMockPlayer,
   addCubesToCity,
   setPlayerCash as _setPlayerCash,
   setPlayerEngine,
   addTrack,
 } from '../../__tests__/helpers/mockState';
 import type { DeliveryRoute } from '../types';
+import { findCompletedLinks } from '@/utils/hexGrid';
 void _setPlayerCash; // 향후 테스트 확장용
 
 // mockState의 도시 ID (Pittsburgh, Cleveland, Columbus, Cincinnati)
@@ -268,6 +270,85 @@ describe('동적 전략 vs 정적 시나리오', () => {
     const route = getNextTargetRoute(state, 'player1');
 
     // 경로가 반환되어야 함
+    expect(route).not.toBeNull();
+  });
+});
+
+describe('사람이 완성한 링크 회피 (2026-08-10 r5pm)', () => {
+  beforeEach(() => {
+    resetStrategyStates();
+  });
+
+  /** 3인(areaMulti) 상태 + Pittsburgh blue×2(→Cleveland)·Columbus purple×1(→Cincinnati) */
+  function threePlayerState() {
+    let state = createMockGameState();
+    const human = createMockPlayer('player3', { name: 'Human', isAI: false, color: 'green' });
+    state = {
+      ...state,
+      players: { ...state.players, player3: human },
+      activePlayers: [...state.activePlayers, 'player3'],
+      playerOrder: [...state.playerOrder, 'player3'],
+    };
+    // blue×4로 Pittsburgh→Cleveland가 (사람 회랑이 생겨도) 점수상 최선이 되게 —
+    // 점수 하락(병렬 회랑 경제성)만으로 밀려나는 약한 케이스가 아니라, "그래도 잡고 싶은"
+    // 강한 케이스에서 차단이 실제로 작동하는지를 본다 (대조군 검증으로 전제 고정)
+    state = addCubesToCity(state, 'Pittsburgh', ['blue', 'blue', 'blue', 'blue']);
+    state = addCubesToCity(state, 'Columbus', ['purple']);
+    return state;
+  }
+
+  const isPitCle = (r: DeliveryRoute | null): boolean => !!r &&
+    ((r.from === 'Pittsburgh' && r.to === 'Cleveland') ||
+     (r.from === 'Cleveland' && r.to === 'Pittsburgh'));
+
+  it('봇은 사람이 이미 완성한 정확히 같은 연결을 목표로 잡지 않는다', () => {
+    // ⚠️ 이 불변식은 두 겹으로 지켜진다 — ① 점수: 사람 회랑이 생기면 병렬 중복의 ΔVP가
+    //    급락(7.0→−5.8 실측)해 자연히 밀려나고, ② 규칙: humanLinkTaken이 sameLink를 차단.
+    //    현 점수 체계에선 ①만으로도 통과하지만, 훗날 점수 튜닝이 경계를 뒤집으면(큐브가
+    //    쌓일수록 좁아진다: blue×4에서 −3.8 vs −3.0) ②가 마지막 저지선이고 이 테스트가
+    //    "봇이 사람 완성 링크를 중복 부설한다"는 행동 회귀를 어느 쪽이 무너져도 잡는다.
+    // 대조군: 사람 링크가 없으면 Pittsburgh→Cleveland가 자연 최선이어야 한다
+    // (이게 깨지면 본검이 아무것도 검증하지 못한다 — 전제 고정)
+    const controlRoute = getNextTargetRoute(threePlayerState(), 'player1');
+    expect(isPitCle(controlRoute)).toBe(true);
+
+    resetStrategyStates();
+
+    // 본검: 사람 소유 완성 링크 Cleveland(1,1)↔Pittsburgh(4,0) —
+    // (1,1) --NE--> (2,0) --E--> (3,0) --E--> (4,0). (2,0)은 SW(2)+E(0), (3,0)은 W(3)+E(0).
+    // ⚠️ row 1에 우회 회랑((3,1)·(2,1))이 비어 있다 — 물리 점유만으로는 A*가 우회 병렬
+    //    노선을 찾아 같은 연결을 다시 깔 수 있다(Rust Belt Duluth↔Minneapolis 이중 부설과
+    //    같은 꼴). 이 차단은 그 우회 중복을 막는 것이다.
+    let state = threePlayerState();
+    state = addTrack(state, { col: 2, row: 0 }, [2, 0], 'player3');
+    state = addTrack(state, { col: 3, row: 0 }, [3, 0], 'player3');
+    // ★ 사람이 **이번 턴에 방금** 완성한 링크라는 걸 명시(builtTurn = 현재 턴) —
+    //   같은 건설 라운드에서 사람이 먼저 짓고 봇이 뒤에 짓는 시나리오다. 차단 판정
+    //   (findCompletedLinks)은 builtTurn을 보지 않고 물리 연결+소유자만 보며, 봇은
+    //   결정 시점의 라이브 보드를 읽으므로 방금 완성분도 즉시 차단 대상이다.
+    state = {
+      ...state,
+      board: {
+        ...state.board,
+        trackTiles: state.board.trackTiles.map(t =>
+          t.owner === 'player3' ? { ...t, builtTurn: state.currentTurn } : t
+        ),
+      },
+    };
+    expect(findCompletedLinks(state.board).some(l => l.owner === 'player3')).toBe(true);
+
+    // 같은 연결의 병렬 중복 부설 방지 — 다른 경로(Columbus→Cincinnati 등)로 빠져야 한다
+    const route = getNextTargetRoute(state, 'player1');
+    expect(isPitCle(route)).toBe(false);
+  });
+
+  it('봇끼리는 기존 동작 그대로 — 봇 완성 링크는 사람-링크 차단 대상이 아니다', () => {
+    // 전원 봇(기본 mock 2인)일 때 사람-링크 차단이 발동하지 않아야 한다 (시뮬 항등의 전제)
+    let state = createMockGameState();
+    state = addTrack(state, { col: 2, row: 0 }, [2, 0], 'player2');
+    state = addTrack(state, { col: 3, row: 0 }, [3, 0], 'player2');
+    state = addCubesToCity(state, 'Pittsburgh', ['blue']);
+    const route = getNextTargetRoute(state, 'player1');
     expect(route).not.toBeNull();
   });
 });

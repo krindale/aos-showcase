@@ -123,7 +123,10 @@ export default function BoardTowns({
               className={(isTownClickable || isUrbanizationClickable) ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''}
               onClick={handleTownClick}
             >
-              {canCompleteSpur && <title>클릭: 마을 가닥 건설 ($1, 건설 1회) — 미연결 노선의 연결을 완성합니다</title>}
+              {/* ⚠️ 금액을 적지 않는다 — 마을 비용은 "기본료(그 마을 이번 턴 첫 변경 시 1회) +
+                  가닥당 비용"이고 맵마다 다르다(표준 $1+$1=$2, 달은 기본료 $2). 예전 문구의
+                  "$1"은 기본료가 빠져 있던 시절의 값이라 실제 청구액과 어긋났다. */}
+              {canCompleteSpur && <title>클릭: 마을 가닥 건설 (건설 1회) — 미연결 노선의 연결을 완성합니다</title>}
             </polygon>
 
             {/* 마을 헥스 위 트랙 타일 (마을 디스크 아래 깔린 철길) */}

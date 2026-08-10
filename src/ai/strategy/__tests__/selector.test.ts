@@ -322,6 +322,19 @@ describe('사람이 완성한 링크 회피 (2026-08-10 r5pm)', () => {
     let state = threePlayerState();
     state = addTrack(state, { col: 2, row: 0 }, [2, 0], 'player3');
     state = addTrack(state, { col: 3, row: 0 }, [3, 0], 'player3');
+    // ★ 사람이 **이번 턴에 방금** 완성한 링크라는 걸 명시(builtTurn = 현재 턴) —
+    //   같은 건설 라운드에서 사람이 먼저 짓고 봇이 뒤에 짓는 시나리오다. 차단 판정
+    //   (findCompletedLinks)은 builtTurn을 보지 않고 물리 연결+소유자만 보며, 봇은
+    //   결정 시점의 라이브 보드를 읽으므로 방금 완성분도 즉시 차단 대상이다.
+    state = {
+      ...state,
+      board: {
+        ...state.board,
+        trackTiles: state.board.trackTiles.map(t =>
+          t.owner === 'player3' ? { ...t, builtTurn: state.currentTurn } : t
+        ),
+      },
+    };
     expect(findCompletedLinks(state.board).some(l => l.owner === 'player3')).toBe(true);
 
     // 같은 연결의 병렬 중복 부설 방지 — 다른 경로(Columbus→Cincinnati 등)로 빠져야 한다

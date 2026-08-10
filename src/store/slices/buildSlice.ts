@@ -706,7 +706,9 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       // 생략: 마을에 닿은 미연결 트랙 변 전부.
       let targetCount: number;
       if (edge !== undefined) {
-        const nb = getNeighborHex(townCoord, edge);
+        // board 전달 — 랩 어라운드(달) 이웃 일관성 (현 맵 데이터엔 랩 변 위 마을이 없어
+        // 실효 0이지만, GameBoard 클릭 판정과 같은 좌표를 봐야 하는 자리라 맞춰 둔다)
+        const nb = getNeighborHex(townCoord, edge, state.board);
         const hex = state.board.hexTiles.find(h => hexCoordsEqual(h.coord, nb));
         // 도시 헥스는 hexTiles에 없다 — 인접 도시를 향한 가닥은 그 자체로 완성 링크라 유효
         // (Scotland Ayr↔Glasgow $2 링크가 이 경로. 도시는 모든 변이 암묵 연결).

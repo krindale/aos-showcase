@@ -912,10 +912,11 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           // 최상단의 canBuildTownSpur(coord)는 "내 트랙이 닿은 변 전부"를 보는 edge 생략
           // 호출이라, 시작점이 **도시**인 인접 마을(Scotland Ayr↔Glasgow 등)은 잡지 못한다.
           // 하이라이트를 띄운 판정(uiSlice의 spurTargets)과 같은 edge 지정 호출로 커밋한다.
-          // ⛔ 클릭한 칸이 **마을일 때만** 이 경로로 보낸다. 이 확인이 없으면 일반 헥스를
-          //    눌러도 canBuildTownSpur(이웃만 검사)가 통과해 트랙 대신 "마을 가닥"이 지어지고
-          //    건설 카운트·비용만 사라진다(실전 사고 2026-08-10, 방 FGGKFB).
-          //    조건은 uiSlice가 노란 후보(spurTargets)를 고를 때와 같아야 한다.
+          // ⛔ 클릭한 칸이 **마을일 때만** 이 경로로 보낸다 — 일반 헥스 클릭이 가닥 건설로
+          //    새던 실전 사고(2026-08-10, 방 FGGKFB)의 1차 방어는 canBuildTownSpur 초입의
+          //    마을 가드(스토어)이고, 여기는 UI 쪽 이중 방어 + "마을이 아니면 아래 연장/방향
+          //    전환 분기로 넘긴다"는 라우팅이다. 조건은 uiSlice의 노란 후보(spurTargets)
+          //    판정과 같아야 한다.
           const clickedIsTown = board.towns.some(
             t => hexCoordsEqual(t.coord, coord) && t.newCityColor === null
           );

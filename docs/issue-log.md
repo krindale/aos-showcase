@@ -8,6 +8,41 @@
 
 ---
 
+## 2026-08-10c — 봇 경로 겹침 경쟁: 유령 경로 + fallback 원시 커밋 (실전 r5pm, 봇 2명 연쇄 파산)
+
+- **증상**: Southern England 5인(사람 1+봇 4)에서 봇 2명이 T2·T3 연쇄 파산. 분석해 보니 T1에
+  봇 셋(+사람 유령까지 넷)이 전부 `holyhead→northwest` 한 링크에 몰려 있었다.
+- **원인 (사슬)**: ① 경매 denial 성격 평가(`estimateFirstSeatVP`→`gapFor`)가 **사람 포함** 전원에
+  `ensureTurnPlan` → `reevaluateStrategy`의 `setCurrentRoute` 부수효과로 **사람에게 유령 목표
+  경로가 등록**된다(실제 사람은 반대편에 건설 — 추정과 무관). ② 유령까지 차단 목록에 들어가
+  뒷순번 봇의 top-K 후보가 전멸. ③ 전멸 시 fallback `viableOpps[0] ?? opportunities[0]`이
+  **겹침·평가를 무시한 원시 커밋** — 앞 순번이 잡은 정확히 같은 링크를 그대로 잡아 같은 회랑에
+  병렬 부설(이중 투자·배달 0 → 유지비만 늘어 파산). 시뮬은 전원 봇+standard(denial 없음)라
+  ①이 재현되지 않아 베이스라인이 못 잡는 구조였다.
+- **수정**: ① fallback이 상대가 잡은 sameLink를 거름(도시 공유까지 거르면 후보 전멸 재발 —
+  sameLink만). ② 견제 평가는 사람 **포함 유지**(빼면 Scotland 2인전에서 훅이 통째로 죽음 —
+  사용자 지적) + 평가 직후 부수효과 정리(`clearCurrentRoute`+`invalidateTurnPlan`).
+  ③ 봇 건설의 사람 겹침 회피는 예측이 아니라 **사람이 실제 완성한 링크**(보드 사실, 이번 턴
+  완성분 포함 — 사용자 지침) 기준: `humanBuiltLinks` sameLink 차단. 점수(병렬 회랑 ΔVP 급락
+  7.0→−5.8 실측)가 이미 대부분을 피하고 이 차단은 경계가 뒤집힐 때의 저지선.
+- **검증**: 11개 맵 100시드 전수 — 하드 회귀 0, Southern England 파산 0.48→0.43·Southern US
+  0.16→0.09 개선. 상세는 [ai-auction-baseline-100seed.md](ai-auction-baseline-100seed.md) 2026-08-10.
+
+## 2026-08-10b — 마을이 아닌 헥스에 "마을 가닥"이 지어져 건설 카운트·비용 증발 (실전, 방 FGGKFB)
+
+- **증상**: "트랙 1개 짓고 도시화했는데 건설 카운트가 3/3" — 온라인 방 FGGKFB, Southern England.
+- **원인**: `canBuildTownSpur`의 edge 지정 경로가 **townCoord가 실제 마을인지 검사하지 않고**
+  이웃 헥스만 봤다. 같은 날 추가된 "노란 마을 칸 클릭 → edge 지정 가닥" 분기가 마을 확인 없이
+  이 함수를 호출하면서, 일반 헥스 클릭이 트랙 대신 "마을 가닥"으로 커밋돼 카운트·비용만 소모
+  (Supabase 스냅샷으로 towns에 없는 (1,5)·(3,6)의 가닥 3개 실증). **같은 브랜치에서 하루 만에
+  만든 회귀** — uiSlice의 후보 계산에는 마을 조건이 있었는데 클릭 커밋에는 없어 둘이 어긋났고,
+  테스트도 마을 좌표로만 호출해 구멍을 못 짚었다.
+- **수정**: `canBuildTownSpur` 초입에 마을 여부 가드(두 호출 경로를 한 곳에서 차단) +
+  GameBoard 클릭 분기도 마을일 때만 가닥 경로로 라우팅(이중 방어). 배포돼 있던 main은
+  force-reset으로 어제 상태 원복 후 브랜치에서 수정.
+- **회귀**: `townSpurHighlight.test.ts` "마을이 아닌 헥스에는 가닥을 지을 수 없다" — 6변 전부 +
+  edge 생략까지 거부, 카운트·현금·townSpurs 불변 확인.
+
 ## 2026-08-10 — 트랙 건설에서 클릭이 전혀 반응하지 않음 (사용자 제보, Southern England 턴 4)
 
 - **증상**: 주인 없는 미완성 트랙을 한 칸 연장해 Oxford 마을에 연결하려는데 **아무 반응이

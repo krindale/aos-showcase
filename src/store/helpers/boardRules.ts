@@ -63,7 +63,20 @@ export function findMissingTownSpurs(
     const mineFacing =
       (tile.owner === playerId && tile.edges.includes(facingEdge)) ||
       (tile.secondaryOwner === playerId && tile.secondaryEdges?.includes(facingEdge));
-    if (mineFacing) missing.push({ townCoord, edge });
+
+    // 룰 IV: "미소유 미완성 구간을 연장하면 소유권 주장 가능" — 그 연장이 **마을 가닥**인
+    // 경우도 같다. 여기서 미소유를 빼면 마을 변에서 끊긴 주인 없는 트랙은 링크를 완성할
+    // 방법이 아예 사라진다 (마을 헥스는 타일 배치 대상이 아니라 연장 후보로도 안 뜨고,
+    // 가닥이 없으니 마을을 연결점으로 잡을 수도 없다 — 사용자 제보 2026-08-10).
+    // 완성 시 구간 인수는 buildTownSpur의 findClaimableSectionKeys가 이미 처리한다.
+    // 제외 조건은 isValidConnectionPoint·getBuildableNeighbors와 동일하게 유지
+    // (정부 트랙=중립, 완성 링크 소속=파산 해제분). 정부 모드(playerId=null)는 위
+    // owner===null 매치가 그대로 처리하므로 이 분기를 태우지 않는다.
+    const claimableFacing =
+      playerId !== null && tile.owner === null && !tile.isGovernment &&
+      tile.edges.includes(facingEdge) && !isTrackPartOfCompletedLink(nb, board);
+
+    if (mineFacing || claimableFacing) missing.push({ townCoord, edge });
   }
   return missing;
 }

@@ -588,11 +588,6 @@ export function calculateTrackEdges(
 }
 
 /**
- * 연결점에서 건설 가능한 이웃 헥스 목록 반환
- * sourceCoord: 도시 또는 플레이어의 기존 트랙이 있는 헥스
- * 반환값: { coord: 건설 대상 헥스, sourceEdge: sourceCoord에서 나가는 엣지, targetEdge: 대상 헥스로 들어가는 엣지 }
- */
-/**
  * 이 시작점에서 노선을 이어 나갈 수 있는 변 목록 (연결점이 아니면 null).
  * 도시·내 가닥이 있는 마을은 6변 전부, 트랙이면 내 소유(또는 인수 가능한 미소유) 경로의 변만.
  *
@@ -662,6 +657,13 @@ export function getConnectableEdges(
   return availableEdges;
 }
 
+/**
+ * 연결점에서 건설 가능한 이웃 헥스 목록 반환
+ * sourceCoord: 도시 또는 플레이어의 기존 트랙이 있는 헥스
+ * 반환값: { coord: 건설 대상 헥스, sourceEdge: sourceCoord에서 나가는 엣지, targetEdge: 대상 헥스로 들어가는 엣지 }
+ * ⚠️ 마을은 타일 배치 대상이 아니라 여기서 빠진다 — 마을 연결은 가닥(buildTownSpur)이며,
+ *    후보 표시는 같은 변 집합(getConnectableEdges)에서 따로 계산한다.
+ */
 export function getBuildableNeighbors(
   sourceCoord: HexCoord,
   board: BoardState,

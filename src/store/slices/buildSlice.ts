@@ -691,6 +691,17 @@ export function createBuildSlice(set: Set, get: Get): BuildSlice {
       // governmentLink(Montréal): 정부 링크가 마을(Stop)을 지나도록 정부 가닥(무료·중립) 건설 허용
       const isGovSpur = state.currentPhase === 'governmentLink';
       if (state.currentPhase !== 'buildTrack' && !isGovSpur) return false;
+
+      // ⛔ townCoord가 **실제 마을**인지 먼저 확인한다. edge 지정 경로엔 이 가드가 없어서
+      //    (이웃 헥스만 검사) 아무 빈 헥스에나 "마을 가닥"을 지을 수 있었다 — 건설 카운트와
+      //    비용만 먹고 트랙은 놓이지 않는다(사용자 실전 2026-08-10, 방 FGGKFB: towns에 없는
+      //    (1,5)·(3,6)에 가닥 3개가 생겨 카운트가 1턴에 3/3으로 소진). edge 생략 경로는
+      //    findMissingTownSpurs가 같은 검사를 하므로 여기 한 줄이 두 경로를 모두 막는다.
+      //    도시화된 마을(newCityColor≠null)은 이미 도시라 제외 — findMissingTownSpurs와 동일.
+      if (!state.board.towns.some(t => hexCoordsEqual(t.coord, townCoord) && t.newCityColor === null)) {
+        return false;
+      }
+
       // edge 지정: 그 변 가닥(방향 직접 선택, 트랙 없이도 가능 — 유효 헥스 + 미생성).
       // 생략: 마을에 닿은 미연결 트랙 변 전부.
       let targetCount: number;

@@ -107,6 +107,33 @@ describe('마을 가닥 후보의 노란 칸 표시', () => {
     expect(useGameStore.getState().players.player1.cash).toBe(9); // $2 (기본료 $1 + 가닥 $1)
   });
 
+  it('⛔ 마을이 아닌 헥스에는 가닥을 지을 수 없다 (건설 카운트·비용만 먹던 실전 사고)', () => {
+    setup('player1');
+    const s = useGameStore.getState();
+
+    // towns에 없는 평범한 빈 헥스
+    const plain = s.board.hexTiles.find(h =>
+      !s.board.towns.some(t => hexCoordsEqual(t.coord, h.coord)) &&
+      !s.board.cities.some(c => hexCoordsEqual(c.coord, h.coord)) &&
+      h.terrain !== 'lake'
+    )!;
+    expect(plain).toBeDefined();
+
+    const before = useGameStore.getState().phaseState.builtTracksThisTurn;
+    const cashBefore = useGameStore.getState().players.player1.cash;
+
+    for (let e = 0; e < 6; e++) {
+      expect(useGameStore.getState().canBuildTownSpur(plain.coord, e)).toBe(false);
+      expect(useGameStore.getState().buildTownSpur(plain.coord, e)).toBe(false);
+    }
+    // edge 생략 경로도 마찬가지
+    expect(useGameStore.getState().canBuildTownSpur(plain.coord)).toBe(false);
+
+    expect(useGameStore.getState().phaseState.builtTracksThisTurn).toBe(before);
+    expect(useGameStore.getState().players.player1.cash).toBe(cashBefore);
+    expect(useGameStore.getState().board.townSpurs ?? []).toHaveLength(0);
+  });
+
   it('이미 가닥이 있는 변이면 후보로 뜨지 않는다 (중복 표시 방지)', () => {
     const townEdge = setup('player1');
     const spurEdge = getOppositeEdge(townEdge);

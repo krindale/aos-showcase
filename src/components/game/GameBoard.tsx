@@ -44,6 +44,7 @@ import { useIsNarrowViewport } from '@/hooks/useIsNarrowViewport';
 import { shadeColor, hexVertex } from './board/boardGeometry';
 import { useMyPlayerId } from '@/hooks/useMyPlayerId';
 import { useNetStore } from '@/net/netStore';
+import { useToastStore } from '@/store/toastStore';
 import { safeTimeout } from '@/utils/safeTimers';
 import { turboDelay } from '@/utils/turboMode';
 
@@ -783,9 +784,43 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
   );
 
   // 헥스 클릭 핸들러 — governmentLink(Montréal 정부 링크)도 동일한 건설 플로우 사용
+  // 클릭했는데 아무 일도 일어나지 않는 헥스에 대한 안내.
+  // 예전엔 완전 무반응이라 "규칙 위반인지, 차례가 아닌지, 앱이 멈춘 건지" 사용자가 구분할
+  // 방법이 없었다(제보 2026-08-10: 빈 헥스를 눌러도 오류도 안내도 없어 멈춘 줄 알았다).
+  const hintNoopClick = useCallback(
+    (coord: HexCoord) => {
+      const showToast = useToastStore.getState().showToast;
+      if (isPanGesture()) return; // 드래그 직후의 클릭은 조작 의도가 아니다
+      if (boardInteractionBlocked) {
+        showToast('지금은 내 차례가 아니에요 — 차례가 오면 보드를 조작할 수 있어요', 'info');
+        return;
+      }
+      if (currentPhase !== 'buildTrack' && currentPhase !== 'governmentLink') return;
+      if (ui.urbanizationMode) return; // 도시화 모드는 자체 안내(마을 선택)가 떠 있다
+
+      if (natSelecting) {
+        showToast('먼저 국유화할 철도를 고르세요 — 깜빡이는 철도를 클릭', 'info');
+        return;
+      }
+      const terrain = board.hexTiles.find(h => hexCoordsEqual(h.coord, coord))?.terrain;
+      if (terrain === 'lake' || terrain === 'sea') {
+        showToast('물 위에는 트랙을 놓을 수 없어요', 'info');
+        return;
+      }
+      if (ui.buildMode === 'idle') {
+        showToast('먼저 시작점을 클릭하세요 — 도시, 내 트랙, 주인 없는 미완성 트랙', 'info');
+      } else if (ui.buildMode === 'source_selected') {
+        showToast('노란색으로 표시된 헥스를 클릭해 트랙을 놓으세요', 'info');
+      } else if (ui.buildMode === 'target_selected') {
+        showToast('트랙이 나갈 방향(노란색 헥스)을 클릭하세요', 'info');
+      }
+    },
+    [boardInteractionBlocked, isPanGesture, currentPhase, ui.urbanizationMode, ui.buildMode, natSelecting, board]
+  );
+
   const handleHexClick = useCallback(
     (coord: HexCoord) => {
-      if (boardInteractionBlocked) return; // 내 차례가 아니면 무시 (봇/타인 차례 보호)
+      if (boardInteractionBlocked) { hintNoopClick(coord); return; } // 내 차례가 아니면 무시 (봇/타인 차례 보호)
       if (isPanGesture()) return; // 드래그(팬)·핀치 직후의 클릭은 무시 (마우스·터치 공통)
 
       // Southern China 국유화 선택 — 대기 중엔 **다른 건설 조작보다 먼저** 가로챈다.
@@ -796,6 +831,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
         if (linkId) {
           nationalizeLink(currentPlayer, linkId);
           setHoveredNatLinkId(null);
+        } else {
+          hintNoopClick(coord);
         }
         return;
       }
@@ -812,6 +849,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           // 유효한 연결점(도시 또는 기존 트랙) 클릭 → 선택
           if (isValidConnectionPoint(coord)) {
             selectSourceHex(coord);
+          } else {
+            hintNoopClick(coord);
           }
         } else if (ui.buildMode === 'source_selected') {
           // 같은 헥스 클릭 → 선택 취소
@@ -832,6 +871,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                 if (spurExists) {
                   // 이미 가닥이 있는 변 → 그 헥스로 트랙(노선) 이어가기
                   if (isBuildableTarget(coord)) { selectTargetHex(coord); return; }
+                  hintNoopClick(coord);
+                  return;
                 } else {
                   // 가닥 없는 변 → 가닥만 단독 건설
                   if (buildTownSpur(src, e)) resetBuildMode();
@@ -841,7 +882,24 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
             }
             // 인접이 아니면 다른 연결점 재선택
             if (isValidConnectionPoint(coord)) selectSourceHex(coord);
+            else hintNoopClick(coord);
             return;
+          }
+
+          // 노란 마을 칸 클릭 → 시작점 쪽 변으로 가닥 건설 (edge 지정).
+          // 최상단의 canBuildTownSpur(coord)는 "내 트랙이 닿은 변 전부"를 보는 edge 생략
+          // 호출이라, 시작점이 **도시**인 인접 마을(Scotland Ayr↔Glasgow 등)은 잡지 못한다.
+          // 하이라이트를 띄운 판정(uiSlice의 spurTargets)과 같은 edge 지정 호출로 커밋한다.
+          if (src) {
+            for (let e = 0; e < 6; e++) {
+              if (!hexCoordsEqual(getNeighborHex(src, e, board), coord)) continue;
+              const spurEdge = getOppositeEdge(e);
+              if (canBuildTownSpur(coord, spurEdge)) {
+                if (buildTownSpur(coord, spurEdge)) resetBuildMode();
+                return;
+              }
+              break;
+            }
           }
 
           // 하이라이트된 헥스 클릭 → 대상 헥스 선택 (나가는 방향 UI 표시)
@@ -856,7 +914,16 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           if (ui.sourceHex) {
             const rt = getRedirectTargetHexes(ui.sourceHex, board, currentPlayer)
               .find(t => hexCoordsEqual(t.coord, coord));
-            if (rt && redirectTrack(ui.sourceHex, rt.edge)) {
+            if (rt) {
+              // 방향 전환 후보로 표시해 놓고 커밋이 거부되면(현금 $2·건설 제한 등) 조용히
+              // 실패해 "노란 칸을 눌렀는데 무반응"이 된다 — 이유를 알린다.
+              if (redirectTrack(ui.sourceHex, rt.edge)) return;
+              const { builtTracksThisTurn: b, maxTracksThisTurn: m } = useGameStore.getState().phaseState;
+              useToastStore.getState().showToast(
+                b >= m
+                  ? `이번 턴 건설 제한에 도달했어요 (${b}/${m})`
+                  : '이 방향으로는 방향 전환을 할 수 없어요 (방향 전환 비용 $2)'
+              );
               return;
             }
           }
@@ -864,6 +931,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           // 다른 유효한 연결점 클릭 → 새로운 선택
           if (isValidConnectionPoint(coord)) {
             selectSourceHex(coord);
+          } else {
+            hintNoopClick(coord);
           }
         } else if (ui.buildMode === 'target_selected') {
           // 같은 대상 헥스 클릭 → source_selected로 돌아가기
@@ -887,6 +956,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           // 다른 유효한 연결점 클릭 → 새로운 선택
           if (isValidConnectionPoint(coord)) {
             selectSourceHex(coord);
+          } else {
+            hintNoopClick(coord);
           }
         }
       }
@@ -896,7 +967,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     //    함께 바뀌어(applyNationalization·undo·스냅샷 적용) 실전에서 드러나지 않지만,
     //    board 불변인 채 대기만 바뀌는 경로가 하나라도 생기면 즉시 옛 클로저가 남아
     //    "대기가 풀렸는데 보드 클릭이 계속 먹통"이 된다. handleHexHover는 이미 포함돼 있다.
-    [currentPhase, ui.buildMode, ui.sourceHex, ui.targetHex, board, currentPlayer, isValidConnectionPoint, isBuildableTarget, getExitEdgeForCoord, selectSourceHex, selectTargetHex, selectExitDirection, redirectTrack, resetBuildMode, canBuildTownSpur, buildTownSpur, boardInteractionBlocked, natSelecting, natTileIndex, nationalizeLink, isPanGesture]
+    [currentPhase, ui.buildMode, ui.sourceHex, ui.targetHex, board, currentPlayer, isValidConnectionPoint, isBuildableTarget, getExitEdgeForCoord, selectSourceHex, selectTargetHex, selectExitDirection, redirectTrack, resetBuildMode, canBuildTownSpur, buildTownSpur, boardInteractionBlocked, natSelecting, natTileIndex, nationalizeLink, isPanGesture, hintNoopClick]
   );
 
   // 헥스 호버 핸들러
@@ -1180,6 +1251,9 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
 
             return (
               <g key={`hex-${col}-${row}`}>
+                {/* 후보가 아닌 헥스도 클릭은 받는다 — handleHexClick이 "왜 안 되는지"를 토스트로
+                    안내한다(예전엔 onClick 자체가 없어 완전 무반응 = 멈춘 것으로 오해).
+                    커서(pointer)만 후보에 한정해 "여기는 누를 수 있다" 표시는 그대로 유지. */}
                 <polygon
                   points={getHexPoints(x, y, HEX_SIZE, isFlat)}
                   fill={
@@ -1210,7 +1284,7 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
                       ? 'cursor-pointer hover:opacity-80 transition-opacity'
                       : ''
                   }
-                  onClick={() => isClickable && handleHexClick(coord)}
+                  onClick={() => handleHexClick(coord)}
                   onMouseEnter={() => handleHexHover(coord)}
                 />
                 {/* 사선 분할 바다(Montréal $5 헥스): 초록 바탕 위에 동쪽 바다 폴리곤 —

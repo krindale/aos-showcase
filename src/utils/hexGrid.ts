@@ -592,16 +592,20 @@ export function calculateTrackEdges(
  * sourceCoord: 도시 또는 플레이어의 기존 트랙이 있는 헥스
  * 반환값: { coord: 건설 대상 헥스, sourceEdge: sourceCoord에서 나가는 엣지, targetEdge: 대상 헥스로 들어가는 엣지 }
  */
-export function getBuildableNeighbors(
+/**
+ * 이 시작점에서 노선을 이어 나갈 수 있는 변 목록 (연결점이 아니면 null).
+ * 도시·내 가닥이 있는 마을은 6변 전부, 트랙이면 내 소유(또는 인수 가능한 미소유) 경로의 변만.
+ *
+ * getBuildableNeighbors(새 타일을 놓을 이웃)와 마을 가닥 후보 계산이 **같은 변 집합**을
+ * 써야 하므로 여기 한 곳에 둔다 — 마을은 타일을 놓는 곳이 아니라 가닥으로 잇는 곳이라
+ * getBuildableNeighbors에서는 빠지는데, UI는 둘 다 "이어 지을 수 있는 칸"으로 보여야 한다.
+ */
+export function getConnectableEdges(
   sourceCoord: HexCoord,
   board: BoardState,
   currentPlayer: PlayerId,
-  allowReplace: boolean = false,
-  /** Montréal 정부 링크 건설 모드 — 정부 트랙/가닥(owner null·isGovernment)을 "내 것"으로 취급 */
   governmentMode: boolean = false
-): { coord: HexCoord; sourceEdge: number; targetEdge: number }[] {
-  const buildableNeighbors: { coord: HexCoord; sourceEdge: number; targetEdge: number }[] = [];
-
+): number[] | null {
   // sourceCoord가 도시인지 확인
   const isCity = board.cities.some(c => hexCoordsEqual(c.coord, sourceCoord));
 
@@ -652,8 +656,24 @@ export function getBuildableNeighbors(
     }
   } else {
     // 유효하지 않은 연결점
-    return [];
+    return null;
   }
+
+  return availableEdges;
+}
+
+export function getBuildableNeighbors(
+  sourceCoord: HexCoord,
+  board: BoardState,
+  currentPlayer: PlayerId,
+  allowReplace: boolean = false,
+  /** Montréal 정부 링크 건설 모드 — 정부 트랙/가닥(owner null·isGovernment)을 "내 것"으로 취급 */
+  governmentMode: boolean = false
+): { coord: HexCoord; sourceEdge: number; targetEdge: number }[] {
+  const buildableNeighbors: { coord: HexCoord; sourceEdge: number; targetEdge: number }[] = [];
+
+  const availableEdges = getConnectableEdges(sourceCoord, board, currentPlayer, governmentMode);
+  if (availableEdges === null) return [];
 
   // 각 가능한 엣지에서 이웃 헥스 확인
   for (const sourceEdge of availableEdges) {
@@ -724,6 +744,16 @@ export function getExitDirections(
     if (edge === entryEdge) continue; // 들어온 방향은 제외
 
     const neighbor = getNeighborHex(targetCoord, edge, board);
+
+    // 맵 밖(hexTiles에도 없고 도시도 아님)은 제외. 어차피 건설 불가인데 방향 후보로 남으면
+    // 화면 밖에 노란 칸이 찍혀 "누를 칸이 하나도 없는" 상태가 된다 — 사용자에겐 무반응으로
+    // 보인다. isValidBuildTarget은 이미 같은 기준으로 맵 밖을 거른다(판정 일치).
+    // ⚠️ 도시 헥스는 hexTiles에 없으므로 cities도 함께 본다. 랩 어라운드(달)는
+    //    getNeighborHex(board)가 반대편 맵 안 좌표를 주므로 영향 없다.
+    const onMap =
+      board.hexTiles.some(h => hexCoordsEqual(h.coord, neighbor)) ||
+      board.cities.some(c => hexCoordsEqual(c.coord, neighbor));
+    if (!onMap) continue;
 
     // 호수인지 확인
     const isLake = board.hexTiles.some(

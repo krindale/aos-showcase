@@ -23,6 +23,9 @@ import {
 } from '@/utils/trackValidation';
 import {
   getBuildableNeighbors,
+  getConnectableEdges,
+  getNeighborHex,
+  getOppositeEdge,
   getExitDirections,
   hexCoordsEqual,
   findReachableDestinations,
@@ -445,19 +448,33 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
         : getRedirectTargetHexes(coord, state.board, currentPlayer)
             .filter(rt => !isBlockedEdge(state.board, coord, rt.coord));
 
+      // 마을 가닥 후보 — 마을은 타일을 놓는 곳이 아니라 가닥으로 잇는 곳이라 위 연장 후보
+      // (getBuildableNeighbors)에서 빠진다. 그래도 사용자에겐 "여기를 눌러야 이어진다"가
+      // 보여야 하므로 같은 노란 칸으로 표시한다 — 마을 연결도 건설 카운트·비용을 쓰는
+      // 엄연한 건설이다(제보 2026-08-10: 마을이 후보로 안 떠 연결 방법을 알 수 없었다).
+      // 판정은 canBuildTownSpur를 그대로 호출해 표시=커밋을 보장한다(미러 금지).
+      const spurTargets: HexCoord[] = [];
+      for (const e of getConnectableEdges(coord, state.board, currentPlayer, govMode) ?? []) {
+        const nb = getNeighborHex(coord, e, state.board);
+        if (isBlockedEdge(state.board, coord, nb)) continue;
+        if (!state.board.towns.some(t => hexCoordsEqual(t.coord, nb) && t.newCityColor === null)) continue;
+        if (state.canBuildTownSpur(nb, getOppositeEdge(e))) spurTargets.push(nb);
+      }
+
       // 노란 칸이 하나도 안 뜨는 흔한 원인 = 이번 턴 건설 제한 도달. 그 경우만 토스트로 안내
       // (그 외 "여기 방향 없음"은 다른 곳 클릭하면 되므로 노이즈 방지 차원에서 생략).
-      if (neighbors.length === 0 && redirectTargets.length === 0) {
+      if (neighbors.length === 0 && redirectTargets.length === 0 && spurTargets.length === 0) {
         const { builtTracksThisTurn: b, maxTracksThisTurn: m } = state.phaseState;
         if (b >= m) {
           useToastStore.getState().showToast(`이번 턴 건설 제한에 도달했어요 (${b}/${m})`);
         }
       }
 
-      // 하이라이트할 헥스 목록 (연장 타깃 + 방향 전환 타깃)
+      // 하이라이트할 헥스 목록 (연장 타깃 + 방향 전환 타깃 + 마을 가닥 타깃)
       const highlightedHexes = [
         ...neighbors.map(n => n.coord),
         ...redirectTargets.map(rt => rt.coord),
+        ...spurTargets,
       ];
 
       set({
@@ -504,6 +521,14 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
         exitDirs = exitDirs.filter(d =>
           !existingTrack.edges.includes(d.exitEdge)
         );
+      }
+
+      // 나갈 방향이 하나도 없으면 target_selected로 넘어가지 않는다 — 넘어가면 노란 칸이
+      // 통째로 사라져 "눌렀는데 아무 일도 안 일어나고 선택도 풀린" 상태가 된다(무반응으로 보임).
+      // 출발점 선택을 유지해 다른 칸을 이어서 고를 수 있게 하고, 이유만 알린다.
+      if (exitDirs.length === 0) {
+        useToastStore.getState().showToast('이 칸은 트랙이 나갈 방향이 없어요 (맵 끝·호수·기존 트랙과 겹침)');
+        return;
       }
 
       // 하이라이트: 나갈 수 있는 방향의 이웃 헥스들

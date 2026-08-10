@@ -108,16 +108,18 @@ export default function BoardTowns({
               stroke={
                 isUrbanizationClickable
                   ? '#3B82F6'  // 도시화 가능: 파란색 테두리
+                  : isTownHighlighted
+                  // 건설 후보로 뜬 마을은 **다른 노란 칸과 똑같이** 보여야 한다 — 안내가
+                  // "노란색 헥스를 클릭"인데 마을만 주황 점선이면 후보로 안 읽힌다.
+                  ? '#d4a853'
                   : canCompleteSpur
-                  ? '#f4a261'  // 미연결 가닥 완성 가능: 주황 점선 테두리
+                  ? '#f4a261'  // 시작점을 안 고른 상태의 상시 힌트: 주황 점선
                   : isSourceSelected
                   ? '#ffffff'
-                  : isTownHighlighted
-                  ? '#d4a853'  // 트랙 건설 가능 방향: 노란(골드) 테두리
                   : '#2D4A2D'  // 배경 평지 헥스와 동일
               }
               strokeWidth={isTownHighlighted ? 1.5 : 0.5}
-              strokeDasharray={canCompleteSpur ? '6 4' : undefined}
+              strokeDasharray={canCompleteSpur && !isTownHighlighted ? '6 4' : undefined}
               className={(isTownClickable || isUrbanizationClickable) ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''}
               onClick={handleTownClick}
             >

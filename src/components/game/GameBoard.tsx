@@ -840,7 +840,16 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
       if (currentPhase === 'buildTrack' || currentPhase === 'governmentLink') {
         // 미연결 가닥 완성: 내 트랙이 변에 닿아 있으나 가닥이 없는 마을 클릭 → 가닥 건설.
         // buildMode와 무관하게 최우선 — 같은 턴에 이미 일부 연결된 마을의 추가 변도 연결 가능.
-        if (canBuildTownSpur(coord)) {
+        // ⚠️ 이 호출은 edge 생략 = "닿은 미연결 변 **전부**"를 한 번에 짓는다. 그래서
+        //    시작점을 고른 뒤 그 이웃 마을을 클릭한 경우는 여기서 잡지 않고 아래 edge 지정
+        //    분기로 넘긴다 — 사용자가 고른 방향 하나만 지어야 하는데 여기서 잡으면 같은
+        //    마을의 다른 미연결 변(주인 없는 트랙 쪽 포함)까지 함께 지어져 예상 밖 비용이
+        //    나가고, 노란 칸이 가리킨 것과 실제 건설이 어긋난다.
+        const pickedTownDirection =
+          ui.buildMode === 'source_selected' && !!ui.sourceHex &&
+          [0, 1, 2, 3, 4, 5].some(e => hexCoordsEqual(getNeighborHex(ui.sourceHex!, e, board), coord));
+
+        if (!pickedTownDirection && canBuildTownSpur(coord)) {
           buildTownSpur(coord);
           return;
         }
@@ -866,7 +875,8 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
           const srcIsTown = src && board.towns.some(t => hexCoordsEqual(t.coord, src) && t.newCityColor === null);
           if (srcIsTown && src) {
             for (let e = 0; e < 6; e++) {
-              if (hexCoordsEqual(getNeighborHex(src, e), coord)) {
+              // board 전달 필수 — 랩 어라운드(달)에서 반대편 좌표를 돌려받아야 한다
+              if (hexCoordsEqual(getNeighborHex(src, e, board), coord)) {
                 const spurExists = (board.townSpurs ?? []).some(sp => hexCoordsEqual(sp.townCoord, src) && sp.edge === e);
                 if (spurExists) {
                   // 이미 가닥이 있는 변 → 그 헥스로 트랙(노선) 이어가기

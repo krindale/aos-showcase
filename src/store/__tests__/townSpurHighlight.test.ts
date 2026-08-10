@@ -77,6 +77,36 @@ describe('마을 가닥 후보의 노란 칸 표시', () => {
     expect(useGameStore.getState().players.player1.cash).toBe(9);
   });
 
+  it('edge 지정은 그 변 하나만 짓는다 — 같은 마을의 다른 미연결 변은 건드리지 않는다', () => {
+    const townEdge = setup('player1');
+    const s = useGameStore.getState();
+
+    // 마을의 **다른** 변에 주인 없는 미완성 트랙을 하나 더 붙인다.
+    // (edge 생략 호출은 이런 변까지 한 번에 짓는다 — 그래서 방향을 고른 클릭은 edge 지정이어야 한다)
+    const otherEdge = [0, 1, 2, 3, 4, 5].find(e => e !== getOppositeEdge(townEdge))!;
+    const otherCoord = getNeighborHex(OXFORD, otherEdge, s.board);
+    useGameStore.setState({
+      board: {
+        ...s.board,
+        trackTiles: [...s.board.trackTiles, {
+          id: 'tr-other', coord: otherCoord,
+          edges: [getOppositeEdge(otherEdge), (getOppositeEdge(otherEdge) + 3) % 6],
+          owner: null, trackType: 'simple' as const, builtTurn: 3,
+        }],
+      },
+    });
+
+    // edge 생략은 두 변을 모두 짓는다 (마을 클릭 = "이 마을 연결" 의도)
+    expect(useGameStore.getState().canBuildTownSpur(OXFORD)).toBe(true);
+
+    // edge 지정은 고른 변 하나만
+    useGameStore.getState().buildTownSpur(OXFORD, getOppositeEdge(townEdge));
+    const spurs = useGameStore.getState().board.townSpurs ?? [];
+    expect(spurs).toHaveLength(1);
+    expect(spurs[0].edge).toBe(getOppositeEdge(townEdge));
+    expect(useGameStore.getState().players.player1.cash).toBe(9); // $2 (기본료 $1 + 가닥 $1)
+  });
+
   it('이미 가닥이 있는 변이면 후보로 뜨지 않는다 (중복 표시 방지)', () => {
     const townEdge = setup('player1');
     const spurEdge = getOppositeEdge(townEdge);

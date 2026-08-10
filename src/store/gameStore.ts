@@ -83,7 +83,7 @@ export type { AIPlayerConfig } from './helpers/setup';
  * 실행 중인 페이지에선 옛 로직이 계속 돈다(CLAUDE.md "HMR을 의심할 것").
  * 아래 가드가 "페이지 로드 이후 store 모듈이 다시 평가됨"을 감지해 콘솔 경고를 띄운다.
  */
-export const STORE_CODE_VERSION = 16; // 대륙횡단 보너스 단독연결 우선 + 달 랩 이중변 경로/건설 수정
+export const STORE_CODE_VERSION = 17; // 마을 가닥 인수 연장 + 마을=가닥 있는 변만 연결(방향 전환) + 마을 노란 후보
 
 // HMR 스테일 가드 (dev 브라우저 전용 — SSR/vitest 제외).
 // window에 최초 로드 시점 버전을 박아두고, 이 모듈이 다시 평가되면(= store 관련 소스 변경)

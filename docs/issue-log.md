@@ -8,6 +8,44 @@
 
 ---
 
+## 2026-08-10 — 트랙 건설에서 클릭이 전혀 반응하지 않음 (사용자 제보, Southern England 턴 4)
+
+- **증상**: 주인 없는 미완성 트랙을 한 칸 연장해 Oxford 마을에 연결하려는데 **아무 반응이
+  없다**. 마을을 눌러도, 빈 헥스를 눌러도, 시작점을 고른 뒤 노란 칸을 눌러도 오류도 안내도
+  없어 "앱이 멈춘 것"으로 보였다. 현금 $11·건설 0/3·본인 차례로 조건은 전부 충족.
+- **원인 (세 겹)**:
+  1. **마을 가닥 경로 차단** — `findMissingTownSpurs`가 마을 변에 닿은 트랙을
+     `owner === playerId`로만 인정. 주인 없는 트랙이 마을 변에서 끊기면 링크를 완성할 방법이
+     아예 없었다(마을은 타일 배치 대상이 아니라 연장 후보도 못 되고, 가닥이 없으니 마을을
+     연결점으로 잡을 수도 없음). 다른 계층은 이미 룰 IV를 지원 중이었다 —
+     `isValidConnectionPoint`·`getBuildableNeighbors`는 미소유 연장을 인정하고
+     `buildTownSpur`는 완성 시 구간 인수까지 갖고 있었다. **이 한 곳만 어긋나 있었다.**
+  2. **방향 전환의 표시/커밋 게이트 불일치** — `isEndpointOfIncompleteSection`이 마을을 가닥
+     없이도 연결로 세, 한쪽이 도시·다른 쪽이 마을인 트랙은 양끝이 막힌 것으로 잡혀
+     `connectedEdge: null` → `redirectTrack`이 조용히 false. 반면 `pickRedirectPath`는 끝점을
+     안 보므로 **노란 칸은 뜨는데 눌러도 무반응**.
+  3. **거부의 침묵** — 후보가 아닌 헥스는 `onClick` 자체가 없었고, 방향 전환·건설 제한 거부도
+     아무 표시가 없었다.
+- **수정**: ① `findMissingTownSpurs`에 미소유 미완성 트랙 인정(제외 조건은 위 두 함수와 동일 —
+  정부 트랙·완성 링크 소속). ② 마을은 **가닥 있는 변만** 연결로 판정, 끝점 조건을 "열린 변이
+  있으면 끝점, 연결된 변이 없으면 나머지 한 변 유지"로 교정(고립 타일도 전환 가능 — 예전
+  `connectedCount === 1`은 "마을을 연결로 세던" 전제에 기대고 있었다). ③ `getExitDirections`가
+  맵 밖 이웃 제외(가장자리에서 화면 밖 노란 칸이 찍혀 누를 칸이 없어지던 문제). ④ 나갈 방향이
+  0개면 `target_selected`로 진입하지 않고 안내. ⑤ 마을을 노란 건설 후보로 표시
+  (`getConnectableEdges` 추출로 연장 후보와 같은 변 집합 공유, 판정은 `canBuildTownSpur` 직접
+  호출로 표시=커밋 보장). ⑥ `hintNoopClick`으로 무반응 클릭에 사유 안내.
+- **리뷰에서 추가로 잡은 것(5건)**: 방향을 고른 마을 클릭이 edge 생략으로 커밋돼 같은 마을의
+  다른 변까지 짓던 문제(표시-커밋 불일치·예상 밖 비용), 마을 시작점 분기의
+  `getNeighborHex(src, e)` **board 누락**(달 랩 오판, 기존 버그), 안내 토스트가 정산 단계에서
+  "내 차례 아님"으로 오해를 주던 문제(HUD 억제와 같은 함정), 마을 가닥 툴팁의 비용 표기
+  `$1`(2026-08-02 룰북 정합 이전 값 — 실제 $2), `getConnectableEdges` 추출 시 어긋난 JSDoc.
+- **검증**: 신규 회귀 4파일 16종 — `unownedTownSpur`(4)·`redirectTownEndpoint`(3)·
+  `townSpurHighlight`(5)·`exitDirections`(4). 전부 **main 버전에서 실패**하는 것을
+  `git checkout main -- <file>`로 확인(⚠️ 커밋 뒤에는 `git stash`가 아무것도 되돌리지 않아
+  "통과"로 오독하기 쉽다 — 실제로 한 번 헛짚었다). store·utils 45파일 392테스트 + AI 시뮬
+  6개 맵(Southern England·Rust Belt·Montréal·Scotland·Moon) 통과. AI는 `redirectTrack`을
+  호출하지 않고 마을 가닥은 edge 생략 경로라 밸런스 영향 없음. PR #83.
+
 ## 2026-08-08b — 달 랩 이중 인접에서 좌표→변 역산이 어긋나 랩 너머 배달 사망 (사용자 실전, Serenitatis)
 
 - **증상**: 우측면이 밤일 때 Serenitatis(2,10)의 화물이 맵 끝 랩 (1,10)↔(9,6)을 건너

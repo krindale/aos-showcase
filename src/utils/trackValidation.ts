@@ -623,7 +623,6 @@ export function isEndpointOfIncompleteSection(
   }
 
   // 트랙의 두 엣지 검사
-  let connectedCount = 0;
   let connectedEdge: number | null = null;
   let openEdge: number | null = null;
 
@@ -631,9 +630,23 @@ export function isEndpointOfIncompleteSection(
     const neighborCoord = getNeighborHex(trackCoord, edge, board);
     const oppositeEdge = getOppositeEdge(edge);
 
-    // 이웃이 도시/마을인지 확인
-    if (isCityOrTown(neighborCoord, board)) {
-      connectedCount++;
+    // 이웃이 도시인지 확인 — 도시는 모든 변이 암묵 연결이라 그대로 연결로 센다.
+    // (도시화된 마을은 placeNewCity가 board.cities에 넣으므로 여기서 함께 잡힌다)
+    const neighborIsCity = board.cities.some(c => hexCoordsEqual(c.coord, neighborCoord));
+
+    // ⚠️ 마을은 다르다 — 이 엔진의 마을은 **가닥(spur)이 있는 변**으로만 연결된다.
+    // 가닥 없는 마을 쪽 변까지 연결로 세면 양끝이 막힌 것으로 잡혀 openEdge가 사라지고,
+    // "미완성 구간의 끝점"이 아니게 되어 방향 전환이 조용히 거부된다. 표시 게이트
+    // (pickRedirectPath)는 끝점을 안 보므로 노란 칸은 그대로 떠서, 사용자에겐 "노란 칸을
+    // 눌러도 아무 반응이 없는" 상태가 된다 (제보 2026-08-10: 한쪽이 도시, 다른 쪽이
+    // 가닥 없는 마을인 미완성 트랙). 가닥이 없으면 그 변은 열린 변이 맞다.
+    const neighborTownConnected =
+      board.towns.some(t => hexCoordsEqual(t.coord, neighborCoord) && t.newCityColor === null) &&
+      (board.townSpurs ?? []).some(
+        sp => hexCoordsEqual(sp.townCoord, neighborCoord) && sp.edge === oppositeEdge
+      );
+
+    if (neighborIsCity || neighborTownConnected) {
       connectedEdge = edge;
       continue;
     }
@@ -641,16 +654,23 @@ export function isEndpointOfIncompleteSection(
     // 이웃에 연결된 트랙이 있는지 확인
     const neighborTrack = board.trackTiles.find(t => hexCoordsEqual(t.coord, neighborCoord));
     if (neighborTrack && neighborTrack.edges.includes(oppositeEdge)) {
-      connectedCount++;
       connectedEdge = edge;
     } else {
       openEdge = edge;
     }
   }
 
-  // 한쪽만 연결되어 있으면 끝점
-  if (connectedCount === 1 && openEdge !== null) {
-    return { isEndpoint: true, connectedEdge, openEdge };
+  // 열린 변이 있으면 끝점 — 그 변을 새 방향으로 바꾸고 나머지 한 변은 유지한다.
+  // ⚠️ 예전 조건은 `connectedCount === 1`이었다. 마을을 가닥 없이도 연결로 세던 시절엔
+  //    그게 곧 "한쪽 연결 + 한쪽 열림"이었지만, 위에서 가닥 없는 마을을 열린 변으로
+  //    바로잡으면서 **양변이 모두 열린 고립 타일**(마을 가닥도 못 달고 이웃 트랙도 없는
+  //    한 장짜리 미완성 구간)이 끝점에서 빠져 방향 전환이 막혔다. 그런 타일도 룰 IV의
+  //    "미완성 구간 끝의 타일"이므로, 연결된 변이 없으면 나머지 한 변을 유지변으로 삼는다.
+  if (openEdge !== null) {
+    const keepEdge = connectedEdge ?? pathEdges.find(e => e !== openEdge) ?? null;
+    if (keepEdge !== null) {
+      return { isEndpoint: true, connectedEdge: keepEdge, openEdge };
+    }
   }
 
   return { isEndpoint: false, connectedEdge: null, openEdge: null };

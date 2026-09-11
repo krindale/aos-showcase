@@ -31,7 +31,13 @@
 - **보류**: `PhaseTransition`의 `fixed inset-0 bg-foreground/5` 전체 화면 딤 — 봇이 1등인 턴의
   정산 5단계가 1.2초 간격으로 연쇄 전환되며 화면 전체가 명멸한다. 의도된 연출이라 손대지 않음;
   위 수정 후에도 "전체가 어두워졌다 밝아짐"이 남으면 이것.
-- **검증**: tsc·lint·store/net/utils 446 테스트 통과, `npm run build`. 실화면 확인은 사용자.
+- **검증**: tsc·lint·store/net/utils 446 테스트 통과, `npm run build`. 로컬 dev 실화면 깜빡임 없음(사용자).
+- **PR #85 순차 코드리뷰**: 스텝1 구독 변환 15곳 1:1 통과 + GamePageClient·GoodsDisplayPanel의
+  `ui` 전체 구독을 실제 사용 필드로 축소(7f6a906) / 스텝2 비교 로직 통과 + 회귀 테스트
+  `trackPreviewNoopSet.test.ts` 3종(9f25c62) / 스텝3 스로틀 storage — `createJSONStorage`가
+  getStorage throw를 잡아 no-op으로 두는 계약이 기본 `() => localStorage`와 동일함을 소스로 확인,
+  getItem 동기라 hydration 타이밍 불변 / 스텝4 partialize — merge·스냅샷 코덱·undo 무관 /
+  스텝5 Toaster 단일 렌더·safeTimeout 취소 의미 동일, reduced-motion CSS 주석 교정.
 
 ## 2026-08-10c — 봇 경로 겹침 경쟁: 유령 경로 + fallback 원시 커밋 (실전 r5pm, 봇 2명 연쇄 파산)
 

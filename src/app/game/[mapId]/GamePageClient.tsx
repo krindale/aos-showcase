@@ -197,7 +197,8 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     maxTurns,
     winner,
     board,
-    ui,
+    complexTrackSelection,
+    redirectTrackSelection,
     hideComplexTrackSelection,
     resetBuildMode,
   } = useGameStore(
@@ -212,7 +213,10 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       maxTurns: s.maxTurns,
       winner: s.winner,
       board: s.board,
-      ui: s.ui,
+      // ui는 통째로 구독하지 않는다 — 이 컴포넌트는 패널 트리의 뿌리라, 호버 미리보기 같은
+      // ui 변경마다 트리 전체가 다시 그려진다. 실제로 쓰는 두 필드만 본다.
+      complexTrackSelection: s.ui.complexTrackSelection,
+      redirectTrackSelection: s.ui.redirectTrackSelection,
       hideComplexTrackSelection: s.hideComplexTrackSelection,
       resetBuildMode: s.resetBuildMode,
     }))
@@ -1224,10 +1228,10 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       <UrbanizationPanel variant="overlay" />
 
       {/* 복합 트랙 선택 모달 */}
-      {ui.complexTrackSelection && (
+      {complexTrackSelection && (
         <ComplexTrackPanel
-          coord={ui.complexTrackSelection.coord}
-          newEdges={ui.complexTrackSelection.newEdges}
+          coord={complexTrackSelection.coord}
+          newEdges={complexTrackSelection.newEdges}
           onClose={() => hideComplexTrackSelection()}
           onComplete={() => {
             hideComplexTrackSelection();
@@ -1237,7 +1241,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       )}
 
       {/* 방향 전환 선택 모달 */}
-      {ui.redirectTrackSelection && <RedirectTrackPanel />}
+      {redirectTrackSelection && <RedirectTrackPanel />}
 
       {/* 인게임 규칙/도움말 오버레이 */}
       <HelpOverlay open={showHelp} onClose={() => setShowHelp(false)} mapId={mapId} />

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useGameSettingsStore } from '@/store/gameSettingsStore';
 import { useIsNarrowViewport } from '@/hooks/useIsNarrowViewport';
 import type { GamePhase } from '@/types/game';
@@ -199,7 +200,23 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     ui,
     hideComplexTrackSelection,
     resetBuildMode,
-  } = useGameStore();
+  } = useGameStore(
+    useShallow((s) => ({
+      initGame: s.initGame,
+      resetGame: s.resetGame,
+      currentTurn: s.currentTurn,
+      currentPhase: s.currentPhase,
+      currentPlayer: s.currentPlayer,
+      players: s.players,
+      activePlayers: s.activePlayers,
+      maxTurns: s.maxTurns,
+      winner: s.winner,
+      board: s.board,
+      ui: s.ui,
+      hideComplexTrackSelection: s.hideComplexTrackSelection,
+      resetBuildMode: s.resetBuildMode,
+    }))
+  );
 
   // ---- 온라인 세션 (Phase 1) ----
   const netMode = useNetStore((s) => s.mode);
@@ -951,9 +968,6 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       {/* 생산 패널 (물품 성장 단계에서 Production 행동 선택 시) */}
       <ProductionPanel />
 
-      {/* 건설 실패 사유 등 화면 상단 토스트 (로컬 UI, 스냅샷 미동기화) */}
-      <Toaster />
-
       {/* 플레이어 패널 (동적 렌더링) — 3인+ 게임은 비활성 플레이어를 한 줄로 압축 */}
       {activePlayers.map(playerId => (
         <PlayerPanel key={playerId} playerId={playerId} compact={activePlayers.length >= 3} />
@@ -964,8 +978,11 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   // 메인 게임 화면
   return (
     <div className={`bg-background ${isLandscape ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
-      {/* 헤더 — backdrop-blur 8px로 억제(스크롤 상시 재블러가 윈도우 GPU에서 버벅임 유발, 2026-07-29) */}
-      <header className={`sticky-blur-header fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-[8px] border-b border-foreground/10 ${isLandscape ? 'py-1' : ''}`}>
+      {/* 헤더 — backdrop-filter 없음. fixed 헤더의 backdrop-blur는 아래 콘텐츠가 바뀌거나 스크롤할
+          때마다 재블러돼, 보드 리렌더가 잦은 봇 다수 게임에서 "스크롤하면 화면이 깜빡이는" 증상을
+          냈다 (2026-09-11 사용자 보고, 데스크톱). 8px로 낮춰도 부족해 제거하고 배경 알파를 올렸다
+          — GameBoard의 차례 배지(sticky)에서 같은 이유로 제거한 것과 동일 (07-29). */}
+      <header className={`sticky-blur-header fixed top-0 left-0 right-0 z-50 bg-background/95 border-b border-foreground/10 ${isLandscape ? 'py-1' : ''}`}>
         <div className={`max-w-[1800px] mx-auto px-2 sm:px-4 flex items-center justify-between gap-2 sm:gap-4 ${isLandscape ? 'py-1' : 'py-2 sm:py-3'}`}>
           <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             <button
@@ -1195,6 +1212,10 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
           ② overflow/contain에 잘려 패널 안에 갇히며,
           ③ 데스크톱 패널과 바텀시트 양쪽에 renderPanelContent()가 있어 이중 마운트된다
              (미니맵은 GameBoard를 통째로 한 번 더 그리므로 렌더 비용도 2배). */}
+
+      {/* 건설 실패 사유 등 화면 상단 토스트 (로컬 UI, 스냅샷 미동기화) — fixed 오버레이라 패널 안이
+          아니라 여기서. 바텀시트(translateZ transform 조상) 안에 있으면 시트 기준으로 위치가 잡힌다 */}
+      <Toaster />
 
       {/* 화물 이동·건설 관전·신도시 배치 중 전체 맵 미니맵 */}
       <MoveCubeOverlay />

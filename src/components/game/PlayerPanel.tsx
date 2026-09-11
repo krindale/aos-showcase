@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
+import { safeTimeout } from '@/utils/safeTimers';
 import { useShallow } from 'zustand/react/shallow';
 import { PlayerId, PLAYER_COLORS, GAME_CONSTANTS } from '@/types/game';
 import {
@@ -42,8 +43,7 @@ function useStatDelta(value: number, holdMs = 2200) {
     if (d === 0) return;
     if (isRecentUndoLog(useGameStore.getState().logs)) return; // 취소 복원 → 배지 없음
     setDelta((old) => ({ v: d, k: (old?.k ?? 0) + 1 }));
-    const t = setTimeout(() => setDelta(null), holdMs);
-    return () => clearTimeout(t);
+    return safeTimeout(() => setDelta(null), holdMs); // safeTimeout: 숨김 탭 스로틀 회피(CLAUDE.md)
   }, [value, holdMs]);
   return delta;
 }

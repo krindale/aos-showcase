@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { CITY_COLORS, NewCityTileId } from '@/types/game';
 import { X, Building2 } from 'lucide-react';
 import { NewCityTilesModal } from './NewCityTilesModal';
@@ -28,7 +29,18 @@ export default function UrbanizationPanel({
     mapId,
     selectNewCityTile,
     exitUrbanizationMode,
-  } = useGameStore();
+  } = useGameStore(
+    useShallow((s) => ({
+      ui: s.ui,
+      newCityTiles: s.newCityTiles,
+      players: s.players,
+      currentPlayer: s.currentPlayer,
+      currentPhase: s.currentPhase,
+      mapId: s.mapId,
+      selectNewCityTile: s.selectNewCityTile,
+      exitUrbanizationMode: s.exitUrbanizationMode,
+    }))
+  );
 
   const player = players[currentPlayer];
 

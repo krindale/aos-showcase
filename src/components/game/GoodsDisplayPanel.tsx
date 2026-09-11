@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { CUBE_COLORS, CubeColor, GoodsColumnMapping } from '@/types/game';
 import { getMapData } from '@/utils/mapRegistry';
 import { Package, Plus } from 'lucide-react';
@@ -112,7 +113,15 @@ function ColumnHeader({
 }
 
 export default function GoodsDisplayPanel() {
-  const { mapId, board, goodsDisplay, ui, selectProductionSlot } = useGameStore();
+  const { mapId, board, goodsDisplay, ui, selectProductionSlot } = useGameStore(
+    useShallow((s) => ({
+      mapId: s.mapId,
+      board: s.board,
+      goodsDisplay: s.goodsDisplay,
+      ui: s.ui,
+      selectProductionSlot: s.selectProductionSlot,
+    }))
+  );
 
   const columns = getMapData(mapId).columnMapping;
 

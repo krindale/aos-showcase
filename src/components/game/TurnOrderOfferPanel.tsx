@@ -21,7 +21,11 @@ export default function TurnOrderOfferPanel() {
       mapId: state.mapId,
     }))
   );
-  const { respondTurnOrderOffer } = useGameStore();
+  const { respondTurnOrderOffer } = useGameStore(
+    useShallow((s) => ({
+      respondTurnOrderOffer: s.respondTurnOrderOffer,
+    }))
+  );
 
   if (!turnOrderOffer) return null;
 

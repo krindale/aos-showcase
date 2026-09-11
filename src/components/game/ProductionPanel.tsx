@@ -2,6 +2,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useNetStore } from '@/net/netStore';
 import { CUBE_COLORS } from '@/types/game';
 import { Package, X, Check } from 'lucide-react';
@@ -19,7 +20,21 @@ export default function ProductionPanel() {
     confirmProduction,
     cancelProduction,
     getEmptySlots,
-  } = useGameStore();
+  } = useGameStore(
+    useShallow((s) => ({
+      ui: s.ui,
+      currentPhase: s.currentPhase,
+      players: s.players,
+      currentPlayer: s.currentPlayer,
+      activePlayers: s.activePlayers,
+      phaseState: s.phaseState,
+      goodsDisplay: s.goodsDisplay,
+      startProduction: s.startProduction,
+      confirmProduction: s.confirmProduction,
+      cancelProduction: s.cancelProduction,
+      getEmptySlots: s.getEmptySlots,
+    }))
+  );
 
   // 온라인: 생산 배치는 홀더 본인 좌석에서만 (방장이 게스트 생산을 대신 조작하지 못하게).
   // 오프라인은 currentPlayer가 곧 로컬 조작자라 항상 허용.

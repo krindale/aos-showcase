@@ -8,6 +8,31 @@
 
 ---
 
+## 2026-09-11 — 게임 화면이 스크롤할 때 깜빡임 (데스크톱, Southern US 6인 = 봇 5명)
+
+- **증상**: 오랜만에 배포본에서 플레이하니 화면 전체가 깜빡이고, 스크롤할 때 더 자주 보였다.
+  코드 회귀는 아니었다 — 8월 초 이후 UI 변경(PR #84)은 클릭 핸들러·노란 칸 계산뿐. 원래부터
+  있던 렌더 부하 결함들이 "봇 5명 + 큰 보드"에서 최대로 겹친 것.
+- **원인 (겹침)**: ① **셀렉터 없는 `useGameStore()` 전체 구독 15곳**(GamePageClient·GameBoard·
+  PhasePanel×4·TurnTrack·GoodsDisplayPanel 등) — 액션만 꺼내는 목적인데 store의 어떤 set에도
+  리렌더돼 GameBoard의 `useShallow` 최적화가 무효였다(1,867줄 SVG가 로그 한 줄에도 통째로 재렌더).
+  ② `updateTrackPreview`가 **마우스 호버마다** 같은 값(null→null 포함)이어도 새 ui 객체로 set.
+  ③ persist가 **매 set마다 전체 상태를 동기 직렬화·저장**(`localStorage.setItem`)하는데 로그가
+  무제한 누적돼 게임이 길어질수록 비용이 커졌다. ④ 게임 헤더 `fixed + backdrop-blur` —
+  아래 콘텐츠가 바뀌거나 스크롤할 때마다 재블러(07-29 HUD 배지에서 같은 이유로 제거한 패턴).
+  ①②③이 리렌더 폭주, ④가 그것을 "화면 전체 깜빡임"으로 증폭.
+- **수정**: ① 15곳 전부 `useShallow` 셀렉터로(액션 참조는 안정이라 리렌더 0). ② 결과가 같으면
+  set 생략(`commit` 헬퍼). ③ persist `storage`를 300ms 스로틀 래퍼(`createThrottledLocalStorage`
+  — 마지막 값만 저장, pagehide/beforeunload/visibilitychange에 즉시 flush, getItem은 미저장
+  최신값 반환)로 교체 + `partialize`로 로그 최근 300개·previewTrack 제외. ④ 헤더 blur 제거,
+  배경 알파 0.8→0.95. 부수: BoardPulses·PlayerPanel의 raw `setTimeout`→`safeTimeout`(규칙 위반),
+  Toaster를 패널 안에서 최상위 오버레이 자리로 이동(fixed 오버레이 규칙 위반 — 바텀시트 안에선
+  transform 조상 기준으로 위치가 잡혔다). `STORE_CODE_VERSION` 18.
+- **보류**: `PhaseTransition`의 `fixed inset-0 bg-foreground/5` 전체 화면 딤 — 봇이 1등인 턴의
+  정산 5단계가 1.2초 간격으로 연쇄 전환되며 화면 전체가 명멸한다. 의도된 연출이라 손대지 않음;
+  위 수정 후에도 "전체가 어두워졌다 밝아짐"이 남으면 이것.
+- **검증**: tsc·lint·store/net/utils 446 테스트 통과, `npm run build`. 실화면 확인은 사용자.
+
 ## 2026-08-10c — 봇 경로 겹침 경쟁: 유령 경로 + fallback 원시 커밋 (실전 r5pm, 봇 2명 연쇄 파산)
 
 - **증상**: Southern England 5인(사람 1+봇 4)에서 봇 2명이 T2·T3 연쇄 파산. 분석해 보니 T1에

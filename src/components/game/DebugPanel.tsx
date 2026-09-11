@@ -1,6 +1,7 @@
 'use client';
 
 import { useGameStore } from '@/store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { getNeighborHex, getOppositeEdge, hexCoordsEqual } from '@/utils/hexGrid';
 import { useState } from 'react';
 
@@ -13,7 +14,13 @@ interface TrackConnection {
 }
 
 export default function DebugPanel() {
-  const { board, currentPlayer, ui } = useGameStore();
+  const { board, currentPlayer, ui } = useGameStore(
+    useShallow((s) => ({
+      board: s.board,
+      currentPlayer: s.currentPlayer,
+      ui: s.ui,
+    }))
+  );
   const [isOpen, setIsOpen] = useState(false);
 
   // 디버그 버튼/패널 숨김 (우측 하단 빨간 버튼 비표시)

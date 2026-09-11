@@ -771,6 +771,23 @@ interface GameStore {
 persist `merge` 콜백에서 rehydrate 직후 초기화(새로고침 복원 시 잔존 방지). 현재 대상:
 `transcontinentalEvent`(대륙횡단 모달), `incomeReductions`(수입감소 배지), `aiExecution`(pending 박제).
 새 transient 필드 추가 시 이 둘을 빠뜨리면 "새로고침하면 옛 모달/배지가 다시 뜸" 버그가 난다.
+- **저장은 300ms 스로틀 + 로그 상한(2026-09-11)**: persist는 원래 **매 set마다 전체 상태를 동기
+  직렬화·저장**하는데(`localStorage.setItem`은 메인 스레드), 봇 5명 게임에서 초당 수회 × 수십 KB라
+  프레임이 밀려 화면이 깜빡였다. `storage`는 `createThrottledLocalStorage`(마지막 값만 저장,
+  pagehide/beforeunload/visibilitychange에 즉시 flush, getItem은 미저장 최신값 반환)이고
+  `partialize`가 로그를 최근 `PERSIST_MAX_LOGS`(300)개로 자른다 — **상태의 `logs`는 그대로**이고
+  저장본만 잘리므로 BoardPulses의 `logs.length` 기반 감지는 무영향. 저장 즉시성이 필요한 코드를
+  넣을 땐 이 스로틀을 기억할 것.
+
+**⛔ 셀렉터 없는 `useGameStore()` 금지 (2026-09-11)**: `const { a, b } = useGameStore()`는 store의
+**모든** set에 리렌더된다 — 액션만 꺼내는 목적이어도 마찬가지. 15곳이 이렇게 돼 있어 GameBoard의
+`useShallow` 최적화가 무효였고(1,867줄 SVG가 로그 한 줄에도 통째로 재렌더) 봇 다수 게임에서
+화면 깜빡임의 주원인이 됐다. 반드시 `useGameStore(useShallow((s) => ({ a: s.a, b: s.b })))` 또는
+단일 셀렉터. 액션 참조는 안정이라 useShallow로 감싸면 리렌더 0. 유일한 예외는 `ComplexTrackPanel`
+(전체 상태를 사유 헬퍼에 넘기고, 모달이라 열릴 때만 마운트). 같은 이유로 **호버마다 불리는 액션은
+결과가 같으면 set을 생략**한다(`updateTrackPreview`의 `commit`). 게임 헤더의 `backdrop-blur`도
+이때 제거했다 — fixed/sticky 요소의 backdrop-filter는 아래 콘텐츠 리렌더·스크롤마다 재블러돼
+"화면 전체 깜빡임"으로 증폭된다(07-29 HUD 배지와 동일). 이력: [docs/issue-log.md](docs/issue-log.md).
 
 ### AI 시스템 (`src/ai/`)
 

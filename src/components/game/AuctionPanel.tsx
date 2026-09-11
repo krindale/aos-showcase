@@ -19,7 +19,15 @@ export default function AuctionPanel() {
       activePlayers: state.activePlayers,
     }))
   );
-  const { placeBid, passBid, skipBid, resolveAuction, nextPhase } = useGameStore();
+  const { placeBid, passBid, skipBid, resolveAuction, nextPhase } = useGameStore(
+    useShallow((s) => ({
+      placeBid: s.placeBid,
+      passBid: s.passBid,
+      skipBid: s.skipBid,
+      resolveAuction: s.resolveAuction,
+      nextPhase: s.nextPhase,
+    }))
+  );
 
   // 입찰 금액 상태
   const [bidAmount, setBidAmount] = useState(1);

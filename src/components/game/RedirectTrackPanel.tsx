@@ -2,6 +2,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { TRACK_REPLACE_COSTS } from '@/types/game';
 import { X, RotateCw } from 'lucide-react';
 
@@ -22,7 +23,15 @@ export default function RedirectTrackPanel() {
     currentPlayer,
     redirectTrack,
     hideRedirectSelection,
-  } = useGameStore();
+  } = useGameStore(
+    useShallow((s) => ({
+      ui: s.ui,
+      players: s.players,
+      currentPlayer: s.currentPlayer,
+      redirectTrack: s.redirectTrack,
+      hideRedirectSelection: s.hideRedirectSelection,
+    }))
+  );
 
   const selection = ui.redirectTrackSelection;
   if (!selection) return null;

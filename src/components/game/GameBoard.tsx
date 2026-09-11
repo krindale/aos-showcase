@@ -400,7 +400,29 @@ export default function GameBoard({ fitOverlay = false }: { fitOverlay?: boolean
     buildTownSpur,
     buildDirectLink,
     buildFerryEdge,
-  } = useGameStore();
+  } = useGameStore(
+    useShallow((s) => ({
+      selectCube: s.selectCube,
+      selectSourceHex: s.selectSourceHex,
+      selectTargetHex: s.selectTargetHex,
+      selectExitDirection: s.selectExitDirection,
+      updateTrackPreview: s.updateTrackPreview,
+      resetBuildMode: s.resetBuildMode,
+      selectDestinationCity: s.selectDestinationCity,
+      selectRouteOption: s.selectRouteOption,
+      confirmRouteChoice: s.confirmRouteChoice,
+      completeCubeMove: s.completeCubeMove,
+      canRedirect: s.canRedirect,
+      selectTrackToRedirect: s.selectTrackToRedirect,
+      redirectTrack: s.redirectTrack,
+      canPlaceNewCity: s.canPlaceNewCity,
+      placeNewCity: s.placeNewCity,
+      canBuildTownSpur: s.canBuildTownSpur,
+      buildTownSpur: s.buildTownSpur,
+      buildDirectLink: s.buildDirectLink,
+      buildFerryEdge: s.buildFerryEdge,
+    }))
+  );
 
   // 화물 운송 확인 창(설정 on일 때) — 목적지 클릭을 가로채 "출발→도착·수익 귀속"을 보여주고
   // [운송] 확인 시에만 selectDestinationCity로 커밋한다. 기본 off = 기존처럼 즉시 운송.

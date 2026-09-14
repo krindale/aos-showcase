@@ -1,7 +1,7 @@
 // Zustand 게임 상태 관리
 
 import { create } from 'zustand';
-import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
+import { persist, type PersistStorage, type StorageValue } from 'zustand/middleware';
 import {
   GameState,
   PlayerId,
@@ -64,6 +64,7 @@ import {
   scheduleAICheck,
 } from './helpers/aiScheduler';
 import { safeTimeout } from '@/utils/safeTimers';
+import { useToastStore } from '@/store/toastStore';
 // slice 합성 (2026-07-03 스텝 3b~3d 분리 — 로직 무변경, 파일만 이동)
 import { createUiSlice } from './slices/uiSlice';
 import { createAuctionSlice } from './slices/auctionSlice';
@@ -105,43 +106,65 @@ if (process.env.NODE_ENV !== 'production' && typeof window !== 'undefined') {
 }
 
 /**
- * persist 저장 스로틀 — localStorage.setItem은 **메인 스레드 동기** 호출이고, persist는 store의
- * 모든 set마다 전체 상태를 JSON 직렬화해 저장한다. 봇 다수 게임(6인 = 봇 5명)은 초당 여러 번
- * set이 일어나고 상태(큰 보드 + 누적 로그)가 수십 KB라, 매번 직렬화·저장하면 프레임이 밀려
- * 스크롤/애니메이션이 끊기고 깜빡여 보였다 (2026-09-11 사용자 보고, 데스크톱).
+ * persist 저장 스로틀 — zustand persist는 store의 **모든 set마다** `partialize` → `storage.setItem`을
+ * 부른다. 기본 `createJSONStorage`를 쓰면 그 setItem 안에서 전체 상태 `JSON.stringify`(메인 스레드
+ * 동기)까지 매번 돌고, 봇 5명 게임은 초당 여러 번 set × 수십 KB라 프레임이 밀려 화면이 깜빡였다
+ * (2026-09-11 사용자 보고, 데스크톱). ⚠️ localStorage.setItem만 미루는 래퍼로는 부족하다 —
+ * 직렬화가 그 앞에서 이미 끝난 뒤라 비용이 그대로다(PR #85 코드리뷰 #1). 그래서 `createJSONStorage`
+ * 없이 `PersistStorage`를 직접 구현해 **`{state, version}` 객체 참조만 보관**하고, flush 시점에
+ * 마지막 값 한 번만 stringify·저장한다(상태는 불변 객체라 참조 보관이 안전하다).
  *
- * 마지막 값만 PERSIST_FLUSH_MS 뒤에 한 번 쓴다. 저장 신뢰성은 그대로다 — 탭을 닫거나(pagehide·
- * beforeunload) 숨길 때(visibilitychange) 즉시 flush하고, getItem은 아직 안 쓴 최신값을 돌려준다.
- * ⚠️ window가 없으면(SSR/vitest) throw — createJSONStorage가 이를 잡아 storage 없음으로 처리하는
- * 기본 `() => localStorage`와 같은 계약이라 테스트·서버 렌더 동작은 불변이다.
+ * 저장 신뢰성: pagehide(모든 unload 경로에서 발화 — beforeunload는 잉여이고 bfcache만 막는다)·
+ * visibilitychange(hidden)·freeze(Page Lifecycle: 숨김 뒤 Worker 타이머까지 멈추기 직전)에 즉시
+ * flush, getItem은 아직 안 쓴 최신값을 돌려준다. 저장 실패(쿼터 초과 등)는 조용히 삼키지 않고
+ * 토스트로 1회 알린다 — 몇 시간 뒤 F5했을 때 "판이 날아갔다"로 체감되는 것보다 낫다.
+ *
+ * window가 없으면(SSR/vitest) undefined → persist가 "storage 없음"으로 no-op(기본과 같은 계약).
+ * 인스턴스는 window에 캐시해 dev HMR로 이 모듈이 재평가돼도 재사용한다 — 안 하면 재평가마다
+ * 리스너 3개가 누적된다.
  */
 const PERSIST_FLUSH_MS = 300;
-function createThrottledLocalStorage(): StateStorage {
-  if (typeof window === 'undefined' || !window.localStorage) throw new Error('localStorage unavailable');
+type PersistedGame = StorageValue<GameStore>;
+function createThrottledPersistStorage(): PersistStorage<GameStore> | undefined {
+  if (typeof window === 'undefined' || !window.localStorage) return undefined;
+  const w = window as unknown as { __aosPersistStorage?: PersistStorage<GameStore> };
+  if (w.__aosPersistStorage) return w.__aosPersistStorage;
+
   const ls = window.localStorage;
   let pendingKey: string | null = null;
-  let pendingValue: string | null = null;
+  let pendingValue: PersistedGame | null = null;
   let cancel: (() => void) | null = null;
+  let failureToastShown = false;
   const flush = () => {
     cancel?.();
     cancel = null;
-    if (pendingKey !== null && pendingValue !== null) {
-      try {
-        ls.setItem(pendingKey, pendingValue);
-      } catch (e) {
-        console.warn('[persist] 저장 실패:', e);
-      }
-    }
+    if (pendingKey === null || pendingValue === null) return;
+    const key = pendingKey;
+    const value = pendingValue;
     pendingKey = null;
     pendingValue = null;
+    try {
+      ls.setItem(key, JSON.stringify(value));
+    } catch (e) {
+      console.warn('[persist] 저장 실패:', e);
+      if (!failureToastShown) {
+        failureToastShown = true;
+        useToastStore.getState().showToast('게임 저장에 실패했어요 (저장 공간 부족?) — 새로고침하면 이전 저장본으로 돌아갈 수 있어요');
+      }
+    }
   };
   window.addEventListener('pagehide', flush);
-  window.addEventListener('beforeunload', flush);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') flush();
   });
-  return {
-    getItem: (name) => (pendingKey === name && pendingValue !== null ? pendingValue : ls.getItem(name)),
+  document.addEventListener('freeze', flush);
+
+  const storage: PersistStorage<GameStore> = {
+    getItem: (name) => {
+      if (pendingKey === name && pendingValue !== null) return pendingValue;
+      const str = ls.getItem(name);
+      return str ? (JSON.parse(str) as PersistedGame) : null;
+    },
     setItem: (name, value) => {
       pendingKey = name;
       pendingValue = value;
@@ -156,10 +179,12 @@ function createThrottledLocalStorage(): StateStorage {
       ls.removeItem(name);
     },
   };
+  w.__aosPersistStorage = storage;
+  return storage;
 }
 
 /** 저장본에 남길 인게임 로그 수 — 스냅샷은 30개만 전파하고 UI는 최근 것만 쓴다. 무제한이면
- *  게임이 길어질수록 매 set의 직렬화 비용이 로그 수에 비례해 커진다. */
+ *  게임이 길어질수록 flush 직렬화 비용이 로그 수에 비례해 커진다. */
 const PERSIST_MAX_LOGS = 300;
 
 /**
@@ -2203,7 +2228,7 @@ export const useGameStore = create<GameStore>()(
       //  droppedOutPlayers.includes 크래시. 마이그레이션 대신 저장본 폐기)
       version: 4,
       migrate: () => ({}) as never,
-      storage: createJSONStorage(createThrottledLocalStorage),
+      storage: createThrottledPersistStorage(),
       // 저장 크기 억제 — 로그는 최근 PERSIST_MAX_LOGS개만, 호버 미리보기(previewTrack)는 저장 무의미.
       // (aiExecution·undoCount·transcontinentalEvent 등은 아래 merge가 rehydrate 때 리셋한다)
       partialize: (state) => ({

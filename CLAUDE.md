@@ -772,9 +772,12 @@ persist `merge` 콜백에서 rehydrate 직후 초기화(새로고침 복원 시 
 `transcontinentalEvent`(대륙횡단 모달), `incomeReductions`(수입감소 배지), `aiExecution`(pending 박제).
 새 transient 필드 추가 시 이 둘을 빠뜨리면 "새로고침하면 옛 모달/배지가 다시 뜸" 버그가 난다.
 - **저장은 300ms 스로틀 + 로그 상한(2026-09-11)**: persist는 원래 **매 set마다 전체 상태를 동기
-  직렬화·저장**하는데(`localStorage.setItem`은 메인 스레드), 봇 5명 게임에서 초당 수회 × 수십 KB라
-  프레임이 밀려 화면이 깜빡였다. `storage`는 `createThrottledLocalStorage`(마지막 값만 저장,
-  pagehide/beforeunload/visibilitychange에 즉시 flush, getItem은 미저장 최신값 반환)이고
+  직렬화·저장**하는데(`JSON.stringify`도 `localStorage.setItem`도 메인 스레드), 봇 5명 게임에서
+  초당 수회 × 수십 KB라 프레임이 밀려 화면이 깜빡였다. `storage`는 `createThrottledPersistStorage`
+  — ⚠️ `createJSONStorage` 래퍼가 아니다: 그건 setItem **앞에서** stringify를 이미 끝내므로 쓰기만
+  미뤄지고 비용은 그대로다(PR #85 리뷰에서 잡힘). `{state, version}` 객체 참조만 보관했다가 flush 때
+  한 번 stringify한다(마지막 값만, pagehide/visibilitychange(hidden)/freeze에 즉시 flush, getItem은
+  미저장 최신값 반환, 실패 시 토스트 1회, 인스턴스는 window에 캐시해 HMR 재평가에도 리스너 1벌).
   `partialize`가 로그를 최근 `PERSIST_MAX_LOGS`(300)개로 자른다 — **상태의 `logs`는 그대로**이고
   저장본만 잘리므로 BoardPulses의 `logs.length` 기반 감지는 무영향. 저장 즉시성이 필요한 코드를
   넣을 땐 이 스로틀을 기억할 것.

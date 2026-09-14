@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Crown } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { getMapProfile } from '@/maps/getMapProfile';
 import { GamePhase, PHASE_INFO, PLAYER_COLORS } from '@/types/game';
 import { useMyPlayerId, isMyPlayer } from '@/hooks/useMyPlayerId';
@@ -22,7 +23,13 @@ export default function TurnTrack({
   currentPhase,
 }: TurnTrackProps) {
   const phaseInfo = PHASE_INFO[currentPhase];
-  const { playerOrder, players, currentPlayer } = useGameStore();
+  const { playerOrder, players, currentPlayer } = useGameStore(
+    useShallow((s) => ({
+      playerOrder: s.playerOrder,
+      players: s.players,
+      currentPlayer: s.currentPlayer,
+    }))
+  );
   const myPlayerId = useMyPlayerId();
 
   // 경매 진행 중(determinePlayerOrder + auction 존재)이면 "새로운 순서" 미리보기를 파생한다.

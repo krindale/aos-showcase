@@ -28,6 +28,7 @@ import {
   getOppositeEdge,
   getExitDirections,
   hexCoordsEqual,
+  sameTrackShape,
   findReachableDestinations,
   findRouteOptions,
   findTrackCubeDeliveries,
@@ -605,26 +606,25 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
     updateTrackPreview: (targetCoord) => {
       const state = get();
 
+      // 마우스 호버마다 불리는 액션이다 — 결과가 지금과 같으면 set을 건너뛴다.
+      // 예전엔 같은 헥스 위에서 움직여도(null→null 포함) 매번 새 ui 객체로 set돼, 구독자 전원
+      // 리렌더 + persist 직렬화가 마우스 이동 빈도로 일어났다 (2026-09-11 깜빡임 조사).
+      const commit = (next: GameStore['ui']['previewTrack']) => {
+        if (sameTrackShape(state.ui.previewTrack, next)) return;
+        set({ ui: { ...state.ui, previewTrack: next } });
+      };
+
       // source_selected 모드: 타겟 헥스 위에서 직선 트랙 미리보기
       if (state.ui.buildMode === 'source_selected' && state.ui.sourceHex) {
         const neighbor = state.ui.buildableNeighbors.find(
           n => hexCoordsEqual(n.coord, targetCoord)
         );
-
         if (neighbor) {
           // 직선 트랙 미리보기 (반대편 엣지)
           const oppositeEdge = (neighbor.targetEdge + 3) % 6;
-          set({
-            ui: {
-              ...state.ui,
-              previewTrack: {
-                coord: targetCoord,
-                edges: [neighbor.targetEdge, oppositeEdge] as [number, number],
-              },
-            },
-          });
+          commit({ coord: targetCoord, edges: [neighbor.targetEdge, oppositeEdge] as [number, number] });
         } else {
-          set({ ui: { ...state.ui, previewTrack: null } });
+          commit(null);
         }
         return;
       }
@@ -635,19 +635,10 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
         const exitDir = state.ui.exitDirections.find(
           d => hexCoordsEqual(d.neighborCoord, targetCoord)
         );
-
         if (exitDir) {
-          set({
-            ui: {
-              ...state.ui,
-              previewTrack: {
-                coord: state.ui.targetHex,
-                edges: [state.ui.entryEdge, exitDir.exitEdge] as [number, number],
-              },
-            },
-          });
+          commit({ coord: state.ui.targetHex, edges: [state.ui.entryEdge, exitDir.exitEdge] as [number, number] });
         } else {
-          set({ ui: { ...state.ui, previewTrack: null } });
+          commit(null);
         }
       }
     },

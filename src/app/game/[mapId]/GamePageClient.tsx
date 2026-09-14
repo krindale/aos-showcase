@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useGameSettingsStore } from '@/store/gameSettingsStore';
 import { useIsNarrowViewport } from '@/hooks/useIsNarrowViewport';
 import type { GamePhase } from '@/types/game';
@@ -196,10 +197,32 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     maxTurns,
     winner,
     board,
-    ui,
+    complexTrackSelection,
+    redirectTrackSelection,
     hideComplexTrackSelection,
     resetBuildMode,
-  } = useGameStore();
+  } = useGameStore(
+    useShallow((s) => ({
+      initGame: s.initGame,
+      resetGame: s.resetGame,
+      currentTurn: s.currentTurn,
+      currentPhase: s.currentPhase,
+      currentPlayer: s.currentPlayer,
+      players: s.players,
+      activePlayers: s.activePlayers,
+      maxTurns: s.maxTurns,
+      winner: s.winner,
+      // board는 게임 종료 화면(승점 계산)에서만 쓴다 — 게임 중엔 null로 고정해, 건설·이동·성장마다
+      // 새로 만들어지는 board 때문에 패널 트리의 뿌리가 깨어나지 않게 한다 (코드리뷰 #3)
+      board: s.currentPhase === 'gameOver' || s.winner ? s.board : null,
+      // ui는 통째로 구독하지 않는다 — 이 컴포넌트는 패널 트리의 뿌리라, 호버 미리보기 같은
+      // ui 변경마다 트리 전체가 다시 그려진다. 실제로 쓰는 두 필드만 본다.
+      complexTrackSelection: s.ui.complexTrackSelection,
+      redirectTrackSelection: s.ui.redirectTrackSelection,
+      hideComplexTrackSelection: s.hideComplexTrackSelection,
+      resetBuildMode: s.resetBuildMode,
+    }))
+  );
 
   // ---- 온라인 세션 (Phase 1) ----
   const netMode = useNetStore((s) => s.mode);
@@ -754,7 +777,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     // **승자 판정이 틀린다** (리뷰 S4에서 발견: 종료 화면만 보너스를 빼고 계산 중이었음).
     const playerScores = activePlayers.map(playerId => {
       const player = players[playerId];
-      const trackScore = calculateTrackScore(board, playerId);
+      const trackScore = calculateTrackScore(board!, playerId); // gameOver 분기 = board 구독 중
       const bonusVP = playerBonusVP(player);
       const totalScore = calculateVictoryPoints(player.income, trackScore, player.issuedShares, bonusVP);
       return {
@@ -951,9 +974,6 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       {/* 생산 패널 (물품 성장 단계에서 Production 행동 선택 시) */}
       <ProductionPanel />
 
-      {/* 건설 실패 사유 등 화면 상단 토스트 (로컬 UI, 스냅샷 미동기화) */}
-      <Toaster />
-
       {/* 플레이어 패널 (동적 렌더링) — 3인+ 게임은 비활성 플레이어를 한 줄로 압축 */}
       {activePlayers.map(playerId => (
         <PlayerPanel key={playerId} playerId={playerId} compact={activePlayers.length >= 3} />
@@ -964,8 +984,11 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
   // 메인 게임 화면
   return (
     <div className={`bg-background ${isLandscape ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
-      {/* 헤더 — backdrop-blur 8px로 억제(스크롤 상시 재블러가 윈도우 GPU에서 버벅임 유발, 2026-07-29) */}
-      <header className={`sticky-blur-header fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-[8px] border-b border-foreground/10 ${isLandscape ? 'py-1' : ''}`}>
+      {/* 헤더 — backdrop-filter 없음. fixed 헤더의 backdrop-blur는 아래 콘텐츠가 바뀌거나 스크롤할
+          때마다 재블러돼, 보드 리렌더가 잦은 봇 다수 게임에서 "스크롤하면 화면이 깜빡이는" 증상을
+          냈다 (2026-09-11 사용자 보고, 데스크톱). 8px로 낮춰도 부족해 제거하고 배경 알파를 올렸다
+          — GameBoard의 차례 배지(sticky)에서 같은 이유로 제거한 것과 동일 (07-29). */}
+      <header className={`fixed top-0 left-0 right-0 z-50 bg-background/95 border-b border-foreground/10 ${isLandscape ? 'py-1' : ''}`}>
         <div className={`max-w-[1800px] mx-auto px-2 sm:px-4 flex items-center justify-between gap-2 sm:gap-4 ${isLandscape ? 'py-1' : 'py-2 sm:py-3'}`}>
           <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             <button
@@ -1196,6 +1219,10 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
           ③ 데스크톱 패널과 바텀시트 양쪽에 renderPanelContent()가 있어 이중 마운트된다
              (미니맵은 GameBoard를 통째로 한 번 더 그리므로 렌더 비용도 2배). */}
 
+      {/* 건설 실패 사유 등 화면 상단 토스트 (로컬 UI, 스냅샷 미동기화) — fixed 오버레이라 패널 안이
+          아니라 여기서. 바텀시트(translateZ transform 조상) 안에 있으면 시트 기준으로 위치가 잡힌다 */}
+      <Toaster />
+
       {/* 화물 이동·건설 관전·신도시 배치 중 전체 맵 미니맵 */}
       <MoveCubeOverlay />
 
@@ -1203,10 +1230,10 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       <UrbanizationPanel variant="overlay" />
 
       {/* 복합 트랙 선택 모달 */}
-      {ui.complexTrackSelection && (
+      {complexTrackSelection && (
         <ComplexTrackPanel
-          coord={ui.complexTrackSelection.coord}
-          newEdges={ui.complexTrackSelection.newEdges}
+          coord={complexTrackSelection.coord}
+          newEdges={complexTrackSelection.newEdges}
           onClose={() => hideComplexTrackSelection()}
           onComplete={() => {
             hideComplexTrackSelection();
@@ -1216,7 +1243,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       )}
 
       {/* 방향 전환 선택 모달 */}
-      {ui.redirectTrackSelection && <RedirectTrackPanel />}
+      {redirectTrackSelection && <RedirectTrackPanel />}
 
       {/* 인게임 규칙/도움말 오버레이 */}
       <HelpOverlay open={showHelp} onClose={() => setShowHelp(false)} mapId={mapId} />

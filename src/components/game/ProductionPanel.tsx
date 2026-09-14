@@ -2,13 +2,16 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useNetStore } from '@/net/netStore';
 import { CUBE_COLORS } from '@/types/game';
 import { Package, X, Check } from 'lucide-react';
 
 export default function ProductionPanel() {
   const {
-    ui,
+    productionMode,
+    productionCubes,
+    selectedProductionSlots,
     currentPhase,
     players,
     currentPlayer,
@@ -19,7 +22,24 @@ export default function ProductionPanel() {
     confirmProduction,
     cancelProduction,
     getEmptySlots,
-  } = useGameStore();
+  } = useGameStore(
+    useShallow((s) => ({
+      // ui는 생산 3필드만 — 통째로 구독하면 호버 미리보기 등 무관한 ui set마다 리렌더
+      productionMode: s.ui.productionMode,
+      productionCubes: s.ui.productionCubes,
+      selectedProductionSlots: s.ui.selectedProductionSlots,
+      currentPhase: s.currentPhase,
+      players: s.players,
+      currentPlayer: s.currentPlayer,
+      activePlayers: s.activePlayers,
+      phaseState: s.phaseState,
+      goodsDisplay: s.goodsDisplay,
+      startProduction: s.startProduction,
+      confirmProduction: s.confirmProduction,
+      cancelProduction: s.cancelProduction,
+      getEmptySlots: s.getEmptySlots,
+    }))
+  );
 
   // 온라인: 생산 배치는 홀더 본인 좌석에서만 (방장이 게스트 생산을 대신 조작하지 못하게).
   // 오프라인은 currentPlayer가 곧 로컬 조작자라 항상 허용.
@@ -44,7 +64,7 @@ export default function ProductionPanel() {
   const hasEmptySlots = emptySlots.length > 0;
 
   // Production 모드가 아니면 시작 버튼만 표시
-  if (!ui.productionMode) {
+  if (!productionMode) {
     return (
       <div className="glass-card p-4 rounded-xl">
         <div className="flex items-center justify-between mb-3">
@@ -80,8 +100,8 @@ export default function ProductionPanel() {
   }
 
   // Production 모드: 슬롯 선택 UI
-  const cubesNeeded = ui.productionCubes.length;
-  const cubesSelected = ui.selectedProductionSlots.length;
+  const cubesNeeded = productionCubes.length;
+  const cubesSelected = selectedProductionSlots.length;
   const canConfirm = cubesSelected === cubesNeeded;
 
   return (
@@ -116,7 +136,7 @@ export default function ProductionPanel() {
               주머니에서 뽑힌 큐브:
             </div>
             <div className="flex gap-3 justify-center">
-              {ui.productionCubes.map((color, i) => (
+              {productionCubes.map((color, i) => (
                 <motion.div
                   key={i}
                   initial={{ scale: 0, rotate: -180 }}
@@ -165,11 +185,11 @@ export default function ProductionPanel() {
           </p>
 
           {/* 선택된 슬롯 정보 */}
-          {ui.selectedProductionSlots.length > 0 && (
+          {selectedProductionSlots.length > 0 && (
             <div className="mb-4 p-2 bg-accent/10 rounded-lg border border-accent/30">
               <div className="text-xs text-foreground-secondary mb-1">선택된 슬롯:</div>
               <div className="flex gap-2 flex-wrap">
-                {ui.selectedProductionSlots.map((slotIndex, i) => {
+                {selectedProductionSlots.map((slotIndex, i) => {
                   const column = slotIndex < 36
                     ? Math.floor(slotIndex / 6) + 1
                     : ['A', 'B', 'C', 'D'][Math.floor((slotIndex - 36) / 4)];
@@ -185,7 +205,7 @@ export default function ProductionPanel() {
                       열 {column} - {row}행 →{' '}
                       <span
                         className="inline-block w-3 h-3 rounded"
-                        style={{ backgroundColor: CUBE_COLORS[ui.productionCubes[i]] }}
+                        style={{ backgroundColor: CUBE_COLORS[productionCubes[i]] }}
                       />
                     </span>
                   );

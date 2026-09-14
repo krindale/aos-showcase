@@ -8,6 +8,7 @@ import { HEX_SIZE, hexToPixel } from '@/utils/hexGrid';
 import { CITY_COLORS, CUBE_COLORS, CubeColor, HexCoord, PLAYER_COLORS } from '@/types/game';
 import { GAME_ACCENT, GAME_INK, GAME_PAPER, isRecentUndoLog } from './uiEffects';
 import { playSfx } from '@/utils/sfx';
+import { safeTimeout } from '@/utils/safeTimers';
 
 /**
  * 보드 위 인플레이스 펄스 레이어 (표시 전용) — GameBoard의 줌 <g> 안에서 렌더된다.
@@ -39,7 +40,7 @@ function usePulseList<T extends { k: string }>(): [T[], (batch: T[]) => void, ()
     if (batch.length === 0) return;
     setPulses((p) => [...p, ...batch]);
     const keys = new Set(batch.map((b) => b.k));
-    setTimeout(() => setPulses((p) => p.filter((x) => !keys.has(x.k))), TTL_MS);
+    safeTimeout(() => setPulses((p) => p.filter((x) => !keys.has(x.k))), TTL_MS); // safeTimeout: 숨김 탭 스로틀 회피(CLAUDE.md)
   }, []);
   const clear = useCallback(() => setPulses([]), []);
   return [pulses, add, clear];

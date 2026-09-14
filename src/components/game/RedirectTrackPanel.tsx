@@ -2,6 +2,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { TRACK_REPLACE_COSTS } from '@/types/game';
 import { X, RotateCw } from 'lucide-react';
 
@@ -17,14 +18,21 @@ const EDGE_NAMES: Record<number, string> = {
 
 export default function RedirectTrackPanel() {
   const {
-    ui,
+    selection,
     players,
     currentPlayer,
     redirectTrack,
     hideRedirectSelection,
-  } = useGameStore();
+  } = useGameStore(
+    useShallow((s) => ({
+      selection: s.ui.redirectTrackSelection, // ui 통째 구독 금지 — 이 필드만
+      players: s.players,
+      currentPlayer: s.currentPlayer,
+      redirectTrack: s.redirectTrack,
+      hideRedirectSelection: s.hideRedirectSelection,
+    }))
+  );
 
-  const selection = ui.redirectTrackSelection;
   if (!selection) return null;
 
   const player = players[currentPlayer];

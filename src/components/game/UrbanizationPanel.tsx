@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { CITY_COLORS, NewCityTileId } from '@/types/game';
 import { X, Building2 } from 'lucide-react';
 import { NewCityTilesModal } from './NewCityTilesModal';
@@ -20,7 +21,8 @@ export default function UrbanizationPanel({
   variant?: 'panel' | 'overlay';
 } = {}) {
   const {
-    ui,
+    urbanizationMode,
+    selectedNewCityTile,
     newCityTiles,
     players,
     currentPlayer,
@@ -28,7 +30,20 @@ export default function UrbanizationPanel({
     mapId,
     selectNewCityTile,
     exitUrbanizationMode,
-  } = useGameStore();
+  } = useGameStore(
+    useShallow((s) => ({
+      // ui는 도시화 2필드만 (panel·overlay 두 인스턴스가 마운트돼 통째 구독의 비용이 2배였다)
+      urbanizationMode: s.ui.urbanizationMode,
+      selectedNewCityTile: s.ui.selectedNewCityTile,
+      newCityTiles: s.newCityTiles,
+      players: s.players,
+      currentPlayer: s.currentPlayer,
+      currentPhase: s.currentPhase,
+      mapId: s.mapId,
+      selectNewCityTile: s.selectNewCityTile,
+      exitUrbanizationMode: s.exitUrbanizationMode,
+    }))
+  );
 
   const player = players[currentPlayer];
 
@@ -44,7 +59,7 @@ export default function UrbanizationPanel({
   const availableTiles = newCityTiles.filter(tile => !tile.used);
 
   // 도시화 모드가 아니면 버튼만 표시 (패널 안 카드 — 오버레이 변형은 이 상태에서 할 일이 없다)
-  if (!ui.urbanizationMode) {
+  if (!urbanizationMode) {
     if (variant === 'overlay') return null;
     return (
       <div className="glass-card p-4 rounded-xl">
@@ -81,8 +96,8 @@ export default function UrbanizationPanel({
 
   // 타일 선택 완료: 전체 화면 모달을 접고 보드 클릭을 막지 않는 플로팅 배너로 전환
   // (모달을 띄운 채로는 마을 클릭이 모달 배경에 먹혀 도시화가 취소되는 문제)
-  if (ui.selectedNewCityTile) {
-    const selectedTile = newCityTiles.find(t => t.id === ui.selectedNewCityTile);
+  if (selectedNewCityTile) {
+    const selectedTile = newCityTiles.find(t => t.id === selectedNewCityTile);
     return (
       <motion.div
         initial={{ opacity: 0, y: -16 }}
@@ -104,7 +119,7 @@ export default function UrbanizationPanel({
         )}
         <div className="min-w-0">
           <div className="text-sm font-medium text-foreground">
-            {ui.selectedNewCityTile} 타일 선택됨
+            {selectedNewCityTile} 타일 선택됨
           </div>
           <div className="text-xs text-foreground-secondary">
             파란 테두리의 마을을 클릭해 배치하세요
@@ -129,11 +144,11 @@ export default function UrbanizationPanel({
   // 도시화 모드: 타일 선택 (신도시 확인 모달과 동일한 공통 NewCityTilesModal 재사용)
   return (
     <NewCityTilesModal
-      open={ui.urbanizationMode}
+      open={urbanizationMode}
       tiles={newCityTiles}
       mapId={mapId}
       mode="select"
-      selectedTileId={ui.selectedNewCityTile}
+      selectedTileId={selectedNewCityTile}
       onSelect={(id) => selectNewCityTile(id as NewCityTileId)}
       onClose={exitUrbanizationMode}
     />

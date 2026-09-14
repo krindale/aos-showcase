@@ -1,7 +1,7 @@
 // Zustand 게임 상태 관리
 
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, type PersistStorage, type StorageValue } from 'zustand/middleware';
 import {
   GameState,
   PlayerId,
@@ -64,6 +64,7 @@ import {
   scheduleAICheck,
 } from './helpers/aiScheduler';
 import { safeTimeout } from '@/utils/safeTimers';
+import { useToastStore } from '@/store/toastStore';
 // slice 합성 (2026-07-03 스텝 3b~3d 분리 — 로직 무변경, 파일만 이동)
 import { createUiSlice } from './slices/uiSlice';
 import { createAuctionSlice } from './slices/auctionSlice';
@@ -83,7 +84,7 @@ export type { AIPlayerConfig } from './helpers/setup';
  * 실행 중인 페이지에선 옛 로직이 계속 돈다(CLAUDE.md "HMR을 의심할 것").
  * 아래 가드가 "페이지 로드 이후 store 모듈이 다시 평가됨"을 감지해 콘솔 경고를 띄운다.
  */
-export const STORE_CODE_VERSION = 17; // 마을 가닥 인수 연장 + 마을=가닥 있는 변만 연결(방향 전환) + 마을 노란 후보
+export const STORE_CODE_VERSION = 18; // 호버 미리보기 동일값 set 스킵 + persist 저장 스로틀/로그 상한 (깜빡임 수정)
 
 // HMR 스테일 가드 (dev 브라우저 전용 — SSR/vitest 제외).
 // window에 최초 로드 시점 버전을 박아두고, 이 모듈이 다시 평가되면(= store 관련 소스 변경)
@@ -103,6 +104,88 @@ if (process.env.NODE_ENV !== 'production' && typeof window !== 'undefined') {
     );
   }
 }
+
+/**
+ * persist 저장 스로틀 — zustand persist는 store의 **모든 set마다** `partialize` → `storage.setItem`을
+ * 부른다. 기본 `createJSONStorage`를 쓰면 그 setItem 안에서 전체 상태 `JSON.stringify`(메인 스레드
+ * 동기)까지 매번 돌고, 봇 5명 게임은 초당 여러 번 set × 수십 KB라 프레임이 밀려 화면이 깜빡였다
+ * (2026-09-11 사용자 보고, 데스크톱). ⚠️ localStorage.setItem만 미루는 래퍼로는 부족하다 —
+ * 직렬화가 그 앞에서 이미 끝난 뒤라 비용이 그대로다(PR #85 코드리뷰 #1). 그래서 `createJSONStorage`
+ * 없이 `PersistStorage`를 직접 구현해 **`{state, version}` 객체 참조만 보관**하고, flush 시점에
+ * 마지막 값 한 번만 stringify·저장한다(상태는 불변 객체라 참조 보관이 안전하다).
+ *
+ * 저장 신뢰성: pagehide(모든 unload 경로에서 발화 — beforeunload는 잉여이고 bfcache만 막는다)·
+ * visibilitychange(hidden)·freeze(Page Lifecycle: 숨김 뒤 Worker 타이머까지 멈추기 직전)에 즉시
+ * flush, getItem은 아직 안 쓴 최신값을 돌려준다. 저장 실패(쿼터 초과 등)는 조용히 삼키지 않고
+ * 토스트로 1회 알린다 — 몇 시간 뒤 F5했을 때 "판이 날아갔다"로 체감되는 것보다 낫다.
+ *
+ * window가 없으면(SSR/vitest) undefined → persist가 "storage 없음"으로 no-op(기본과 같은 계약).
+ * 인스턴스는 window에 캐시해 dev HMR로 이 모듈이 재평가돼도 재사용한다 — 안 하면 재평가마다
+ * 리스너 3개가 누적된다.
+ */
+const PERSIST_FLUSH_MS = 300;
+type PersistedGame = StorageValue<GameStore>;
+function createThrottledPersistStorage(): PersistStorage<GameStore> | undefined {
+  if (typeof window === 'undefined' || !window.localStorage) return undefined;
+  const w = window as unknown as { __aosPersistStorage?: PersistStorage<GameStore> };
+  if (w.__aosPersistStorage) return w.__aosPersistStorage;
+
+  const ls = window.localStorage;
+  let pendingKey: string | null = null;
+  let pendingValue: PersistedGame | null = null;
+  let cancel: (() => void) | null = null;
+  let failureToastShown = false;
+  const flush = () => {
+    cancel?.();
+    cancel = null;
+    if (pendingKey === null || pendingValue === null) return;
+    const key = pendingKey;
+    const value = pendingValue;
+    pendingKey = null;
+    pendingValue = null;
+    try {
+      ls.setItem(key, JSON.stringify(value));
+    } catch (e) {
+      console.warn('[persist] 저장 실패:', e);
+      if (!failureToastShown) {
+        failureToastShown = true;
+        useToastStore.getState().showToast('게임 저장에 실패했어요 (저장 공간 부족?) — 새로고침하면 이전 저장본으로 돌아갈 수 있어요');
+      }
+    }
+  };
+  window.addEventListener('pagehide', flush);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flush();
+  });
+  document.addEventListener('freeze', flush);
+
+  const storage: PersistStorage<GameStore> = {
+    getItem: (name) => {
+      if (pendingKey === name && pendingValue !== null) return pendingValue;
+      const str = ls.getItem(name);
+      return str ? (JSON.parse(str) as PersistedGame) : null;
+    },
+    setItem: (name, value) => {
+      pendingKey = name;
+      pendingValue = value;
+      // safeTimeout: 숨김 탭에서도 스로틀 없이 제때 저장 (온라인 호스트 창이 가려진 경우)
+      if (!cancel) cancel = safeTimeout(flush, PERSIST_FLUSH_MS);
+    },
+    removeItem: (name) => {
+      if (pendingKey === name) {
+        pendingKey = null;
+        pendingValue = null;
+      }
+      ls.removeItem(name);
+    },
+  };
+  w.__aosPersistStorage = storage;
+  return storage;
+}
+
+/** 저장본에 남길 인게임 로그 수 — 스냅샷은 30개만 전파하고 UI는 최근 것만 쓴다. 무제한이면
+ *  게임이 길어질수록 flush 직렬화 비용이 로그 수에 비례해 커진다. */
+const PERSIST_MAX_LOGS = 300;
 
 /**
  * AI 행동 결과 확인 딜레이 (ms) — 봇이 행동한 뒤 바로 다음 플레이어/단계로 넘어가면
@@ -2145,6 +2228,14 @@ export const useGameStore = create<GameStore>()(
       //  droppedOutPlayers.includes 크래시. 마이그레이션 대신 저장본 폐기)
       version: 4,
       migrate: () => ({}) as never,
+      storage: createThrottledPersistStorage(),
+      // 저장 크기 억제 — 로그는 최근 PERSIST_MAX_LOGS개만, 호버 미리보기(previewTrack)는 저장 무의미.
+      // (aiExecution·undoCount·transcontinentalEvent 등은 아래 merge가 rehydrate 때 리셋한다)
+      partialize: (state) => ({
+        ...state,
+        logs: state.logs.length > PERSIST_MAX_LOGS ? state.logs.slice(-PERSIST_MAX_LOGS) : state.logs,
+        ui: state.ui.previewTrack ? { ...state.ui, previewTrack: null } : state.ui,
+      }),
       // rehydrate(새로고침) 후 1회성/실행 상태는 항상 초기화한다.
       // (저장본을 복원하면 닫지 않은 대륙횡단 모달·수입감소 배지가 다시 뜨거나,
       //  AI 실행 플래그가 pending:true로 박제되는 문제를 방지)

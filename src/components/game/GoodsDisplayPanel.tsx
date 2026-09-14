@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { CUBE_COLORS, CubeColor, GoodsColumnMapping } from '@/types/game';
 import { getMapData } from '@/utils/mapRegistry';
 import { Package, Plus } from 'lucide-react';
@@ -112,13 +113,21 @@ function ColumnHeader({
 }
 
 export default function GoodsDisplayPanel() {
-  const { mapId, board, goodsDisplay, ui, selectProductionSlot } = useGameStore();
+  const { mapId, board, goodsDisplay, isProductionMode, selectedSlots, productionCubes, selectProductionSlot } = useGameStore(
+    useShallow((s) => ({
+      mapId: s.mapId,
+      board: s.board,
+      goodsDisplay: s.goodsDisplay,
+      // ui는 생산 모드 3필드만 — 통째로 구독하면 호버 미리보기 등 무관한 ui 변경에도 리렌더
+      isProductionMode: s.ui.productionMode,
+      selectedSlots: s.ui.selectedProductionSlots,
+      productionCubes: s.ui.productionCubes,
+      selectProductionSlot: s.selectProductionSlot,
+    }))
+  );
 
   const columns = getMapData(mapId).columnMapping;
 
-  const isProductionMode = ui.productionMode;
-  const selectedSlots = ui.selectedProductionSlots;
-  const productionCubes = ui.productionCubes;
 
   // 열별 헤더 라벨: 주사위 열은 주사위 번호, 신규 도시 열은 columnId
   const columnLabel = (m: GoodsColumnMapping): string =>

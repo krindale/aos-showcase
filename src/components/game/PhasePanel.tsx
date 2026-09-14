@@ -139,22 +139,36 @@ export default function PhasePanel() {
 
   // AI 실행 중 여부 (버튼 비활성화에 사용)
   const isAIExecuting = aiExecution.pending;
-  const { nextPhase, selectAction, upgradeEngine, cancelSelection, undoLastAction, spendSupportToken } = useGameStore();
+  // 액션은 참조가 안정적이라 한 useShallow 블록으로 — 필드마다 구독을 따로 열지 않는다
+  const {
+    nextPhase, selectAction, upgradeEngine, cancelSelection, undoLastAction, spendSupportToken,
+    selectRepopulationCube, selectRouteOption, confirmRouteChoice, nationalizeLink,
+  } = useGameStore(
+    useShallow((s) => ({
+      nextPhase: s.nextPhase,
+      selectAction: s.selectAction,
+      upgradeEngine: s.upgradeEngine,
+      cancelSelection: s.cancelSelection,
+      undoLastAction: s.undoLastAction,
+      spendSupportToken: s.spendSupportToken,
+      selectRepopulationCube: s.selectRepopulationCube,
+      selectRouteOption: s.selectRouteOption,
+      confirmRouteChoice: s.confirmRouteChoice,
+      nationalizeLink: s.nationalizeLink,
+    }))
+  );
 
   // Montréal Repopulation 배치 UI 상태 — 큐브 선택은 스토어 ui(보드 도시 클릭으로 배치)
   const repopCubes = phaseState.repopulationCubes ?? [];
   const repopPlayer = phaseState.repopulationPlayer ?? null;
   const repoCube = useGameStore((s) => s.ui.repopulationCube);
-  const { selectRepopulationCube } = useGameStore();
   // 타인 철도 경로 선택 (moveGoods — 목적지 클릭 후 후보 2개 이상일 때)
   const routeChoice = useGameStore((s) => s.ui.routeChoice);
   const routeBoard = useGameStore((s) => s.board);
-  const { selectRouteOption, confirmRouteChoice } = useGameStore();
 
   // Southern China 국유화 대기 (디스크 4개 초과 — 완성 링크 하나를 골라 국유화)
   const nationalizationPending = useGameStore((s) => s.nationalizationPending ?? null);
   const currentTurnForNat = useGameStore((s) => s.currentTurn);
-  const { nationalizeLink } = useGameStore();
   /** 좌표의 정거장 이름 (도시 이름 / 마을 이름 / 좌표) — 국유화 대상 링크 표시용 */
   const stationName = (coord: HexCoord): string => {
     const city = routeBoard.cities.find((c) => hexCoordsEqual(c.coord, coord));

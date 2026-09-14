@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/gameStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useNetStore } from '@/net/netStore';
 import { CUBE_COLORS, CubeColor } from '@/types/game';
 import { getMapData } from '@/utils/mapRegistry';
@@ -24,7 +25,19 @@ export default function GoodsGrowthPanel() {
     growGoods,
     nextPhase,
     goodsGrowthEvent,
-  } = useGameStore();
+  } = useGameStore(
+    useShallow((s) => ({
+      mapId: s.mapId,
+      players: s.players,
+      currentPlayer: s.currentPlayer,
+      goodsDisplay: s.goodsDisplay,
+      board: s.board,
+      phaseState: s.phaseState,
+      growGoods: s.growGoods,
+      nextPhase: s.nextPhase,
+      goodsGrowthEvent: s.goodsGrowthEvent,
+    }))
+  );
 
   const columns = getMapData(mapId).columnMapping;
 

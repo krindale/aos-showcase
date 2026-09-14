@@ -6,6 +6,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useGameStore } from '../gameStore';
+import { sameTrackShape } from '@/utils/hexGrid';
 
 describe('updateTrackPreview — 동일 결과면 set 생략', () => {
   beforeEach(() => {
@@ -45,5 +46,18 @@ describe('updateTrackPreview — 동일 결과면 set 생략', () => {
     store.getState().updateTrackPreview({ col: 99, row: 99 }); // 후보 아님 → null로
     expect(store.getState().ui).not.toBe(withPreview);
     expect(store.getState().ui.previewTrack).toBeNull();
+  });
+});
+
+describe('sameTrackShape — 미리보기/후보 동등 판정', () => {
+  it('같은 좌표·같은 순서의 엣지 쌍만 같다', () => {
+    const a = { coord: { col: 1, row: 2 }, edges: [0, 3] as [number, number] };
+    expect(sameTrackShape(a, { coord: { col: 1, row: 2 }, edges: [0, 3] })).toBe(true);
+    expect(sameTrackShape(a, { coord: { col: 1, row: 2 }, edges: [3, 0] })).toBe(false); // 순서 있음
+    expect(sameTrackShape(a, { coord: { col: 1, row: 3 }, edges: [0, 3] })).toBe(false);
+  });
+  it('null 처리: 둘 다 null이면 같고 한쪽만 null이면 다르다', () => {
+    expect(sameTrackShape(null, null)).toBe(true);
+    expect(sameTrackShape(null, { coord: { col: 0, row: 0 }, edges: [0, 3] })).toBe(false);
   });
 });

@@ -988,7 +988,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
           때마다 재블러돼, 보드 리렌더가 잦은 봇 다수 게임에서 "스크롤하면 화면이 깜빡이는" 증상을
           냈다 (2026-09-11 사용자 보고, 데스크톱). 8px로 낮춰도 부족해 제거하고 배경 알파를 올렸다
           — GameBoard의 차례 배지(sticky)에서 같은 이유로 제거한 것과 동일 (07-29). */}
-      <header className={`sticky-blur-header fixed top-0 left-0 right-0 z-50 bg-background/95 border-b border-foreground/10 ${isLandscape ? 'py-1' : ''}`}>
+      <header className={`fixed top-0 left-0 right-0 z-50 bg-background/95 border-b border-foreground/10 ${isLandscape ? 'py-1' : ''}`}>
         <div className={`max-w-[1800px] mx-auto px-2 sm:px-4 flex items-center justify-between gap-2 sm:gap-4 ${isLandscape ? 'py-1' : 'py-2 sm:py-3'}`}>
           <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             <button

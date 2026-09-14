@@ -28,6 +28,7 @@ import {
   getOppositeEdge,
   getExitDirections,
   hexCoordsEqual,
+  sameTrackShape,
   findReachableDestinations,
   findRouteOptions,
   findTrackCubeDeliveries,
@@ -609,12 +610,7 @@ export function createUiSlice(set: Set, get: Get): UiSlice {
       // 예전엔 같은 헥스 위에서 움직여도(null→null 포함) 매번 새 ui 객체로 set돼, 구독자 전원
       // 리렌더 + persist 직렬화가 마우스 이동 빈도로 일어났다 (2026-09-11 깜빡임 조사).
       const commit = (next: GameStore['ui']['previewTrack']) => {
-        const cur = state.ui.previewTrack;
-        const same =
-          cur === next ||
-          (!!cur && !!next && hexCoordsEqual(cur.coord, next.coord) &&
-            cur.edges[0] === next.edges[0] && cur.edges[1] === next.edges[1]);
-        if (same) return;
+        if (sameTrackShape(state.ui.previewTrack, next)) return;
         set({ ui: { ...state.ui, previewTrack: next } });
       };
 

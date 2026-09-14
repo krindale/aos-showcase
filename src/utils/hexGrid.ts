@@ -464,6 +464,21 @@ export function hexCoordsEqual(a: HexCoord, b: HexCoord): boolean {
 }
 
 /**
+ * 같은 헥스에 같은 (순서 있는) 엣지 쌍인가 — 트랙 미리보기·건설 후보처럼 `{coord, edges}` 모양을
+ * 비교하는 곳의 단일 정의. uiSlice `updateTrackPreview`(같은 결과면 set 생략)와 AI 디버그 후보
+ * 중복 제거가 공유한다 — 한쪽만 고쳐 판정이 어긋나지 않게 인라인 비교를 두지 말 것.
+ * 엣지 쌍은 순서를 본다(미리보기는 [진입, 진출]이라 뒤집힌 쌍은 다른 미리보기다).
+ */
+export function sameTrackShape(
+  a: { coord: HexCoord; edges: readonly [number, number] | readonly number[] } | null | undefined,
+  b: { coord: HexCoord; edges: readonly [number, number] | readonly number[] } | null | undefined
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return hexCoordsEqual(a.coord, b.coord) && a.edges[0] === b.edges[0] && a.edges[1] === b.edges[1];
+}
+
+/**
  * 헥스 좌표를 문자열 키로 변환
  */
 export function hexToKey(coord: HexCoord): string {

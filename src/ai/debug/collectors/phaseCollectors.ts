@@ -28,6 +28,7 @@ import {
   getBuildableNeighbors,
   getExitDirections,
   hexCoordsEqual,
+  sameTrackShape,
 } from '@/utils/hexGrid';
 import {
   isValidConnectionPoint,
@@ -370,10 +371,7 @@ function collectBuildCandidates(
       const valueRatio = totalScore / Math.max(cost, 1);
 
       // 중복 제거
-      const isDuplicate = candidates.some(
-        c => hexCoordsEqual(c.coord, neighbor.coord) &&
-          c.edges[0] === edges[0] && c.edges[1] === edges[1]
-      );
+      const isDuplicate = candidates.some(c => sameTrackShape(c, { coord: neighbor.coord, edges }));
 
       if (!isDuplicate) {
         candidates.push({

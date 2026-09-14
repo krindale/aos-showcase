@@ -14,11 +14,12 @@ interface TrackConnection {
 }
 
 export default function DebugPanel() {
-  const { board, currentPlayer, ui } = useGameStore(
+  const { board, currentPlayer, buildMode, selectedCube } = useGameStore(
     useShallow((s) => ({
       board: s.board,
       currentPlayer: s.currentPlayer,
-      ui: s.ui,
+      buildMode: s.ui.buildMode,
+      selectedCube: s.ui.selectedCube,
     }))
   );
   const [isOpen, setIsOpen] = useState(false);
@@ -129,8 +130,8 @@ export default function DebugPanel() {
           <h3 className="font-bold text-foreground mb-1">📊 현재 상태</h3>
           <div className="text-foreground-secondary">
             <div>현재 플레이어: {currentPlayer}</div>
-            <div>선택된 큐브: {ui.selectedCube ? `${ui.selectedCube.cityId} - ${ui.selectedCube.cubeIndex}` : '없음'}</div>
-            <div>빌드 모드: {ui.buildMode}</div>
+            <div>선택된 큐브: {selectedCube ? `${selectedCube.cityId} - ${selectedCube.cubeIndex}` : '없음'}</div>
+            <div>빌드 모드: {buildMode}</div>
           </div>
         </div>
 

@@ -212,7 +212,9 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
       activePlayers: s.activePlayers,
       maxTurns: s.maxTurns,
       winner: s.winner,
-      board: s.board,
+      // board는 게임 종료 화면(승점 계산)에서만 쓴다 — 게임 중엔 null로 고정해, 건설·이동·성장마다
+      // 새로 만들어지는 board 때문에 패널 트리의 뿌리가 깨어나지 않게 한다 (코드리뷰 #3)
+      board: s.currentPhase === 'gameOver' || s.winner ? s.board : null,
       // ui는 통째로 구독하지 않는다 — 이 컴포넌트는 패널 트리의 뿌리라, 호버 미리보기 같은
       // ui 변경마다 트리 전체가 다시 그려진다. 실제로 쓰는 두 필드만 본다.
       complexTrackSelection: s.ui.complexTrackSelection,
@@ -775,7 +777,7 @@ export default function GamePageClient({ mapId }: GamePageClientProps) {
     // **승자 판정이 틀린다** (리뷰 S4에서 발견: 종료 화면만 보너스를 빼고 계산 중이었음).
     const playerScores = activePlayers.map(playerId => {
       const player = players[playerId];
-      const trackScore = calculateTrackScore(board, playerId);
+      const trackScore = calculateTrackScore(board!, playerId); // gameOver 분기 = board 구독 중
       const bonusVP = playerBonusVP(player);
       const totalScore = calculateVictoryPoints(player.income, trackScore, player.issuedShares, bonusVP);
       return {

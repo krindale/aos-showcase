@@ -18,14 +18,14 @@ const EDGE_NAMES: Record<number, string> = {
 
 export default function RedirectTrackPanel() {
   const {
-    ui,
+    selection,
     players,
     currentPlayer,
     redirectTrack,
     hideRedirectSelection,
   } = useGameStore(
     useShallow((s) => ({
-      ui: s.ui,
+      selection: s.ui.redirectTrackSelection, // ui 통째 구독 금지 — 이 필드만
       players: s.players,
       currentPlayer: s.currentPlayer,
       redirectTrack: s.redirectTrack,
@@ -33,7 +33,6 @@ export default function RedirectTrackPanel() {
     }))
   );
 
-  const selection = ui.redirectTrackSelection;
   if (!selection) return null;
 
   const player = players[currentPlayer];

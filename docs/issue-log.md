@@ -38,6 +38,14 @@
   getStorage throw를 잡아 no-op으로 두는 계약이 기본 `() => localStorage`와 동일함을 소스로 확인,
   getItem 동기라 hydration 타이밍 불변 / 스텝4 partialize — merge·스냅샷 코덱·undo 무관 /
   스텝5 Toaster 단일 렌더·safeTimeout 취소 의미 동일, reduced-motion CSS 주석 교정.
+- **PR #85 2차 리뷰(`/code-review 85 medium`, 2026-09-14) — 10건 반영**: ★ #1 `createJSONStorage` 래퍼는
+  setItem **앞에서** `JSON.stringify`를 이미 끝내므로 저장 쓰기만 미뤄지고 직렬화 비용은 매 set 그대로였다
+  (1차 리뷰가 놓침) → `{state, version}` 객체 참조만 보관하는 `PersistStorage` 직접 구현으로 flush 때 한 번만
+  stringify(f517b0a, 함께 #4 HMR 리스너 누적→window 캐시·#5 `freeze` flush·#6 저장 실패 토스트·#9 `beforeunload`
+  잉여 제거) / #2 ui 통째 구독 잔존 4곳(Production·Urbanization×2·Redirect·Debug) 필드화·#3 GamePageClient
+  `board`는 gameOver에서만 구독·#10 단일 액션 useShallow 정리(ba18f77) / #7 게임 헤더 blur 마커 클래스 제거·
+  #8 `sameTrackShape` 헬퍼로 uiSlice·phaseCollectors 비교식 통일 + 테스트(de9c5ea). 기각 1건: HMR 옛 인스턴스의
+  스테일 flush — 워커 타이머 FIFO라 옛 flush가 새 첫 저장보다 항상 먼저 도착해 덮어쓰기 구성 불가.
 
 ## 2026-08-10c — 봇 경로 겹침 경쟁: 유령 경로 + fallback 원시 커밋 (실전 r5pm, 봇 2명 연쇄 파산)
 

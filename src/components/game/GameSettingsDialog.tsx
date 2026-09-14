@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useScrollLock } from '@/hooks/useScrollLock';
 import { X } from 'lucide-react';
 import { useGameStore } from '@/store/gameStore';
 import { useGameSettingsStore } from '@/store/gameSettingsStore';
@@ -81,16 +82,12 @@ export default function GameSettingsDialog({ open, onClose }: { open: boolean; o
   } = useGameSettingsStore();
 
   // 스크롤락 + ESC 닫기 (ConfirmDialog 패턴)
+  useScrollLock(open);
   useEffect(() => {
     if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
-    return () => {
-      document.body.style.overflow = prev;
-      window.removeEventListener('keydown', onKey);
-    };
+    return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
   return (

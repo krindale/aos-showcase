@@ -221,6 +221,7 @@ src/
 │       │   ├── BoardCities.tsx     # 도시 헥스·라벨·큐브·직결 링크
 │       │   └── BoardOverlays.tsx   # 미리보기·트랙 위 큐브·이동 경로/큐브·외곽선·경계변·터미널 테두리
 │       │   # ⚠️ SVG는 렌더 순서 = z-order: GameBoard 합성 순서(배경→Towns→Tracks→Cities→Overlays→Pulses→좌표) 유지
+│       ├── NewCityInfoButton.tsx # 보드 HUD 신도시 버튼 + 남은 타일 모달(열림 state 소유 — GameBoard 리렌더 방지)
 │       ├── ConfirmDialog.tsx   # 디자인 시스템 확인 모달 (window.confirm 대체 — 네이티브 다이얼로그 사용 금지:
 │       │                       #   자동화/E2E를 블로킹하고 디자인과 부조화. 스크롤락·백드롭 취소 내장)
 │       ├── PlayerPanel.tsx     # 플레이어 정보 패널 (AI 표시 포함)
@@ -263,6 +264,7 @@ src/
 │
 ├── hooks/                      # 반응형 UI 커스텀 훅
 │   # (구 useMediaQuery.ts는 2026-08-01 삭제 — CollapsiblePanel과 함께 미사용 데드코드였다)
+│   ├── useScrollLock.ts        # 모달 배경 스크롤 잠금 (스크롤바 폭 padding 보정 + 참조 카운트) — 아래 "모달 스크롤 잠금" 참조
 │   ├── useOrientation.ts       # 가로/세로 방향 감지
 │   ├── useTouchGestures.ts     # 터치 제스처 (핀치 줌, 팬) — ⚠️ 팬 delta는 `getMetrics().unitsPerPixel`(GameBoard가 getScreenCTM으로 실측)을 곱해야 한다. 안 곱하면 "화면 1px = viewBox 1단위"라 큰 보드가 손가락을 못 따라온다. 터치는 `targetRef`로 **non-passive 네이티브 등록**(React onTouch*는 passive라 preventDefault가 무시돼 브라우저 페이지 확대가 핀치를 가로챈다)
 │   └── useMyPlayerId.ts        # 내 좌석 플레이어 판정 (offline=null, online=activePlayers[mySeat]) + isMyPlayer 헬퍼 — 왕관 표시용, PhasePanel 좌석 매핑과 동일
@@ -615,6 +617,21 @@ X·←·"맵 선택"·"방 나가기" **네 버튼 전부 같은 규칙**이다(
 이동이라 레이아웃 폭 상한이 "뷰포트 − left" = 화면 절반으로 묶인다. 좁은 모바일에서 그 절반
 안에 아바타+텍스트+버튼이 들어가느라 안내 문구가 **한 글자씩 세로로** 쪼개진 적이 있다
 (실전 버그). `inset-x-N + mx-auto + w-fit`을 쓸 것. 명시적 폭(`w-[...]`)이 있으면 안전하다(`Toaster`).
+
+#### ⛔ 모달 스크롤 잠금은 `useScrollLock` 한 곳 (2026-09-14)
+모달이 열릴 때 `document.body.style.overflow='hidden'`을 **직접 쓰지 말 것** — `hooks/useScrollLock.ts`
+(`useScrollLock(open)`)를 쓴다. `globals.css`의 `::-webkit-scrollbar{width:8px}`가 Chrome에서
+자리를 차지하는 클래식 스크롤바를 강제하기 때문에, overflow만 숨기면 그 8px이 사라져 뷰포트가
+넓어지고 **보드·헤더·패널이 통째로 재배치됐다가 닫으면 도로 돌아온다** = 모달을 열고 닫을 때마다
+화면 전체가 깜빡인다(실전: "신도시 버튼을 누를 때마다 깜빡임"). 트랙패드(오버레이 스크롤바)는
+폭이 0이라 **로컬 검수에서 재현되지 않는다** — 마우스 연결/윈도우에서만 보인다. 1차 방어는
+`globals.css`의 `html{scrollbar-gutter:stable}` — 스크롤바 자리를 **항상** 확보해 스크롤바가 생기고
+사라져도(페이지 높이가 뷰포트 경계 근처일 때 토글되며 보드 SVG를 매번 재스케일하던 것 — 종료 화면
+"계속 깜빡임"·게임 중 패널 높이 변화) 뷰포트 폭이 불변. 훅은 그게 안 먹는 브라우저용으로 잠근 뒤
+**실제로 사라진** 폭만 `padding-right`로 보정하고, 겹친 모달을 참조 카운트로 관리한다(각자 prev를
+복원하면 안쪽 모달이 먼저 닫히는 순간 바깥 잠금이 풀린다). 같은 이유로 **모달 열림 state는 무거운 컴포넌트
+(GameBoard) 안에 두지 말 것** — `NewCityInfoButton`처럼 버튼+모달을 작은 컴포넌트로 묶는다
+(`NewCityTilesModal`은 body 포털이라 HUD 레이어 안에서 렌더해도 바텀시트 아래 안 깔림).
 
 #### 바텀시트 자동 조절 (2026-08-02)
 단계마다 보드가 필요한지가 다른데 높이가 늘 같아서, 행동 선택 때마다 시트를 올렸다가 건설하려고

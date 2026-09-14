@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useScrollLock } from '@/hooks/useScrollLock';
 
 /**
  * 디자인 시스템 확인 다이얼로그 — window.confirm 대체.
@@ -27,14 +27,7 @@ export default function ConfirmDialog({
   onCancel: () => void;
 }) {
   // 다이얼로그가 떠 있는 동안 배경 페이지 스크롤 잠금
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
+  useScrollLock(open);
 
   return (
     <AnimatePresence>

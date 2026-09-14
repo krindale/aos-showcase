@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
+import { useScrollLock } from '@/hooks/useScrollLock';
 import { Play, X } from 'lucide-react';
 import { getMapProfile } from '@/maps/getMapProfile';
 import type { MapRuleSummary } from '@/maps/MapProfile';
@@ -194,15 +195,11 @@ export default function MapsPage() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setLightboxMap(null);
     };
-    // 라이트박스가 떠 있는 동안 배경 페이지 스크롤 잠금
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', onKey);
-    return () => {
-      document.body.style.overflow = prevOverflow;
-      window.removeEventListener('keydown', onKey);
-    };
+    return () => window.removeEventListener('keydown', onKey);
   }, [lightboxMap]);
+  // 라이트박스가 떠 있는 동안 배경 페이지 스크롤 잠금 — 공용 훅(스크롤바 폭 보정)
+  useScrollLock(!!lightboxMap);
 
   return (
     <div>

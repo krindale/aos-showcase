@@ -8,8 +8,8 @@
  * 백드롭 클릭으로 닫히지 않는다(실수 나가기 방지) — 호스트가 복귀하면 netStore가
  * 팝업을 자동으로 닫고(null) 그대로 계속 진행한다.
  */
-import { useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { useScrollLock } from '@/hooks/useScrollLock';
 import { Crown, Loader2, LogOut } from 'lucide-react';
 import { useNetStore } from '@/net/netStore';
 import { CROWN_GOLD, CROWN_INK } from './uiEffects';
@@ -20,14 +20,10 @@ export default function HostTakeoverDialog() {
   const decline = useNetStore((s) => s.declineHostTakeover);
 
   // 팝업이 떠 있는 동안 배경 스크롤 잠금
-  useEffect(() => {
-    if (!prompt) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [prompt]);
+  // 다른 모달(도움말 등) 위에 겹쳐 뜰 수 있는 팝업이라 반드시 공용 훅(참조 카운트) —
+  // 각자 prev를 복원하면 "도움말 열림 → 호스트 끊김 → ESC → 호스트 복귀" 순서에서 body가
+  // overflow:hidden에 영구히 갇힌다 (PR #86 코드리뷰).
+  useScrollLock(!!prompt);
 
   const inGame = prompt?.status === 'playing';
   const canTakeover = prompt?.canTakeover ?? false;

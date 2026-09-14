@@ -26,6 +26,9 @@
   (겹친 모달), 모달 5종의 인라인 잠금을 전부 이 훅으로 교체. 신도시 버튼+모달을 `NewCityInfoButton`으로
   분리해 state를 GameBoard 밖으로, `NewCityTilesModal`은 body 포털(HUD 레이어 안에서도 최상위).
 - **검증**: tsc·lint·build. 실화면은 사용자(마우스 연결 상태에서 신도시 버튼 반복).
+- **PR #86 코드리뷰(사용자 실행 `/code-review`)**: `HostTakeoverDialog`가 원시 overflow 토글로 남아
+  훅 모달과 겹치면(도움말 열림 → 호스트 끊김 → ESC → 호스트 복귀) body가 hidden에 영구 고착 — 훅으로
+  교체. `/maps` 라이트박스도 같은 패턴이라 함께 교체(겹칠 일은 없으나 규칙 "한 곳" 준수).
 
 ## 2026-09-11 — 게임 화면이 스크롤할 때 깜빡임 (데스크톱, Southern US 6인 = 봇 5명)
 

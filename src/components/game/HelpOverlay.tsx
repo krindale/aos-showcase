@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useScrollLock } from '@/hooks/useScrollLock';
 import { X } from 'lucide-react';
 import { useGameStore } from '@/store/gameStore';
 import { GamePhase, PHASE_INFO, ACTION_INFO } from '@/types/game';
@@ -35,16 +36,14 @@ export default function HelpOverlay({
   const turnPhases = TURN_PHASES.filter((p) => p !== 'governmentLink' || profile.governmentLinks);
 
   // 오버레이가 떠 있는 동안 배경 스크롤 잠금 + ESC로 닫기
+  useScrollLock(open);
   useEffect(() => {
     if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => {
-      document.body.style.overflow = prev;
       window.removeEventListener('keydown', onKey);
     };
   }, [open, onClose]);

@@ -1,7 +1,9 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useScrollLock } from '@/hooks/useScrollLock';
 import { X, Building2 } from 'lucide-react';
 import { NewCityTileHex } from './NewCityTileHex';
 import { NewCityTile } from '@/types/game';
@@ -29,24 +31,22 @@ export function NewCityTilesModal({
   onSelect?: (id: string) => void;
   onClose: () => void;
 }) {
-  // 열려 있는 동안 배경 스크롤 잠금 (ConfirmDialog와 동일한 패턴).
+  // 열려 있는 동안 배경 스크롤 잠금 — 다른 모달과 같은 훅(스크롤바 폭 보정 포함).
   // ⚠️ 없으면 화면을 덮은 채로 뒤 페이지가 그대로 스크롤된다 — 반투명 배경(bg-black/60)
   // 너머로 게임 보드(대형 SVG)가 움직이며 매 프레임 재페인트돼 **배경이 깜빡인다**
   // (사용자 제보 2026-08-10, 노트북 트랙패드 스크롤). 모달은 선택을 끝내야 넘어가는
   // 화면이라 뒤를 스크롤할 이유도 없다. 배치 안내 배너 쪽은 보드를 봐야 하므로 잠그지 않는다.
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
+  useScrollLock(open);
+  // body 포털 — 호출처의 스태킹 컨텍스트(HUD 레이어 z-30·contain:paint)와 무관하게 항상 최상위.
+  // 서버 렌더·첫 클라이언트 렌더는 null(하이드레이션 일치), 마운트 후에만 포털.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   // view = 남은 타일만, select = 전체(사용된 건 비활성)
   const shown = mode === 'view' ? tiles.filter((t) => !t.used) : tiles;
 
-  return (
+  if (!mounted) return null;
+  return createPortal(
     <AnimatePresence>
       {open && (
         <motion.div
@@ -155,6 +155,7 @@ export function NewCityTilesModal({
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }

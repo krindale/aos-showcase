@@ -17,6 +17,11 @@
   `body.style.overflow='hidden'`을 걸면 그 8px이 사라져 뷰포트가 넓어지고 보드 SVG·헤더·패널이 통째로
   재배치됐다가, 닫으면 도로 돌아온다. 트랙패드(오버레이 스크롤바)는 폭 0이라 로컬 검수에서 안 보였다.
   부수: 신도시 모달 열림 state가 `GameBoard` useState라 버튼마다 보드 SVG 전체 리렌더.
+- **같은 뿌리 — 종료 화면 "계속 깜빡임"**: DOM이 정적인 화면인데도 깜빡인 것은 페이지 높이(6인 종료
+  카드 ~740px)가 뷰포트 경계 근처라 세로 스크롤바가 생겼다 사라지며 폭이 8px씩 오가는 것으로 추정.
+  게임 중에도 패널 높이가 단계마다 바뀌어 스크롤바가 토글되면 보드 SVG(width 100%)가 매번 재스케일된다.
+  → `html{scrollbar-gutter:stable}`로 스크롤바 자리를 상시 확보해 폭을 고정(트랙 색 = 배경색이라 빈
+  gutter는 안 보임).
 - **수정**: `hooks/useScrollLock.ts` 신설 — 사라지는 스크롤바 폭만큼 `padding-right` 보정 + 참조 카운트
   (겹친 모달), 모달 5종의 인라인 잠금을 전부 이 훅으로 교체. 신도시 버튼+모달을 `NewCityInfoButton`으로
   분리해 state를 GameBoard 밖으로, `NewCityTilesModal`은 body 포털(HUD 레이어 안에서도 최상위).

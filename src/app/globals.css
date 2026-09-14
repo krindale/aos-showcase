@@ -41,9 +41,20 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Custom Scrollbar */
+/* Custom Scrollbar
+   ⚠️ width를 지정하면 Chrome은 **자리를 차지하는 클래식 스크롤바**를 쓴다(오버레이 아님). 그러면
+   스크롤바가 생기고 사라질 때마다 뷰포트 폭이 8px 변해 레이아웃 전체가 흔들린다 — 페이지 높이가
+   뷰포트 경계 근처일 때(게임 종료 카드, 단계마다 높이가 바뀌는 게임 패널) 스크롤바가 토글되며
+   보드 SVG가 매번 재스케일되고, 모달이 overflow:hidden을 걸면 8px이 통째로 사라진다(2026-09-14
+   "화면이 깜빡인다" 3건의 공통 뿌리). 아래 scrollbar-gutter가 그 자리를 항상 확보해 폭을 고정한다. */
 ::-webkit-scrollbar {
   width: 8px;
+}
+
+/* 스크롤바 자리를 항상 확보 — 스크롤 여부·모달 잠금(overflow:hidden)과 무관하게 뷰포트 폭 불변.
+   트랙 색이 body 배경과 같아 빈 gutter는 보이지 않는다. (Chrome 94+/Firefox 97+/Safari 17.4+) */
+html {
+  scrollbar-gutter: stable;
 }
 
 ::-webkit-scrollbar-track {
